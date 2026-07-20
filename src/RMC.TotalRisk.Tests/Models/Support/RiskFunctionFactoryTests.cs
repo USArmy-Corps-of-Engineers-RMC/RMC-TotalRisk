@@ -1,0 +1,89 @@
+using System;
+using System.Xml.Linq;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
+using RMC.TotalRisk.Models.ConsequenceFunctions;
+using RMC.TotalRisk.Models.HazardFunctions.Univariate;
+using RMC.TotalRisk.Models.ResponseFunctions;
+using RMC.TotalRisk.Models.Support;
+using RMC.TotalRisk.Models.TransformFunctions;
+
+namespace RMC.TotalRisk.Tests.Models.Support;
+
+/// <summary>
+/// Unit tests for <see cref="RiskFunctionFactory"/> — reconstruction of every concrete function
+/// type, the unknown-name null policy, and the typed cluster filters.
+/// </summary>
+[TestClass]
+public class RiskFunctionFactoryTests
+{
+    /// <summary>Verifies every concrete type reconstructs to the same type and canonical hash.</summary>
+    [TestMethod]
+    public void Test_CreateFromXElement_AllConcreteTypes_RoundTripHash()
+    {
+        // Arrange — one default instance per concrete function type.
+        var functions = new IRiskFunction[]
+        {
+            new TabularHazard(),
+            new ParametricUnivariateHazard(),
+            new TabularTransform(),
+            new TabularResponse(),
+            new ParametricResponse(),
+            new NonFailResponse(),
+            new TabularConsequence(),
+        };
+
+        foreach (var original in functions)
+        {
+            // Act
+            var restored = RiskFunctionFactory.CreateFromXElement(original.ToXElement());
+
+            // Assert
+            Assert.IsNotNull(restored, $"{original.GetType().Name} did not reconstruct.");
+            Assert.AreEqual(original.GetType(), restored.GetType());
+            CollectionAssert.AreEqual(original.CanonicalHash(), restored.CanonicalHash(),
+                $"{original.GetType().Name} round-trip must preserve the canonical hash.");
+        }
+    }
+
+    /// <summary>Verifies unknown element names return null (caller-selected failure policy).</summary>
+    [TestMethod]
+    public void Test_CreateFromXElement_UnknownName_ReturnsNull()
+    {
+        // Act / Assert
+        Assert.IsNull(RiskFunctionFactory.CreateFromXElement(new XElement("BogusFunction")));
+    }
+
+    /// <summary>Verifies null elements throw.</summary>
+    [TestMethod]
+    public void Test_CreateFromXElement_Null_Throws()
+    {
+        // Act / Assert
+        Assert.ThrowsException<ArgumentNullException>(() => RiskFunctionFactory.CreateFromXElement(null!));
+        Assert.ThrowsException<ArgumentNullException>(() => RiskFunctionFactory.CreateHazardFunction(null!));
+    }
+
+    /// <summary>Verifies the typed wrappers admit their cluster and reject the others.</summary>
+    [TestMethod]
+    public void Test_TypedWrappers_FilterByCluster()
+    {
+        // Arrange
+        var hazardXml = new TabularHazard().ToXElement();
+        var transformXml = new TabularTransform().ToXElement();
+        var responseXml = new TabularResponse().ToXElement();
+        var nonFailXml = new NonFailResponse().ToXElement();
+        var consequenceXml = new TabularConsequence().ToXElement();
+
+        // Assert — matches reconstruct.
+        Assert.IsNotNull(RiskFunctionFactory.CreateHazardFunction(hazardXml));
+        Assert.IsNotNull(RiskFunctionFactory.CreateTransformFunction(transformXml));
+        Assert.IsNotNull(RiskFunctionFactory.CreateResponseFunction(responseXml));
+        Assert.IsNotNull(RiskFunctionFactory.CreateResponseFunction(nonFailXml));
+        Assert.IsNotNull(RiskFunctionFactory.CreateConsequenceFunction(consequenceXml));
+
+        // Cross-cluster mismatches return null.
+        Assert.IsNull(RiskFunctionFactory.CreateHazardFunction(transformXml));
+        Assert.IsNull(RiskFunctionFactory.CreateTransformFunction(hazardXml));
+        Assert.IsNull(RiskFunctionFactory.CreateResponseFunction(consequenceXml));
+        Assert.IsNull(RiskFunctionFactory.CreateConsequenceFunction(responseXml));
+    }
+}

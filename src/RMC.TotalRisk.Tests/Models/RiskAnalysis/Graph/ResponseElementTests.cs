@@ -1,0 +1,152 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Xml.Linq;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
+using RMC.TotalRisk.Models.ResponseFunctions;
+using RMC.TotalRisk.Models.RiskAnalysis.Graph;
+
+namespace RMC.TotalRisk.Tests.Models.RiskAnalysis.Graph;
+
+/// <summary>
+/// Unit tests for <see cref="ResponseElement"/> — ports, the sentinel-wrap guard, the reserved
+/// bivariate secondary input, connection serialization, and cloning.
+/// </summary>
+[TestClass]
+public class ResponseElementTests
+{
+    /// <summary>Builds a valid labeled tabular response on the default table.</summary>
+    private static TabularResponse Fragility()
+    {
+        return new TabularResponse { Name = "Fragility", SpecifiedHazard = "Stage", HazardUnit = "ft" };
+    }
+
+    /// <summary>Builds a resolver over a fixed element set.</summary>
+    private static RiskElementResolver ResolverOver(params IRiskElement[] elements)
+    {
+        var list = new List<IRiskElement>(elements);
+        return new RiskElementResolver(
+            id => list.Find(e => e.Id == id),
+            name => list.Find(e => string.Equals(e.Name, name, StringComparison.Ordinal)));
+    }
+
+    /// <summary>Verifies the univariate shape: one input, one output, reserved secondary.</summary>
+    [TestMethod]
+    public void Test_Defaults_UnivariateShape()
+    {
+        // Act
+        var element = new ResponseElement("Breach");
+
+        // Assert
+        Assert.AreEqual(1, element.InputCount);
+        Assert.AreEqual(1, element.OutputCount);
+        Assert.IsNull(element.Function);
+        Assert.IsNull(element.Input);
+        Assert.IsNull(element.SecondaryInput);
+    }
+
+    /// <summary>Verifies both populated inputs enumerate.</summary>
+    [TestMethod]
+    public void Test_GetInputConnections_EnumeratesBoth()
+    {
+        // Arrange
+        var hazard = new HazardElement("Hazard");
+        var element = new ResponseElement("Breach")
+        {
+            Input = new RiskConnection(hazard),
+            SecondaryInput = new RiskConnection(hazard, 1),
+        };
+
+        // Assert
+        Assert.AreEqual(2, element.GetInputConnections().Count());
+    }
+
+    /// <summary>Verifies the validation matrix: sentinel wrap and reserved secondary input.</summary>
+    [TestMethod]
+    public void Test_Validate_Matrix()
+    {
+        // Valid: named with a valid univariate response.
+        Assert.IsTrue(new ResponseElement("Breach") { Function = Fragility() }.Validate().IsValid);
+
+        // Missing function.
+        Assert.IsFalse(new ResponseElement("Breach").Validate().IsValid);
+
+        // The non-failure sentinel is never wrapped in a response element.
+        var sentinel = new ResponseElement("Breach") { Function = new NonFailResponse() };
+        var (sentinelValid, sentinelMessages) = sentinel.Validate();
+        Assert.IsFalse(sentinelValid);
+        Assert.IsTrue(sentinelMessages.Any(m => m.Contains("non-failure response sentinel")));
+
+        // The secondary input is reserved until bivariate responses land (Phase 11).
+        var secondary = new ResponseElement("Breach")
+        {
+            Function = Fragility(),
+            SecondaryInput = new RiskConnection(new HazardElement("Hazard"), 1),
+        };
+        var (secondaryValid, secondaryMessages) = secondary.Validate();
+        Assert.IsFalse(secondaryValid);
+        Assert.IsTrue(secondaryMessages.Any(m => m.Contains("reserved for bivariate")));
+    }
+
+    /// <summary>Verifies connection serialization including the reserved secondary triple.</summary>
+    [TestMethod]
+    public void Test_Serialization_ConnectionRoundTrip()
+    {
+        // Arrange
+        var hazard = new HazardElement("Hazard");
+        var original = new ResponseElement("Breach")
+        {
+            Function = Fragility(),
+            Input = new RiskConnection(hazard),
+            SecondaryInput = new RiskConnection(hazard, 1),
+        };
+
+        // Act
+        var xml = original.ToXElement();
+
+        // Assert — both connection triples serialize under their kind names.
+        Assert.AreEqual(hazard.Id.ToString("D"), xml.Attribute("SourceElementId")!.Value);
+        Assert.AreEqual(hazard.Id.ToString("D"), xml.Attribute("SecondarySourceElementId")!.Value);
+        Assert.AreEqual("1", xml.Attribute("SecondarySourcePort")!.Value);
+
+        // Both resolve after load.
+        var restored = new ResponseElement(xml);
+        restored.ResolveDeserializedReferences(ResolverOver(hazard));
+        Assert.AreSame(hazard, restored.Input!.Source);
+        Assert.AreSame(hazard, restored.SecondaryInput!.Source);
+        Assert.AreEqual(1, restored.SecondaryInput.SourcePort);
+        CollectionAssert.AreEqual(original.Function!.CanonicalHash(), restored.Function!.CanonicalHash());
+
+        // An unknown wrapped function throws.
+        var badFunction = new XElement(nameof(ResponseElement),
+            new XElement(nameof(ResponseElement.Function), new XElement("Bogus")));
+        Assert.ThrowsException<InvalidOperationException>(() => new ResponseElement(badFunction));
+    }
+
+    /// <summary>Verifies cloning: shared Id, deep function copy, both connections re-linked.</summary>
+    [TestMethod]
+    public void Test_Clone_And_ResolveClonedConnections()
+    {
+        // Arrange
+        var hazard = new HazardElement("Hazard");
+        var original = new ResponseElement("Breach")
+        {
+            Function = Fragility(),
+            Input = new RiskConnection(hazard),
+            SecondaryInput = new RiskConnection(hazard, 1),
+        };
+
+        // Act
+        var hazardClone = (HazardElement)hazard.Clone();
+        var clone = (ResponseElement)original.Clone();
+        clone.ResolveClonedConnections(original,
+            new Dictionary<IRiskElement, IRiskElement> { [hazard] = hazardClone });
+
+        // Assert
+        Assert.AreEqual(original.Id, clone.Id);
+        Assert.AreNotSame(original.Function, clone.Function);
+        Assert.AreSame(hazardClone, clone.Input!.Source);
+        Assert.AreSame(hazardClone, clone.SecondaryInput!.Source);
+        Assert.AreEqual(1, clone.SecondaryInput.SourcePort);
+    }
+}

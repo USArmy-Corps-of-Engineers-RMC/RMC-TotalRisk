@@ -20,7 +20,7 @@ Monte-Carlo-based quantitative risk analysis framework for dam and levee safety,
 - **No singletons.** No `Project.Current` global state. Analyses take inputs via constructor/method args and return pure result objects.
 - **No direct file I/O.** Callers pass already-parsed data. In-memory serialization only: model *definition* types use `ToXElement()` / ctor-from-`XElement` (the canonical-hash identity surface); *results* containers use System.Text.Json (`ToJson()`/`FromJson()` + compressed-bytes overloads) — v1.0's BinaryFormatter BLOBs are not ported, and v1.0 projects re-run their analyses in v1.1. No SQLite, no `File.*` in the model lib.
 - **Deterministic entry points.** Explicit seeds, typed inputs/outputs, no dialogs. Same inputs + same seed → bit-identical results at any thread count.
-- **Content-based seed identity.** Monte Carlo seeds derive from SHA-256 canonical content hashes (XML canonicalization over `ToXElement()` through audited strip rules) plus occurrence indices — renaming, canvas moves, or reordering never change results. Normative spec: `docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md` §5.5. **Landing checklist for every new model property:** classify it compute-relevant (hashed) or metadata (add to `CanonicalizationRules`), extend the kitchen-sink rename/reorder invariance test, and never rename or reorder existing serialized attributes — `ToXElement()` is the identity surface and hashes are contract.
+- **Content-based seed identity.** Monte Carlo seeds derive from SHA-256 canonical content hashes (XML canonicalization over `ToXElement()` through audited strip rules) plus occurrence indices — renaming, canvas moves, or reordering never change results. Normative spec: `docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md` §5.5. **Landing checklist for every new model property:** classify it compute-relevant (hashed) or metadata (add to `CanonicalizationRules`), extend the kitchen-sink rename/reorder invariance test, and never rename or reorder existing serialized attributes — `ToXElement()` is the identity surface and hashes are contract. (Exception ratified v0.9: `SystemComponent` splits identity from persistence — its `CanonicalHash()` hashes the projected identity form, because element-graph XML carries link Guids/names that must never be a hash surface.) **Every new concrete function type also adds its `RiskFunctionFactory` case** (and every new element type its `RiskElementFactory` case) alongside the matrix row and invariance registration.
 - **`INotifyPropertyChanged` is allowed.** It is a passive contract; headless callers don't subscribe. It gives the future WPF UI layer a clean data-binding story.
 
 **Dependency rule (MANDATORY):** `RMC.TotalRisk.dll` references only `RMC.Numerics`. Never `RMC.BestFit`, never UI/IO frameworks, never SQLite. BestFit fitted results are imported as **already-parsed Numerics artifacts** (`UnivariateDistributionBase`, `ParameterSet[]`, `UncertaintyAnalysisResults`, `UncertainOrderedPairedData`) — reading `.rmcbf` files is a UI-layer concern. The validation script fails on any `RMC.BestFit`, `System.Windows`, or SQLite reference. See `docs/requirements/SHARED_FUNCTIONS_STRATEGY.md`.
@@ -39,7 +39,7 @@ Future consumers                    ← RMC.TotalRisk.UI → RMC-TotalRisk App; 
 
 **Namespace map** (folders mirror namespaces; no types in the bare `RMC.TotalRisk` root namespace). Authoritative layout: `docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md` §3. Summary:
 
-**No "element" vocabulary and no root `IModel` abstraction in the model lib** — "element" is wpf-framework UI lingo reserved for the future UI layer (the RMC-BestFit separation template: `RMC.BestFit.UI\Elements\`); the kernel contract is `IRiskFunction` because TotalRisk's engine consumes functions by role, never "any model" (arch doc v0.8 status entry has the full rationale).
+**Vocabulary rules (arch doc v0.8, refined v0.9):** no root `IModel` abstraction — the kernel contract is `IRiskFunction` because TotalRisk's engine consumes functions by role, never "any model". The v0.8 "element purge" is narrowed by v0.9: the ban covers the wpf-framework `ProjectInterfaces.IElement` *wrapper* lingo, while the headless risk-graph node contract is **`IRiskElement`** (Hydrologics `IBasinElement` mirror) with concrete `HazardElement`/`TransformElement`/`ResponseElement`/`ConsequenceElement` inside `ComponentGraph` — the formal DAG each `SystemComponent` owns. `RiskDiagram` stays reserved for the future UI/App controls (DAG.dll/DAGControls remain UI-only; the model lib never references them).
 
 | Namespace | Contents |
 |---|---|
@@ -49,7 +49,8 @@ Future consumers                    ← RMC.TotalRisk.UI → RMC-TotalRisk App; 
 | `RMC.TotalRisk.Models.TransformFunctions` | Transform input functions (Phase 2+) |
 | `RMC.TotalRisk.Models.ResponseFunctions` | Response (fragility) input functions (Phase 2+) |
 | `RMC.TotalRisk.Models.ConsequenceFunctions` | Consequence input functions (Phase 2+) |
-| `RMC.TotalRisk.Models.RiskAnalysis` | System components, failure modes (concrete classes — no interfaces), results containers (Phase 3+) |
+| `RMC.TotalRisk.Models.RiskAnalysis.Components` | `SystemComponent` (owns a `ComponentGraph`; projects `FailureModes`; identity-form `CanonicalHash`; `AssignOccurrenceIndices`), `FailureMode` (`ResponseStage` chains + ordered multi-type consequences + structural binding), enums `FailureModeMethod`/`DependencyType`/`JointConsequenceType`/`RiskType`/`HazardDimension` (Phase 3); `Sampled*`, `ComponentRiskOutput`, results containers (Phase 4) |
+| `RMC.TotalRisk.Models.RiskAnalysis.Graph` | `IRiskElement`/`RiskElementBase`, `HazardElement`/`TransformElement`/`ResponseElement`/`ConsequenceElement`, `RiskConnection`, `ComponentGraph`, `RiskElementFactory`/`RiskElementResolver`, `HazardSourceOption` (Phase 3) |
 | `RMC.TotalRisk.Analyses` | `IAnalysis`/`AnalysisBase` support, `RiskAnalysis` engine + `RiskAnalysisOptions`, `ReliabilityAnalysis` (Phase 4+) |
 
 ## Test Project Architecture
@@ -151,6 +152,7 @@ Status legend: — planned · P ported · T unit-tested · V verification covera
 | Cluster | Type | Status | Verification anchor |
 |---|---|---|---|
 | Support | IRiskFunction / RiskFunctionBase / CanonicalContentHasher / CanonicalizationRules / SeedHelpers | P/T | hash-invariance + seeding unit tests (Phase 1 — landed 2026-07-20) |
+| Support | RiskFunctionFactory | P/T | round-trip + cluster-filter unit tests (Phase 3 — landed 2026-07-20) |
 | Hazard | TabularHazard | P/T | NFIP assurance oracles (Phase 6) |
 | Hazard | ParametricUnivariateHazard | P/T | NFIP assurance oracles (Phase 6) |
 | Transform | TabularTransform | P/T | rating-curve oracles (Phase 6) |
@@ -158,7 +160,11 @@ Status legend: — planned · P ported · T unit-tested · V verification covera
 | Response | ParametricResponse | P/T | joint/competing/common-cause oracles (Phase 5) |
 | Response | NonFailResponse | P/T | engine scenarios (Phase 5) |
 | Consequence | TabularConsequence | P/T | joint-failures oracles (Phase 5) |
-| Risk | SystemComponent / FailureMode / Sampled* / results | — | engine scenarios (Phases 5–6) |
+| Risk | FailureModeMethod / DependencyType / JointConsequenceType / RiskType / HazardDimension (enums) | P/T | value/order pinning tests (Phase 3 — landed 2026-07-20) |
+| Risk | ResponseStage / FailureMode | P/T | joint/competing/common-cause oracles (Phase 5) |
+| Risk | SystemComponent (graph-owned; projection + identity hash + occurrence indices + MVN) | P/T | engine scenarios + seed-bug regressions (Phases 4–6) |
+| Graph | IRiskElement / RiskElementBase / Hazard-Transform-Response-ConsequenceElement / RiskConnection / ComponentGraph / factory / resolver / HazardSourceOption | P/T | levee projection acceptance + identity-inertness unit tests (Phase 3); engine scenarios (Phases 5–6) |
+| Risk | SampledComponent / SampledFailureMode / ComponentRiskOutput / results containers | — | engine scenarios (Phases 5–6; moved to Phase 4 by the v0.9 re-scope) |
 | Engine | RiskAnalysis + RiskAnalysisOptions / ReliabilityAnalysis | — | full oracle families (Phases 5–6) + seed-bug regressions (Phase 4) |
 | Backfill | LinearTransform / PowerTransform / ParametricConsequenceFunction / NonparametricHazard | — | closed-form checks + deferred EAD/NFIP scenarios (Phase 7) |
 | Later | RFA/Composite hazards, composites, event trees, bivariate, BestFit imports, LifeSim | — | Phases 9–11 |
