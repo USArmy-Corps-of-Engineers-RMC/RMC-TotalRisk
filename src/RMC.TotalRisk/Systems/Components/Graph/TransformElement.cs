@@ -125,9 +125,9 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         }
 
         /// <inheritdoc/>
-        /// <inheritdoc/>
         public override RiskElementType ElementType => RiskElementType.Transform;
 
+        /// <inheritdoc/>
         public override int InputCount => 1;
 
         /// <inheritdoc/>

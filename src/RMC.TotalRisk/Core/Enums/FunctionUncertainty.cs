@@ -3,7 +3,7 @@ using RMC.TotalRisk.RiskFunctions.Hazards;
 namespace RMC.TotalRisk.Core.Enums
 {
     /// <summary>
-    /// The knowledge-uncertainty mode of a <see cref="Univariate.TabularHazard"/>: which axis of the
+    /// The knowledge-uncertainty mode of a <see cref="TabularHazard"/>: which axis of the
     /// tabular frequency curve carries per-ordinate uncertainty distributions.
     /// </summary>
     /// <remarks>

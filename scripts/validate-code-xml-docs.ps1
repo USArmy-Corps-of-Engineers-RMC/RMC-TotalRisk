@@ -39,6 +39,7 @@ $sourceFiles = @(foreach ($root in $codeRoots) {
 $exactRootNamespace = [regex]'^\s*namespace\s+RMC\.TotalRisk\s*(?:[;{]\s*)?$'
 $rootUsing = [regex]'^\s*using\s+RMC\.TotalRisk\s*;'
 $legacyFlatNamespace = [regex]'^\s*(?:namespace|using)\s+TotalRisk\s*[;{]?\s*$'
+$retiredModelsNamespace = [regex]'^\s*(?:namespace|using)\s+RMC\.TotalRisk\.Models'
 $bestFitReference = [regex]'\bRMC\.BestFit\b'
 $uiFrameworkReference = [regex]'\bSystem\.Windows\b'
 $sqliteReference = [regex]'SQLite'
@@ -46,7 +47,7 @@ $cultureLessTryParse = [regex]'double\.TryParse\((?![^)]*InvariantCulture)'
 $cultureLessG17 = [regex]'\.ToString\("G17"\)'
 
 if ($sourceFiles.Count -gt 0) {
-    $combinedPattern = '^\s*namespace\s+RMC\.TotalRisk\s*(?:[;{]\s*)?$|^\s*using\s+RMC\.TotalRisk\s*;|^\s*(?:namespace|using)\s+TotalRisk\s*[;{]?\s*$|\bRMC\.BestFit\b|\bSystem\.Windows\b|SQLite|double\.TryParse\(|\.ToString\("G17"\)'
+    $combinedPattern = '^\s*namespace\s+RMC\.TotalRisk\s*(?:[;{]\s*)?$|^\s*using\s+RMC\.TotalRisk\s*;|^\s*(?:namespace|using)\s+RMC\.TotalRisk\.Models|^\s*(?:namespace|using)\s+TotalRisk\s*[;{]?\s*$|\bRMC\.BestFit\b|\bSystem\.Windows\b|SQLite|double\.TryParse\(|\.ToString\("G17"\)'
     $matches = Select-String -Path ($sourceFiles | Select-Object -ExpandProperty FullName) -Pattern $combinedPattern
 
     foreach ($match in $matches) {
@@ -55,10 +56,13 @@ if ($sourceFiles.Count -gt 0) {
         $lineNumber = $match.LineNumber
 
         if ($exactRootNamespace.IsMatch($line)) {
-            Add-Failure "${relative}:$lineNumber uses the bare root namespace RMC.TotalRisk; use a concrete namespace (e.g., RMC.TotalRisk.Models)."
+            Add-Failure "${relative}:$lineNumber uses the bare root namespace RMC.TotalRisk; use a concrete namespace (e.g., RMC.TotalRisk.Core)."
         }
         elseif ($rootUsing.IsMatch($line)) {
             Add-Failure "${relative}:$lineNumber imports the bare root namespace RMC.TotalRisk; use the concrete namespace instead."
+        }
+        elseif ($retiredModelsNamespace.IsMatch($line)) {
+            Add-Failure "${relative}:$lineNumber uses the retired RMC.TotalRisk.Models namespace; the v0.10 layout is Core / Core.Enums / Core.Interfaces / RiskFunctions.* / Systems.* / Analyses / Results."
         }
         elseif ($legacyFlatNamespace.IsMatch($line)) {
             Add-Failure "${relative}:$lineNumber references the legacy flat TotalRisk namespace; porting must rename all namespaces to RMC.TotalRisk.*."

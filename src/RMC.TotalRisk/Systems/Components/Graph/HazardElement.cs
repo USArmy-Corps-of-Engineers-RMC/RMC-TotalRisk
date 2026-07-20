@@ -95,9 +95,9 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         }
 
         /// <inheritdoc/>
-        /// <inheritdoc/>
         public override RiskElementType ElementType => RiskElementType.Hazard;
 
+        /// <inheritdoc/>
         public override int InputCount => 0;
 
         /// <inheritdoc/>

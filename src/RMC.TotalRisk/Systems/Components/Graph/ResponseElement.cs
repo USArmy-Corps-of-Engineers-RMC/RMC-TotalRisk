@@ -164,13 +164,13 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         }
 
         /// <inheritdoc/>
+        public override RiskElementType ElementType => RiskElementType.Response;
+
+        /// <inheritdoc/>
         /// <remarks>
         /// One until bivariate response functions land (Phase 11), when this getter becomes
         /// arity-derived (2 for a bivariate wrapped function).
         /// </remarks>
-        /// <inheritdoc/>
-        public override RiskElementType ElementType => RiskElementType.Response;
-
         public override int InputCount => 1;
 
         /// <inheritdoc/>

@@ -1,6 +1,6 @@
 # Hazard Functions
 
-> Technical reference for `RMC.TotalRisk.Models.HazardFunctions` (Phase 2 surface: `TabularHazard`, `ParametricUnivariateHazard`). Source of the methodology: RMC-TR-2022-XX, *Quantitative Risk Analysis with RMC-TotalRisk* (docs/reports), Hazard Functions chapter. The v1.1 API preserves the v1.0 domain surface; deltas are listed at the end.
+> Technical reference for `RMC.TotalRisk.RiskFunctions.Hazards` (Phase 2 surface: `TabularHazard`, `ParametricUnivariateHazard`). Source of the methodology: RMC-TR-2022-XX, *Quantitative Risk Analysis with RMC-TotalRisk* (docs/reports), Hazard Functions chapter. The v1.1 API preserves the v1.0 domain surface; deltas are listed at the end.
 
 A **hazard function** is defined by the exceedance probabilities of hazard levels — annual maximum peak flow, stage, or peak ground acceleration. Hazard functions are commonly called frequency curves; in dam and levee risk assessment they typically describe the annual exceedance probability (AEP) of the governing hazard parameter.
 

@@ -6,7 +6,7 @@
 
 Porting sources in order of authority: (1) the partial C# port `C:\GIT\RMC-TotalRisk-Dev\RMC-TotalRisk\RMC.TotalRisk.IO\Project\Elements\`; (2) the legacy VB engine `...\RMC.TotalRisk\`; (3) the `Test_TotalRisk` Monte Carlo oracles (verification only); (4) the normative specs in [requirements/](requirements/) — where the spec deliberately departs from legacy (content-based seeding, LHS sampling, no-BestFit imports, JSON results), the spec wins.
 
-**v1.0 API preservation (ratified 2026-07-20):** the input-function domain surface is preserved verbatim from v1.0 (property names/types/defaults, `SampleFunction` overload shapes and returns, `Min/Max*` shapes, the `Estimate()` lifecycle, legacy enum names) plus the ratified sampler additions. The analysis layer instead adopts a growth foundation (`RiskAnalysisOptions` extraction, `ReliabilityAnalysis`, future `CostBenefitAnalysis`); the future UI layer maps v1.0 projects onto the new analysis API on import. Risk results are the sanctioned exception: v1.0 BinaryFormatter BLOBs are replaced by redesigned System.Text.Json containers, and v1.0 projects re-run their analyses in v1.1.
+**v1.0 API preservation (ratified 2026-07-20):** the input-function domain surface is preserved verbatim from v1.0 (property names/types/defaults, `SampleFunction` overload shapes and returns, `Min/Max*` shapes, the `Estimate()` lifecycle, legacy enum names) plus the ratified sampler additions. The analysis layer instead adopts a growth foundation (`RiskAnalysisOptions` extraction, a `RiskAnalysisMode` reliability option, future `CostBenefitAnalysis`); the future UI layer maps v1.0 projects onto the new analysis API on import. Risk results are the sanctioned exception: v1.0 BinaryFormatter BLOBs are replaced by redesigned System.Text.Json containers, and v1.0 projects re-run their analyses in v1.1.
 
 | Phase | Scope | Status |
 |---|---|---|
@@ -14,7 +14,7 @@ Porting sources in order of authority: (1) the partial C# port `C:\GIT\RMC-Total
 | 1 | Model kernel foundation: `IRiskFunction`/`RiskFunctionBase`, hashing, seeding, sampling, serialization support | Not started |
 | 2 | Core input functions: tabular hazard/transform/response/consequence + parametric hazard/response + non-fail response | Not started |
 | 3 | Risk components + results containers (JSON results redesign) | Not started |
-| 4 | Analysis foundation + RiskAnalysis engine (mean-only first-class) + ReliabilityAnalysis | Not started |
+| 4 | Analysis foundation + RiskAnalysis engine (mean-only first-class) + reliability mode | Not started |
 | 5 | Verification I — single-component oracle families | Not started |
 | 6 | Verification II — system risk + NFIP assurance | Not started |
 | 7 | Remaining closed-form functions: linear/power transforms, parametric consequence, nonparametric hazard | Not started |
@@ -79,19 +79,19 @@ Porting sources in order of authority: (1) the partial C# port `C:\GIT\RMC-Total
 
 **Exit criteria: met** — component + graph layers P/T; occurrence-index behavior pinned by tests; identity-form hashing pinned (the v1 canvas-position seed bug is structurally unreachable).
 
-## Phase 4 — Analysis foundation + RiskAnalysis engine + ReliabilityAnalysis
+## Phase 4 — Analysis foundation + RiskAnalysis engine + reliability mode
 
 **Scope:** the Phase-3 deferrals first — `SampledComponent`/`SampledFailureMode` (Q-N per-pair shared-draw coupling), `ComponentRiskOutput`, `SetupSamplers`/`Sample` on `SystemComponent`/`FailureMode`, and the `Models/RiskAnalysis/Results` JSON-first containers (see the Phase 3 moved-scope list) — then `Analyses/Support` (`IAnalysis`, `AnalysisBase`, `AnalysisRunCompletedEventArgs` — BestFit mirror) and **`RiskAnalysisOptions`** (ratified extraction; v1.0 option names/defaults preserved: `EstimateMeanRiskOnly=true`, `Realizations=1000` [100–10000], `PRNGSeed=12345`, `LECOutputLength=200` [50–1000], `ConfidenceIntervalWidth=0.9`, `Alpha=0.01`, `ConsequenceThreshold=0`, `SystemRiskMethod`/`JointConsequences`/`ComponentHazardDependency`/`HazardCorrelationMatrix`, integration options + `UseDefaults`/`SetIntegrationDefaults`; new `SamplingScheme`). The options' `ConfidenceIntervalWidth` drives per-function uncertainty summaries through the Phase 2 `ComputeUncertaintyResults` contract.
 
 `RiskAnalysis.RunAsync`: validation gate, content-based per-component seeds + occurrence indices (replacing the v1.0 canvas-order master-PRNG cascade — the seed-dependency bug), per-function `SetupSampler` walk, then the v1.0 compute preserved exactly: mean-only path (`Compute(-1,-1)`-equivalent, every function mean-sampled, same integration) and full-MC path (`Parallel.For`, per-realization `SystemRealization` + compact `SystemRiskResults`, `PostProcessUncertainty` percentile curves). Integration constants preserved: AdaptiveSimpson over `p∈[1e-16,1−1e-16]` with 50 stratified hazard bins, tol 1e-8, MaxDepth 100, MaxEvaluations 1e6; Vegas warmup/final cycles for joint risk; competing-failures 200-bin CIF pre-processing; LEC via log10 consequence bins. Lifecycle: `Task RunAsync(progress, ct)`, cancellation, `AnalysisStarting`/`AnalysisCompleted`. `RiskAnalysis` is fully self-contained (components + options + results) so future composite analyses (`CostBenefitAnalysis` over a `List<RiskAnalysis>` of alternatives) can own instances.
 
-**`ReliabilityAnalysis`** — reliability-only sibling: failure probabilities / annualized failure probability per FM/component/system, no consequence functions required (relaxed FailureMode validation), reusing the sampled-component machinery with a reduced integrand and its own results shape. May split to a 4b session if the engine session overruns.
+**`RiskAnalysisMode.Reliability`** (v0.10 — replaces the planned `ReliabilityAnalysis` sibling) — a mode of the one `RiskAnalysis`: failure probabilities / annualized failure probability per FM/component/system, no consequence functions required (relaxed FailureMode validation), reusing the sampled-component machinery with a reduced integrand and its own results shape. One graph traversal serves both modes. May split to a 4b session if the engine session overruns.
 
 **Unit tests:** engine smoke on tiny scenarios (mean-only + full MC); cancellation; validation failures throw; event lifecycle; options round-trip + hash recipe.
 
 **Verification (pinned here, expanded in Phases 5–6):** the v1 seed-bug regression — shuffle components / rename everything / edit metadata → **bit-identical** results; same seed → bit-identical across thread counts.
 
-**Exit criteria:** foundation + engine P/T with reproducibility pinned; ReliabilityAnalysis P/T (or explicitly split to 4b).
+**Exit criteria:** foundation + engine P/T with reproducibility pinned; the reliability mode P/T (or explicitly split to 4b).
 
 ## Phase 5 — Verification I: single-component oracle families
 
@@ -103,7 +103,7 @@ Porting sources in order of authority: (1) the partial C# port `C:\GIT\RMC-Total
 
 **Scope:** Convert `Test_MC_SystemRisk` (2-component/2-PFM and 5-component/1-PFM across the correlation × aggregation matrix — port from method *bodies*, several legacy names are mislabeled), the `Test_RiskAnalysis` N-element/N-PFM combos, and NFIP Assurance TOL 50/55/70 (LP3 flow frequency → rating transform → fragility → AEP). Add the LHS variance-reduction test (MC vs LHS at N=1k over repeated runs). Finalize the tolerance policy in [verification.md](verification.md).
 
-**Exit criteria:** multi-component system risk + NFIP verified; tabular+parametric clusters, the engine, and ReliabilityAnalysis all carry V status in the matrix.
+**Exit criteria:** multi-component system risk + NFIP verified; tabular+parametric clusters, the engine, and the reliability mode all carry V status in the matrix.
 
 ## Phase 7 — Remaining closed-form functions
 

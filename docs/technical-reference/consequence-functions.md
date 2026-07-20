@@ -1,6 +1,6 @@
 # Consequence Functions
 
-> Technical reference for `RMC.TotalRisk.Models.ConsequenceFunctions` (Phase 2 surface: `TabularConsequence`). Source of the methodology: RMC-TR-2022-XX, *Quantitative Risk Analysis with RMC-TotalRisk* (docs/reports), Consequence Functions chapter.
+> Technical reference for `RMC.TotalRisk.RiskFunctions.Consequences` (Phase 2 surface: `TabularConsequence`). Source of the methodology: RMC-TR-2022-XX, *Quantitative Risk Analysis with RMC-TotalRisk* (docs/reports), Consequence Functions chapter.
 
 A **consequence function** (damage function) describes the consequences of failure or non-failure — life loss, economic damages — at each hazard level. All consequence functions in RMC-TotalRisk are nonparametric.
 
