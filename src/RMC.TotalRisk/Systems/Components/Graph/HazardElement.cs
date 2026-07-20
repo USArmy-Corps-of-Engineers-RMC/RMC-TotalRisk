@@ -45,15 +45,21 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         }
 
         /// <summary>
-        /// Restores a hazard element from its serialized form.
+        /// Restores a hazard element from its serialized form: inline function content is
+        /// reconstructed, a serialized function reference is resolved through the resolver.
         /// </summary>
-        /// <param name="xElement">The serialized form produced by <see cref="ToXElement"/>.</param>
+        /// <param name="xElement">The serialized form produced by <see cref="ToXElement(RiskSerializationMode)"/>.</param>
+        /// <param name="resolver">
+        /// The function resolver, required only to read a by-reference form. An unresolvable
+        /// reference is recorded and reported by <see cref="Validate"/>.
+        /// </param>
         /// <exception cref="ArgumentNullException">Thrown when the element is null.</exception>
         /// <exception cref="InvalidOperationException">
         /// Thrown when a serialized function child cannot be reconstructed — dropping the wrapped
-        /// function silently would lose model content on the next save.
+        /// function silently would lose model content on the next save — or when a serialized
+        /// reference id is stale.
         /// </exception>
-        public HazardElement(XElement xElement)
+        public HazardElement(XElement xElement, IRiskFunctionResolver? resolver = null)
         {
             if (xElement == null) throw new ArgumentNullException(nameof(xElement));
             ReadBaseFromXElement(xElement);
@@ -61,10 +67,9 @@ namespace RMC.TotalRisk.Systems.Components.Graph
             var functionChild = xElement.Element(nameof(Function))?.Elements().FirstOrDefault();
             if (functionChild != null)
             {
-                _function = RiskFunctionFactory.CreateHazardFunction(functionChild)
-                    ?? throw new InvalidOperationException(
-                        $"Unrecognized hazard function element '{functionChild.Name.LocalName}' in the serialized hazard element '{Name}'. " +
-                        "The element cannot be reconstructed faithfully; the serialized form may come from a newer version.");
+                _function = ReadFunctionEntry<IHazardFunction>(
+                    functionChild, resolver, RiskFunctionFactory.CreateFromXElement, "hazard function");
+                SubscribeFunction(_function);
             }
         }
 
@@ -78,7 +83,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         private IHazardFunction? _function;
 
         /// <summary>
-        /// The wrapped hazard function (owned; serialized inline). Null while unset — validation
+        /// The wrapped hazard function (referenced, not owned: a consuming layer may store one function and use it in several graphs). Null while unset — validation
         /// reports it.
         /// </summary>
         public IHazardFunction? Function
@@ -88,7 +93,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
             {
                 if (!ReferenceEquals(_function, value))
                 {
-                    _function = value;
+                    _function = SwapFunctionSubscription(_function, value);
                     RaisePropertyChange(nameof(Function));
                 }
             }
@@ -124,6 +129,21 @@ namespace RMC.TotalRisk.Systems.Components.Graph
             if (_function != null) yield return _function;
         }
 
+
+        /// <inheritdoc/>
+        public override bool TryAssignFunction(IRiskFunction function, out string error)
+        {
+            if (function == null) throw new ArgumentNullException(nameof(function));
+            if (function is not IHazardFunction typed)
+            {
+                error = FunctionMismatchMessage(function, "a hazard function");
+                return false;
+            }
+
+            Function = typed;
+            error = string.Empty;
+            return true;
+        }
         /// <inheritdoc/>
         /// <remarks>
         /// Errors: missing name (base); no wrapped function; the wrapped function's own errors
@@ -134,7 +154,10 @@ namespace RMC.TotalRisk.Systems.Components.Graph
             var (_, messages) = base.Validate();
             if (_function is null)
             {
-                messages.Add($"Error: The hazard element '{Name}' has no hazard function assigned.");
+                if (!HasUnresolvedFunctionReferences)
+                {
+                    messages.Add($"Error: The hazard element '{Name}' has no hazard function assigned.");
+                }
             }
             else
             {
@@ -144,11 +167,11 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         }
 
         /// <inheritdoc/>
-        public override XElement ToXElement()
+        public override XElement ToXElement(RiskSerializationMode mode)
         {
             var element = new XElement(nameof(HazardElement));
             AddBaseAttributesToXElement(element);
-            if (_function != null) element.Add(new XElement(nameof(Function), _function.ToXElement()));
+            if (_function != null) element.Add(new XElement(nameof(Function), WriteFunctionEntry(_function, mode)));
             return element;
         }
 
@@ -158,6 +181,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
             var clone = new HazardElement();
             CopyBaseTo(clone);
             clone._function = _function == null ? null : RiskFunctionFactory.CreateHazardFunction(_function.ToXElement());
+            clone.SubscribeFunction(clone._function);
             return clone;
         }
 

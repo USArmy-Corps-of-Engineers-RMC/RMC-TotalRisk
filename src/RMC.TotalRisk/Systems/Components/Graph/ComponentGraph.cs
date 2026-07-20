@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Xml.Linq;
+using RMC.TotalRisk.Core.Enums;
 using RMC.TotalRisk.Core.Interfaces;
 
 namespace RMC.TotalRisk.Systems.Components.Graph
@@ -50,13 +51,18 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         /// referencing a skipped element surface loudly through the Id-authoritative resolver or
         /// dangling-connection validation), then resolves every pending connection reference.
         /// </summary>
-        /// <param name="xElement">The serialized form produced by <see cref="ToXElement"/>.</param>
+        /// <param name="xElement">The serialized form produced by <see cref="ToXElement()"/>.</param>
+        /// <param name="resolver">
+        /// The function resolver, required only when the form was written
+        /// <see cref="RiskSerializationMode.ByReference"/>; null for self-contained forms. It
+        /// re-attaches the live stored functions, so edits made to them are seen through the graph.
+        /// </param>
         /// <exception cref="ArgumentNullException">Thrown when the element is null.</exception>
         /// <exception cref="InvalidOperationException">
         /// Thrown on duplicate element Ids or names, on a stale serialized connection Id, or when
         /// a recognized element's wrapped function cannot be reconstructed.
         /// </exception>
-        public ComponentGraph(XElement xElement)
+        public ComponentGraph(XElement xElement, IRiskFunctionResolver? resolver = null)
         {
             if (xElement == null) throw new ArgumentNullException(nameof(xElement));
 
@@ -65,18 +71,18 @@ namespace RMC.TotalRisk.Systems.Components.Graph
             {
                 foreach (var child in elementsContainer.Elements())
                 {
-                    var element = RiskElementFactory.CreateFromXElement(child);
+                    var element = RiskElementFactory.CreateFromXElement(child, resolver);
                     if (element == null) continue;
                     AddElement(element);
                 }
             }
 
-            var resolver = new RiskElementResolver(GetElementById, GetElement);
+            var elementResolver = new RiskElementResolver(GetElementById, GetElement);
             for (int i = 0; i < _elements.Count; i++)
             {
                 if (_elements[i] is RiskElementBase baseElement)
                 {
-                    baseElement.ResolveDeserializedReferences(resolver);
+                    baseElement.ResolveDeserializedReferences(elementResolver);
                 }
             }
         }
@@ -514,14 +520,48 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         /// <returns>The serialized form.</returns>
         public XElement ToXElement()
         {
+            return ToXElement(RiskSerializationMode.SelfContained);
+        }
+
+        /// <summary>
+        /// Serializes the graph in the given mode. Under
+        /// <see cref="RiskSerializationMode.ByReference"/> the elements' wrapped functions are
+        /// written as id + name references, for consumers that store those functions separately.
+        /// </summary>
+        /// <param name="mode">The serialization mode.</param>
+        /// <returns>The serialized form.</returns>
+        public XElement ToXElement(RiskSerializationMode mode)
+        {
             var element = new XElement(nameof(ComponentGraph));
             var elements = new XElement(nameof(Elements));
             for (int i = 0; i < _elements.Count; i++)
             {
-                elements.Add(_elements[i].ToXElement());
+                elements.Add(_elements[i].ToXElement(mode));
             }
             element.Add(elements);
             return element;
+        }
+
+        /// <summary>
+        /// Enumerates the distinct input functions the graph's elements wrap, in declared element
+        /// order (and, within a consequence element, in ordered-consequence order).
+        /// </summary>
+        /// <returns>The referenced functions, each appearing once.</returns>
+        /// <remarks>
+        /// The dependency set a consuming layer needs in order to persist the graph
+        /// <see cref="RiskSerializationMode.ByReference"/>, and to answer "what would break if this
+        /// function were deleted?" before it removes one from a store.
+        /// </remarks>
+        public IEnumerable<IRiskFunction> GetReferencedFunctions()
+        {
+            var seen = new HashSet<IRiskFunction>();
+            for (int i = 0; i < _elements.Count; i++)
+            {
+                foreach (var function in _elements[i].GetFunctions())
+                {
+                    if (function != null && seen.Add(function)) yield return function;
+                }
+            }
         }
 
         /// <summary>
@@ -884,6 +924,12 @@ namespace RMC.TotalRisk.Systems.Components.Graph
                     _idMap = null;
                     break;
             }
+
+            // Forward every element change, including the wrapped functions' own edits that
+            // elements re-raise. A consuming layer subscribes here (through the owning component)
+            // to know that a result is stale, and it cannot do that if the graph absorbs the
+            // signal after using it to invalidate its caches.
+            RaisePropertyChange(nameof(Elements));
         }
 
         /// <summary>

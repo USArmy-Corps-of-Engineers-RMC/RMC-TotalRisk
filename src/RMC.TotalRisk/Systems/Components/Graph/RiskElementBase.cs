@@ -63,6 +63,12 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         private double _topPosition;
 
         /// <summary>
+        /// Descriptions of serialized function references that could not be resolved at
+        /// construction. Reported by <see cref="Validate"/>; empty for self-contained forms.
+        /// </summary>
+        private readonly List<string> _unresolvedFunctionReferences = new List<string>();
+
+        /// <summary>
         /// The name-uniqueness authority the owning graph attaches when the element is added, and
         /// detaches on removal. Null while detached — renames are then unrestricted.
         /// </summary>
@@ -171,6 +177,21 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         public abstract IEnumerable<IRiskFunction> GetFunctions();
 
         /// <inheritdoc/>
+        public abstract bool TryAssignFunction(IRiskFunction function, out string error);
+
+        /// <summary>
+        /// The shared mismatch message for <see cref="TryAssignFunction"/>: names the offered
+        /// function, the element, and the cluster the element expects.
+        /// </summary>
+        /// <param name="function">The offered function.</param>
+        /// <param name="expectedCluster">The cluster this element accepts, e.g. "a hazard function".</param>
+        /// <returns>The message.</returns>
+        protected string FunctionMismatchMessage(IRiskFunction function, string expectedCluster)
+        {
+            return $"'{function.Name}' is a {function.GetType().Name}; the {GetType().Name} '{_name}' takes {expectedCluster}.";
+        }
+
+        /// <inheritdoc/>
         public virtual (bool IsValid, List<string> ValidationMessages) Validate()
         {
             var messages = new List<string>();
@@ -178,11 +199,21 @@ namespace RMC.TotalRisk.Systems.Components.Graph
             {
                 messages.Add($"Error: The {GetType().Name} does not have a name.");
             }
+            for (int i = 0; i < _unresolvedFunctionReferences.Count; i++)
+            {
+                messages.Add($"Error: The {GetType().Name} '{_name}' references {_unresolvedFunctionReferences[i]}, which was not found.");
+            }
             return (messages.FindIndex(m => m.StartsWith("Error:", StringComparison.Ordinal)) < 0, messages);
         }
 
         /// <inheritdoc/>
-        public abstract XElement ToXElement();
+        public XElement ToXElement()
+        {
+            return ToXElement(RiskSerializationMode.SelfContained);
+        }
+
+        /// <inheritdoc/>
+        public abstract XElement ToXElement(RiskSerializationMode mode);
 
         /// <summary>
         /// Creates a deep copy of the element: shared <see cref="Id"/>, copied metadata, wrapped
@@ -217,6 +248,169 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         #endregion
 
         #region Protected Helpers
+
+        /// <summary>
+        /// The element name marking a serialized function reference, as opposed to inline function
+        /// content. Serialized contract.
+        /// </summary>
+        protected const string FunctionReferenceElementName = "FunctionReference";
+
+        /// <summary>
+        /// The name of the property holding this element's wrapped function(s) — the property
+        /// reported when a wrapped function's own contents change. "Function" for the
+        /// single-function elements; overridden by elements that hold several.
+        /// </summary>
+        protected virtual string FunctionPropertyName
+        {
+            get { return "Function"; }
+        }
+
+        /// <summary>
+        /// Swaps the wrapped-function subscription from one function to another and returns the
+        /// replacement, so a setter reads
+        /// <c>_function = SwapFunctionSubscription(_function, value)</c>.
+        /// </summary>
+        /// <typeparam name="T">The cluster interface of the wrapped function.</typeparam>
+        /// <param name="current">The currently wrapped function; may be null.</param>
+        /// <param name="replacement">The replacement; may be null.</param>
+        /// <returns>The replacement, for direct assignment to the backing field.</returns>
+        /// <remarks>
+        /// An element does not own the functions it wraps — a consuming layer may store one
+        /// function and use it in several graphs. Forwarding the function's own change
+        /// notification is what lets an edit made where the function is stored reach the analyses
+        /// that consume it, instead of leaving them silently stale.
+        /// </remarks>
+        protected T? SwapFunctionSubscription<T>(T? current, T? replacement) where T : class, IRiskFunction
+        {
+            if (ReferenceEquals(current, replacement)) return replacement;
+            if (current != null) current.PropertyChanged -= WrappedFunctionChanged;
+            if (replacement != null) replacement.PropertyChanged += WrappedFunctionChanged;
+            return replacement;
+        }
+
+        /// <summary>
+        /// Subscribes to a newly wrapped function without unsubscribing anything — for
+        /// construction and cloning paths that assign a backing field directly.
+        /// </summary>
+        /// <param name="function">The wrapped function; may be null.</param>
+        protected void SubscribeFunction(IRiskFunction? function)
+        {
+            if (function != null) function.PropertyChanged += WrappedFunctionChanged;
+        }
+
+        /// <summary>
+        /// Unsubscribes from a function this element no longer wraps.
+        /// </summary>
+        /// <param name="function">The function; may be null.</param>
+        protected void UnsubscribeFunction(IRiskFunction? function)
+        {
+            if (function != null) function.PropertyChanged -= WrappedFunctionChanged;
+        }
+
+        /// <summary>
+        /// Re-raises a wrapped function's change as a change of this element's function property.
+        /// </summary>
+        /// <param name="sender">The wrapped function.</param>
+        /// <param name="e">The originating change arguments.</param>
+        private void WrappedFunctionChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            RaisePropertyChange(FunctionPropertyName);
+        }
+
+        /// <summary>
+        /// Serializes one wrapped function as a container child: its inline content under
+        /// <see cref="RiskSerializationMode.SelfContained"/>, or a
+        /// <see cref="FunctionReferenceElementName"/> marker carrying its id and name under
+        /// <see cref="RiskSerializationMode.ByReference"/>.
+        /// </summary>
+        /// <param name="function">The wrapped function.</param>
+        /// <param name="mode">The serialization mode.</param>
+        /// <returns>The child to place inside the element's function container.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when the function is null.</exception>
+        protected static XElement WriteFunctionEntry(IRiskFunction function, RiskSerializationMode mode)
+        {
+            if (function == null) throw new ArgumentNullException(nameof(function));
+            if (mode != RiskSerializationMode.ByReference) return function.ToXElement();
+
+            var reference = new XElement(FunctionReferenceElementName);
+            reference.SetAttributeValue("Id", function.Id.ToString("D"));
+            reference.SetAttributeValue("Name", function.Name);
+            return reference;
+        }
+
+        /// <summary>
+        /// Reads one serialized function container child: resolves a
+        /// <see cref="FunctionReferenceElementName"/> marker through the resolver, or reconstructs
+        /// inline content through the cluster factory. Inline content always wins when present, so
+        /// a self-contained form loads identically whether or not a resolver was supplied.
+        /// </summary>
+        /// <typeparam name="T">The cluster interface the wrapped function must satisfy.</typeparam>
+        /// <param name="child">The container child.</param>
+        /// <param name="resolver">The function resolver; null when reading a self-contained form.</param>
+        /// <param name="inlineFactory">The cluster factory reconstructing inline content.</param>
+        /// <param name="linkDescription">
+        /// A short description of the reference used in the unresolved-reference message, e.g.
+        /// "consequence function 'Life Loss'".
+        /// </param>
+        /// <returns>
+        /// The wrapped function, or null when a reference could not be resolved (recorded for
+        /// <see cref="Validate"/>) — never null for inline content, which throws instead.
+        /// </returns>
+        /// <exception cref="ArgumentNullException">Thrown when the child or the factory is null.</exception>
+        /// <exception cref="InvalidOperationException">
+        /// Thrown when inline content cannot be reconstructed (dropping it would lose model content
+        /// on the next save), when a serialized reference id is stale, or when the resolved
+        /// function is of the wrong cluster.
+        /// </exception>
+        protected T? ReadFunctionEntry<T>(XElement child, IRiskFunctionResolver? resolver,
+            Func<XElement, IRiskFunction?> inlineFactory, string linkDescription)
+            where T : class, IRiskFunction
+        {
+            if (child == null) throw new ArgumentNullException(nameof(child));
+            if (inlineFactory == null) throw new ArgumentNullException(nameof(inlineFactory));
+
+            if (child.Name.LocalName != FunctionReferenceElementName)
+            {
+                return inlineFactory(child) as T
+                    ?? throw new InvalidOperationException(
+                        $"Unrecognized function element '{child.Name.LocalName}' in the serialized element '{_name}'. " +
+                        "The element cannot be reconstructed faithfully; the serialized form may come from a newer version.");
+            }
+
+            var pendingId = RiskElementResolver.ParsePendingId(child.Attribute("Id")?.Value);
+            string? pendingName = child.Attribute("Name")?.Value;
+            string reference = string.IsNullOrEmpty(pendingName)
+                ? $"{linkDescription} Id '{pendingId:D}'"
+                : $"{linkDescription} '{pendingName}'";
+
+            if (resolver == null)
+            {
+                _unresolvedFunctionReferences.Add(reference);
+                return null;
+            }
+
+            var resolved = resolver.Resolve(pendingId, pendingName, $"The {GetType().Name} '{_name}'");
+            if (resolved == null)
+            {
+                _unresolvedFunctionReferences.Add(reference);
+                return null;
+            }
+
+            return resolved as T
+                ?? throw new InvalidOperationException(
+                    $"The {GetType().Name} '{_name}' references {reference}, which resolved to a " +
+                    $"{resolved.GetType().Name} — the wrong kind of risk function for this element.");
+        }
+
+        /// <summary>
+        /// Whether this element carries a function reference that could not be resolved. Elements
+        /// suppress their generic "no function assigned" message when this is true, because
+        /// <see cref="Validate"/> already reports the more precise cause.
+        /// </summary>
+        protected bool HasUnresolvedFunctionReferences
+        {
+            get { return _unresolvedFunctionReferences.Count > 0; }
+        }
 
         /// <summary>
         /// Copies the base identity and metadata onto a clone target: Id (shared), name,

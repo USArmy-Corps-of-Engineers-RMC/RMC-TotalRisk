@@ -49,13 +49,17 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         /// captured pending and resolved by the graph via
         /// <see cref="ResolveDeserializedReferences"/>.
         /// </summary>
-        /// <param name="xElement">The serialized form produced by <see cref="ToXElement"/>.</param>
+        /// <param name="xElement">The serialized form produced by <see cref="ToXElement(RiskSerializationMode)"/>.</param>
+        /// <param name="resolver">
+        /// The function resolver, required only to read a by-reference form. An unresolvable
+        /// reference is recorded and reported by <see cref="Validate"/>.
+        /// </param>
         /// <exception cref="ArgumentNullException">Thrown when the element is null.</exception>
         /// <exception cref="InvalidOperationException">
         /// Thrown when a serialized function child cannot be reconstructed — dropping the wrapped
         /// function silently would lose model content on the next save.
         /// </exception>
-        public TransformElement(XElement xElement)
+        public TransformElement(XElement xElement, IRiskFunctionResolver? resolver = null)
         {
             if (xElement == null) throw new ArgumentNullException(nameof(xElement));
             ReadBaseFromXElement(xElement);
@@ -64,10 +68,9 @@ namespace RMC.TotalRisk.Systems.Components.Graph
             var functionChild = xElement.Element(nameof(Function))?.Elements().FirstOrDefault();
             if (functionChild != null)
             {
-                _function = RiskFunctionFactory.CreateTransformFunction(functionChild)
-                    ?? throw new InvalidOperationException(
-                        $"Unrecognized transform function element '{functionChild.Name.LocalName}' in the serialized transform element '{Name}'. " +
-                        "The element cannot be reconstructed faithfully; the serialized form may come from a newer version.");
+                _function = ReadFunctionEntry<ITransformFunction>(
+                    functionChild, resolver, RiskFunctionFactory.CreateFromXElement, "transform function");
+                SubscribeFunction(_function);
             }
         }
 
@@ -91,7 +94,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         private (Guid? Id, string? Name, int Port)? _pendingInput;
 
         /// <summary>
-        /// The wrapped transform function (owned; serialized inline). Null while unset —
+        /// The wrapped transform function (referenced, not owned: a consuming layer may store one function and use it in several graphs). Null while unset —
         /// validation reports it.
         /// </summary>
         public ITransformFunction? Function
@@ -101,7 +104,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
             {
                 if (!ReferenceEquals(_function, value))
                 {
-                    _function = value;
+                    _function = SwapFunctionSubscription(_function, value);
                     RaisePropertyChange(nameof(Function));
                 }
             }
@@ -149,6 +152,21 @@ namespace RMC.TotalRisk.Systems.Components.Graph
             if (_function != null) yield return _function;
         }
 
+
+        /// <inheritdoc/>
+        public override bool TryAssignFunction(IRiskFunction function, out string error)
+        {
+            if (function == null) throw new ArgumentNullException(nameof(function));
+            if (function is not ITransformFunction typed)
+            {
+                error = FunctionMismatchMessage(function, "a transform function");
+                return false;
+            }
+
+            Function = typed;
+            error = string.Empty;
+            return true;
+        }
         /// <inheritdoc/>
         /// <remarks>
         /// Errors: missing name (base); no wrapped function; the wrapped function's own errors
@@ -170,12 +188,12 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         }
 
         /// <inheritdoc/>
-        public override XElement ToXElement()
+        public override XElement ToXElement(RiskSerializationMode mode)
         {
             var element = new XElement(nameof(TransformElement));
             AddBaseAttributesToXElement(element);
             WriteConnection(element, "Source", _input);
-            if (_function != null) element.Add(new XElement(nameof(Function), _function.ToXElement()));
+            if (_function != null) element.Add(new XElement(nameof(Function), WriteFunctionEntry(_function, mode)));
             return element;
         }
 
@@ -185,6 +203,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
             var clone = new TransformElement();
             CopyBaseTo(clone);
             clone._function = _function == null ? null : RiskFunctionFactory.CreateTransformFunction(_function.ToXElement());
+            clone.SubscribeFunction(clone._function);
             return clone;
         }
 

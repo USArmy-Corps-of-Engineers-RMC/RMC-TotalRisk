@@ -57,13 +57,18 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         /// connections are captured pending and resolved by the graph via
         /// <see cref="ResolveDeserializedReferences"/>.
         /// </summary>
-        /// <param name="xElement">The serialized form produced by <see cref="ToXElement"/>.</param>
+        /// <param name="xElement">The serialized form produced by <see cref="ToXElement(RiskSerializationMode)"/>.</param>
+        /// <param name="resolver">
+        /// The function resolver, required only to read a by-reference form. An unresolvable
+        /// reference is recorded and reported by <see cref="Validate"/>.
+        /// </param>
         /// <exception cref="ArgumentNullException">Thrown when the element is null.</exception>
         /// <exception cref="InvalidOperationException">
         /// Thrown when a serialized function child cannot be reconstructed — dropping a wrapped
-        /// function silently would lose model content on the next save.
+        /// function silently would lose model content on the next save — or when a serialized
+        /// reference id is stale.
         /// </exception>
-        public ConsequenceElement(XElement xElement)
+        public ConsequenceElement(XElement xElement, IRiskFunctionResolver? resolver = null)
         {
             if (xElement == null) throw new ArgumentNullException(nameof(xElement));
             ReadBaseFromXElement(xElement);
@@ -75,14 +80,16 @@ namespace RMC.TotalRisk.Systems.Components.Graph
             {
                 foreach (var child in functionsElement.Elements())
                 {
-                    var consequence = RiskFunctionFactory.CreateConsequenceFunction(child);
-                    if (consequence == null)
+                    // An unresolved reference yields null; it is dropped from the ordered list and
+                    // reported by Validate. Positional consequence pairing is checked there too,
+                    // so a silently shortened list cannot pass validation.
+                    var consequence = ReadFunctionEntry<IConsequenceFunction>(
+                        child, resolver, RiskFunctionFactory.CreateFromXElement, "consequence function");
+                    if (consequence != null)
                     {
-                        throw new InvalidOperationException(
-                            $"Unrecognized consequence function element '{child.Name.LocalName}' in the serialized consequence element '{Name}'. " +
-                            "The element cannot be reconstructed faithfully; the serialized form may come from a newer version.");
+                        _functions.Add(consequence);
+                        SubscribeFunction(consequence);
                     }
-                    _functions.Add(consequence);
                 }
             }
         }
@@ -117,10 +124,16 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         private (Guid? Id, string? Name, int Port)? _pendingHazardSource;
 
         /// <summary>
-        /// The ordered consequence functions (owned; serialized inline): index 0 is the primary
-        /// type used for risk integration; all are computed and tracked. Assigning null coerces
-        /// to an empty list; the element takes ownership of an assigned list.
+        /// The ordered consequence functions (referenced, not owned — a consuming layer may store
+        /// one function and use it in several graphs): index 0 is the primary type used for risk
+        /// integration; all are computed and tracked. Assigning null coerces to an empty list.
         /// </summary>
+        /// <remarks>
+        /// Assigning the property re-points this element's change subscriptions onto the new list.
+        /// Mutating the returned list in place does not, so a consumer that needs a function's own
+        /// edits to reach this element should use <see cref="AddFunction"/> and
+        /// <see cref="RemoveFunction"/> rather than <c>Functions.Add</c>/<c>Functions.Remove</c>.
+        /// </remarks>
         public List<IConsequenceFunction> Functions
         {
             get { return _functions; }
@@ -128,10 +141,18 @@ namespace RMC.TotalRisk.Systems.Components.Graph
             {
                 if (!ReferenceEquals(_functions, value))
                 {
+                    for (int i = 0; i < _functions.Count; i++) UnsubscribeFunction(_functions[i]);
                     _functions = value ?? new List<IConsequenceFunction>();
+                    for (int i = 0; i < _functions.Count; i++) SubscribeFunction(_functions[i]);
                     RaisePropertyChange(nameof(Functions));
                 }
             }
+        }
+
+        /// <inheritdoc/>
+        protected override string FunctionPropertyName
+        {
+            get { return nameof(Functions); }
         }
 
         /// <summary>
@@ -203,6 +224,54 @@ namespace RMC.TotalRisk.Systems.Components.Graph
             }
         }
 
+        /// <summary>
+        /// Appends a consequence function to the ordered list and subscribes to its changes. The
+        /// notification-safe alternative to <c>Functions.Add</c>.
+        /// </summary>
+        /// <param name="function">The consequence function to append.</param>
+        /// <exception cref="ArgumentNullException">Thrown when the function is null.</exception>
+        public void AddFunction(IConsequenceFunction function)
+        {
+            if (function == null) throw new ArgumentNullException(nameof(function));
+            _functions.Add(function);
+            SubscribeFunction(function);
+            RaisePropertyChange(nameof(Functions));
+        }
+
+        /// <summary>
+        /// Removes the first occurrence of a consequence function from the ordered list and
+        /// unsubscribes from its changes. The notification-safe alternative to
+        /// <c>Functions.Remove</c>.
+        /// </summary>
+        /// <param name="function">The consequence function to remove.</param>
+        /// <returns>True when the function was present and removed.</returns>
+        public bool RemoveFunction(IConsequenceFunction function)
+        {
+            if (function == null || !_functions.Remove(function)) return false;
+            if (!_functions.Contains(function)) UnsubscribeFunction(function);
+            RaisePropertyChange(nameof(Functions));
+            return true;
+        }
+
+
+        /// <inheritdoc/>
+        /// <remarks>
+        /// Appends rather than replaces: a consequence element carries an ordered list of
+        /// consequence types (economic, life loss, ...), all of which are computed and tracked.
+        /// </remarks>
+        public override bool TryAssignFunction(IRiskFunction function, out string error)
+        {
+            if (function == null) throw new ArgumentNullException(nameof(function));
+            if (function is not IConsequenceFunction typed)
+            {
+                error = FunctionMismatchMessage(function, "a consequence function");
+                return false;
+            }
+
+            AddFunction(typed);
+            error = string.Empty;
+            return true;
+        }
         /// <inheritdoc/>
         /// <remarks>
         /// Errors: missing name (base); no consequence functions; null entries; each function's
@@ -214,7 +283,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         {
             var (_, messages) = base.Validate();
 
-            if (_functions.Count == 0)
+            if (_functions.Count == 0 && !HasUnresolvedFunctionReferences)
             {
                 messages.Add($"Error: The consequence element '{Name}' has no consequence functions.");
             }
@@ -243,7 +312,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         }
 
         /// <inheritdoc/>
-        public override XElement ToXElement()
+        public override XElement ToXElement(RiskSerializationMode mode)
         {
             var element = new XElement(nameof(ConsequenceElement));
             AddBaseAttributesToXElement(element);
@@ -253,7 +322,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
             var functions = new XElement(nameof(Functions));
             for (int i = 0; i < _functions.Count; i++)
             {
-                if (_functions[i] is not null) functions.Add(_functions[i].ToXElement());
+                if (_functions[i] is not null) functions.Add(WriteFunctionEntry(_functions[i], mode));
             }
             element.Add(functions);
             return element;
@@ -268,7 +337,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
             {
                 if (_functions[i] is null) continue;
                 var copied = RiskFunctionFactory.CreateConsequenceFunction(_functions[i].ToXElement());
-                if (copied != null) clone._functions.Add(copied);
+                if (copied != null) clone.AddFunction(copied);
             }
             return clone;
         }

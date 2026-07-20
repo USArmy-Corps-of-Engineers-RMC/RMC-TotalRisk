@@ -39,7 +39,7 @@ namespace RMC.TotalRisk.Systems.Components
     /// keeps near-v1.0 ergonomics by expanding a chain-style mode into wired graph elements.
     /// </para>
     /// <para>
-    /// <b>Identity vs persistence:</b> <see cref="ToXElement"/> persists the element graph
+    /// <b>Identity vs persistence:</b> <see cref="ToXElement()"/> persists the element graph
     /// (whose link attributes carry Guids and names), which therefore cannot be the seed-identity
     /// surface. <see cref="CanonicalHash"/> instead hashes a deterministic internal identity form
     /// — the options, the hazard content, and the projected failure modes in path order —
@@ -109,10 +109,14 @@ namespace RMC.TotalRisk.Systems.Components
         /// <summary>
         /// Restores a system component from its serialized form.
         /// </summary>
-        /// <param name="xElement">The serialized form produced by <see cref="ToXElement"/>.</param>
+        /// <param name="xElement">The serialized form produced by <see cref="ToXElement()"/>.</param>
+        /// <param name="resolver">
+        /// The function resolver, required only when the graph was written
+        /// <see cref="RiskSerializationMode.ByReference"/>; null for self-contained forms.
+        /// </param>
         /// <exception cref="ArgumentNullException">Thrown when the element is null.</exception>
         /// <exception cref="InvalidOperationException">Thrown when the serialized graph is inconsistent (see <see cref="ComponentGraph"/>).</exception>
-        public SystemComponent(XElement xElement)
+        public SystemComponent(XElement xElement, IRiskFunctionResolver? resolver = null)
         {
             if (xElement == null) throw new ArgumentNullException(nameof(xElement));
 
@@ -124,7 +128,7 @@ namespace RMC.TotalRisk.Systems.Components
             _correlationMatrix = ParseMatrix(SerializationUtilities.ReadString(xElement, nameof(CorrelationMatrix)));
 
             var graphElement = xElement.Element(nameof(ComponentGraph));
-            _graph = graphElement != null ? new ComponentGraph(graphElement) : new ComponentGraph();
+            _graph = graphElement != null ? new ComponentGraph(graphElement, resolver) : new ComponentGraph();
             SubscribeGraph();
         }
 
@@ -689,6 +693,19 @@ namespace RMC.TotalRisk.Systems.Components
         /// <returns>The serialized form.</returns>
         public XElement ToXElement()
         {
+            return ToXElement(RiskSerializationMode.SelfContained);
+        }
+
+        /// <summary>
+        /// Serializes the component in the given mode. The mode governs only how the graph's
+        /// wrapped functions are written; the component's own options are unaffected, and so is
+        /// <see cref="CanonicalHash"/>, which hashes the projected failure modes rather than the
+        /// persisted graph. A component therefore seeds identically however it was persisted.
+        /// </summary>
+        /// <param name="mode">The serialization mode.</param>
+        /// <returns>The serialized form.</returns>
+        public XElement ToXElement(RiskSerializationMode mode)
+        {
             var element = new XElement(nameof(SystemComponent));
             element.SetAttributeValue(nameof(Name), _name);
             element.SetAttributeValue(nameof(FailureModeMethod), _failureModeMethod.ToString());
@@ -697,8 +714,19 @@ namespace RMC.TotalRisk.Systems.Components
             element.SetAttributeValue(nameof(HazardThreshold), SerializationUtilities.FormatDouble(_hazardThreshold));
             element.SetAttributeValue(nameof(CorrelationMatrix),
                 _failureModeDependency == DependencyType.CorrelationMatrix ? FormatMatrix(_correlationMatrix) : string.Empty);
-            element.Add(_graph.ToXElement());
+            element.Add(_graph.ToXElement(mode));
             return element;
+        }
+
+        /// <summary>
+        /// Enumerates the distinct input functions this component's graph wraps, in declared
+        /// element order. The dependency set a consuming layer persists alongside a by-reference
+        /// component, and the answer to "what uses this function?" before one is deleted.
+        /// </summary>
+        /// <returns>The referenced functions, each appearing once.</returns>
+        public IEnumerable<IRiskFunction> GetReferencedFunctions()
+        {
+            return _graph.GetReferencedFunctions();
         }
 
         #endregion

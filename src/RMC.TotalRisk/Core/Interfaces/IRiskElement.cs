@@ -106,6 +106,26 @@ namespace RMC.TotalRisk.Core.Interfaces
         IEnumerable<IRiskFunction> GetFunctions();
 
         /// <summary>
+        /// Assigns an input function to this element if the function's cluster matches the
+        /// element's role. Replaces the wrapped function on single-function elements; appends to
+        /// the ordered list on consequence elements.
+        /// </summary>
+        /// <param name="function">The function to assign.</param>
+        /// <param name="error">
+        /// On failure, a message naming the mismatch, suitable for surfacing to a user; empty on
+        /// success.
+        /// </param>
+        /// <returns>True when the function was assigned.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when the function is null.</exception>
+        /// <remarks>
+        /// The assignment path for graph editors, which hold elements as
+        /// <see cref="IRiskElement"/> and would otherwise need a downcast per element type — the
+        /// mapping most likely to drift as new clusters land. It reports a mismatch rather than
+        /// throwing, because dropping the wrong function onto a node is ordinary user error.
+        /// </remarks>
+        bool TryAssignFunction(IRiskFunction function, out string error);
+
+        /// <summary>
         /// Validates the element and reports any issues found.
         /// </summary>
         /// <returns>
@@ -128,5 +148,16 @@ namespace RMC.TotalRisk.Core.Interfaces
         /// </summary>
         /// <returns>The serialized form; element name is the concrete type name.</returns>
         XElement ToXElement();
+
+        /// <summary>
+        /// Serializes the element in the given mode. Under
+        /// <see cref="RiskSerializationMode.ByReference"/> the wrapped function(s) are written as
+        /// id + name references instead of inline content, for consumers that store functions
+        /// separately and re-attach the live instances through an
+        /// <see cref="IRiskFunctionResolver"/> on load.
+        /// </summary>
+        /// <param name="mode">The serialization mode.</param>
+        /// <returns>The serialized form; element name is the concrete type name.</returns>
+        XElement ToXElement(RiskSerializationMode mode);
     }
 }
