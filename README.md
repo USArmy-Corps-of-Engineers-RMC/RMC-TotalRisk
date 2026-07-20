@@ -21,3 +21,26 @@ RMC-TotalRisk builds on nearly two decades of expertise in flood risk methodolog
 
 ## Training
 * [Risk Management Center Training Center](https://www.rmc.usace.army.mil/Training/)
+
+## Development
+
+Version 1.1 is in active development on the [`v1.1-development`](../../tree/v1.1-development) branch. The effort rebuilds RMC-TotalRisk around a headless .NET 10 model library (`RMC.TotalRisk.dll`) — the Monte Carlo risk engine and all input functions with no UI dependencies — followed by new UI and application layers. The v1.0 release above remains the supported product in the meantime.
+
+Repository structure on the development branch:
+
+```
+RMC-TotalRisk.sln        ← solution (Core / Tests / Verification)
+src/                     ← RMC.TotalRisk (model library), RMC.TotalRisk.Tests, RMC.TotalRisk.Verification
+docs/                    ← phased roadmap, progress log, normative specs, verification strategy
+examples/                ← example projects
+scripts/                 ← quality-gate scripts
+```
+
+Build and test (requires the .NET 10 SDK and a sibling checkout of [Numerics](https://github.com/USACE-RMC/Numerics) at `C:\GIT\numerics`, built for `net10.0`):
+
+```bash
+dotnet build             # zero warnings expected
+dotnet test -c Release   # fast unit-test gate (verification suite runs separately)
+```
+
+Development documentation starts at [docs/index.md](docs/index.md); the phased plan is [docs/ROADMAP.md](docs/ROADMAP.md).
