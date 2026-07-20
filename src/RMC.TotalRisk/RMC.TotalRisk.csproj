@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net10.0</TargetFrameworks>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>RMC.TotalRisk</RootNamespace>
+    <AssemblyTitle>RMC.TotalRisk</AssemblyTitle>
+    <Description>Headless compute library for RMC-TotalRisk risk analysis. Pure domain and Monte Carlo engine, no UI dependencies — callable from AWS workers, web services, and agentic AI tools.</Description>
+    <Company>U.S. Army Corps of Engineers</Company>
+    <Product>RMC-TotalRisk</Product>
+    <Copyright>Copyright © 2026 U.S. Army Corps of Engineers</Copyright>
+    <Version>1.1.0</Version>
+    <AssemblyVersion>1.1.0.0</AssemblyVersion>
+    <FileVersion>1.1.0.0</FileVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Interim sibling-repo reference. Switches to the RMC.Numerics PackageReference
+         (already declared in Directory.Packages.props) once a release >= 2.2.0 lands on
+         the local feed. See docs/requirements/SHARED_FUNCTIONS_STRATEGY.md D5. -->
+    <Reference Include="Numerics">
+      <HintPath>..\..\..\numerics\Numerics\bin\Debug\net10.0\Numerics.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,29 @@
+# Build results
+[Bb]in/
+[Oo]bj/
+[Oo]ut/
+artifacts/
+
+# Visual Studio cache and user files
+.vs/
+*.suo
+*.user
+*.rsuser
+*.userosscache
+*.sln.docstates
+
+# Test results and coverage
+TestResults/
+*.trx
+coverage*.json
+coverage*.xml
+coverage*.info
+
+# NuGet
+*.nupkg
+packages/
+.nuget/
+
+# OS cruft
+Thumbs.db
+.DS_Store

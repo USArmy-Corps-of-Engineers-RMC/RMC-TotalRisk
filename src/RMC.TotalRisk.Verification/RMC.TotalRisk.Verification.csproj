@@ -1,0 +1,36 @@
+<Project Sdk="MSTest.Sdk/3.6.4">
+
+  <PropertyGroup>
+    <TargetFrameworks>net10.0</TargetFrameworks>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyTitle>RMC.TotalRisk.Verification</AssemblyTitle>
+    <Description>Computational verification and validation tests for RMC-TotalRisk. Monte Carlo oracle parity converted from the legacy Test_TotalRisk suite. Not built in Release configuration.</Description>
+    <Company>U.S. Army Corps of Engineers</Company>
+    <Product>RMC-TotalRisk</Product>
+    <Copyright>Copyright © 2026 U.S. Army Corps of Engineers</Copyright>
+    <Version>1.1.0</Version>
+    <AssemblyVersion>1.1.0.0</AssemblyVersion>
+    <FileVersion>1.1.0.0</FileVersion>
+    <TestingPlatformShowTestsFailure>true</TestingPlatformShowTestsFailure>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\RMC.TotalRisk\RMC.TotalRisk.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="Numerics">
+      <HintPath>..\..\..\numerics\Numerics\bin\Debug\net10.0\Numerics.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+</Project>

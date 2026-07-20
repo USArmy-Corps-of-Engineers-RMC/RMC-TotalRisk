@@ -1,0 +1,15 @@
+<Project>
+
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageFloatingVersionsEnabled>true</CentralPackageFloatingVersionsEnabled>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageVersion Include="coverlet.collector" Version="6.0.4" />
+    <!-- Declared for the planned switch from the interim sibling-repo HintPath to the
+         published package once RMC.Numerics >= 2.2.0 lands on the local feed. -->
+    <PackageVersion Include="RMC.Numerics" Version="2.*" />
+  </ItemGroup>
+
+</Project>
