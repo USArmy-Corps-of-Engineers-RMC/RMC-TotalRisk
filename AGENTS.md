@@ -20,7 +20,7 @@ Monte-Carlo-based quantitative risk analysis framework for dam and levee safety,
 - **No singletons.** No `Project.Current` global state. Analyses take inputs via constructor/method args and return pure result objects.
 - **No direct file I/O.** Callers pass already-parsed data. In-memory serialization only: model *definition* types use `ToXElement()` / ctor-from-`XElement` (the canonical-hash identity surface); *results* containers use System.Text.Json (`ToJson()`/`FromJson()` + compressed-bytes overloads) — v1.0's BinaryFormatter BLOBs are not ported, and v1.0 projects re-run their analyses in v1.1. No SQLite, no `File.*` in the model lib.
 - **Deterministic entry points.** Explicit seeds, typed inputs/outputs, no dialogs. Same inputs + same seed → bit-identical results at any thread count.
-- **Content-based seed identity.** Monte Carlo seeds derive from SHA-256 canonical content hashes (XML canonicalization over `ToXElement()` through audited strip rules) plus occurrence indices — renaming, canvas moves, or reordering never change results. Normative spec: `docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md` §5.5. **Landing checklist for every new model property:** classify it compute-relevant (hashed) or metadata (add to `CanonicalizationRules`), extend the kitchen-sink rename/reorder invariance test, and never rename or reorder existing serialized attributes — `ToXElement()` is the identity surface and hashes are contract. (Exception ratified v0.9: `SystemComponent` splits identity from persistence — its `CanonicalHash()` hashes the projected identity form, because element-graph XML carries link Guids/names that must never be a hash surface.) **Every new concrete function type also adds its `RiskFunctionFactory` case and its `Core.Enums` discriminator member** (`HazardFunctionType`/`TransformFunctionType`/`ResponseFunctionType`/`ConsequenceFunctionType`; every new element type adds its `RiskElementFactory` case and `RiskElementType` member) alongside the matrix row and invariance registration. Discriminators are runtime-only — never serialize one, or the hash surface moves.
+- **Content-based seed identity.** Monte Carlo seeds derive from SHA-256 canonical content hashes (XML canonicalization over `ToXElement()` through audited strip rules) plus occurrence indices — renaming, canvas moves, or reordering never change results. Normative spec: `docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md` §5.5. **Landing checklist for every new model property:** classify it compute-relevant (hashed) or metadata (add to `CanonicalizationRules`), extend the kitchen-sink rename/reorder invariance test, and never rename or reorder existing serialized attributes — `ToXElement()` is the identity surface and hashes are contract. (Exception ratified v0.9: `SystemComponent` splits identity from persistence — its `CanonicalHash()` hashes the projected identity form, because element-graph XML carries link Guids/names that must never be a hash surface.) **Every new concrete function type also handles both `RiskSerializationMode`s and adds its `RiskFunctionFactory` case and its `Core.Enums` discriminator member** (`HazardFunctionType`/`TransformFunctionType`/`ResponseFunctionType`/`ConsequenceFunctionType`; every new element type adds its `RiskElementFactory` case and `RiskElementType` member) alongside the matrix row and invariance registration. Discriminators are runtime-only — never serialize one, or the hash surface moves.
 - **`INotifyPropertyChanged` is allowed.** It is a passive contract; headless callers don't subscribe. It gives the future WPF UI layer a clean data-binding story.
 
 **Dependency rule (MANDATORY):** `RMC.TotalRisk.dll` references only `RMC.Numerics`. Never `RMC.BestFit`, never UI/IO frameworks, never SQLite. BestFit fitted results are imported as **already-parsed Numerics artifacts** (`UnivariateDistributionBase`, `ParameterSet[]`, `UncertaintyAnalysisResults`, `UncertainOrderedPairedData`) — reading `.rmcbf` files is a UI-layer concern. The validation script fails on any `RMC.BestFit`, `System.Windows`, or SQLite reference. See `docs/requirements/SHARED_FUNCTIONS_STRATEGY.md`.
@@ -46,9 +46,9 @@ Future consumers                    ← RMC.TotalRisk.UI → RMC-TotalRisk App; 
 | Namespace | Contents |
 |---|---|
 | `RMC.TotalRisk.Core` | `RiskFunctionBase`, `CanonicalContentHasher`, `CanonicalizationRules` (`ModelRules`), `SeedHelpers`, `ByteArrayComparer`, `SerializationUtilities`, `FunctionHelpers`, `TabularUncertainty`, `ParametricPosterior` (Phase 1) |
-| `RMC.TotalRisk.Core.Enums` | Every enum, one per file: `SamplingScheme`, `FunctionUncertainty`, `FailureModeMethod`, `DependencyType`, `JointConsequenceType`, `RiskType`, `HazardDimension`, and the runtime discriminators `HazardFunctionType`/`TransformFunctionType`/`ResponseFunctionType`/`ConsequenceFunctionType`/`RiskElementType`/`RiskAnalysisMode` |
-| `RMC.TotalRisk.Core.Interfaces` | Every interface: `IRiskFunction`, `IHazardFunction`/`IUnivariateHazardFunction`, `ITransformFunction`, `IResponseFunction`, `IConsequenceFunction`, `IRiskElement`, `IRiskElementNameAuthority`; `IAnalysis` (Phase 4+) |
-| `RMC.TotalRisk.RiskFunctions` | `RiskFunctionFactory` |
+| `RMC.TotalRisk.Core.Enums` | Every enum, one per file: `SamplingScheme`, `FunctionUncertainty`, `FailureModeMethod`, `DependencyType`, `JointConsequenceType`, `RiskType`, `HazardDimension`, `RiskSerializationMode`, and the runtime discriminators `HazardFunctionType`/`TransformFunctionType`/`ResponseFunctionType`/`ConsequenceFunctionType`/`RiskElementType`/`RiskAnalysisMode` |
+| `RMC.TotalRisk.Core.Interfaces` | Every interface: `IRiskFunction`, `IHazardFunction`/`IUnivariateHazardFunction`, `ITransformFunction`, `IResponseFunction`, `IConsequenceFunction`, `IRiskFunctionResolver`, `IRiskElement`, `IRiskElementNameAuthority`; `IAnalysis` (Phase 4+) |
+| `RMC.TotalRisk.RiskFunctions` | `RiskFunctionFactory`, `RiskFunctionResolver` |
 | `RMC.TotalRisk.RiskFunctions.Hazards` | `HazardFunctionBase`/`UnivariateHazardBase`, `TabularHazard`, `ParametricUnivariateHazard` (Phase 2+) |
 | `RMC.TotalRisk.RiskFunctions.Transforms` | `TransformFunctionBase`, `TabularTransform` (Phase 2+) |
 | `RMC.TotalRisk.RiskFunctions.Responses` | `ResponseFunctionBase`, `TabularResponse`, `ParametricResponse`, `NonFailResponse` (Phase 2+) |
@@ -58,6 +58,16 @@ Future consumers                    ← RMC.TotalRisk.UI → RMC-TotalRisk App; 
 | `RMC.TotalRisk.Systems.Components.Graph` | `RiskElementBase`, `HazardElement`/`TransformElement`/`ResponseElement`/`ConsequenceElement`, `RiskConnection`, `ComponentGraph`, `RiskElementFactory`/`RiskElementResolver`, `HazardSourceOption` (Phase 3) |
 | `RMC.TotalRisk.Analyses` | `AnalysisBase` support, `RiskAnalysis` engine + `RiskAnalysisOptions` (reliability is a `RiskAnalysisMode`, not a second type), `CostBenefitAnalysis` (Phase 4+) |
 | `RMC.TotalRisk.Results` | `SampledComponent`/`SampledFailureMode`, `ComponentRiskOutput`, results containers (Phase 4) |
+
+## Layer Boundaries (MANDATORY reading before UI work)
+
+Normative spec: `docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md` §8 (v0.11). Summary:
+
+- **Input functions are stored by the consuming layer, one item each, and referenced by `IRiskFunction.Id`** (a Guid, serialized but stripped from hashing). Names are a lenient fallback only — BestFit's name-based references are its own documented regret.
+- **`SystemComponent`s are owned by their `RiskAnalysis`**, not independently creatable in the UI/App. `RiskAnalysis.ToXElement()` will serialize **options only** and take components + results through its constructor — the BestFit `new UnivariateAnalysis(dist, xElement, results)` shape.
+- **`RiskSerializationMode`**: `SelfContained` (default; headless, oracles, API) writes function content inline; `ByReference` writes `<FunctionReference Id Name/>` markers that an `IRiskFunctionResolver` re-attaches to the **live** stored instances. The mode is persistence only — it can never move a canonical hash or a seed, and that is directly tested.
+- **Graph editors use the authoring surface**, never their own mapping: `RiskElementFactory.CreateForFunction`/`Create`, `IRiskElement.TryAssignFunction`, `ComponentGraph.GetUniqueName`/`GetAvailableHazardSources`, `SystemComponent.GetReferencedFunctions`.
+- The model library must stay usable alone: build a system, validate, and hash with no store, no resolver, and no consuming layer in the call path.
 
 ## Test Project Architecture
 
@@ -166,6 +176,7 @@ Status legend: — planned · P ported · T unit-tested · V verification covera
 |---|---|---|---|
 | Core | IRiskFunction / RiskFunctionBase / CanonicalContentHasher / CanonicalizationRules / SeedHelpers | P/T | hash-invariance + seeding unit tests (Phase 1 — landed 2026-07-20) |
 | RiskFunctions | RiskFunctionFactory | P/T | round-trip + cluster-filter unit tests (Phase 3 — landed 2026-07-20) |
+| RiskFunctions | RiskFunctionResolver / IRiskFunctionResolver | P/T | reference round-trip + stale-id/lenient-name policy tests (Phase 3.5 — landed 2026-07-20) |
 | Hazard | TabularHazard | P/T | NFIP assurance oracles (Phase 6) |
 | Hazard | ParametricUnivariateHazard | P/T | NFIP assurance oracles (Phase 6) |
 | Transform | TabularTransform | P/T | rating-curve oracles (Phase 6) |
@@ -175,6 +186,7 @@ Status legend: — planned · P ported · T unit-tested · V verification covera
 | Consequence | TabularConsequence | P/T | joint-failures oracles (Phase 5) |
 | Core.Enums | FailureModeMethod / DependencyType / JointConsequenceType / RiskType / HazardDimension | P/T | value/order pinning tests (Phase 3 — landed 2026-07-20) |
 | Core.Enums | HazardFunctionType / TransformFunctionType / ResponseFunctionType / ConsequenceFunctionType / RiskElementType / RiskAnalysisMode | P/T | member pinning + not-serialized assertions (v0.10 namespace reorganization — landed 2026-07-20) |
+| Core.Enums | RiskSerializationMode | P/T | mode-invariant hashing + by-reference round-trip tests (Phase 3.5 — landed 2026-07-20) |
 | Systems | ResponseStage / FailureMode | P/T | joint/competing/common-cause oracles (Phase 5) |
 | Systems | SystemComponent (graph-owned; projection + identity hash + occurrence indices + MVN) | P/T | engine scenarios + seed-bug regressions (Phases 4–6) |
 | Graph | IRiskElement / RiskElementBase / Hazard-Transform-Response-ConsequenceElement / RiskConnection / ComponentGraph / factory / resolver / HazardSourceOption | P/T | levee projection acceptance + identity-inertness unit tests (Phase 3); engine scenarios (Phases 5–6) |

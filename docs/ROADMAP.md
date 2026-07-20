@@ -14,6 +14,7 @@ Porting sources in order of authority: (1) the partial C# port `C:\GIT\RMC-Total
 | 1 | Model kernel foundation: `IRiskFunction`/`RiskFunctionBase`, hashing, seeding, sampling, serialization support | Not started |
 | 2 | Core input functions: tabular hazard/transform/response/consequence + parametric hazard/response + non-fail response | Not started |
 | 3 | Risk components + results containers (JSON results redesign) | Not started |
+| 3.5 | Layer boundary seams: function `Id`, serialization modes, function resolver, change propagation | Complete (2026-07-20) |
 | 4 | Analysis foundation + RiskAnalysis engine (mean-only first-class) + reliability mode | Not started |
 | 5 | Verification I — single-component oracle families | Not started |
 | 6 | Verification II — system risk + NFIP assurance | Not started |
@@ -79,11 +80,38 @@ Porting sources in order of authority: (1) the partial C# port `C:\GIT\RMC-Total
 
 **Exit criteria: met** — component + graph layers P/T; occurrence-index behavior pinned by tests; identity-form hashing pinned (the v1 canvas-position seed bug is structurally unreachable).
 
+## Phase 3.5 — Layer boundary seams
+
+Inserted as a fractional phase (rather than renumbering 4–13) after reviewing `Systems.Components`
+against the `C:\GIT\rmc-bestfit` model → UI → App layering. Prepares the library for the UI/App
+layers without changing anything a headless caller sees. Normative outcome:
+[MODEL_LIBRARY_ARCHITECTURE.md §8](requirements/MODEL_LIBRARY_ARCHITECTURE.md#8-layer-boundaries--consumer-contract) (v0.11).
+
+**Scope:** `IRiskFunction.Id`/`AssignNewId` as the rename-proof reference key (stripped from
+hashing); `RiskSerializationMode { SelfContained, ByReference }` with additive `ToXElement(mode)`
+overloads; `IRiskFunctionResolver`/`RiskFunctionResolver` mirroring `RiskElementResolver`;
+wrapped-function change propagation through element → graph → component; authoring surface for a
+DAG editor (`RiskElementFactory.CreateForFunction`/`Create`, `IRiskElement.TryAssignFunction`,
+`GetReferencedFunctions`, unresolved-reference validation).
+
+**The problem it solves:** elements owned and inlined their functions, so a component blob carried
+a full copy of every function. Once functions are stored items in their own right, that copy would
+win on load and silently discard edits made where the function is stored.
+
+**Landed 2026-07-20.** `dotnet build` 0 warnings; `dotnet test -c Release` 260/260; docs validation
+green. Headline pin: a component's canonical hash is byte-identical across both serialization
+modes, so results can never depend on how a project was saved. Also pinned: by-reference round-trip
+re-attaches the *same* function instances (`Assert.AreSame`); stale ids throw, missing names are
+reported by validation; and a model-only end-to-end test builds, validates, and hashes a system
+with no store, no resolver, and no consuming layer in the call path.
+
+**Exit criteria: met.**
+
 ## Phase 4 — Analysis foundation + RiskAnalysis engine + reliability mode
 
-**Scope:** the Phase-3 deferrals first — `SampledComponent`/`SampledFailureMode` (Q-N per-pair shared-draw coupling), `ComponentRiskOutput`, `SetupSamplers`/`Sample` on `SystemComponent`/`FailureMode`, and the `Models/RiskAnalysis/Results` JSON-first containers (see the Phase 3 moved-scope list) — then `Analyses/Support` (`IAnalysis`, `AnalysisBase`, `AnalysisRunCompletedEventArgs` — BestFit mirror) and **`RiskAnalysisOptions`** (ratified extraction; v1.0 option names/defaults preserved: `EstimateMeanRiskOnly=true`, `Realizations=1000` [100–10000], `PRNGSeed=12345`, `LECOutputLength=200` [50–1000], `ConfidenceIntervalWidth=0.9`, `Alpha=0.01`, `ConsequenceThreshold=0`, `SystemRiskMethod`/`JointConsequences`/`ComponentHazardDependency`/`HazardCorrelationMatrix`, integration options + `UseDefaults`/`SetIntegrationDefaults`; new `SamplingScheme`). The options' `ConfidenceIntervalWidth` drives per-function uncertainty summaries through the Phase 2 `ComputeUncertaintyResults` contract.
+**Scope:** the Phase-3 deferrals first — `SampledComponent`/`SampledFailureMode` (Q-N per-pair shared-draw coupling), `ComponentRiskOutput`, `SetupSamplers`/`Sample` on `SystemComponent`/`FailureMode`, and the `RMC.TotalRisk.Results` JSON-first containers (see the Phase 3 moved-scope list) — then `Analyses` (`IAnalysis` in `Core.Interfaces`, `AnalysisBase`, `AnalysisRunCompletedEventArgs` — BestFit mirror) and **`RiskAnalysisOptions`** (ratified extraction; v1.0 option names/defaults preserved: `EstimateMeanRiskOnly=true`, `Realizations=1000` [100–10000], `PRNGSeed=12345`, `LECOutputLength=200` [50–1000], `ConfidenceIntervalWidth=0.9`, `Alpha=0.01`, `ConsequenceThreshold=0`, `SystemRiskMethod`/`JointConsequences`/`ComponentHazardDependency`/`HazardCorrelationMatrix`, integration options + `UseDefaults`/`SetIntegrationDefaults`; new `SamplingScheme`). The options' `ConfidenceIntervalWidth` drives per-function uncertainty summaries through the Phase 2 `ComputeUncertaintyResults` contract.
 
-`RiskAnalysis.RunAsync`: validation gate, content-based per-component seeds + occurrence indices (replacing the v1.0 canvas-order master-PRNG cascade — the seed-dependency bug), per-function `SetupSampler` walk, then the v1.0 compute preserved exactly: mean-only path (`Compute(-1,-1)`-equivalent, every function mean-sampled, same integration) and full-MC path (`Parallel.For`, per-realization `SystemRealization` + compact `SystemRiskResults`, `PostProcessUncertainty` percentile curves). Integration constants preserved: AdaptiveSimpson over `p∈[1e-16,1−1e-16]` with 50 stratified hazard bins, tol 1e-8, MaxDepth 100, MaxEvaluations 1e6; Vegas warmup/final cycles for joint risk; competing-failures 200-bin CIF pre-processing; LEC via log10 consequence bins. Lifecycle: `Task RunAsync(progress, ct)`, cancellation, `AnalysisStarting`/`AnalysisCompleted`. `RiskAnalysis` is fully self-contained (components + options + results) so future composite analyses (`CostBenefitAnalysis` over a `List<RiskAnalysis>` of alternatives) can own instances.
+`RiskAnalysis.RunAsync`: validation gate, content-based per-component seeds + occurrence indices (replacing the v1.0 canvas-order master-PRNG cascade — the seed-dependency bug), per-function `SetupSampler` walk, then the v1.0 compute preserved exactly: mean-only path (`Compute(-1,-1)`-equivalent, every function mean-sampled, same integration) and full-MC path (`Parallel.For`, per-realization `SystemRealization` + compact `SystemRiskResults`, `PostProcessUncertainty` percentile curves). Integration constants preserved: AdaptiveSimpson over `p∈[1e-16,1−1e-16]` with 50 stratified hazard bins, tol 1e-8, MaxDepth 100, MaxEvaluations 1e6; Vegas warmup/final cycles for joint risk; competing-failures 200-bin CIF pre-processing; LEC via log10 consequence bins. Lifecycle: `Task RunAsync(progress, ct)`, cancellation, `AnalysisStarting`/`AnalysisCompleted`. `RiskAnalysis` owns its components (they are not independently creatable in the UI/App) so future composite analyses (`CostBenefitAnalysis` over a `List<RiskAnalysis>` of alternatives) can own instances. Per §8 (v0.11) its `ToXElement()` serializes **options + `IsEstimated` only** — components and results arrive through the constructor, the BestFit `new UnivariateAnalysis(dist, xElement, results)` shape — and the results containers land in `RMC.TotalRisk.Results`.
 
 **`RiskAnalysisMode.Reliability`** (v0.10 — replaces the planned `ReliabilityAnalysis` sibling) — a mode of the one `RiskAnalysis`: failure probabilities / annualized failure probability per FM/component/system, no consequence functions required (relaxed FailureMode validation), reusing the sampled-component machinery with a reduced integrand and its own results shape. One graph traversal serves both modes. May split to a 4b session if the engine session overruns.
 

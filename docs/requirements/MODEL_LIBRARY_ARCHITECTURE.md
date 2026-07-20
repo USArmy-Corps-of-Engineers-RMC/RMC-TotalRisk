@@ -2,7 +2,16 @@
 
 > Living architectural specification for `RMC.TotalRisk.dll` — the headless .NET 10 compute library at the heart of the v1.1.0 modernization. **Authoritative home (since 2026-07-20): `docs/requirements/` in the RMC-TotalRisk repo**; the phased plan implementing this spec is [../ROADMAP.md](../ROADMAP.md). The copy at the `C:\GIT\RMC-TotalRisk-Dev` root is frozen with a pointer here, and legacy porting-source paths referenced below (e.g., `RMC-TotalRisk/RMC.TotalRisk.IO/...`) live in that Dev repo. The locked sections are the contract every cluster-port PR references.
 
-**Status**: 2026-07-20 — **v0.10** (namespace reorganization; supersedes conflicting text below wherever it appears):
+**Status**: 2026-07-20 — **v0.11** (layer boundaries; supersedes conflicting text below wherever it appears):
+
+1. **New normative [§8 Layer boundaries & consumer contract](#8-layer-boundaries--consumer-contract).** What the UI/App/API layers own, how they reference model objects, and what the model library still refuses. Read it before starting the UI phase; it exists so that phase does not invent its own conventions.
+2. **Input functions are referenced by `Guid`, not by name.** `IRiskFunction` gains `Id` + `AssignNewId()`, serialized and stripped by `CanonicalizationRules.ModelRules` (identity, never content). BestFit's name-based references are its own documented regret — a rename or collision can silently re-resolve to a different type — and the shared framework's `NodeBase.NodeGuid` is the counter-example.
+3. **Two serialization modes.** `RiskSerializationMode { SelfContained, ByReference }` with additive `ToXElement(mode)` overloads; the no-arg overload stays `SelfContained`, so headless callers, verification oracles, and the API are untouched. `ByReference` writes `<FunctionReference Id Name/>` markers resolved through the new `IRiskFunctionResolver`, which must return **live** instances — that is what stops an embedded copy from shadowing an edit made where the function is stored. Policy mirrors `RiskElementResolver`: ids authoritative and loud, names lenient and reported.
+4. **The mode cannot move a seed.** `SystemComponent.CanonicalHash()` hashes projected failure modes, which always serialize inline; `FailureMode`/`ResponseStage` take no mode. Directly tested — a project's results must not depend on how the project was saved.
+5. **Components are analysis-owned.** They are not independently creatable in the UI/App; `RiskAnalysis` will own them and serialize **options only**, receiving components and results through its constructor (the BestFit `new UnivariateAnalysis(dist, xElement, results)` shape). This supersedes any reading of §3 that implies a component is a standalone stored item.
+6. **Change propagation.** Elements re-raise their wrapped functions' notifications and the graph forwards element changes, so a consuming layer can invalidate stale results when a shared input is edited.
+
+v0.10 (2026-07-20, namespace reorganization; supersedes conflicting text below wherever it appears):
 
 1. **The `Models` namespace segment is retired.** The library's public shape is now `Core` / `Core.Enums` / `Core.Interfaces` / `RiskFunctions.*` / `Systems.*` / `Analyses` / `Results`, mirroring the sibling Hydrologics library. Folders mirror namespaces exactly; the per-cluster `Support` folders (which declared their parent's namespace and therefore violated that rule) are gone. **Every enum lives in `Core.Enums`, every interface in `Core.Interfaces`** — one type per file. §3 below is rewritten to this layout and is normative.
 2. **Plural namespace segments.** `Systems`, `Hazards`, `Transforms`, `Responses`, `Consequences`. A singular `System` segment would shadow the BCL `System` namespace from inside every `RMC.TotalRisk.*` namespace (CS0234) and break any consumer writing `using RMC.TotalRisk;` (CS0104); a singular `Transform` segment shadows `Numerics.Data.Transform` (this one was caught by the compiler mid-refactor, not in theory). Type names remain singular — `SystemComponent`, `TabularTransform`.
@@ -49,9 +58,10 @@ v0.7 (2026-07-20): Moved to its authoritative home in the RMC-TotalRisk repo (v1
 5. [Cross-cutting patterns](#5-cross-cutting-patterns)
 6. [Cluster architecture](#6-cluster-architecture)
 7. [Risk Analysis engine](#7-risk-analysis-engine)
-8. [Dependency graph](#8-dependency-graph)
-9. [Migration plan](#9-migration-plan)
-10. [Open decisions / tracked questions](#10-open-decisions--tracked-questions)
+8. [Layer boundaries & consumer contract](#8-layer-boundaries--consumer-contract)
+9. [Dependency graph](#9-dependency-graph)
+10. [Migration plan](#10-migration-plan)
+11. [Open decisions / tracked questions](#11-open-decisions--tracked-questions)
 - [Appendix A — Canonicalization rules (v0.6)](#appendix-a--canonicalization-rules-v06)
 - [Appendix B — Seed helper types](#appendix-b--seed-helper-types-semantics-unchanged-from-v05)
 
@@ -1311,7 +1321,104 @@ await ra.RunAsync();
 
 Events fire on the same thread that invokes `RunAsync()`. WPF callers wrap with their own dispatcher invocation if needed.
 
-## 8. Dependency graph
+## 8. Layer boundaries & consumer contract
+
+**v0.11 (2026-07-20).** Normative for every consumer of `RMC.TotalRisk.dll`: the future
+`RMC.TotalRisk.UI` element/persistence layer, the `RMC-TotalRisk` App, `RMC.TotalRisk.Api`, and
+headless/agentic callers. The shape follows `RMC.BestFit`, whose model → UI → App split is the
+in-house precedent this library is meant to slot into.
+
+### 8.1 What owns what
+
+| Concept | Owned by | Persisted as |
+|---|---|---|
+| Input functions (`TabularHazard`, `TabularResponse`, …) | The **consuming layer**, one stored item each | Its own row; the function's `ToXElement()` in one column |
+| `SystemComponent` (graph + options) | Its owning **`RiskAnalysis`** — components are *not* independently creatable in the UI/App | A column on the analysis's row, functions written `ByReference` |
+| `RiskAnalysis` config | Itself | `RiskAnalysis.ToXElement()` — **options and `IsEstimated` only** |
+| Results | Themselves | Separate columns; JSON (per v0.8 §4) |
+
+The analysis rule is BestFit's, verbatim: `UnivariateAnalysis.ToXElement()` writes config only and
+documents that it excludes the underlying model and the computed results; the model is stored in
+its own column and comes back through `new UnivariateAnalysis(dist, xElement, mcmcResults, …)`.
+`RiskAnalysis` will follow that constructor shape — components and results in, config from XML.
+This is what lets a single component be shared across the alternatives of a
+`CostBenefitAnalysis`, and what keeps the analysis blob from becoming an all-in-one document.
+
+### 8.2 Referencing functions: `Id`, not name
+
+`IRiskFunction.Id` (a `Guid`) is the persistent reference key. It is serialized and **stripped by
+`CanonicalizationRules.ModelRules`**, so identity can never perturb content or a seed.
+`AssignNewId()` is what a "duplicate this function" flow calls; a deep copy keeps the id, because
+a copy is the same logical function.
+
+BestFit references elements by **name**, resolved by linear scan with defensive type checks — its
+own retrospective flags this as the thing to reconsider, since a rename or a name collision can
+silently re-resolve to a different type. The shared framework's `NodeBase.NodeGuid` is the
+counter-example, and `IRiskElement.Id` already followed it. Names remain serialized alongside ids
+as a lenient fallback for hand-authored and legacy forms.
+
+### 8.3 The two serialization modes
+
+`RiskSerializationMode` governs how a graph writes the functions its elements wrap:
+
+- **`SelfContained`** (the default; the no-arg `ToXElement()` delegates to it) — function content
+  inline. The form stands alone. Headless callers, verification oracles, and the REST/MCP API use
+  this and are unaffected by anything in this section.
+- **`ByReference`** — each wrapped function becomes a `<FunctionReference Id="…" Name="…"/>`.
+  Reading such a form requires an `IRiskFunctionResolver`, which **must return the live stored
+  instance, not a copy**. That is the entire point: a graph and the store it was loaded from
+  observe the same object, so an edit in one is seen in the other.
+
+`IRiskFunctionResolver` mirrors `RiskElementResolver` exactly — an id is authoritative and throws
+when stale (a dangling persistent reference means the stored form is inconsistent); a name-only
+reference is lenient and surfaces through validation as an unresolved reference naming it, which is
+deliberately distinguished from "no function assigned".
+
+**Invariant (tested):** the mode cannot move a canonical hash. `SystemComponent.CanonicalHash()`
+hashes the projected `FailureMode` XML, and `FailureMode`/`ResponseStage` always serialize their
+functions inline regardless of mode. A component seeds identically however it was stored — if this
+ever breaks, a project's Monte Carlo results would depend on how the project was saved.
+
+### 8.4 Change propagation
+
+Elements subscribe to their wrapped functions' `PropertyChanged` and re-raise it; `ComponentGraph`
+forwards element changes; `SystemComponent` subscribes to its graph. So an edit made where a
+function is stored reaches the analyses that consume it, and a consuming layer can invalidate
+stale results — the role `UnivariateAnalysis.Model_PropertyChanged` plays in BestFit.
+
+One documented gap: mutating `ConsequenceElement.Functions` in place bypasses subscription
+management. Use `AddFunction`/`RemoveFunction`. (Migrating that property to an
+`ObservableCollection` would close it and give WPF a bindable ordered list; deferred as a UI-phase
+decision.)
+
+### 8.5 Authoring surface for a graph editor
+
+The DAG control wires nodes and hands the model layer the inner `IRiskFunction`s. It should use:
+
+- `RiskElementFactory.CreateForFunction(function)` / `Create(RiskElementType)` — never its own
+  cluster→element mapping, which is the mapping most likely to drift as clusters land.
+- `IRiskElement.TryAssignFunction(function, out error)` — reports a cluster mismatch instead of
+  throwing, because dropping the wrong function on a node is ordinary user error.
+- `ComponentGraph.GetUniqueName` / `TryRenameElement` — the name authority.
+- `ComponentGraph.GetAvailableHazardSources(element)` — the binding picker, reused by validation
+  so picker and validator agree by construction.
+- `SystemComponent.GetReferencedFunctions()` — the save-time dependency set, and the answer to
+  "this function is used by N components — delete anyway?".
+
+Canvas position lives on the element (`LeftPosition`/`TopPosition`, stripped from hashing), so the
+editor needs no parallel layout store.
+
+### 8.6 What the model library still refuses
+
+Unchanged from §2: no WPF, no `System.Windows.*`, no SQLite, no file I/O, no `RMC.BestFit`
+reference, no DAG.dll. `IElement` and the wrapper vocabulary stay in the UI layer; the model layer
+speaks `IRiskElement`. A user must be able to build a system and run an analysis from the model
+library alone — asserted by a model-only end-to-end test with no store, no resolver, and no
+consuming layer in the call path.
+
+---
+
+## 9. Dependency graph
 
 v0.6: `RMC.TotalRisk.dll` references **Numerics only** — the same red line Hydrologics enforces. BestFit fitted results arrive as *data* (Numerics artifacts), not through a DLL reference; see [SHARED_FUNCTIONS_STRATEGY.md](SHARED_FUNCTIONS_STRATEGY.md) §5.
 
@@ -1354,7 +1461,7 @@ C:\GIT\Hydrologics\               ← sibling consumer of the shared Numerics.Fu
 C:\GIT\Wpf-framework\             ← contains DAG; only RMC.TotalRisk.UI (Phase 3) references this
 ```
 
-## 9. Migration plan
+## 10. Migration plan
 
 > **v0.8: SUPERSEDED by [../ROADMAP.md](../ROADMAP.md)** — the ratified phase order is: 1 kernel foundation → 2 core input functions (tabular ×4 + parametric hazard/response + non-fail) → 3 components + JSON results → 4 analysis foundation + engine + ReliabilityAnalysis → 5–6 verification → 7–13 backfill (closed-form functions, Numerics expansion, composites, event trees, bivariate/BestFit/LifeSim, hardening, release) → 14 REST API + MCP server. The sub-phase text below is retained for its per-cluster task detail only; where it conflicts with ROADMAP.md or the v0.8 status entry, those win.
 
@@ -1444,7 +1551,7 @@ Per ROADMAP §Phase 2:
 Plus added by this architecture:
 - v1 reproducibility-bug regression test passes for every cluster's parity scenario (shuffle/rename/reorder all reproduce bit-identical results).
 
-## 10. Open decisions / tracked questions
+## 11. Open decisions / tracked questions
 
 Living section. Append entries as we go. Once an item is resolved, move it under `## Resolved` with the resolution date.
 
