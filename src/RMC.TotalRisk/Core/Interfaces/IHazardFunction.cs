@@ -1,4 +1,5 @@
 using Numerics.Distributions;
+using RMC.TotalRisk.Core.Enums;
 
 namespace RMC.TotalRisk.Core.Interfaces
 {
@@ -21,6 +22,12 @@ namespace RMC.TotalRisk.Core.Interfaces
     /// </remarks>
     public interface IHazardFunction : IRiskFunction
     {
+        /// <summary>
+        /// The concrete kind of this hazard function. A runtime discriminator for callers that
+        /// branch on function kind; never serialized and never hashed.
+        /// </summary>
+        HazardFunctionType FunctionType { get; }
+
         /// <summary>
         /// Samples the mean hazard function — the expected (mean) frequency curve across the
         /// function's knowledge uncertainty. Deterministic functions return their single curve.

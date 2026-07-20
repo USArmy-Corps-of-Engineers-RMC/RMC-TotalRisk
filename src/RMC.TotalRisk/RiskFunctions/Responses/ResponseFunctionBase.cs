@@ -1,6 +1,7 @@
 using Numerics.Data;
 using Numerics.Distributions;
 using RMC.TotalRisk.Core;
+using RMC.TotalRisk.Core.Enums;
 using RMC.TotalRisk.Core.Interfaces;
 
 namespace RMC.TotalRisk.RiskFunctions.Responses
@@ -17,6 +18,9 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
     /// </remarks>
     public abstract class ResponseFunctionBase : RiskFunctionBase, IResponseFunction
     {
+        /// <inheritdoc/>
+        public abstract ResponseFunctionType FunctionType { get; }
+
         /// <inheritdoc/>
         public abstract OrderedPairedData SampleResponseFunction();
 

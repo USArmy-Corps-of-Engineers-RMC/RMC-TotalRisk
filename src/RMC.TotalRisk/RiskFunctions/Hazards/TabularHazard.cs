@@ -249,6 +249,9 @@ namespace RMC.TotalRisk.RiskFunctions.Hazards
         }
 
         /// <inheritdoc/>
+        public override HazardFunctionType FunctionType => HazardFunctionType.Tabular;
+
+        /// <inheritdoc/>
         public override bool IsDeterministic => UncertaintyValue == FunctionUncertainty.None;
 
         /// <inheritdoc/>

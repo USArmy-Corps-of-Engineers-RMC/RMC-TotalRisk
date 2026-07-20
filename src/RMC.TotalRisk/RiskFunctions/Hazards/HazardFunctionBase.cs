@@ -1,5 +1,6 @@
 using Numerics.Distributions;
 using RMC.TotalRisk.Core;
+using RMC.TotalRisk.Core.Enums;
 using RMC.TotalRisk.Core.Interfaces;
 
 namespace RMC.TotalRisk.RiskFunctions.Hazards
@@ -15,6 +16,9 @@ namespace RMC.TotalRisk.RiskFunctions.Hazards
     /// </remarks>
     public abstract class HazardFunctionBase : RiskFunctionBase, IHazardFunction
     {
+        /// <inheritdoc/>
+        public abstract HazardFunctionType FunctionType { get; }
+
         /// <inheritdoc/>
         public abstract IUnivariateDistribution SampleFunction();
 

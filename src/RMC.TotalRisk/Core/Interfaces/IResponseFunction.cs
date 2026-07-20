@@ -1,5 +1,6 @@
 using Numerics.Data;
 using Numerics.Distributions;
+using RMC.TotalRisk.Core.Enums;
 
 namespace RMC.TotalRisk.Core.Interfaces
 {
@@ -24,6 +25,12 @@ namespace RMC.TotalRisk.Core.Interfaces
     /// </remarks>
     public interface IResponseFunction : IRiskFunction
     {
+        /// <summary>
+        /// The concrete kind of this response function. A runtime discriminator for callers that
+        /// branch on function kind; never serialized and never hashed.
+        /// </summary>
+        ResponseFunctionType FunctionType { get; }
+
         /// <summary>
         /// Samples the mean response curve — each ordinate at its mean failure probability.
         /// </summary>

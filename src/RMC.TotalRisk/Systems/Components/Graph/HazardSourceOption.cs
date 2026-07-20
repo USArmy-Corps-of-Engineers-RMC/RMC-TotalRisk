@@ -1,4 +1,5 @@
 using RMC.TotalRisk.Core.Interfaces;
+
 namespace RMC.TotalRisk.Systems.Components.Graph
 {
     /// <summary>

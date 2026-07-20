@@ -1,4 +1,5 @@
 using RMC.TotalRisk.RiskFunctions.Hazards;
+
 namespace RMC.TotalRisk.Core.Enums
 {
     /// <summary>

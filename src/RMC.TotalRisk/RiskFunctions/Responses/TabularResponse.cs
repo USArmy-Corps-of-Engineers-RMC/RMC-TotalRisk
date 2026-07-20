@@ -5,6 +5,7 @@ using System.Xml.Linq;
 using Numerics.Data;
 using Numerics.Distributions;
 using RMC.TotalRisk.Core;
+using RMC.TotalRisk.Core.Enums;
 using RMC.TotalRisk.Core.Interfaces;
 
 namespace RMC.TotalRisk.RiskFunctions.Responses
@@ -148,6 +149,9 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
                 }
             }
         }
+
+        /// <inheritdoc/>
+        public override ResponseFunctionType FunctionType => ResponseFunctionType.Tabular;
 
         /// <inheritdoc/>
         public override bool IsDeterministic => UncertainOrderedPairedData.Distribution == UnivariateDistributionType.Deterministic;

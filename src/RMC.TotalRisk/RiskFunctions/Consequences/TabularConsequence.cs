@@ -6,6 +6,7 @@ using Numerics.Data;
 using Numerics.Distributions;
 using Numerics.Functions;
 using RMC.TotalRisk.Core;
+using RMC.TotalRisk.Core.Enums;
 using RMC.TotalRisk.Core.Interfaces;
 
 namespace RMC.TotalRisk.RiskFunctions.Consequences
@@ -149,6 +150,9 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
                 }
             }
         }
+
+        /// <inheritdoc/>
+        public override ConsequenceFunctionType FunctionType => ConsequenceFunctionType.Tabular;
 
         /// <inheritdoc/>
         public override bool IsDeterministic => UncertainOrderedPairedData.Distribution == UnivariateDistributionType.Deterministic;

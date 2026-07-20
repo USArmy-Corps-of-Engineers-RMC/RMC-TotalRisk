@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Xml.Linq;
+using RMC.TotalRisk.Core.Enums;
 using RMC.TotalRisk.Core.Interfaces;
 using RMC.TotalRisk.RiskFunctions;
 
@@ -94,6 +95,9 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         }
 
         /// <inheritdoc/>
+        /// <inheritdoc/>
+        public override RiskElementType ElementType => RiskElementType.Hazard;
+
         public override int InputCount => 0;
 
         /// <inheritdoc/>

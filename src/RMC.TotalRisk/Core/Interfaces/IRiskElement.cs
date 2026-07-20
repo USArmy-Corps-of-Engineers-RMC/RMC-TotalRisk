@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Xml.Linq;
+using RMC.TotalRisk.Core.Enums;
 using RMC.TotalRisk.Systems.Components.Graph;
 
 namespace RMC.TotalRisk.Core.Interfaces
@@ -38,6 +39,13 @@ namespace RMC.TotalRisk.Core.Interfaces
         /// <see cref="AssignNewId"/>.
         /// </summary>
         Guid Id { get; }
+
+        /// <summary>
+        /// The role this element plays in the compute chain. A runtime discriminator for graph
+        /// walking and topology validation; never serialized (the element's XML name carries the
+        /// concrete type) and never hashed.
+        /// </summary>
+        RiskElementType ElementType { get; }
 
         /// <summary>
         /// Assigns a fresh <see cref="Id"/> — used when an element is duplicated into the same

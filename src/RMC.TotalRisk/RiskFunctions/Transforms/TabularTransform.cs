@@ -5,6 +5,7 @@ using Numerics.Data;
 using Numerics.Distributions;
 using Numerics.Functions;
 using RMC.TotalRisk.Core;
+using RMC.TotalRisk.Core.Enums;
 using RMC.TotalRisk.Core.Interfaces;
 
 namespace RMC.TotalRisk.RiskFunctions.Transforms
@@ -148,6 +149,9 @@ namespace RMC.TotalRisk.RiskFunctions.Transforms
                 }
             }
         }
+
+        /// <inheritdoc/>
+        public override TransformFunctionType FunctionType => TransformFunctionType.Tabular;
 
         /// <inheritdoc/>
         public override bool IsDeterministic => UncertainOrderedPairedData.Distribution == UnivariateDistributionType.Deterministic;

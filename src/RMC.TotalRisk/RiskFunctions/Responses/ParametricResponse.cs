@@ -10,6 +10,7 @@ using Numerics.Data;
 using Numerics.Distributions;
 using Numerics.Mathematics.Optimization;
 using RMC.TotalRisk.Core;
+using RMC.TotalRisk.Core.Enums;
 using RMC.TotalRisk.Core.Interfaces;
 
 namespace RMC.TotalRisk.RiskFunctions.Responses
@@ -337,6 +338,9 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
         /// The estimated uncertainty results, index-aligned with <see cref="ProbabilityOrdinates"/>.
         /// </summary>
         public UncertaintyAnalysisResults? Results { get; private set; }
+
+        /// <inheritdoc/>
+        public override ResponseFunctionType FunctionType => ResponseFunctionType.Parametric;
 
         /// <inheritdoc/>
         public override bool IsDeterministic => !IsUncertain;

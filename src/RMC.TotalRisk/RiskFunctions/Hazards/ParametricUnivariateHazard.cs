@@ -10,6 +10,7 @@ using Numerics.Data;
 using Numerics.Distributions;
 using Numerics.Mathematics.Optimization;
 using RMC.TotalRisk.Core;
+using RMC.TotalRisk.Core.Enums;
 using RMC.TotalRisk.Core.Interfaces;
 
 namespace RMC.TotalRisk.RiskFunctions.Hazards
@@ -341,6 +342,9 @@ namespace RMC.TotalRisk.RiskFunctions.Hazards
         /// <see cref="ProbabilityOrdinates"/>.
         /// </summary>
         public UncertaintyAnalysisResults? Results { get; private set; }
+
+        /// <inheritdoc/>
+        public override HazardFunctionType FunctionType => HazardFunctionType.ParametricUnivariate;
 
         /// <inheritdoc/>
         public override bool IsDeterministic => !IsUncertain;

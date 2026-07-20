@@ -1,4 +1,5 @@
 using Numerics.Functions;
+using RMC.TotalRisk.Core.Enums;
 
 namespace RMC.TotalRisk.Core.Interfaces
 {
@@ -21,6 +22,12 @@ namespace RMC.TotalRisk.Core.Interfaces
     /// </remarks>
     public interface ITransformFunction : IRiskFunction
     {
+        /// <summary>
+        /// The concrete kind of this transform function. A runtime discriminator for callers that
+        /// branch on function kind; never serialized and never hashed.
+        /// </summary>
+        TransformFunctionType FunctionType { get; }
+
         /// <summary>
         /// The hazard type this function's output axis represents (e.g., "Stage"). Axis-label
         /// metadata — serialized, never hashed.

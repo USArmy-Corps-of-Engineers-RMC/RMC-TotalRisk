@@ -1,4 +1,5 @@
 using Numerics.Functions;
+using RMC.TotalRisk.Core.Enums;
 
 namespace RMC.TotalRisk.Core.Interfaces
 {
@@ -20,6 +21,12 @@ namespace RMC.TotalRisk.Core.Interfaces
     /// </remarks>
     public interface IConsequenceFunction : IRiskFunction
     {
+        /// <summary>
+        /// The concrete kind of this consequence function. A runtime discriminator for callers that
+        /// branch on function kind; never serialized and never hashed.
+        /// </summary>
+        ConsequenceFunctionType FunctionType { get; }
+
         /// <summary>
         /// The consequence type this function's output axis represents (e.g., "Life Loss",
         /// "Damages"). Axis-label metadata — serialized, never hashed.

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Xml.Linq;
+using RMC.TotalRisk.Core.Enums;
 using RMC.TotalRisk.Core.Interfaces;
 using RMC.TotalRisk.RiskFunctions;
 using RMC.TotalRisk.RiskFunctions.Responses;
@@ -167,6 +168,9 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         /// One until bivariate response functions land (Phase 11), when this getter becomes
         /// arity-derived (2 for a bivariate wrapped function).
         /// </remarks>
+        /// <inheritdoc/>
+        public override RiskElementType ElementType => RiskElementType.Response;
+
         public override int InputCount => 1;
 
         /// <inheritdoc/>

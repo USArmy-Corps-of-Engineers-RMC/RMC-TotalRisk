@@ -4,6 +4,7 @@ using System.Xml.Linq;
 using Numerics.Data;
 using Numerics.Distributions;
 using RMC.TotalRisk.Core;
+using RMC.TotalRisk.Core.Enums;
 using RMC.TotalRisk.Core.Interfaces;
 
 namespace RMC.TotalRisk.RiskFunctions.Responses
@@ -58,6 +59,9 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
         #endregion
 
         #region Members
+
+        /// <inheritdoc/>
+        public override ResponseFunctionType FunctionType => ResponseFunctionType.NonFail;
 
         /// <inheritdoc/>
         public override bool IsDeterministic => true;

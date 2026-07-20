@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Xml.Linq;
 using RMC.TotalRisk.Core;
+using RMC.TotalRisk.Core.Enums;
 using RMC.TotalRisk.Core.Interfaces;
 
 namespace RMC.TotalRisk.Systems.Components.Graph
@@ -136,6 +137,9 @@ namespace RMC.TotalRisk.Systems.Components.Graph
                 }
             }
         }
+
+        /// <inheritdoc/>
+        public abstract RiskElementType ElementType { get; }
 
         /// <inheritdoc/>
         public abstract int InputCount { get; }

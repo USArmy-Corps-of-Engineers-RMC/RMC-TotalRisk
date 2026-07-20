@@ -1,5 +1,6 @@
 using Numerics.Functions;
 using RMC.TotalRisk.Core;
+using RMC.TotalRisk.Core.Enums;
 using RMC.TotalRisk.Core.Interfaces;
 
 namespace RMC.TotalRisk.RiskFunctions.Consequences
@@ -53,6 +54,9 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
                 }
             }
         }
+
+        /// <inheritdoc/>
+        public abstract ConsequenceFunctionType FunctionType { get; }
 
         /// <inheritdoc/>
         public abstract IUnivariateFunction SampleFunction();
