@@ -1,7 +1,14 @@
 using System;
 using System.Collections.Generic;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Numerics.Data;
+using Numerics.Distributions;
+using RMC.TotalRisk.Models.ConsequenceFunctions;
+using RMC.TotalRisk.Models.HazardFunctions;
+using RMC.TotalRisk.Models.HazardFunctions.Univariate;
+using RMC.TotalRisk.Models.ResponseFunctions;
 using RMC.TotalRisk.Models.Support;
+using RMC.TotalRisk.Models.TransformFunctions;
 
 namespace RMC.TotalRisk.Tests.Models.Support;
 
@@ -37,6 +44,40 @@ public class HashInvarianceKitchenSinkTests
             nameof(StubRiskFunction),
             () => new StubRiskFunction { Name = "Stub", Description = "Rep", SpecifiedHazard = "Flow", HazardUnit = "cfs", Value = 2.5 },
             f => ((StubRiskFunction)f).Value = 99.5);
+
+        // Phase 2 — core input functions. (NonFailResponse is deliberately absent: it carries no
+        // compute content by design; its content-free hashing is pinned in NonFailResponseTests.)
+        yield return new RegistryEntry(
+            nameof(TabularHazard),
+            () => new TabularHazard { Name = "Hazard", SpecifiedHazard = "Stage", HazardUnit = "ft" },
+            f => ((TabularHazard)f).UncertaintyValue = FunctionUncertainty.Hazard);
+
+        yield return new RegistryEntry(
+            nameof(ParametricUnivariateHazard),
+            () => new ParametricUnivariateHazard { Name = "Hazard", SpecifiedHazard = "Flow", HazardUnit = "cfs", ParentDistribution = new Normal(100d, 20d) },
+            f => ((ParametricUnivariateHazard)f).PRNGSeed = 999);
+
+        yield return new RegistryEntry(
+            nameof(TabularTransform),
+            () => new TabularTransform { Name = "Rating", SpecifiedHazard = "Flow", HazardUnit = "cfs", TransformedHazard = "Stage", TransformedHazardUnit = "ft" },
+            f => ((TabularTransform)f).UncertainOrderedPairedData = new UncertainOrderedPairedData(
+                new[] { new UncertainOrdinate(0d, new Deterministic(0d)), new UncertainOrdinate(2d, new Deterministic(3d)) },
+                true, SortOrder.Ascending, false, SortOrder.None, UnivariateDistributionType.Deterministic));
+
+        yield return new RegistryEntry(
+            nameof(TabularResponse),
+            () => new TabularResponse { Name = "Fragility", SpecifiedHazard = "Stage", HazardUnit = "ft" },
+            f => ((TabularResponse)f).ProbabilityTransform = Transform.NormalZ);
+
+        yield return new RegistryEntry(
+            nameof(ParametricResponse),
+            () => new ParametricResponse { Name = "Fragility", SpecifiedHazard = "Stage", HazardUnit = "ft", ParentDistribution = new Normal(10d, 2d) },
+            f => ((ParametricResponse)f).EffectiveRecordLength = 77);
+
+        yield return new RegistryEntry(
+            nameof(TabularConsequence),
+            () => new TabularConsequence { Name = "Damages", SpecifiedHazard = "Stage", HazardUnit = "ft", SpecifiedConsequence = "Damages", ConsequenceUnit = "$" },
+            f => ((TabularConsequence)f).HazardTransform = Transform.Logarithmic);
     }
 
     /// <summary>Verifies metadata edits (rename/re-describe/relabel) never move any registered type's hash.</summary>

@@ -140,7 +140,7 @@ The phased roadmap lives in `docs/ROADMAP.md` — one phase per working session,
 3. `C:\GIT\RMC-TotalRisk-Dev\RMC-TotalRisk\Test_TotalRisk\` — ~128 hand-rolled Monte Carlo oracle methods (fixed seeds, no asserts). Source for verification tests, NOT for model code.
 4. Normative design specs: `docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md` (v0.6+) and `docs/requirements/SHARED_FUNCTIONS_STRATEGY.md`. Where the spec deliberately departs from legacy (seeding, sampling, no-BestFit imports), the spec wins.
 
-**Porting fidelity rule:** legacy math is the reference behavior — match it exactly during a port; do not "fix" reference behavior mid-port. Deliberate behavioral changes (content-based seeding, LHS sampling) are those ratified in the requirements docs, nothing else.
+**Porting rule (amended 2026-07-20):** preserve the v1.0 **API surface** (signatures, defaults, lifecycle) and its **reference results**, but actively improve the implementations — fix numerical fragility, imprecision, and inefficiency wherever v1.0 is demonstrably flawed (example: v1.0 `ForceMonotonic` nudged by an absolute machine epsilon that is unrepresentable at hazard magnitudes ≥ 1 and was swallowed by the tolerance-equal ordinate setter — v1.1 uses a scale-aware nudge). Every improvement is documented in the type's XML `<remarks>` and the session's PROGRESS entry, and covered by a test. Verification oracles (Phases 5–6) remain the arbiter that improvements did not change reference results beyond statistical tolerance. Larger deliberate behavioral changes (content-based seeding, LHS sampling, JSON results) are those ratified in the requirements docs.
 
 ## Ported Types Matrix
 
@@ -149,13 +149,13 @@ Status legend: — planned · P ported · T unit-tested · V verification covera
 | Cluster | Type | Status | Verification anchor |
 |---|---|---|---|
 | Support | IRiskFunction / RiskFunctionBase / CanonicalContentHasher / CanonicalizationRules / SeedHelpers | P/T | hash-invariance + seeding unit tests (Phase 1 — landed 2026-07-20) |
-| Hazard | TabularHazard | — | NFIP assurance oracles (Phase 6) |
-| Hazard | ParametricUnivariateHazard | — | NFIP assurance oracles (Phase 6) |
-| Transform | TabularTransform | — | rating-curve oracles (Phase 6) |
-| Response | TabularResponse | — | joint/competing/common-cause oracles (Phase 5) |
-| Response | ParametricResponse | — | joint/competing/common-cause oracles (Phase 5) |
-| Response | NonFailResponse | — | engine scenarios (Phase 5) |
-| Consequence | TabularConsequence | — | joint-failures oracles (Phase 5) |
+| Hazard | TabularHazard | P/T | NFIP assurance oracles (Phase 6) |
+| Hazard | ParametricUnivariateHazard | P/T | NFIP assurance oracles (Phase 6) |
+| Transform | TabularTransform | P/T | rating-curve oracles (Phase 6) |
+| Response | TabularResponse | P/T | joint/competing/common-cause oracles (Phase 5) |
+| Response | ParametricResponse | P/T | joint/competing/common-cause oracles (Phase 5) |
+| Response | NonFailResponse | P/T | engine scenarios (Phase 5) |
+| Consequence | TabularConsequence | P/T | joint-failures oracles (Phase 5) |
 | Risk | SystemComponent / FailureMode / Sampled* / results | — | engine scenarios (Phases 5–6) |
 | Engine | RiskAnalysis + RiskAnalysisOptions / ReliabilityAnalysis | — | full oracle families (Phases 5–6) + seed-bug regressions (Phase 4) |
 | Backfill | LinearTransform / PowerTransform / ParametricConsequenceFunction / NonparametricHazard | — | closed-form checks + deferred EAD/NFIP scenarios (Phase 7) |

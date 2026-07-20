@@ -6,20 +6,18 @@ namespace RMC.TotalRisk.Tests.Models.Support;
 
 /// <summary>
 /// Unit tests for <see cref="FunctionHelpers.ForceMonotonic(OrderedPairedData)"/> — the four
-/// sort-order branches of the epsilon-nudge repair, ported exactly from v1.0.
+/// sort-order branches of the strict-monotonicity repair.
 /// </summary>
 /// <remarks>
-/// Reference behavior discovered during the port and pinned here: the repair writes through the
-/// <see cref="OrderedPairedData"/> indexer, whose setter ignores assignments that are
-/// tolerance-equal to the old ordinate (<see cref="Ordinate"/> equality treats |Δ| ≤ machine
-/// epsilon as equal). A genuine curve CROSSING (violation larger than machine epsilon) is
-/// therefore clamped to one epsilon past the predecessor, while an exact TIE is left in place —
-/// identical to v1.0, which ran against the same Numerics semantics.
+/// v1.1 improves on the v1.0 repair (absolute machine-epsilon nudge — unrepresentable at
+/// magnitudes ≥ 1 and swallowed by the tolerance-equal ordinate setter): the nudge is now
+/// scale-aware, so ties and crossings repair at every magnitude. The large-magnitude and
+/// exact-tie tests below pin the improvement.
 /// </remarks>
 [TestClass]
 public class FunctionHelpersTests
 {
-    /// <summary>Verifies the ascending-X / ascending-Y branch clamps a crossing to just past the predecessor.</summary>
+    /// <summary>Verifies the ascending-X / ascending-Y branch repairs a crossing.</summary>
     [TestMethod]
     public void Test_ForceMonotonic_AscendingAscending_RepairsCrossing()
     {
@@ -40,7 +38,7 @@ public class FunctionHelpersTests
         Assert.AreEqual(0.3, opd[2].X, 0d);
     }
 
-    /// <summary>Verifies the ascending-X / descending-Y branch clamps X upward and Y downward.</summary>
+    /// <summary>Verifies the ascending-X / descending-Y branch nudges X upward and Y downward.</summary>
     [TestMethod]
     public void Test_ForceMonotonic_AscendingDescending_RepairsCrossing()
     {
@@ -101,11 +99,11 @@ public class FunctionHelpersTests
     }
 
     /// <summary>
-    /// Pins the discovered v1.0 nuance: an exact tie nudges by exactly machine epsilon, which the
-    /// tolerance-equal indexer discards — the tie survives the repair pass unchanged.
+    /// Pins the v1.1 improvement: exact ties repair to a strictly monotonic, valid curve (the
+    /// v1.0 one-epsilon nudge was discarded by the tolerance-equal ordinate setter).
     /// </summary>
     [TestMethod]
-    public void Test_ForceMonotonic_ExactTie_IsLeftInPlace()
+    public void Test_ForceMonotonic_ExactTie_Repairs()
     {
         // Arrange
         var opd = new OrderedPairedData(
@@ -116,10 +114,37 @@ public class FunctionHelpersTests
         // Act
         FunctionHelpers.ForceMonotonic(opd);
 
-        // Assert — tolerance-equality in the ordinate setter swallowed the one-epsilon nudge.
-        Assert.AreEqual(0.1, opd[1].X, 0d);
-        Assert.AreEqual(0.2, opd[1].Y, 0d);
+        // Assert — strictly increasing and valid after repair.
+        Assert.IsTrue(opd[1].X > opd[0].X);
+        Assert.IsTrue(opd[1].Y > opd[0].Y);
+        Assert.IsTrue(opd[2].X > opd[1].X);
+        Assert.IsTrue(opd.IsValid);
+    }
+
+    /// <summary>
+    /// Pins the v1.1 improvement at real hazard scales: the v1.0 absolute-epsilon nudge rounds
+    /// away at magnitudes ≥ 1 (10000 − 1.11e−16 == 10000), leaving the violation in place; the
+    /// scale-aware nudge repairs it.
+    /// </summary>
+    [TestMethod]
+    public void Test_ForceMonotonic_LargeMagnitude_Repairs()
+    {
+        // Arrange — flow-scale hazards with a tie and a crossing.
+        var opd = new OrderedPairedData(
+            new[] { 10000d, 10000d, 9000d, 9500d }, new[] { 1000d, 1000d, 3000d, 2500d },
+            true, SortOrder.Descending, true, SortOrder.Ascending);
         Assert.IsFalse(opd.IsValid);
+
+        // Act
+        FunctionHelpers.ForceMonotonic(opd);
+
+        // Assert — strictly monotonic at every step, at full magnitude.
+        for (int i = 1; i < opd.Count; i++)
+        {
+            Assert.IsTrue(opd[i].X < opd[i - 1].X, $"X not strictly descending at {i}.");
+            Assert.IsTrue(opd[i].Y > opd[i - 1].Y, $"Y not strictly ascending at {i}.");
+        }
+        Assert.IsTrue(opd.IsValid);
     }
 
     /// <summary>Verifies an already-monotonic curve is left untouched.</summary>
@@ -138,6 +163,23 @@ public class FunctionHelpersTests
         Assert.AreEqual(0.1, opd[0].X, 0d);
         Assert.AreEqual(0.2, opd[1].X, 0d);
         Assert.AreEqual(0.3, opd[2].X, 0d);
+        Assert.AreEqual(0.2, opd[1].Y, 0d);
+    }
+
+    /// <summary>Verifies curves without a declared Y order are left untouched (v1.0 behavior).</summary>
+    [TestMethod]
+    public void Test_ForceMonotonic_NoDeclaredYOrder_Unchanged()
+    {
+        // Arrange — transform-style table: Y unordered.
+        var opd = new OrderedPairedData(
+            new[] { 0.1, 0.1 }, new[] { 0.5, 0.2 },
+            true, SortOrder.Ascending, false, SortOrder.None);
+
+        // Act
+        FunctionHelpers.ForceMonotonic(opd);
+
+        // Assert
+        Assert.AreEqual(0.1, opd[1].X, 0d);
         Assert.AreEqual(0.2, opd[1].Y, 0d);
     }
 }
