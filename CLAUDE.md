@@ -148,7 +148,7 @@ Status legend: — planned · P ported · T unit-tested · V verification covera
 
 | Cluster | Type | Status | Verification anchor |
 |---|---|---|---|
-| Support | IRiskFunction / RiskFunctionBase / CanonicalContentHasher / CanonicalizationRules / SeedHelpers | — | hash-invariance + seeding unit tests (Phase 1) |
+| Support | IRiskFunction / RiskFunctionBase / CanonicalContentHasher / CanonicalizationRules / SeedHelpers | P/T | hash-invariance + seeding unit tests (Phase 1 — landed 2026-07-20) |
 | Hazard | TabularHazard | — | NFIP assurance oracles (Phase 6) |
 | Hazard | ParametricUnivariateHazard | — | NFIP assurance oracles (Phase 6) |
 | Transform | TabularTransform | — | rating-curve oracles (Phase 6) |
