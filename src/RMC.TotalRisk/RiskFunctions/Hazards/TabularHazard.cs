@@ -68,8 +68,7 @@ namespace RMC.TotalRisk.RiskFunctions.Hazards
         {
             if (xElement == null) throw new ArgumentNullException(nameof(xElement));
 
-            Name = SerializationUtilities.ReadString(xElement, nameof(Name));
-            Description = SerializationUtilities.ReadString(xElement, nameof(Description));
+            ReadIdentityAttributes(xElement);
             SpecifiedHazard = SerializationUtilities.ReadString(xElement, nameof(SpecifiedHazard));
             HazardUnit = SerializationUtilities.ReadString(xElement, nameof(HazardUnit));
             _hazardTransform = SerializationUtilities.ReadEnum(xElement, nameof(HazardTransform), Transform.None);
@@ -523,8 +522,7 @@ namespace RMC.TotalRisk.RiskFunctions.Hazards
         public override XElement ToXElement()
         {
             var element = new XElement(nameof(TabularHazard));
-            element.SetAttributeValue(nameof(Name), Name);
-            element.SetAttributeValue(nameof(Description), Description);
+            WriteIdentityAttributes(element);
             element.SetAttributeValue(nameof(SpecifiedHazard), SpecifiedHazard);
             element.SetAttributeValue(nameof(HazardUnit), HazardUnit);
             element.SetAttributeValue(nameof(HazardTransform), HazardTransform.ToString());

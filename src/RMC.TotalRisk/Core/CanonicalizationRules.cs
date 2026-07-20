@@ -62,8 +62,10 @@ namespace RMC.TotalRisk.Core
         private static readonly CanonicalizationRules _modelRules = new CanonicalizationRules(
             strippedAttributes: new[]
             {
-                // Identity and display metadata.
-                "Name", "Description",
+                // Identity and display metadata. "Id" is the persistent reference key consuming
+                // layers point at (IRiskFunction.Id, IRiskElement.Id); it is identity, not content,
+                // so two objects with identical content and different ids must hash identically.
+                "Id", "Name", "Description",
                 // Axis labels — they describe units and hazard/consequence types, not the math.
                 "SpecifiedHazard", "HazardUnit", "TransformedHazard", "TransformedHazardUnit",
                 "SpecifiedConsequence", "ConsequenceUnit",

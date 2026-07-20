@@ -29,6 +29,10 @@ public static class HashInvariance
     {
         byte[] baseline = function.CanonicalHash();
 
+        function.AssignNewId();
+        CollectionAssert.AreEqual(baseline, function.CanonicalHash(),
+            "Re-assigning the persistent id must not change the canonical hash — id is identity, not content.");
+
         function.Name = function.Name + " (renamed)";
         CollectionAssert.AreEqual(baseline, function.CanonicalHash(), "Renaming must not change the canonical hash.");
 

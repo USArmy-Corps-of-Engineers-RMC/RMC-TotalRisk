@@ -54,8 +54,7 @@ public sealed class StubRiskFunction : RiskFunctionBase
     public override XElement ToXElement()
     {
         var element = new XElement(nameof(StubRiskFunction));
-        element.SetAttributeValue(nameof(Name), Name);
-        element.SetAttributeValue(nameof(Description), Description);
+        WriteIdentityAttributes(element);
         element.SetAttributeValue(nameof(SpecifiedHazard), SpecifiedHazard);
         element.SetAttributeValue(nameof(HazardUnit), HazardUnit);
         element.SetAttributeValue(nameof(Value), SerializationUtilities.FormatDouble(Value));

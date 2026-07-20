@@ -36,6 +36,38 @@ public class RiskFunctionBaseTests
             raised);
     }
 
+    /// <summary>
+    /// Verifies every function gets a distinct persistent id by default, that
+    /// <see cref="RiskFunctionBase.AssignNewId"/> re-rolls it and notifies, and that the id is
+    /// hash-inert. The id is the rename-proof key consuming layers reference a function by when a
+    /// graph points at it rather than owning it; making it hash-relevant would let a project-level
+    /// bookkeeping act re-roll Monte Carlo seeds.
+    /// </summary>
+    [TestMethod]
+    public void Test_Id_IsUniqueReassignableAndHashInert()
+    {
+        // Arrange
+        var first = new StubRiskFunction();
+        var second = new StubRiskFunction();
+        var raised = new List<string>();
+        first.PropertyChanged += (_, e) => raised.Add(e.PropertyName ?? "");
+        byte[] baseline = first.CanonicalHash();
+        Guid originalId = first.Id;
+
+        // Act
+        first.AssignNewId();
+
+        // Assert
+        Assert.AreNotEqual(Guid.Empty, originalId);
+        Assert.AreNotEqual(originalId, second.Id, "Each function must receive its own persistent id.");
+        Assert.AreNotEqual(originalId, first.Id, "AssignNewId must re-roll the id.");
+        CollectionAssert.AreEqual(new[] { nameof(first.Id) }, raised);
+        CollectionAssert.AreEqual(baseline, first.CanonicalHash(), "The persistent id must be hash-inert.");
+
+        // Two functions with identical content but different ids are the same content.
+        CollectionAssert.AreEqual(first.CanonicalHash(), second.CanonicalHash());
+    }
+
     /// <summary>Verifies metadata edits never move the canonical hash (the seed-identity contract).</summary>
     [TestMethod]
     public void Test_CanonicalHash_MetadataInvariant()

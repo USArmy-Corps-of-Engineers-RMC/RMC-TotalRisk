@@ -55,8 +55,7 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
         {
             if (xElement == null) throw new ArgumentNullException(nameof(xElement));
 
-            Name = SerializationUtilities.ReadString(xElement, nameof(Name));
-            Description = SerializationUtilities.ReadString(xElement, nameof(Description));
+            ReadIdentityAttributes(xElement);
             SpecifiedHazard = SerializationUtilities.ReadString(xElement, nameof(SpecifiedHazard));
             HazardUnit = SerializationUtilities.ReadString(xElement, nameof(HazardUnit));
             SpecifiedConsequence = SerializationUtilities.ReadString(xElement, nameof(SpecifiedConsequence));
@@ -309,8 +308,7 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
         public override XElement ToXElement()
         {
             var element = new XElement(nameof(TabularConsequence));
-            element.SetAttributeValue(nameof(Name), Name);
-            element.SetAttributeValue(nameof(Description), Description);
+            WriteIdentityAttributes(element);
             element.SetAttributeValue(nameof(SpecifiedHazard), SpecifiedHazard);
             element.SetAttributeValue(nameof(HazardUnit), HazardUnit);
             element.SetAttributeValue(nameof(SpecifiedConsequence), SpecifiedConsequence);

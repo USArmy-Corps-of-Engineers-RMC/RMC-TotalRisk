@@ -21,7 +21,7 @@ public class CanonicalizationRulesTests
         // Arrange
         string[] audited =
         {
-            "Name", "Description",
+            "Id", "Name", "Description",
             "SpecifiedHazard", "HazardUnit", "TransformedHazard", "TransformedHazardUnit",
             "SpecifiedConsequence", "ConsequenceUnit",
             "NameOnDisk", "Guid", "LeftPosition", "TopPosition", "ChartSettings",

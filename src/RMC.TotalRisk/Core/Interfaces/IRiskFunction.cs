@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Xml.Linq;
@@ -35,6 +36,25 @@ namespace RMC.TotalRisk.Core.Interfaces
     /// </remarks>
     public interface IRiskFunction : INotifyPropertyChanged
     {
+        /// <summary>
+        /// The function's persistent identity — the rename-proof key consuming layers reference it
+        /// by when a function is stored as a project element in its own right and a risk graph
+        /// merely points at it rather than owning its serialized content.
+        /// </summary>
+        /// <remarks>
+        /// Serialized, but stripped by <see cref="CanonicalizationRules.ModelRules"/> exactly as
+        /// <see cref="Name"/> is: two functions with identical content and different ids hash
+        /// identically, so identity can never perturb a Monte Carlo seed. A deep copy keeps the
+        /// id (it is the same logical function); duplication flows call <see cref="AssignNewId"/>.
+        /// </remarks>
+        Guid Id { get; }
+
+        /// <summary>
+        /// Assigns a fresh <see cref="Id"/> — used when a function is duplicated into a project
+        /// that already contains the original, rather than cloned as the same logical function.
+        /// </summary>
+        void AssignNewId();
+
         /// <summary>
         /// The function's display name. Identity metadata — serialized, used to label results,
         /// never hashed.

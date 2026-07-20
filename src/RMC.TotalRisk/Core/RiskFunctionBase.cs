@@ -37,6 +37,11 @@ namespace RMC.TotalRisk.Core
         #region Members
 
         /// <summary>
+        /// Backing field for <see cref="Id"/>.
+        /// </summary>
+        private Guid _id = Guid.NewGuid();
+
+        /// <summary>
         /// Backing field for <see cref="Name"/>.
         /// </summary>
         private string _name = string.Empty;
@@ -61,6 +66,12 @@ namespace RMC.TotalRisk.Core
         /// null when <see cref="SamplingDimensions"/> is zero.
         /// </summary>
         protected double[,]? _percentiles;
+
+        /// <inheritdoc/>
+        public Guid Id
+        {
+            get { return _id; }
+        }
 
         /// <inheritdoc/>
         public string Name
@@ -173,6 +184,13 @@ namespace RMC.TotalRisk.Core
         public abstract (bool IsValid, List<string> ValidationMessages) Validate();
 
         /// <inheritdoc/>
+        public void AssignNewId()
+        {
+            _id = Guid.NewGuid();
+            RaisePropertyChange(nameof(Id));
+        }
+
+        /// <inheritdoc/>
         public abstract XElement ToXElement();
 
         /// <inheritdoc/>
@@ -184,6 +202,42 @@ namespace RMC.TotalRisk.Core
         #endregion
 
         #region Protected Helpers
+
+        /// <summary>
+        /// Writes the shared identity attributes — <see cref="Id"/> ("D" format),
+        /// <see cref="Name"/>, and <see cref="Description"/> — onto a serialized form. Every
+        /// concrete function calls this first from its <c>ToXElement()</c> so identity is written
+        /// in exactly one place.
+        /// </summary>
+        /// <param name="xElement">The serialized form under construction.</param>
+        /// <exception cref="ArgumentNullException">Thrown when the element is null.</exception>
+        /// <remarks>
+        /// All three attributes are stripped by <see cref="CanonicalizationRules.ModelRules"/>, so
+        /// this method contributes nothing to the canonical hash by construction.
+        /// </remarks>
+        protected void WriteIdentityAttributes(XElement xElement)
+        {
+            if (xElement == null) throw new ArgumentNullException(nameof(xElement));
+            xElement.SetAttributeValue(nameof(Id), _id.ToString("D"));
+            xElement.SetAttributeValue(nameof(Name), _name);
+            xElement.SetAttributeValue(nameof(Description), _description);
+        }
+
+        /// <summary>
+        /// Reads the shared identity attributes from a serialized form. A missing or unparseable
+        /// id yields a fresh one, so forms written before ids existed still load.
+        /// </summary>
+        /// <param name="xElement">The serialized form.</param>
+        /// <param name="defaultName">The name to use when the attribute is absent.</param>
+        /// <param name="defaultDescription">The description to use when the attribute is absent.</param>
+        /// <exception cref="ArgumentNullException">Thrown when the element is null.</exception>
+        protected void ReadIdentityAttributes(XElement xElement, string defaultName = "", string defaultDescription = "")
+        {
+            if (xElement == null) throw new ArgumentNullException(nameof(xElement));
+            _id = Guid.TryParse(xElement.Attribute(nameof(Id))?.Value, out var id) ? id : Guid.NewGuid();
+            _name = SerializationUtilities.ReadString(xElement, nameof(Name), defaultName);
+            _description = SerializationUtilities.ReadString(xElement, nameof(Description), defaultDescription);
+        }
 
         /// <summary>
         /// Raises the <see cref="PropertyChanged"/> event.

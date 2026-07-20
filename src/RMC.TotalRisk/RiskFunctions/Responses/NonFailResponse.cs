@@ -52,8 +52,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
         public NonFailResponse(XElement xElement)
         {
             if (xElement == null) throw new ArgumentNullException(nameof(xElement));
-            Name = SerializationUtilities.ReadString(xElement, nameof(Name), "< Non-Fail >");
-            Description = SerializationUtilities.ReadString(xElement, nameof(Description), "Non-failure response function.");
+            ReadIdentityAttributes(xElement, "< Non-Fail >", "Non-failure response function.");
         }
 
         #endregion
@@ -172,8 +171,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
         public override XElement ToXElement()
         {
             var element = new XElement(nameof(NonFailResponse));
-            element.SetAttributeValue(nameof(Name), Name);
-            element.SetAttributeValue(nameof(Description), Description);
+            WriteIdentityAttributes(element);
             return element;
         }
 
