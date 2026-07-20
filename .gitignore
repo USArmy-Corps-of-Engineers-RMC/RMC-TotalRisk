@@ -27,3 +27,4 @@ packages/
 # OS cruft
 Thumbs.db
 .DS_Store
+/docs/reports
