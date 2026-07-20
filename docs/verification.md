@@ -1,6 +1,6 @@
 # Verification Strategy
 
-> How the legacy `Test_TotalRisk` Monte Carlo suite becomes the formal `RMC.TotalRisk.Verification` suite, and the tolerance policy every verification test documents. Companion to [ROADMAP.md](ROADMAP.md) Phases 7–8 and 10–12.
+> How the legacy `Test_TotalRisk` Monte Carlo suite becomes the formal `RMC.TotalRisk.Verification` suite, and the tolerance policy every verification test documents. Companion to [ROADMAP.md](ROADMAP.md) Phases 5–6 and 9–11 (numbering per the 2026-07-20 roadmap reorder).
 
 ## What the legacy suite is
 
@@ -44,9 +44,10 @@ For a Monte Carlo mean estimate over N realizations, the standard error is SE �
 
 | Phase | Families |
 |---|---|
-| 7 | `JointFailures` (1-comp 2/5-PFM × correlation × aggregation), `CompetingFailures`, `CommonCause`, `MutuallyExclusive`, `EAD` |
-| 8 | `SystemRisk` (2-comp/2-PFM, 5-comp/1-PFM × correlation × aggregation), `RiskAnalysis` N-element combos, NFIP Assurance TOL 50/55/70, LHS variance-reduction |
-| 10 | `Composite` family (mixture hazard/response/consequence, bootstrap uncertainty), NFIP TOL 60/65 |
-| 11 | `EventTree` (serialization round-trip + product oracle) |
-| 12 | `BivariateRisk` (100M→1M), `DAMRAE`, BestFit import contract |
+| 4 | Engine reproducibility regressions (shuffle/rename/metadata → bit-identical; same seed → bit-identical at any thread count) |
+| 5 | `JointFailures` (1-comp 2/5-PFM × correlation × aggregation), `CompetingFailures`, `CommonCause`, `MutuallyExclusive`, `EAD` |
+| 6 | `SystemRisk` (2-comp/2-PFM, 5-comp/1-PFM × correlation × aggregation), `RiskAnalysis` N-element combos, NFIP Assurance TOL 50/55/70, LHS variance-reduction |
+| 9 | `Composite` family (mixture hazard/response/consequence, bootstrap uncertainty), NFIP TOL 60/65 |
+| 10 | `EventTree` (serialization round-trip + product oracle) |
+| 11 | `BivariateRisk` (100M→1M), `DAMRAE`, BestFit import contract |
 | Future | FDA integration (needs committed datasets via `verification-requests/`) |

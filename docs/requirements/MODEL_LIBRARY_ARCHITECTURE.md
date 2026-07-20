@@ -2,7 +2,18 @@
 
 > Living architectural specification for `RMC.TotalRisk.dll` — the headless .NET 10 compute library at the heart of the v1.1.0 modernization. **Authoritative home (since 2026-07-20): `docs/requirements/` in the RMC-TotalRisk repo**; the phased plan implementing this spec is [../ROADMAP.md](../ROADMAP.md). The copy at the `C:\GIT\RMC-TotalRisk-Dev` root is frozen with a pointer here, and legacy porting-source paths referenced below (e.g., `RMC-TotalRisk/RMC.TotalRisk.IO/...`) live in that Dev repo. The locked sections are the contract every cluster-port PR references.
 
-**Status**: 2026-07-20 — v0.7. Moved to its authoritative home in the RMC-TotalRisk repo (v1.1 development), and **§5.6 reversed**: no per-file license headers — the USACE notice lives in the repo `LICENSE` only, with Authors in each class's XML `<remarks>` (repo-bootstrap decision). v0.6 (2026-07-19): **Shared-functions decision ratified** — see [SHARED_FUNCTIONS_STRATEGY.md](SHARED_FUNCTIONS_STRATEGY.md). The input-function *math* layer becomes an expansion of `Numerics.Functions` (new migration Phase 2.0); `RMC.BestFit.dll` is **removed** from the model lib's planned dependencies (the `BestFit*` types become posterior-import types holding Numerics artifacts); and §5.5's canonical hashing switches from per-class `WriteCanonical` binary writers to **XML canonicalization** over `ToXElement()` (the mechanism Hydrologics built from this doc's v0.5 spec, adopted back). v0.5 (2026-04-30) added bivariate hazards (`ParametricBivariateHazard`, `BestFitBivariateHazard`, `BestFitTabularHazard`), bivariate-aware `SystemComponent` / `FailureMode` dimensional binding, and new types per cluster: `CompositeTransform`, `BestFitTransform`, `ParametricConsequenceFunction`, `FaultTreeResponse` (v2 placeholder). Renames `ParametricHazard` → `ParametricUnivariateHazard` and `BestFitHazard` → `BestFitUnivariateHazard`. v0.4 introduced per-function `SetupSampler`; v0.3 introduced LHS; v0.2 introduced occurrence-index seeding. §5.8, §6.5, and §7.4 remain deliberate departures from v1 needing careful review before porting begins; §5.5's review completed 2026-07-19 (v0.6 — XML canonicalization adopted).
+**Status**: 2026-07-20 — **v0.8** (same-day amendment ratified during the Phase 1–2 planning session; supersedes conflicting text below wherever it appears):
+
+1. **v1.0 API preservation.** The input-function domain surface is preserved verbatim from the v1.0 implementation (`RMC.TotalRisk.IO` C# port, cross-checked against the VB engine): property names/types/defaults, `SampleFunction` overload shapes/returns, `Min/Max*` shapes, the `Estimate()` lifecycle, and legacy enum names. The analysis layer instead adopts a growth foundation (see #7). The future UI layer maps v1.0 projects onto the v1.1 analysis API on import.
+2. **Model/UI vocabulary separation — element purge, and no root abstraction.** "Element" is wpf-framework UI lingo (`ProjectInterfaces.IElement`); it is reserved for the future UI layer exactly as `RMC.BestFit.UI\Elements\` does. The kernel contract is **`IRiskFunction`** with implementation base **`RiskFunctionBase`** — replacing this doc's `IModelElement`/`ModelElementBase`/`SampledModelElement`; `CanonicalizationRules.ModelElementRules` → **`ModelRules`**. **No `IModel`/`ModelBase` root is introduced**: BestFit's `IModel` exists because its estimation engines calibrate *any model* polymorphically; TotalRisk's engine consumes functions **by role** (hazard → transform → response → consequence) and has no "any model" consumer. The genuine polymorphic abstractions are exactly: `IRiskFunction` (sampler/seed orchestration walks heterogeneous function chains), the four cluster interfaces (multiple concretes, consumed by role), and `IAnalysis` (multiple analysis types, uniform lifecycle). `SystemComponent`/`FailureMode` stay concrete classes implementing `Validate`/`ToXElement`/`CanonicalHash` directly (v1.0 parity: `SystemComponent` has `Name`+`Clone()`; `FailureMode` has `Clone()` but no `Name`).
+3. **Legacy enum names, standalone files**: `DependencyType`, `FailureModeMethod`, `JointConsequenceType`, `SystemRiskType`, `RiskType`, `FunctionUncertainty` (one per file, in cluster Support folders) — replacing this doc's `FailureModeDependency`/`JointConsequencesType`/`SystemRiskMethod` names. `NonFailResponse` becomes a plain instantiable type (no singleton); non-fail identification is a type test. `TabularHazard.NoUncertainyFunction` typo is fixed to `NoUncertaintyFunction` before entering the permanent XML/hash contract. `TabularResponse.SampleResponseFunction(int)` semantic changes from seed to realization index per §5.8.
+4. **Risk results go System.Text.Json** (supersedes §7.5's XElement bullet): v1.0 persisted results as compressed BinaryFormatter BLOBs (removed from .NET 9+). v1.1 results containers are redesigned JSON-first — explicit public serializable state (v1.0's `Curve` hid moments/bin parameters in private fields), `ToJson()`/`FromJson()` (+ compressed-bytes overloads), in-memory only. Model *definition* types keep `ToXElement()` as the canonical-hash identity surface. v1.0 result BLOBs are not readable; old projects re-run their analyses.
+5. **Posterior injection on parametric types**: `Estimate()` bootstrap is the default; `Estimate(IList<ParameterSet>)` accepts externally fitted posteriors (BestFit UnivariateAnalysis/Bulletin17C/PointProcess reduce to Numerics `ParameterSet` lists, passed by the UI importer). `CompositeHazard` gains the same option at its phase for BestFit competing-risks/mixture/composite imports. Open question: this injection path likely supersedes the planned `BestFitUnivariateHazard` type — resolve at the composites phase (bivariate/coincident import types unaffected).
+6. **Uncertainty-results contract**: every function implements `UncertaintyAnalysisResults ComputeUncertaintyResults(double confidenceIntervalWidth = 0.9)` on `IRiskFunction`. The v1.0 app-layer code-behind visualization math (per-ordinate percentile plotting) moves into the model library. Tabular types evaluate **exact co-monotonic percentile curves** (deterministic — CI bounds `CurveSample((1∓w)/2)`, median `CurveSample(0.5)`, mean via the type's mean assembly; no simulation); parametric types surface their stored bootstrap/imported `Results` and re-slice CIs from `ParameterSets` for a different width. One machinery, three consumers: UI plots, `RiskAnalysisOptions.ConfidenceIntervalWidth`, and the REST API.
+7. **Analysis-layer growth foundation**: `RiskAnalysisOptions` extraction is ratified (v1.0 option property names/defaults preserved on the options class; `EstimateMeanRiskOnly` defaults `true` as in v1.0); a **`ReliabilityAnalysis`** sibling (failure probability / AFP without consequences) joins `Analyses`; a future **`CostBenefitAnalysis`** owning a `List<RiskAnalysis>` of alternatives is the design driver for keeping every analysis fully self-contained (components + options + results in one serializable object).
+8. **Placement fixes**: `SamplingScheme` lives in `Models/Support` (needed by `RiskFunctionBase`); `FunctionHelpers` lives in `Models/Support` (no types in the bare root namespace). Phase numbering references below (§9) are superseded by [../ROADMAP.md](../ROADMAP.md).
+
+v0.7 (2026-07-20): Moved to its authoritative home in the RMC-TotalRisk repo (v1.1 development), and **§5.6 reversed**: no per-file license headers — the USACE notice lives in the repo `LICENSE` only, with Authors in each class's XML `<remarks>` (repo-bootstrap decision). v0.6 (2026-07-19): **Shared-functions decision ratified** — see [SHARED_FUNCTIONS_STRATEGY.md](SHARED_FUNCTIONS_STRATEGY.md). The input-function *math* layer becomes an expansion of `Numerics.Functions` (new migration Phase 2.0); `RMC.BestFit.dll` is **removed** from the model lib's planned dependencies (the `BestFit*` types become posterior-import types holding Numerics artifacts); and §5.5's canonical hashing switches from per-class `WriteCanonical` binary writers to **XML canonicalization** over `ToXElement()` (the mechanism Hydrologics built from this doc's v0.5 spec, adopted back). v0.5 (2026-04-30) added bivariate hazards (`ParametricBivariateHazard`, `BestFitBivariateHazard`, `BestFitTabularHazard`), bivariate-aware `SystemComponent` / `FailureMode` dimensional binding, and new types per cluster: `CompositeTransform`, `BestFitTransform`, `ParametricConsequenceFunction`, `FaultTreeResponse` (v2 placeholder). Renames `ParametricHazard` → `ParametricUnivariateHazard` and `BestFitHazard` → `BestFitUnivariateHazard`. v0.4 introduced per-function `SetupSampler`; v0.3 introduced LHS; v0.2 introduced occurrence-index seeding. §5.8, §6.5, and §7.4 remain deliberate departures from v1 needing careful review before porting begins; §5.5's review completed 2026-07-19 (v0.6 — XML canonicalization adopted).
 
 **Audience**: engineers porting code from `RMC.TotalRisk.IO` to `RMC.TotalRisk`; future Claude sessions resuming Phase 2; the future Phase 5 REST API author.
 
@@ -70,20 +81,31 @@ src/RMC.TotalRisk/
 │   │   ├── IAnalysis.cs                    (mirrors BestFit IAnalysis)
 │   │   ├── AnalysisBase.cs                 (mirrors BestFit AnalysisBase)
 │   │   └── AnalysisRunCompletedEventArgs.cs
-│   └── RiskAnalysis/
-│       ├── RiskAnalysis.cs                 (RiskAnalysis : AnalysisBase, IAnalysis)
-│       ├── RiskAnalysisOptions.cs          (Realizations, PRNGSeed, SamplingScheme, EstimateMeanRiskOnly, ConfidenceIntervalWidth, LECOutputLength, ConsequenceThreshold, Alpha, SystemRiskMethod)
-│       ├── SystemRiskMethod.cs             (enum: AdditiveRisk, JointRisk)
-│       └── SamplingScheme.cs               (enum: MonteCarlo, LatinHypercube, LatinHypercubeMedian)
+│   ├── RiskAnalysis/
+│   │   ├── RiskAnalysis.cs                 (RiskAnalysis : AnalysisBase, IAnalysis)
+│   │   ├── RiskAnalysisOptions.cs          (v0.8 — v1.0 option names/defaults preserved: EstimateMeanRiskOnly=true,
+│   │   │                                    Realizations=1000, PRNGSeed=12345, LECOutputLength=200,
+│   │   │                                    ConfidenceIntervalWidth=0.9, Alpha=0.01, ConsequenceThreshold=0,
+│   │   │                                    SystemRiskMethod/JointConsequences/ComponentHazardDependency/
+│   │   │                                    HazardCorrelationMatrix, integration options + UseDefaults, SamplingScheme)
+│   │   └── SystemRiskType.cs               (enum: AdditiveRiskMethod, JointRiskMethod — legacy v1.0 name, v0.8)
+│   └── ReliabilityAnalysis/
+│       └── ReliabilityAnalysis.cs          (v0.8 — reliability-only sibling: failure probability / AFP,
+│                                            no consequence functions required)
 ├── Models/
-│   ├── Support/
-│   │   ├── IModelElement.cs                (INPC + Validate + ToXElement + CanonicalHash contract)
-│   │   ├── ModelElementBase.cs             (INPC scaffolding + CanonicalHash() via canonicalized ToXElement)
-│   │   ├── SampledModelElement.cs          (SetupSampler + _percentiles base class for sampled types)
+│   ├── Support/                            (v0.8 — domain-named kernel; no element lingo, no IModel root)
+│   │   ├── IRiskFunction.cs                (THE kernel contract: INPC + Name/Description + axis labels +
+│   │   │                                    IsDeterministic + SamplingDimensions + SetupSampler +
+│   │   │                                    ComputeUncertaintyResults + Validate + ToXElement + CanonicalHash)
+│   │   ├── RiskFunctionBase.cs             (INPC scaffolding + label backing + CanonicalHash() pipeline +
+│   │   │                                    SetupSampler/_percentiles sampler machinery)
 │   │   ├── CanonicalContentHasher.cs       (SHA-256 over canonicalized XML; adapted from Hydrologics)
-│   │   ├── CanonicalizationRules.cs        (audited strip rules: Name/Description/Guid/positions/units)
+│   │   ├── CanonicalizationRules.cs        (audited strip rules — static ModelRules: Name/Description/Guid/positions/units)
 │   │   ├── ByteArrayComparer.cs            (lexicographic comparer for canonical-hash sorting)
-│   │   └── SeedHelpers.cs                  (HashCombine: PRNGSeed × component hash × occurrence; IndependentUniform fallback for MC)
+│   │   ├── SeedHelpers.cs                  (HashCombine: PRNGSeed × component hash × occurrence; IndependentUniform fallback for MC)
+│   │   ├── SamplingScheme.cs               (enum: MonteCarlo, LatinHypercube, LatinHypercubeMedian — v0.8 placement)
+│   │   ├── SerializationUtilities.cs       (G17/InvariantCulture format + null-safe parse helpers)
+│   │   └── FunctionHelpers.cs              (ForceMonotonic — v0.8 placement; GenerateSeedFromObject dropped)
 │   ├── HazardFunctions/
 │   │   ├── Support/
 │   │   │   ├── IHazardFunction.cs
@@ -152,9 +174,10 @@ src/RMC.TotalRisk/
 │       │   ├── SampledComponent.cs
 │       │   ├── SampledFailureMode.cs
 │       │   ├── ComponentRiskOutput.cs
-│       │   ├── FailureModeMethod.cs           (enum)
-│       │   ├── JointConsequencesType.cs       (enum)
-│       │   └── FailureModeDependency.cs       (enum)
+│       │   ├── FailureModeMethod.cs           (enum: JointFailures, CompetingFailures, CommonCauseFailures, MutuallyExclusive)
+│       │   ├── JointConsequenceType.cs        (enum: Additive, Average, Maximum, Minimum — legacy v1.0 name, v0.8)
+│       │   ├── DependencyType.cs              (enum: Independent, PerfectlyPositive, PerfectlyNegative, CorrelationMatrix — legacy v1.0 name, v0.8)
+│       │   └── RiskType.cs                    (enum: Excess, Background, Total, Fail, NonFail — legacy v1.0 name, v0.8)
 │       └── Results/
 │           ├── Curve.cs
 │           ├── Curves.cs
@@ -168,8 +191,9 @@ src/RMC.TotalRisk/
 │           ├── FailureModeResults.cs
 │           ├── SummaryRiskResults.cs
 │           └── SystemRiskResults.cs
-└── FunctionHelpers.cs                          (ForceMonotonic; rewrite GenerateSeedFromObject without BinaryFormatter)
 ```
+
+*(v0.8: `FunctionHelpers.cs` moved from the root into `Models/Support/` — no types in the bare root namespace.)*
 
 Note divergence from legacy flat `TotalRisk` namespace — every ported type's namespace changes during the port.
 
@@ -289,11 +313,11 @@ A Guid-based fix (one `ComponentGuid` per `SystemComponent`) would resolve canva
 
 > **v0.6 change.** v0.5 specified a per-class `WriteCanonical(BinaryWriter)` on every model type (~35 hand-written binary writers). Hydrologics implemented this doc's v0.5 *semantics* with a leaner *mechanism* — one central, audited canonicalization pass over each type's existing `ToXElement()` — and verified it at stochastic scale (`IdentityInvarianceVerification`). v0.6 adopts that mechanism back. Semantics are unchanged; only the byte source changes. See Hydrologics `docs/requirements/identity-and-seeding.md` and [SHARED_FUNCTIONS_STRATEGY.md](SHARED_FUNCTIONS_STRATEGY.md) D3.
 
-The canonical hash is SHA-256 over a type's `ToXElement()` output after a **canonicalization pass**. `ModelElementBase` exposes:
+The canonical hash is SHA-256 over a type's `ToXElement()` output after a **canonicalization pass**. `RiskFunctionBase` exposes (v0.8 naming; `SystemComponent`/`FailureMode` implement the same one-liner directly):
 
 ```csharp
 public byte[] CanonicalHash()
-    => CanonicalContentHasher.Hash(ToXElement(), CanonicalizationRules.ModelElementRules);
+    => CanonicalContentHasher.Hash(ToXElement(), CanonicalizationRules.ModelRules);
 ```
 
 `CanonicalContentHasher` (adapted from `C:\GIT\Hydrologics\src\Hydrologics\Core\CanonicalContentHasher.cs`):
@@ -568,10 +592,10 @@ The legacy `SampleFunction()` (mean) and `SampleFunction(double percentile)` ove
 
 #### 5.8.3 Base implementation
 
-A shared base in `Models/Support/SamplerBase.cs` allocates the matrix uniformly across schemes:
+The shared base `Models/Support/RiskFunctionBase.cs` (v0.8 naming) allocates the matrix uniformly across schemes:
 
 ```csharp
-public abstract class SampledModelElement : ModelElementBase
+public abstract class RiskFunctionBase : IRiskFunction
 {
     protected double[,]? _percentiles;     // null when SamplingDimensions == 0
 
@@ -1227,7 +1251,7 @@ Joint-risk inclusion-exclusion across multiple bivariate components composes the
 
 `Curve` / `Curves` / `RiskPoint` / `Ensemble` / `*Realization` / `*Results` are pure data containers. Behavioral changes vs. legacy:
 
-- **Strip `[Serializable]` and `BinaryFormatter`** in `SystemRealization` and `EnsembleResults`. Replace with `XElement`-based `ToXElement()` + ctor-from-`XElement`. Callers that need bytes can wrap with `XElement.Save(MemoryStream, SaveOptions.DisableFormatting)`.
+- **Strip `[Serializable]` and `BinaryFormatter`** in `SystemRealization` and `EnsembleResults`. **v0.8: replace with System.Text.Json** — results containers are redesigned with explicit public serializable state (v1.0's `Curve` hid moments/bin parameters in private fields) and expose `ToJson()`/`FromJson()` plus compressed-bytes overloads (in-memory only; persistence is a caller concern). Model definition types keep `ToXElement()` (the canonical-hash identity surface); results are JSON. v1.0 BLOBs are not readable — old projects re-run (v1.0 `Open()` already degraded unreadable results to `IsEstimated=false`).
 - `Curve.ComputeCentralMoments()` and `ComputeRiskMeasures()` lazy-evaluation logic stays.
 - `OrderedPairedData` (Numerics) inputs/outputs preserved.
 - Memory cleanup pattern (`DumpMemory()` clearing `RiskPoints` and `Bins` post-aggregation) preserved.
@@ -1294,7 +1318,9 @@ C:\GIT\Wpf-framework\             ← contains DAG; only RMC.TotalRisk.UI (Phase
 
 ## 9. Migration plan
 
-Order per user instruction (overrides ROADMAP.md's Transform-first suggestion). Update ROADMAP to match after this doc is locked.
+> **v0.8: SUPERSEDED by [../ROADMAP.md](../ROADMAP.md)** — the ratified phase order is: 1 kernel foundation → 2 core input functions (tabular ×4 + parametric hazard/response + non-fail) → 3 components + JSON results → 4 analysis foundation + engine + ReliabilityAnalysis → 5–6 verification → 7–13 backfill (closed-form functions, Numerics expansion, composites, event trees, bivariate/BestFit/LifeSim, hardening, release) → 14 REST API + MCP server. The sub-phase text below is retained for its per-cluster task detail only; where it conflicts with ROADMAP.md or the v0.8 status entry, those win.
+
+Original (v0.6) order notes follow.
 
 ### Phase 2.0 — Numerics.Functions expansion (v0.6; prerequisite)
 
@@ -1418,24 +1444,27 @@ Living section. Append entries as we go. Once an item is resolved, move it under
 The audited strip-rule set lives in `Models/Support/CanonicalizationRules.cs`; the hasher in `Models/Support/CanonicalContentHasher.cs`. Both adapt `C:\GIT\Hydrologics\src\Hydrologics\Core\CanonicalContentHasher.cs` / `CanonicalizationRules.cs`.
 
 ```csharp
-namespace RMC.TotalRisk.Models;
-
-public static class CanonicalizationRules
+namespace RMC.TotalRisk.Models.Support
 {
-    /// <summary>
-    /// Attributes/elements stripped before hashing — identity, display, and presentation
-    /// metadata that must never perturb Monte Carlo seeds. APPEND-ONLY: every new
-    /// non-compute property lands here AND in the kitchen-sink invariance test.
-    /// </summary>
-    public static readonly CanonicalRuleSet ModelElementRules = new(
-        strippedAttributes: new[]
-        {
-            "Name", "Description", "NameOnDisk", "Guid",
-            "LeftPosition", "TopPosition",
-            "SpecifiedHazard", "HazardUnit", "TransformedHazard", "TransformedHazardUnit",
-            "SpecifiedConsequence", "ConsequenceUnit",
-            "ChartSettings",
-        });
+    public sealed class CanonicalizationRules
+    {
+        /// <summary>
+        /// The audited rule set (v0.8 name: ModelRules) — identity, display, and presentation
+        /// metadata that must never perturb Monte Carlo seeds. APPEND-ONLY: every new
+        /// non-compute property lands here AND in the kitchen-sink invariance test.
+        /// </summary>
+        public static CanonicalizationRules ModelRules { get; } = new(
+            strippedAttributes: new[]
+            {
+                "Name", "Description", "NameOnDisk", "Guid",
+                "LeftPosition", "TopPosition",
+                "SpecifiedHazard", "HazardUnit", "TransformedHazard", "TransformedHazardUnit",
+                "SpecifiedConsequence", "ConsequenceUnit",
+                "ChartSettings",
+            },
+            strippedElements: Array.Empty<string>(),
+            rewriters: Array.Empty<Action<XElement>>());
+    }
 }
 ```
 
@@ -1480,9 +1509,9 @@ public sealed class ByteArrayComparer : IComparer<byte[]>
     }
 }
 
-// On the public ModelElementBase (v0.6):
+// On RiskFunctionBase (v0.8; SystemComponent/FailureMode implement the same directly):
 public byte[] CanonicalHash()
-    => CanonicalContentHasher.Hash(ToXElement(), CanonicalizationRules.ModelElementRules);
+    => CanonicalContentHasher.Hash(ToXElement(), CanonicalizationRules.ModelRules);
 ```
 
 ---

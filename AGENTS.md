@@ -18,7 +18,7 @@ Monte-Carlo-based quantitative risk analysis framework for dam and levee safety,
 
 - **No UI frameworks.** No WPF, no `System.Windows.*`, no `Dispatcher`. Target `net10.0`, never `net10.0-windows`.
 - **No singletons.** No `Project.Current` global state. Analyses take inputs via constructor/method args and return pure result objects.
-- **No direct file I/O.** Callers pass already-parsed data. `ToXElement()` / ctor-from-`XElement` in-memory serialization is the only persistence contract. No SQLite, no `File.*` in the model lib.
+- **No direct file I/O.** Callers pass already-parsed data. In-memory serialization only: model *definition* types use `ToXElement()` / ctor-from-`XElement` (the canonical-hash identity surface); *results* containers use System.Text.Json (`ToJson()`/`FromJson()` + compressed-bytes overloads) — v1.0's BinaryFormatter BLOBs are not ported, and v1.0 projects re-run their analyses in v1.1. No SQLite, no `File.*` in the model lib.
 - **Deterministic entry points.** Explicit seeds, typed inputs/outputs, no dialogs. Same inputs + same seed → bit-identical results at any thread count.
 - **Content-based seed identity.** Monte Carlo seeds derive from SHA-256 canonical content hashes (XML canonicalization over `ToXElement()` through audited strip rules) plus occurrence indices — renaming, canvas moves, or reordering never change results. Normative spec: `docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md` §5.5. **Landing checklist for every new model property:** classify it compute-relevant (hashed) or metadata (add to `CanonicalizationRules`), extend the kitchen-sink rename/reorder invariance test, and never rename or reorder existing serialized attributes — `ToXElement()` is the identity surface and hashes are contract.
 - **`INotifyPropertyChanged` is allowed.** It is a passive contract; headless callers don't subscribe. It gives the future WPF UI layer a clean data-binding story.
@@ -39,16 +39,18 @@ Future consumers                    ← RMC.TotalRisk.UI → RMC-TotalRisk App; 
 
 **Namespace map** (folders mirror namespaces; no types in the bare `RMC.TotalRisk` root namespace). Authoritative layout: `docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md` §3. Summary:
 
+**No "element" vocabulary and no root `IModel` abstraction in the model lib** — "element" is wpf-framework UI lingo reserved for the future UI layer (the RMC-BestFit separation template: `RMC.BestFit.UI\Elements\`); the kernel contract is `IRiskFunction` because TotalRisk's engine consumes functions by role, never "any model" (arch doc v0.8 status entry has the full rationale).
+
 | Namespace | Contents |
 |---|---|
 | `RMC.TotalRisk.Models` | `BuildInfo` seed (Phase 0; retired when real content lands) |
-| `RMC.TotalRisk.Models.Support` | `IModelElement`, `ModelElementBase`, `CanonicalContentHasher`, `CanonicalizationRules`, `SeedHelpers`, `SampledModelElement`, sampling enums (Phase 1) |
+| `RMC.TotalRisk.Models.Support` | `IRiskFunction`, `RiskFunctionBase`, `CanonicalContentHasher`, `CanonicalizationRules` (`ModelRules`), `SeedHelpers`, `ByteArrayComparer`, `SamplingScheme`, `SerializationUtilities`, `FunctionHelpers` (Phase 1) |
 | `RMC.TotalRisk.Models.HazardFunctions` | Hazard (frequency-distribution) input functions (Phase 2+) |
-| `RMC.TotalRisk.Models.TransformFunctions` | Transform input functions (Phase 3+) |
-| `RMC.TotalRisk.Models.ResponseFunctions` | Response (fragility) input functions (Phase 4+) |
-| `RMC.TotalRisk.Models.ConsequenceFunctions` | Consequence input functions (Phase 4+) |
-| `RMC.TotalRisk.Models.RiskAnalysis` | System components, failure modes, results containers (Phase 5+) |
-| `RMC.TotalRisk.Analyses` | `RiskAnalysis` engine + analysis support (Phase 6+) |
+| `RMC.TotalRisk.Models.TransformFunctions` | Transform input functions (Phase 2+) |
+| `RMC.TotalRisk.Models.ResponseFunctions` | Response (fragility) input functions (Phase 2+) |
+| `RMC.TotalRisk.Models.ConsequenceFunctions` | Consequence input functions (Phase 2+) |
+| `RMC.TotalRisk.Models.RiskAnalysis` | System components, failure modes (concrete classes — no interfaces), results containers (Phase 3+) |
+| `RMC.TotalRisk.Analyses` | `IAnalysis`/`AnalysisBase` support, `RiskAnalysis` engine + `RiskAnalysisOptions`, `ReliabilityAnalysis` (Phase 4+) |
 
 ## Test Project Architecture
 
@@ -148,20 +150,18 @@ Status legend: — planned · P ported · T unit-tested · V verification covera
 
 | Cluster | Type | Status | Verification anchor |
 |---|---|---|---|
-| Support | ModelElementBase / CanonicalContentHasher / SeedHelpers / SampledModelElement | — | hash-invariance + seeding unit tests (Phase 1) |
-| Hazard | TabularHazard | — | NFIP assurance oracles (Phase 8) |
-| Hazard | ParametricUnivariateHazard | — | NFIP assurance oracles (Phase 8) |
-| Transform | LinearTransform | — | EAD + NFIP oracles (Phases 7–8) |
-| Transform | PowerTransform | — | closed-form checks (Phase 3) |
-| Transform | TabularTransform | — | rating-curve oracles (Phase 8) |
-| Response | TabularResponse | — | joint/competing/common-cause oracles (Phase 7) |
-| Response | ParametricResponse | — | joint/competing/common-cause oracles (Phase 7) |
-| Response | NonFailResponse | — | engine scenarios (Phase 7) |
-| Consequence | TabularConsequence | — | joint-failures oracles (Phase 7) |
-| Consequence | ParametricConsequenceFunction | — | closed-form checks (Phase 4) |
-| Risk | SystemComponent / FailureMode / Sampled* / results | — | engine scenarios (Phases 7–8) |
-| Engine | RiskAnalysis | — | full oracle families (Phases 7–8) |
-| Later | Nonparametric/RFA/Composite hazards, composites, event trees, bivariate, BestFit imports, LifeSim | — | Phases 10–12 |
+| Support | IRiskFunction / RiskFunctionBase / CanonicalContentHasher / CanonicalizationRules / SeedHelpers | — | hash-invariance + seeding unit tests (Phase 1) |
+| Hazard | TabularHazard | — | NFIP assurance oracles (Phase 6) |
+| Hazard | ParametricUnivariateHazard | — | NFIP assurance oracles (Phase 6) |
+| Transform | TabularTransform | — | rating-curve oracles (Phase 6) |
+| Response | TabularResponse | — | joint/competing/common-cause oracles (Phase 5) |
+| Response | ParametricResponse | — | joint/competing/common-cause oracles (Phase 5) |
+| Response | NonFailResponse | — | engine scenarios (Phase 5) |
+| Consequence | TabularConsequence | — | joint-failures oracles (Phase 5) |
+| Risk | SystemComponent / FailureMode / Sampled* / results | — | engine scenarios (Phases 5–6) |
+| Engine | RiskAnalysis + RiskAnalysisOptions / ReliabilityAnalysis | — | full oracle families (Phases 5–6) + seed-bug regressions (Phase 4) |
+| Backfill | LinearTransform / PowerTransform / ParametricConsequenceFunction / NonparametricHazard | — | closed-form checks + deferred EAD/NFIP scenarios (Phase 7) |
+| Later | RFA/Composite hazards, composites, event trees, bivariate, BestFit imports, LifeSim | — | Phases 9–11 |
 
 ## Critical Quality Standards
 
