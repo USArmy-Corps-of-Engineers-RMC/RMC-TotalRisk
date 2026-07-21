@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Linq;
 using System.Xml.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -63,7 +64,7 @@ public class ConsequenceElementTests
         element.PropertyChanged += (_, e) => raised.Add(e.PropertyName ?? string.Empty);
 
         // Act
-        element.Functions = new List<IConsequenceFunction> { Damages(), Damages("Life Loss", "lives") };
+        element.Functions = new ObservableCollection<IConsequenceFunction> { Damages(), Damages("Life Loss", "lives") };
         element.Functions = null!;   // coerces to empty and notifies
 
         // Assert
@@ -75,6 +76,146 @@ public class ConsequenceElementTests
         element.Functions.Add(Damages());
         element.Functions.Add(null!);
         Assert.AreEqual(1, element.GetFunctions().Count());
+    }
+
+    /// <summary>
+    /// Verifies that mutating the ordered collection in place notifies — the path a bound editor
+    /// takes. Assigning the whole collection is not the only way its membership changes, and an
+    /// element whose consequence list silently changed would leave dependent results stale.
+    /// </summary>
+    [TestMethod]
+    public void Test_Functions_InPlaceMutationNotifies()
+    {
+        // Arrange
+        var element = new ConsequenceElement("Damages");
+        var first = Damages();
+        var second = Damages("Life Loss", "lives");
+        var raised = new List<string>();
+        element.PropertyChanged += (_, e) => raised.Add(e.PropertyName ?? string.Empty);
+
+        // Act
+        element.Functions.Add(first);          // Add
+        element.Functions.Add(second);         // Add
+        element.Functions[1] = Damages("Replacement", "lives");  // Replace
+        element.Functions.Remove(first);       // Remove
+        element.Functions.Clear();             // Reset
+
+        // Assert — one notification per membership change, all naming Functions.
+        Assert.AreEqual(5, raised.Count);
+        Assert.IsTrue(raised.All(name => name == nameof(ConsequenceElement.Functions)));
+    }
+
+    /// <summary>
+    /// Verifies a function added in place is subscribed, so its own edits reach the element — the
+    /// property that makes a shared, separately stored function usable. Adding through the
+    /// collection must behave exactly like assigning the whole collection.
+    /// </summary>
+    [TestMethod]
+    public void Test_Functions_AddedInPlace_ForwardsItsOwnChanges()
+    {
+        // Arrange
+        var element = new ConsequenceElement("Damages");
+        var damages = Damages();
+        element.Functions.Add(damages);
+
+        var raised = new List<string>();
+        element.PropertyChanged += (_, e) => raised.Add(e.PropertyName ?? string.Empty);
+
+        // Act
+        damages.Description = "Updated in the function editor.";
+
+        // Assert
+        CollectionAssert.AreEqual(new[] { nameof(ConsequenceElement.Functions) }, raised);
+    }
+
+    /// <summary>
+    /// Verifies every removal path detaches the subscription, including <c>Clear</c> — which
+    /// raises a Reset carrying no removed items, so handling only the event's OldItems would leak
+    /// a subscription and let a removed function keep notifying the element.
+    /// </summary>
+    [TestMethod]
+    public void Test_Functions_RemovalPathsDetachSubscriptions()
+    {
+        // Arrange
+        var removed = Damages("Removed");
+        var replaced = Damages("Replaced", "lives");
+        var cleared = Damages("Cleared");
+        var element = new ConsequenceElement("Damages");
+        element.Functions.Add(removed);
+        element.Functions.Add(replaced);
+        element.Functions.Remove(removed);
+        element.Functions[0] = cleared;
+        element.Functions.Clear();
+
+        var raised = new List<string>();
+        element.PropertyChanged += (_, e) => raised.Add(e.PropertyName ?? string.Empty);
+
+        // Act — none of these functions is held by the element any more.
+        removed.Description = "Removed by Remove.";
+        replaced.Description = "Removed by indexer replacement.";
+        cleared.Description = "Removed by Clear.";
+
+        // Assert
+        Assert.AreEqual(0, raised.Count, "A function no longer in the collection must not notify the element.");
+    }
+
+    /// <summary>
+    /// Verifies re-assigning the whole collection detaches the previous entries — the same
+    /// contract as in-place removal, exercised through the property setter.
+    /// </summary>
+    [TestMethod]
+    public void Test_Functions_ReassigningCollectionDetachesPreviousEntries()
+    {
+        // Arrange
+        var original = Damages("Original");
+        var element = new ConsequenceElement("Damages");
+        element.Functions.Add(original);
+        element.Functions = new ObservableCollection<IConsequenceFunction> { Damages("Fresh") };
+
+        var raised = new List<string>();
+        element.PropertyChanged += (_, e) => raised.Add(e.PropertyName ?? string.Empty);
+
+        // Act
+        original.Description = "No longer wired to the element.";
+
+        // Assert
+        Assert.AreEqual(0, raised.Count);
+
+        // The newly assigned entry is wired.
+        element.Functions[0].Description = "Still wired.";
+        CollectionAssert.AreEqual(new[] { nameof(ConsequenceElement.Functions) }, raised);
+    }
+
+    /// <summary>
+    /// Verifies a function listed twice is subscribed once — so it notifies once, not once per
+    /// occurrence — and stays subscribed while any occurrence remains.
+    /// </summary>
+    [TestMethod]
+    public void Test_Functions_DuplicateEntry_NotifiesOnceAndSurvivesPartialRemoval()
+    {
+        // Arrange
+        var shared = Damages("Shared");
+        var element = new ConsequenceElement("Damages");
+        element.Functions.Add(shared);
+        element.Functions.Add(shared);
+
+        var raised = new List<string>();
+        element.PropertyChanged += (_, e) => raised.Add(e.PropertyName ?? string.Empty);
+
+        // Act
+        shared.Description = "Edited while listed twice.";
+
+        // Assert
+        Assert.AreEqual(1, raised.Count, "A duplicated function must notify once, not once per occurrence.");
+
+        // Act — one occurrence removed; the remaining one keeps the subscription alive.
+        raised.Clear();
+        element.Functions.RemoveAt(0);
+        raised.Clear();
+        shared.Description = "Still listed once.";
+
+        // Assert
+        CollectionAssert.AreEqual(new[] { nameof(ConsequenceElement.Functions) }, raised);
     }
 
     /// <summary>Verifies the structural enumeration excludes the binding (not a path edge).</summary>

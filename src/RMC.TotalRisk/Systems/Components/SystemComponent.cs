@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Text;
 using System.Xml.Linq;
@@ -537,7 +538,7 @@ namespace RMC.TotalRisk.Systems.Components
             var terminal = new ConsequenceElement(_graph.GetUniqueName(ElementName(primary?.Name, "Consequence")))
             {
                 Input = new RiskConnection(upstream),
-                Functions = new List<IConsequenceFunction>(failureMode.ConsequenceFunctions),
+                Functions = new ObservableCollection<IConsequenceFunction>(failureMode.ConsequenceFunctions),
             };
 
             if (failureMode.ConsequenceHazardPosition.HasValue &&

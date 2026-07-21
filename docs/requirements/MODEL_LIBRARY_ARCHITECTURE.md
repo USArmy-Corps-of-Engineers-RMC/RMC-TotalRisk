@@ -1386,10 +1386,13 @@ forwards element changes; `SystemComponent` subscribes to its graph. So an edit 
 function is stored reaches the analyses that consume it, and a consuming layer can invalidate
 stale results — the role `UnivariateAnalysis.Model_PropertyChanged` plays in BestFit.
 
-One documented gap: mutating `ConsequenceElement.Functions` in place bypasses subscription
-management. Use `AddFunction`/`RemoveFunction`. (Migrating that property to an
-`ObservableCollection` would close it and give WPF a bindable ordered list; deferred as a UI-phase
-decision.)
+Ordered collections of model objects are `ObservableCollection<T>`, and their owner reconciles
+per-item subscriptions on every membership change — `ConsequenceElement.Functions` follows the
+sibling BestFit `CompositeAnalysis.Analyses` pattern exactly. Reconciliation is against a shadow
+set of what is currently subscribed, **not** against the event's `OldItems`/`NewItems`, because
+`Clear()` raises a Reset that carries no removed items; handling only the event payload leaks a
+subscription on every clear. This also makes a duplicated entry subscribe once, so it notifies
+once. WPF binds these collections directly.
 
 ### 8.5 Authoring surface for a graph editor
 

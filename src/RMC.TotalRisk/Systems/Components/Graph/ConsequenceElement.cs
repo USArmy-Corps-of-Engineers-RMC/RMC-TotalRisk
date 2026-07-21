@@ -1,5 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Collections.Specialized;
+using System.Linq;
 using System.Xml.Linq;
 using RMC.TotalRisk.Core.Enums;
 using RMC.TotalRisk.Core.Interfaces;
@@ -41,6 +44,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         /// </summary>
         public ConsequenceElement()
         {
+            Functions = new ObservableCollection<IConsequenceFunction>();
         }
 
         /// <summary>
@@ -48,6 +52,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         /// </summary>
         /// <param name="name">The element name.</param>
         public ConsequenceElement(string name)
+            : this()
         {
             Name = name;
         }
@@ -69,6 +74,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         /// reference id is stale.
         /// </exception>
         public ConsequenceElement(XElement xElement, IRiskFunctionResolver? resolver = null)
+            : this()
         {
             if (xElement == null) throw new ArgumentNullException(nameof(xElement));
             ReadBaseFromXElement(xElement);
@@ -85,11 +91,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
                     // so a silently shortened list cannot pass validation.
                     var consequence = ReadFunctionEntry<IConsequenceFunction>(
                         child, resolver, RiskFunctionFactory.CreateFromXElement, "consequence function");
-                    if (consequence != null)
-                    {
-                        _functions.Add(consequence);
-                        SubscribeFunction(consequence);
-                    }
+                    if (consequence != null) _functions.Add(consequence);
                 }
             }
         }
@@ -99,9 +101,10 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         #region Members
 
         /// <summary>
-        /// Backing field for <see cref="Functions"/>.
+        /// Backing field for <see cref="Functions"/>. Assigned through the property by every
+        /// constructor, so the collection subscription is always attached.
         /// </summary>
-        private List<IConsequenceFunction> _functions = new List<IConsequenceFunction>();
+        private ObservableCollection<IConsequenceFunction> _functions = null!;
 
         /// <summary>
         /// Backing field for <see cref="Input"/>.
@@ -126,26 +129,30 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         /// <summary>
         /// The ordered consequence functions (referenced, not owned — a consuming layer may store
         /// one function and use it in several graphs): index 0 is the primary type used for risk
-        /// integration; all are computed and tracked. Assigning null coerces to an empty list.
+        /// integration; all are computed and tracked. Assigning null coerces to an empty
+        /// collection.
         /// </summary>
         /// <remarks>
-        /// Assigning the property re-points this element's change subscriptions onto the new list.
-        /// Mutating the returned list in place does not, so a consumer that needs a function's own
-        /// edits to reach this element should use <see cref="AddFunction"/> and
-        /// <see cref="RemoveFunction"/> rather than <c>Functions.Add</c>/<c>Functions.Remove</c>.
+        /// Observable, and the element tracks its membership: adding, removing, replacing, or
+        /// clearing entries attaches and detaches each function's change subscription and reports
+        /// the change as <c>Functions</c>. So every mutation path behaves the same, whether a
+        /// consumer assigns the whole collection or edits it in place through a bound list — the
+        /// pattern the sibling BestFit <c>CompositeAnalysis</c> uses for its weighted
+        /// sub-analyses, and the shape WPF data-binds to directly.
         /// </remarks>
-        public List<IConsequenceFunction> Functions
+        public ObservableCollection<IConsequenceFunction> Functions
         {
             get { return _functions; }
             set
             {
-                if (!ReferenceEquals(_functions, value))
-                {
-                    for (int i = 0; i < _functions.Count; i++) UnsubscribeFunction(_functions[i]);
-                    _functions = value ?? new List<IConsequenceFunction>();
-                    for (int i = 0; i < _functions.Count; i++) SubscribeFunction(_functions[i]);
-                    RaisePropertyChange(nameof(Functions));
-                }
+                if (ReferenceEquals(_functions, value)) return;
+
+                if (_functions != null) _functions.CollectionChanged -= FunctionsCollectionChanged;
+                _functions = value ?? new ObservableCollection<IConsequenceFunction>();
+                _functions.CollectionChanged += FunctionsCollectionChanged;
+
+                ReconcileFunctionSubscriptions();
+                RaisePropertyChange(nameof(Functions));
             }
         }
 
@@ -154,6 +161,21 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         {
             get { return nameof(Functions); }
         }
+
+        /// <summary>
+        /// The distinct functions this element currently holds a change subscription on — the
+        /// shadow of <see cref="Functions"/> that <see cref="FunctionsCollectionChanged"/>
+        /// reconciles against.
+        /// </summary>
+        /// <remarks>
+        /// A shadow set rather than per-item bookkeeping off the event arguments, because
+        /// <see cref="NotifyCollectionChangedAction.Reset"/> — which <c>Clear()</c> raises —
+        /// carries no <c>OldItems</c>. Handling
+        /// only <c>OldItems</c>/<c>NewItems</c> would leak a subscription on every clear, leaving a
+        /// removed function still able to notify this element. Reconciling also makes duplicates
+        /// safe: a function listed twice is subscribed once, so it notifies once.
+        /// </remarks>
+        private readonly HashSet<IConsequenceFunction> _subscribedFunctions = new HashSet<IConsequenceFunction>();
 
         /// <summary>
         /// The structural input: which upstream element output this terminal sits downstream of.
@@ -224,35 +246,6 @@ namespace RMC.TotalRisk.Systems.Components.Graph
             }
         }
 
-        /// <summary>
-        /// Appends a consequence function to the ordered list and subscribes to its changes. The
-        /// notification-safe alternative to <c>Functions.Add</c>.
-        /// </summary>
-        /// <param name="function">The consequence function to append.</param>
-        /// <exception cref="ArgumentNullException">Thrown when the function is null.</exception>
-        public void AddFunction(IConsequenceFunction function)
-        {
-            if (function == null) throw new ArgumentNullException(nameof(function));
-            _functions.Add(function);
-            SubscribeFunction(function);
-            RaisePropertyChange(nameof(Functions));
-        }
-
-        /// <summary>
-        /// Removes the first occurrence of a consequence function from the ordered list and
-        /// unsubscribes from its changes. The notification-safe alternative to
-        /// <c>Functions.Remove</c>.
-        /// </summary>
-        /// <param name="function">The consequence function to remove.</param>
-        /// <returns>True when the function was present and removed.</returns>
-        public bool RemoveFunction(IConsequenceFunction function)
-        {
-            if (function == null || !_functions.Remove(function)) return false;
-            if (!_functions.Contains(function)) UnsubscribeFunction(function);
-            RaisePropertyChange(nameof(Functions));
-            return true;
-        }
-
 
         /// <inheritdoc/>
         /// <remarks>
@@ -268,7 +261,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
                 return false;
             }
 
-            AddFunction(typed);
+            Functions.Add(typed);
             error = string.Empty;
             return true;
         }
@@ -337,7 +330,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
             {
                 if (_functions[i] is null) continue;
                 var copied = RiskFunctionFactory.CreateConsequenceFunction(_functions[i].ToXElement());
-                if (copied != null) clone.AddFunction(copied);
+                if (copied != null) clone.Functions.Add(copied);
             }
             return clone;
         }
@@ -358,6 +351,42 @@ namespace RMC.TotalRisk.Systems.Components.Graph
             {
                 _input = RemapConnection(consequence._input, cloneMap);
                 _hazardSource = RemapConnection(consequence._hazardSource, cloneMap);
+            }
+        }
+
+        #endregion
+
+        #region Private Helpers
+
+        /// <summary>
+        /// Keeps the element's change subscriptions in step with the ordered list, and reports the
+        /// membership change as <c>Functions</c>.
+        /// </summary>
+        /// <param name="sender">The ordered collection.</param>
+        /// <param name="e">The membership change.</param>
+        private void FunctionsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+        {
+            ReconcileFunctionSubscriptions();
+            RaisePropertyChange(nameof(Functions));
+        }
+
+        /// <summary>
+        /// Subscribes to every function now in the ordered list and unsubscribes from every
+        /// function that has left it, using <see cref="_subscribedFunctions"/> as the record of
+        /// what is currently attached.
+        /// </summary>
+        private void ReconcileFunctionSubscriptions()
+        {
+            foreach (var stale in _subscribedFunctions.Where(f => !_functions.Contains(f)).ToList())
+            {
+                UnsubscribeFunction(stale);
+                _subscribedFunctions.Remove(stale);
+            }
+
+            for (int i = 0; i < _functions.Count; i++)
+            {
+                var function = _functions[i];
+                if (function != null && _subscribedFunctions.Add(function)) SubscribeFunction(function);
             }
         }
 

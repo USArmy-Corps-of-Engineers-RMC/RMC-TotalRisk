@@ -103,11 +103,11 @@ public class SerializationModeTests
             Input = new RiskConnection(rating),
         };
         var fail = new ConsequenceElement("Failure Damages") { Input = new RiskConnection(response) };
-        fail.AddFunction(store.Add(Damages("Failure Damages")));
-        fail.AddFunction(store.Add(Damages("Failure Life Loss", "Life Loss", "lives")));
+        fail.Functions.Add(store.Add(Damages("Failure Damages")));
+        fail.Functions.Add(store.Add(Damages("Failure Life Loss", "Life Loss", "lives")));
         var nonFail = new ConsequenceElement("Non-Failure Damages") { Input = new RiskConnection(rating) };
-        nonFail.AddFunction(store.Add(Damages("Non-Failure Damages")));
-        nonFail.AddFunction(store.Add(Damages("Non-Failure Life Loss", "Life Loss", "lives")));
+        nonFail.Functions.Add(store.Add(Damages("Non-Failure Damages")));
+        nonFail.Functions.Add(store.Add(Damages("Non-Failure Life Loss", "Life Loss", "lives")));
 
         component.Graph.AddElement(hazard);
         component.Graph.AddElement(rating);
@@ -447,9 +447,9 @@ public class SerializationModeTests
             Input = new RiskConnection(hazard),
         };
         var fail = new ConsequenceElement("Failure") { Input = new RiskConnection(response) };
-        fail.AddFunction(shared);
+        fail.Functions.Add(shared);
         var nonFail = new ConsequenceElement("Non-Failure") { Input = new RiskConnection(hazard) };
-        nonFail.AddFunction(shared);
+        nonFail.Functions.Add(shared);
 
         component.Graph.AddElement(hazard);
         component.Graph.AddElement(response);

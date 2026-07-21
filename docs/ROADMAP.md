@@ -90,7 +90,9 @@ layers without changing anything a headless caller sees. Normative outcome:
 **Scope:** `IRiskFunction.Id`/`AssignNewId` as the rename-proof reference key (stripped from
 hashing); `RiskSerializationMode { SelfContained, ByReference }` with additive `ToXElement(mode)`
 overloads; `IRiskFunctionResolver`/`RiskFunctionResolver` mirroring `RiskElementResolver`;
-wrapped-function change propagation through element → graph → component; authoring surface for a
+wrapped-function change propagation through element → graph → component (with
+`ConsequenceElement.Functions` an `ObservableCollection` whose owner reconciles per-item
+subscriptions, per the BestFit `CompositeAnalysis.Analyses` precedent); authoring surface for a
 DAG editor (`RiskElementFactory.CreateForFunction`/`Create`, `IRiskElement.TryAssignFunction`,
 `GetReferencedFunctions`, unresolved-reference validation).
 
@@ -98,7 +100,7 @@ DAG editor (`RiskElementFactory.CreateForFunction`/`Create`, `IRiskElement.TryAs
 a full copy of every function. Once functions are stored items in their own right, that copy would
 win on load and silently discard edits made where the function is stored.
 
-**Landed 2026-07-20.** `dotnet build` 0 warnings; `dotnet test -c Release` 260/260; docs validation
+**Landed 2026-07-20.** `dotnet build` 0 warnings; `dotnet test -c Release` 265/265; docs validation
 green. Headline pin: a component's canonical hash is byte-identical across both serialization
 modes, so results can never depend on how a project was saved. Also pinned: by-reference round-trip
 re-attaches the *same* function instances (`Assert.AreSame`); stale ids throw, missing names are
