@@ -33,6 +33,31 @@ For a Monte Carlo mean estimate over N realizations, the standard error is SE �
 - Curve (FN / loss-exceedance) checks assert at a small set of exceedance levels, not all 200 stratification bins; tail bins with < ~100 expected exceedances get proportionally wider tolerances or are excluded (documented per test).
 - Deep re-runs: any converted test can be re-run at the legacy N = 10M by a user-set realization constant; this is deliberate and user-triggered, never part of the standard suite.
 
+## v0.13 policy: means vs tails after the Phase 4 engine corrections
+
+The Phase 4 / 4b / 4c engine corrections (arch doc v0.13: exact LEC construction, weighted-Welford
+moments, mixture-branch exposure enumeration, FFT system convolution, real joint-combination
+enumeration) **deliberately change results the legacy engine computes wrongly** — specifically the LEC
+tail and everything derived from it. The verification split is therefore:
+
+- **Means are v1.0-parity.** Mean total / incremental / irreducible / failure / non-failure risk and
+  the failure probabilities are algebraically unchanged by these fixes (e.g. the mixture identity
+  `Σ wᵢ P_F fᵢ = P_F Σ wᵢ fᵢ`, and convolved-mean = Σ component means). Verify them **closely** against
+  the legacy oracles — they are the free regression gate that the fixes did not disturb the correct
+  quantity. Tolerance is the usual k·SE.
+- **Tails are Monte-Carlo-parity, not v1.0-parity.** Standard deviation, VaR, CVaR, threshold
+  assurance, and the F-N curve tail are validated against **new, independently written brute-force
+  Monte Carlo oracles** (draw the full model per realization — mixture branch, fragility, consequence
+  — and form the empirical LEC), never against the legacy engine's tail, which is wrong there. Where a
+  legacy oracle body itself encodes the conditional-mean collapse (multi-D joint) or the mixture-mean
+  flattening (composite consequence under mean-only), port it **for the mean only** and pair it with an
+  MC tail oracle.
+
+This is a ratified deliberate departure in the spirit of content-based seeding and JSON results — the
+spec wins over legacy where legacy is demonstrably flawed (porting rule, CLAUDE.md). Each affected test
+documents which outputs are v1.0-parity and which are MC-parity, with the MC oracle's own SE in the
+tolerance derivation.
+
 ## Suite mechanics
 
 - `RMC.TotalRisk.Verification` is excluded from Release builds (no `.sln` Release `Build.0` line) and carries `[assembly: TestCategory("Verification")]`. The fast PR gate (`dotnet test -c Release`) never runs it.
@@ -63,7 +88,8 @@ their scheduled phase below — the function-level families do not replace them.
 | Phase | Families |
 |---|---|
 | Pre-4 (landed 2026-07-21) | `CompositeConsequence`, `ParametricConsequence` function-level families (above) |
-| 4 | Engine reproducibility regressions (shuffle/rename/metadata → bit-identical; same seed → bit-identical at any thread count) |
+| 4 | Engine reproducibility regressions (shuffle/rename/metadata → bit-identical; same seed → bit-identical at any thread count); single-component mean parity + a new MC tail oracle for the exact-LEC and mixture-exposure fixes |
+| 4b | Additive FFT convolution (convolved-mean = Σ means; MC tail cross-check) and joint combination enumeration (mean parity + MC tail) — both means-vs-tails per the v0.13 policy above |
 | 5 | `JointFailures` (1-comp 2/5-PFM × correlation × aggregation), `CompetingFailures`, `CommonCause`, `MutuallyExclusive`, `EAD` |
 | 6 | `SystemRisk` (2-comp/2-PFM, 5-comp/1-PFM × correlation × aggregation), `RiskAnalysis` N-element combos, NFIP Assurance TOL 50/55/70, LHS variance-reduction |
 | 9 | `Composite` family engine-level scenarios (mixture hazard/response/consequence behind the engine, bootstrap uncertainty), NFIP TOL 60/65 |

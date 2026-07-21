@@ -46,7 +46,7 @@ Future consumers                    ← RMC.TotalRisk.UI → RMC-TotalRisk App; 
 | Namespace | Contents |
 |---|---|
 | `RMC.TotalRisk.Core` | `RiskFunctionBase`, `CanonicalContentHasher`, `CanonicalizationRules` (`ModelRules`), `SeedHelpers`, `ByteArrayComparer`, `SerializationUtilities`, `FunctionHelpers`, `TabularUncertainty`, `ParametricPosterior` (Phase 1) |
-| `RMC.TotalRisk.Core.Enums` | Every enum, one per file: `SamplingScheme`, `FunctionUncertainty`, `FailureModeMethod`, `DependencyType`, `JointConsequenceType`, `RiskType`, `HazardDimension`, `RiskSerializationMode`, and the runtime discriminators `HazardFunctionType`/`TransformFunctionType`/`ResponseFunctionType`/`ConsequenceFunctionType`/`RiskElementType`/`RiskAnalysisMode` |
+| `RMC.TotalRisk.Core.Enums` | Every enum, one per file: `SamplingScheme`, `FunctionUncertainty`, `FailureModeMethod`, `DependencyType`, `JointConsequenceType`, `RiskType`, `HazardDimension`, `RiskSerializationMode`, `RiskIntegrand` (adaptive-refinement objective; Phase 4), `VegasTailFocusMode` (Phase 4b), and the runtime discriminators `HazardFunctionType`/`TransformFunctionType`/`ResponseFunctionType`/`ConsequenceFunctionType`/`RiskElementType`/`RiskAnalysisMode`. **`RiskIntegrand`/`VegasTailFocusMode` are `RiskAnalysisOptions` fields — hashed like the other options, unlike the runtime discriminators** |
 | `RMC.TotalRisk.Core.Interfaces` | Every interface: `IRiskFunction`, `IHazardFunction`/`IUnivariateHazardFunction`, `ITransformFunction`, `IResponseFunction`, `IConsequenceFunction`, `IRiskFunctionResolver`, `IRiskElement`, `IRiskElementNameAuthority`; `IAnalysis` (Phase 4+) |
 | `RMC.TotalRisk.RiskFunctions` | `RiskFunctionFactory`, `RiskFunctionResolver` |
 | `RMC.TotalRisk.RiskFunctions.Hazards` | `HazardFunctionBase`/`UnivariateHazardBase`, `TabularHazard`, `ParametricUnivariateHazard` (Phase 2+) |
@@ -189,6 +189,7 @@ Status legend: — planned · P ported · T unit-tested · V verification covera
 | Core.Enums | FailureModeMethod / DependencyType / JointConsequenceType / RiskType / HazardDimension | P/T | value/order pinning tests (Phase 3 — landed 2026-07-20) |
 | Core.Enums | HazardFunctionType / TransformFunctionType / ResponseFunctionType / ConsequenceFunctionType / RiskElementType / RiskAnalysisMode | P/T | member pinning + not-serialized assertions (v0.10 namespace reorganization — landed 2026-07-20) |
 | Core.Enums | RiskSerializationMode | P/T | mode-invariant hashing + by-reference round-trip tests (Phase 3.5 — landed 2026-07-20) |
+| Core.Enums | RiskIntegrand (adaptive-refinement objective) / VegasTailFocusMode | — | options round-trip + hash-recipe tests (Phase 4 / 4b) |
 | Systems | ResponseStage / FailureMode | P/T | joint/competing/common-cause oracles (Phase 5) |
 | Systems | SystemComponent (graph-owned; projection + identity hash + occurrence indices + MVN) | P/T | engine scenarios + seed-bug regressions (Phases 4–6) |
 | Graph | IRiskElement / RiskElementBase / Hazard-Transform-Response-ConsequenceElement / RiskConnection / ComponentGraph / factory / resolver / HazardSourceOption | P/T | levee projection acceptance + identity-inertness unit tests (Phase 3); engine scenarios (Phases 5–6) |
@@ -214,7 +215,7 @@ Zero tolerance: **no compiler errors, no compiler warnings, no empty catch block
 
 **No file-header banners.** Files start with `using` directives. The USACE notice lives in `LICENSE` only.
 
-**Never hand-roll numerics that Numerics provides.** Interpolation → `Numerics.Data.Interpolation.Linear`/`Bilinear`; distributions → `Numerics.Distributions`; sampling → `LatinHypercube`/`Stratify`/`BootstrapAnalysis`; root finding → `Brent`; integration → `AdaptiveSimpsonsRule`/`Vegas`. **Single exception:** verification oracles in `RMC.TotalRisk.Verification` intentionally re-implement engine math from Numerics primitives — that independence is what makes them oracles.
+**Never hand-roll numerics that Numerics provides.** Interpolation → `Numerics.Data.Interpolation.Linear`/`Bilinear`; distributions → `Numerics.Distributions`; sampling → `LatinHypercube`/`Stratify`/`BootstrapAnalysis`; root finding → `Brent`; **1D integration → `AdaptiveGaussKronrod`** (G10K21; replaces the v1.0 `AdaptiveSimpsonsRule` per [technical-reference/risk-integration.md](docs/technical-reference/risk-integration.md)), multi-D integration → `Vegas` (with its power-transform tail focus). **Single exception:** verification oracles in `RMC.TotalRisk.Verification` intentionally re-implement engine math from Numerics primitives — that independence is what makes them oracles.
 
 **Validation contract:** every model type implements `public (bool IsValid, List<string> ValidationMessages) Validate()`. Messages start `"Error: ..."` (invalidating) or `"Warning: ..."` (advisory); `IsValid` is false only on errors.
 
@@ -246,6 +247,9 @@ Verified traps to remember (extend as discovered):
 - `LatinHypercube.Random(n, d, seed)`: a seed ≤ 0 falls back to wall-clock — always pass an explicit positive seed.
 - `UnivariateDistributionFactory.CreateDistribution` is a closed switch (`Mixture`/`CompetingRisks` reconstruct via their own `FromXElement`).
 - `EmpiricalDistribution` does not round-trip its X/P tables through the base `ToXElement()` (fix planned upstream in Phase 9 — until then serialize the underlying paired data).
+- **`AdaptiveGaussKronrod`'s source file is misspelled `AdaptiveGuassKronrod.cs`; the *type* is spelled correctly.** It exposes the same surface the engine used on `AdaptiveSimpsonsRule` — `Integrate()`, `Integrate(List<StratificationBin>)`, `MaxDepth`, `MaxFunctionEvaluations`, `RelativeTolerance`, `ReportFailure`, `StandardError` — so the swap is drop-in. G10K21 nodes are strictly interior (max |x| ≈ 0.9957 < 1), so adjacent stratification bins never share an evaluation point (no duplicate `p` in the recorded risk points). `Function` is `Func<double,double>` — it does **not** hand the Kronrod weight to the integrand yet (Numerics item N7). `MinDepth` defaults to 0; set ≥ 2.
+- **`EmpiricalDistribution.Convolve(...)` (FFT) is exact only for independent summands and samples PDFs on a *linear* uniform grid** over `[Σmin, Σmax]` with `fftPoints = NextPowerOfTwo(max(8·numberOfPoints, 2048))`. For order-of-magnitude consequence ranges the linear grid starves the tail — pass `numberOfPoints ≥ 4096` and cross-check the convolved mean against `Σ` component means (log-spaced grid is Numerics item N8).
+- **`Vegas.TailFocusParameter` (γ) concentrates samples in the upper tail** via `p' = 1 − (1−p)^γ`; `ConfigureForRareEvents(pTarget)` sets `γ = ln(pTarget)/ln(0.05)` clamped [1, 20]. In TotalRisk the Vegas `wgt` *is* the LEC probability mass, so the power-transform Jacobian must be folded into `wgt` or every LEC ordinate is biased even when the returned integral is correct — verify before enabling γ > 1 (Numerics item N9).
 - Verification data files (when they exist) are read relative to `AppContext.BaseDirectory`, never the repo path, and parsed with `CultureInfo.InvariantCulture`.
 
 ## Code Conventions

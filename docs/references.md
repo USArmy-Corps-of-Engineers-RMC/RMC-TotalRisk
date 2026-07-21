@@ -35,3 +35,13 @@ Consolidated bibliography, IEEE-numbered, grouped by topic. Numbers are stable o
 [13] J. Huizinga, H. de Moel, and W. Szewczyk, *Global Flood Depth-Damage Functions: Methodology and the Database with Guidelines*, JRC Technical Report JRC105688, European Commission, 2017. (Continental damage-fraction curves bounded at maximum damage.)
 
 [14] U.S. Army Corps of Engineers, *Generic Depth-Damage Relationships*, Economic Guidance Memorandum 01-03 (and EGM 04-01), Washington, DC, 2000/2003; and Hydrologic Engineering Center, *HEC-FDA Technical Reference* (tabular depth-percent damage with per-ordinate error distributions).
+
+## Numerical integration and tail risk measures
+
+[15] R. Piessens, E. de Doncker-Kapenga, C. W. Überhuber, and D. K. Kahaner, *QUADPACK: A Subroutine Package for Automatic Integration*, Springer-Verlag, 1983. (Gauss–Kronrod adaptive quadrature; the G10K21 rule the engine's 1D integrator uses.)
+
+[16] G. P. Lepage, "A New Algorithm for Adaptive Multidimensional Integration," *Journal of Computational Physics*, vol. 27, no. 2, pp. 192–203, 1978. doi:10.1016/0021-9991(78)90004-9. (The VEGAS importance-sampling algorithm used for joint multi-component risk.)
+
+[17] R. T. Rockafellar and S. Uryasev, "Optimization of Conditional Value-at-Risk," *Journal of Risk*, vol. 2, no. 3, pp. 21–41, 2000. (CVaR / expected shortfall as a coherent tail risk measure.)
+
+[18] Basel Committee on Banking Supervision, *Minimum Capital Requirements for Market Risk* (Fundamental Review of the Trading Book), Bank for International Settlements, 2019. (Adoption of 97.5% expected shortfall in place of 99% VaR — the regulatory precedent for preferring a coherent tail measure.)

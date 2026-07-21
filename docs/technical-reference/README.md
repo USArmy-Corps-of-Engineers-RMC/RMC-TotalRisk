@@ -10,5 +10,7 @@ Pages (mirroring the model-library namespaces; phase numbers per [../ROADMAP.md]
 | [transform-functions.md](transform-functions.md) | Transform (composition) functions: tabular; linear/power documented ahead of Phase 7 | Phase 2 (landed 2026-07-20); composites + rating-curve import (9, 11) |
 | [response-functions.md](response-functions.md) | System response (fragility) functions: R-S formulation, tabular, parametric, non-fail sentinel | Phase 2 (landed 2026-07-20); composites (9), event trees (10), bivariate (11) |
 | [consequence-functions.md](consequence-functions.md) | Consequence (damage) functions: tabular, incremental-consequence coupling | Phase 2 (landed 2026-07-20); parametric (7), composites (9), LifeSim (11) |
+| [risk-integration.md](risk-integration.md) | The risk engine's numerical integration: Adaptive Gauss–Kronrod (1D), the `RiskIntegrand` refinement-objective enum, VEGAS with power-transform tail focus | Phase 4 / 4b (spec landed 2026-07-21) |
+| [loss-exceedance-curves.md](loss-exceedance-curves.md) | LEC / F-N construction, probability-mass derivation, stable weighted moments, the full risk-measure catalog (VaR/CVaR/assurance), FFT system convolution | Phase 4 / 4b (spec landed 2026-07-21) |
 | support/ | Canonical hashing + content-based seeding, sampling schemes | planned (Phase 3–4 write-up alongside the components/engine) |
 | risk-analysis/ | Components, occurrence-index seeding, engine integration methods | Phases 3–6 |

@@ -2,7 +2,17 @@
 
 > Living architectural specification for `RMC.TotalRisk.dll` — the headless .NET 10 compute library at the heart of the v1.1.0 modernization. **Authoritative home (since 2026-07-20): `docs/requirements/` in the RMC-TotalRisk repo**; the phased plan implementing this spec is [../ROADMAP.md](../ROADMAP.md). The copy at the `C:\GIT\RMC-TotalRisk-Dev` root is frozen with a pointer here, and legacy porting-source paths referenced below (e.g., `RMC-TotalRisk/RMC.TotalRisk.IO/...`) live in that Dev repo. The locked sections are the contract every cluster-port PR references.
 
-**Status**: 2026-07-21 — **v0.12** (consequence-cluster completion; supersedes conflicting text below wherever it appears):
+**Status**: 2026-07-21 — **v0.13** (risk-engine port corrections ahead of Phase 4; supersedes conflicting text below wherever it appears). These items retarget the Phase 4 engine port away from a verbatim v1.0 reproduction — the legacy compute is demonstrably wrong on LEC tails and system aggregation, and Numerics has since gained the tools to fix it. Full math in [../technical-reference/risk-integration.md](../technical-reference/risk-integration.md) and [../technical-reference/loss-exceedance-curves.md](../technical-reference/loss-exceedance-curves.md); phasing in [../ROADMAP.md](../ROADMAP.md) Phases 4 / 4b / 4c.
+
+1. **1D quadrature switches from `AdaptiveSimpsonsRule` to `AdaptiveGaussKronrod`** (G10K21). Drop-in surface (`Integrate()`/`Integrate(List<StratificationBin>)`/`MaxDepth`/`MaxFunctionEvaluations`/`RelativeTolerance`/`StandardError`). Both 1D call sites port: the per-component risk integral and the CVaR integral. §7.3 amended; §7.7 new.
+2. **LEC construction is rebuilt exactly** (new §7.7). The v1.0 200-bin log10 histogram plotted at bin midpoints, the raw-power-sum moments (catastrophic cancellation on σ/skew/kurtosis), and the midpoint-trapezoid probability-mass re-derivation are all replaced: probability mass comes from the quadrature weight, the exceedance curve is built exactly from sorted `(mass, consequence)` pairs and thinned to `LECOutputLength` only for output, and moments use a weighted streaming (Welford) accumulation. `LECOutputLength` becomes an output-resolution knob, not a compute-resolution knob.
+3. **Additive system risk is redefined to assume strictly independent components** and now produces a true system LEC via FFT convolution (new §7.8). The v1.0 additive path combined only the first two moments and emitted no system LEC. Validation errors if a correlation is supplied under the additive method; the hazard correlation matrix applies to the joint method only. Zero-inflating each defective component curve makes the D-fold convolution exactly equal to enumerating all 2^D component failure/non-failure combinations, via Numerics `EmpiricalDistribution.Convolve`.
+4. **Joint system risk exposes the Vegas power transform** for rare-tail capture (§7.8) and **enumerates real component failure/non-failure combinations** instead of convolving per-component conditional means (the defect the legacy `ComponentRiskOutput.vb:39` TODO named). `RiskAnalysisOptions` gains `VegasTailFocusMode`/`VegasTailFocusParameter` with a warm-up-derived γ heuristic.
+5. **The adaptive integrator's objective is selectable** via a new `RiskIntegrand` enum on `RiskAnalysisOptions` (default `MeanTotalRisk`). It steers *where the adaptive refinement spends evaluations* — the v1.0 integrator's returned value is discarded; it is used as an adaptive sampler whose side effect populates the risk points. All five risk-type LECs and every risk measure are produced regardless. `TotalProbabilityOfFailure` pairs with `RiskAnalysisMode.Reliability`. §4/§7.7.
+6. **Mean-only compute treats composite-mixture weights as exposure probabilities** (§6.4 amended). The v1.0 mean-only path flattens a Mixture consequence into its weighted-mean curve — mean risk correct, variance/VaR/CVaR/tail wrong. v1.1 enumerates the mixture branches as weighted exposure states so the LEC carries the true spread. New `SampleExposureBranches()` on the consequence contract; every non-composite type returns a single unit-weight branch, so nothing else in the engine changes shape.
+7. **Verification policy (ratified):** because items 2/4/6 correct real v1.0 tail errors, the **means** are verified against the v1.0 oracles (unchanged, and the free regression gate), while **σ / VaR / CVaR / F-N tails** are verified against new brute-force Monte Carlo oracles, not v1.0 parity. Recorded in [../verification.md](../verification.md). New open questions Q-V/Q-W in §11.
+
+Prior status — **v0.12** (consequence-cluster completion; supersedes conflicting text below wherever it appears):
 
 1. **`ParametricConsequenceFunction` is named `ParametricConsequence`.** The `Function` suffix was inconsistent with every sibling concrete type (`TabularConsequence`, `ParametricResponse`, `ParametricUnivariateHazard`); the class name is the XML element name and hash typeTag, so the choice was made before first landing and is now permanent. §3, §5.5.3, §6.4, and §9 are updated in place.
 2. **`CompositeConsequence` hash recipe amended and implemented as a projected identity form** (the second instance of the v0.9 `SystemComponent` exception): typeTag + `CompositeFunctionType` + entry count + per entry (effective weight, child content hash). The original recipe omitted the combine mode — Additive vs Average vs Mixture changes results and must hash; Additive projects weights as 1 (computationally inert there); the persisted form (SelfContained inline vs ByReference `FunctionReference` markers) is never the hash surface, so the serialization mode and child metadata cannot move seeds. Structural wiring follows BestFit `CompositeAnalysis` with its warts fixed (complete self-written markers, id-authoritative resolution, entry-preserving unresolved references); nesting is allowed with a circular-reference validation error (deliberate divergence from BestFit).
@@ -288,7 +298,10 @@ var ra = new RiskAnalysis(new[] { component })
         PRNGSeed = 12345,
         SamplingScheme = SamplingScheme.LatinHypercube,   // default — see §5.8
         EstimateMeanRiskOnly = false,
-        SystemRiskMethod = SystemRiskMethod.AdditiveRisk,
+        SystemRiskMethod = SystemRiskMethod.AdditiveRisk, // strictly-independent components (v0.13)
+        RiskIntegrand = RiskIntegrand.MeanTotalRisk,      // adaptive-refinement objective (v0.13, §7.7)
+        // Joint-method tail focus (v0.13, §7.8); ignored under the additive method:
+        VegasTailFocusMode = VegasTailFocusMode.Automatic,
     }
 };
 
@@ -1069,10 +1082,37 @@ public interface IConsequenceFunction : IModelElement
     IUnivariateFunction SampleFunction();
     IUnivariateFunction SampleFunction(double percentile);
 
+    // v0.13 (Phase 4): mean-only exposure branches. Non-composite types return a single
+    // (1.0, meanCurve) entry; CompositeConsequence in Mixture mode returns its child mean
+    // curves with their weights (nested composites flatten with multiplied weights).
+    IReadOnlyList<(double Weight, IUnivariateFunction Function)> SampleExposureBranches();
+
     double MinHazard();
     double MaxHazard();
 }
 ```
+
+#### 6.4.1 Mixture consequences under the mean-only path (v0.13, Phase 4)
+
+The v1.0 mean-only compute path calls the parameterless `SampleFunction()`, and
+`CompositeConsequence.SampleFunction()` flattens a **Mixture** into its weighted-mean curve
+`Σ wᵢ fᵢ(h)` (legacy `CompositeConsequence.vb:951-984`; v1.1 `CompositeConsequence.cs:391`). The
+mean annualized risk is then correct — `Σ wᵢ P_F fᵢ = P_F Σ wᵢ fᵢ` — but the LEC that the integrand
+records is the *mean curve's* LEC, so the variance, VaR, CVaR and F-N tail all collapse. The
+day/night life-loss composite is the canonical failure: the high-consequence night branch is
+averaged into the mean instead of surfacing as its own exceedance branch.
+
+Fix: in the mean-only path, do **not** collapse a Mixture. `SampleExposureBranches()` returns the
+weighted branches; `SampledFailureMode.ComputeRisk` emits **one risk-point entry per branch** with
+probability mass `P_F(h)·wᵢ` and consequence `fᵢ(h)`. No results-container change is needed —
+`RiskPoint` already carries parallel `ResponseProbabilities`/`Consequences` lists and
+`Curve.CreateCurve` already loops over them. `Additive`/`Average` composites return a single
+collapsed curve (those are genuine pointwise sums, not exposure states). A failure mode with
+multiple ordered consequence types (the Phase-3 `ConsequenceFunctions` list) takes the **cross
+product** of branches across types with product weights, matching the full-MC path where each
+composite draws its branch from its own independently seeded dimension; warn above 64 combined
+branches, error above 1024 (see open question Q-W for a future *shared exposure state*). This mirrors
+into the full-MC path per open question Q-V.
 
 ### 6.5 SystemComponent dimensional binding (bivariate hazard support)
 
@@ -1236,13 +1276,17 @@ public override async Task RunAsync(SafeProgressReporter? progress = null, Cance
 }
 ```
 
-The `Compute(seed, idx)` per-realization method is largely a 1:1 port from legacy: `AdaptiveSimpsonsRule` for additive, `Vegas` for joint risk. Behavioral changes vs. legacy:
+The `Compute(seed, idx)` per-realization method ports the legacy structure — an adaptive 1D integral per component for the additive/single-component path, `Vegas` for joint risk — but with the v0.13 corrections below. Behavioral changes vs. legacy:
 
 1. Seed source: derived from canonical hashing (§5.5.4).
 2. Component ordering for `_eCombos` columns: canonical-hash-sorted, not canvas-position-sorted.
 3. Progress reporting via `SafeProgressReporter` (was already there in legacy).
 4. Cancellation via `CancellationToken` (was via internal CTS).
 5. Bivariate-aware integration: when `component.HazardFunction is IBivariateHazardFunction`, the integrand performs nested Y | X integration (§7.4).
+6. **1D integrator is `AdaptiveGaussKronrod`, not `AdaptiveSimpsonsRule`** (v0.13; §7.7). Same `Integrate(List<StratificationBin>)` surface, same p-domain `[1e-16, 1−1e-16]`, same 50 `Stratify` hazard bins, tol `1e-8`, `MaxDepth` 100, `MaxEvaluations` 1e6; set `MinDepth ≥ 2`. As in v1.0 the integrator is used as an *adaptive sampler* — its returned value is discarded and only its evaluation points populate the risk-point set — so the choice of integrand (item 8) changes only where points are placed.
+7. **LEC construction is exact, not histogrammed** (v0.13; §7.7): probability mass comes from the Kronrod weight (interim: the deduplicated midpoint-trapezoid fallback with a `Σ mass = 1 ± 1e-9` assertion, until Numerics item N7 lands the weight-exposing overload); moments use weighted Welford; `LECOutputLength` thins the output only.
+8. **`Options.RiskIntegrand`** (default `MeanTotalRisk`) selects the adaptive refinement objective (§4, §7.7). Discontinuous integrands (`TailConditionalRisk`, `ThresholdExceedanceProbability`) inject their discontinuity `p` as an extra stratification-bin boundary.
+9. **System aggregation is rebuilt** (v0.13; §7.8): additive assumes strict independence and convolves component LECs via FFT (producing a real system LEC v1.0 never built); joint enumerates true component failure/non-failure combinations and exposes the Vegas power transform.
 
 ### 7.4 Bivariate hazard integration
 
@@ -1327,6 +1371,107 @@ await ra.RunAsync();
 ```
 
 Events fire on the same thread that invokes `RunAsync()`. WPF callers wrap with their own dispatcher invocation if needed.
+
+### 7.7 1D integration, LEC construction, and risk measures (v0.13, Phase 4)
+
+Normative summary; full math and every legacy `file:line` in
+[../technical-reference/risk-integration.md](../technical-reference/risk-integration.md) and
+[../technical-reference/loss-exceedance-curves.md](../technical-reference/loss-exceedance-curves.md).
+
+**Integrator.** Replace `AdaptiveSimpsonsRule` with `AdaptiveGaussKronrod` (G10K21) at both 1D call
+sites — the per-component risk integral (legacy `RiskAnalysis.vb:2852-2889`) and the CVaR integral
+over `[1e-16, α]` of the log-log LEC quantile (legacy `Curve.vb:547-552`). The surface is identical;
+give the CVaR integral explicit tol/eval caps (legacy used library defaults). The integrator's
+returned value is not the risk result — its adaptively placed evaluation points are recorded as
+`RiskPoint`s, and the LECs are built from those. G10K21 nodes are strictly interior, so no two
+adjacent stratification bins share a `p` (the risk-point set stays duplicate-free).
+
+**`RiskIntegrand` — the refinement objective** (`Core.Enums`, a hashed `RiskAnalysisOptions` field;
+per §4). It changes only where the adaptive integrator concentrates evaluations; all five risk-type
+LECs and every risk measure are produced regardless of the choice. Members, integrands (functions of
+the hazard non-exceedance probability `p`), and what each refines:
+
+| Member | Integrand | Concentrates points where |
+|---|---|---|
+| `MeanTotalRisk` **(default)** | `P_F·E[C_F] + P_NF·C_NF` | v1.0 behavior; mean annualized total consequence |
+| `MeanIncrementalRisk` | `P_F·E[(C_F − C_NF)⁺]` (Excess) | the reducible risk lives |
+| `TotalProbabilityOfFailure` | `P_F(p)` | the fragility is steep; pairs with `RiskAnalysisMode.Reliability` |
+| `TailConditionalRisk` | `P_F·E[C_F]·1{p ≤ α}`, α = `Options.Alpha` | the α-tail — VaR / CVaR / F-N tail |
+| `ThresholdExceedanceProbability` | `P(C > ConsequenceThreshold ∣ p)` | the assurance / tolerable-risk decision |
+| `SecondMoment` | `E[C² ∣ p]` | the LEC variance |
+| `Balanced` | normalized sum of MeanTotalRisk + SecondMoment + TailConditionalRisk | every measure converges together; the sensible default for API callers reading all measures |
+
+The last two integrands are discontinuous in `p`; inject the crossing (`p = α`, resp. the threshold)
+as a stratification-bin boundary so it lands on a bin edge (the `Integrate(List<StratificationBin>)`
+overload already supports this).
+
+**LEC construction** (both 1D and system paths converge on one algorithm):
+1. Probability mass is the quadrature weight, not a re-derivation. Interim until Numerics item N7:
+   keep a *deduplicated* midpoint-trapezoid fallback and assert `Σ mass = 1 ± 1e-9`.
+2. Build the exceedance curve **exactly** from sorted `(mass, consequence)` pairs (descending
+   consequence, exact reverse-cumulative mass); thin to `LECOutputLength` ordinates for output only,
+   always retaining the extreme-tail points. The v1.0 200-bin log10 histogram plotted at bin
+   midpoints is dropped — `LECOutputLength` is an output knob, not a compute knob.
+3. Central moments via **weighted Welford**, not raw power sums (v1.0's `sqrt(u2 − u1²)` and expanded
+   4th-moment forms catastrophically cancel when the mean dominates the spread — the usual life-loss
+   case). Documented as an `improve-on-port` case in the type's `<remarks>`.
+4. Raise a validation **Warning** when `|Σ mass − 1| > 1e-6` on an exhaustive curve instead of
+   silently clamping.
+
+**Risk-measure catalog** (all built from the finished LEC; defects fixed): `TotalProbability`
+(= annualized P(failure) on the `Fail` curve), `Mean` (= EAD / mean annualized risk),
+`ConditionalMean` (`Mean/TotalProbability`), `StandardDeviation`, `Skewness`, `Kurtosis`,
+`ConsequenceThresholdProbability` (assurance), `HazardThresholdProbability`, `ValueAtRisk`,
+`ConditionalValueAtRisk`, plus the `LEC` (F-N) and the `HazardFrequency` / `HazardvsCEN` profiles.
+Two fixes: `ValueAtRisk` returns **0** (not the minimum consequence) when `α > TotalProbability`; and
+the uncertainty percentile `Total` curve is read from the Total LEC, not reconstructed as
+`fAEP + nfAEP` (legacy `RiskAnalysis.vb:3369`).
+
+### 7.8 System risk aggregation (v0.13, Phase 4b)
+
+Full math in [../technical-reference/loss-exceedance-curves.md](../technical-reference/loss-exceedance-curves.md) §System aggregation.
+
+**Additive method — strict independence + FFT convolution.** The additive method is **redefined to
+assume components are strictly independent** (ratified). Validation: `SystemRiskMethod = Additive`
+with `ComponentHazardDependency ≠ Independent` or a non-identity `HazardCorrelationMatrix` is an
+**Error**; the correlation matrix applies to the joint method only. The v1.0 additive path combined
+only the first two moments and produced **no system LEC** — v1.1 builds a true system LEC for all
+five risk types by FFT:
+- The `Fail`/`Excess`/`NonFail` curves are *defective* (`TotalProbability < 1`). Make each proper by
+  adding an atom at consequence 0 with mass `1 − TotalProbability` (the "component did not fail ⇒
+  contributes zero" branch). **Convolving the D zero-inflated distributions is exactly the
+  enumeration of all 2^D component failure/non-failure combinations**, in O(n log n) rather than
+  2^D, and reproduces the full tail rather than a conditional mean.
+- Per risk type, build `EmpiricalDistribution(xValues, pValues)` from each component curve
+  (X ascending consequence, P = 1 − exceedance) and call
+  `EmpiricalDistribution.Convolve(IList<EmpiricalDistribution>, numberOfPoints)`. `Background` is
+  already exhaustive; convolve component `Total` curves for the system `Total`.
+- **Grid hazard:** `Convolve` samples PDFs on a *linear* grid over `[Σmin, Σmax]`. Life-loss ranges
+  span orders of magnitude, so add option `SystemConvolutionPoints` (default 4096, min 4096); assert
+  the convolved mean equals `Σ` component means to 1e-6 relative (this is the exact v1.0 additive
+  answer — a free regression gate); gate the phase on a brute-force MC tail cross-check. Log-spaced
+  convolution is Numerics item N8. System `pF = Probability.IndependentUnion(pfs)`.
+
+**Joint method — Vegas power transform + real combination enumeration.**
+- **Expose the power transform.** `RiskAnalysisOptions` gains `VegasTailFocusMode { None, Automatic,
+  Manual }` (default `Automatic`) and `VegasTailFocusParameter` (γ, default 1.0 = v1.0-identical,
+  valid [1, 20]). `None` pins γ = 1 for v1.0 comparability; `Manual` uses the supplied γ.
+- **γ heuristic (`Automatic`).** Harvest `pTarget` from the warm-up pass (which already runs with
+  `recordOutput = false` and currently discards everything but the grid): accumulate observed
+  per-component failure probabilities, set `pTarget = clamp(min_i P̂_f,i · Alpha, 1e-12, 1e-2)`, then
+  call `Vegas.ConfigureForRareEvents(pTarget)` before the recording pass. Zero extra cost,
+  deterministic, adapts to actual fragility.
+- **Jacobian audit.** In TotalRisk the Vegas `wgt` *is* the LEC probability mass, so the
+  power-transform Jacobian must be folded into `wgt` or every LEC ordinate is biased even when the
+  integral is correct. Verify (Numerics item N9) before enabling γ > 1 by default.
+- **Record more than one final pass** — accumulate LEC points across `IndependentEvaluations > 1`
+  recording passes and scale `FinalEvaluations` with D in `SetIntegrationDefaults` (a single 10,000-
+  eval pass is far too sparse for a D-dimensional tail ordinate).
+- **Enumerate real combinations.** Activate the parallel `ResponseProbabilities` /
+  `FailureConsequences` / `ExcessConsequences` lists on `ComponentRiskOutput` (the legacy
+  `ComponentRiskOutput.vb:39` TODO) so the Vegas integrand enumerates the true within-component
+  consequence distribution instead of convolving per-component conditional means. Fix the
+  double-increment of `tPF` (legacy `RiskAnalysis.vb:3117` and `:3129`).
 
 ## 8. Layer boundaries & consumer contract
 
@@ -1585,6 +1730,8 @@ Living section. Append entries as we go. Once an item is resolved, move it under
 - **Q-S** *(added 2026-07-19)*: Phase 2.0 design details tracked in [SHARED_FUNCTIONS_STRATEGY.md](SHARED_FUNCTIONS_STRATEGY.md) §9: `SegmentedPowerFunction` parameter-layout verification vs BestFit `RatingCurve.cs` (S-1); `EnsembleFunction` index-wrap/percentile policy (S-2 — interacts with Q-M for imported posteriors); `KernelDensity` round-trip (S-3); `CanonicalContentHasher` upstreaming to `Numerics.Utilities` (S-4); `UncertainOrderedPairedData` extension needs (S-5).
 - **Q-T** *(added 2026-07-20, v0.9)*: `ProfileHazardFunction` shape. In v1.0 it is a results-reporting selector typed `IElement` (the primary hazard or any transform point) driving risk profiles and the assurance threshold. Its v1.1 shape — a chain-position binding like the consequence binding, an element reference on the component, or an analysis-level option — should be designed with the results containers it labels (engine phase). Until then `HazardThreshold` lands without its companion selector.
 - **Q-U** *(added 2026-07-20, v0.9)*: Engine semantics of `MultipleConsequences` under response fan-out. The projection sets the flag when a path's last response feeds ≥ 2 terminals (each terminal still projects its own failure mode). Confirm in the engine phase that the v1.0 joint-consequence handling of fanned-out consequence sets is reproduced (or deliberately revised) when those modes share one response outcome per realization.
+- **Q-V** *(added 2026-07-21, v0.13)*: Should mixture-branch exposure enumeration (§6.4.1) apply in the **full-MC path too**, not only mean-only? Mixture weights are aleatory exposure (which day/night state occurs), not epistemic uncertainty, so enumerating them per realization would make each realization's LEC carry the mixture spread and leave the ensemble purely epistemic — and would drop `CompositeConsequence.SamplingDimensions` from 1 to 0 in Mixture mode. **Recommended: yes.** Ratify at the start of the Phase 4 session before the sampled machinery is built; it changes the shape of `SampledFailureMode`.
+- **Q-W** *(added 2026-07-21, v0.13)*: *Shared exposure state* across consequence types. §6.4.1 takes the cross product of mixture branches across a failure mode's ordered consequence types with product weights, which assumes the types draw their branch independently. In reality a single day/night draw should drive **all** consequence types on that mode at once (economic and life loss share the same exposure state). v1.0 has no concept of this. Design a per-mode shared-exposure declaration in a later phase; until then the independent cross product is the documented behavior (and the 64/1024-branch guardrails bound its cost).
 
 ### Resolved
 
