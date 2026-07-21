@@ -7,6 +7,7 @@ Development documentation for the v1.1 effort. The v1.0 end-user documentation (
 | [ROADMAP.md](ROADMAP.md) | The phased development roadmap — single source of truth for phases and exit gates |
 | [PROGRESS.md](PROGRESS.md) | Per-session progress log (newest first) — read this first when resuming work |
 | [verification.md](verification.md) | Legacy-oracle conversion strategy + Monte Carlo tolerance policy |
+| [verification/](verification/README.md) | Per-family verification results (the living v1.1 counterpart of the 2024 Word report) |
 | [references.md](references.md) | Consolidated IEEE-numbered bibliography |
 | [requirements/MODEL_LIBRARY_ARCHITECTURE.md](requirements/MODEL_LIBRARY_ARCHITECTURE.md) | Normative model-library architecture spec (layout, contracts, seeding, sampling, clusters, engine) |
 | [requirements/SHARED_FUNCTIONS_STRATEGY.md](requirements/SHARED_FUNCTIONS_STRATEGY.md) | Cross-repo strategy: shared function math in Numerics; BestFit import contract |

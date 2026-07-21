@@ -1,6 +1,6 @@
 # Verification Strategy
 
-> How the legacy `Test_TotalRisk` Monte Carlo suite becomes the formal `RMC.TotalRisk.Verification` suite, and the tolerance policy every verification test documents. Companion to [ROADMAP.md](ROADMAP.md) Phases 5–6 and 9–11 (numbering per the 2026-07-20 roadmap reorder).
+> How the legacy `Test_TotalRisk` Monte Carlo suite becomes the formal `RMC.TotalRisk.Verification` suite, and the tolerance policy every verification test documents. Companion to [ROADMAP.md](ROADMAP.md) Phases 5–6 and 9–11 (numbering per the 2026-07-20 roadmap reorder). Results are documented per family in [docs/verification/](verification/README.md).
 
 ## What the legacy suite is
 
@@ -40,14 +40,33 @@ For a Monte Carlo mean estimate over N realizations, the standard error is SE �
 - Verification classes are named `<Family>Verification` (e.g., `JointFailuresVerification`, `SystemRiskVerification`, `NfipAssuranceVerification`) and mirror the oracle family files of the legacy suite.
 - Any committed benchmark data files (later phases) live under the Verification project, are copied to output, and are read from `AppContext.BaseDirectory` with `CultureInfo.InvariantCulture` parsing.
 
+## Function-level verification (landed pre-Phase-4)
+
+The first two families verify **input functions in isolation** — the way the 2024 report's
+§Composite Consequence Function does — establishing the suite mechanics (fixed seeds, N = 10⁶,
+k·SE documentation, reproducibility pins, results pages) before the engine phases inherit them:
+
+- `CompositeConsequenceVerification` — the report's Additive/Average/Mixture scenarios against
+  exact Normal-theory solutions, the Numerics `Mixture` inverse-CDF analytic oracle, an
+  independent MC oracle, and the report's published constants
+  ([results](verification/composite-consequence.md)).
+- `ParametricConsequenceVerification` — the greenfield closed-form family against exact
+  lognormal theory and an independent MC oracle
+  ([results](verification/parametric-consequence.md)).
+
+The engine-level composite scenarios (legacy `Test_Composite.vb`: day/night mixture behind a
+hazard curve and fragility, weight 0.45, `MersenneTwister(12345)` at 10M) still convert in
+their scheduled phase below — the function-level families do not replace them.
+
 ## Conversion order (mirrors the roadmap)
 
 | Phase | Families |
 |---|---|
+| Pre-4 (landed 2026-07-21) | `CompositeConsequence`, `ParametricConsequence` function-level families (above) |
 | 4 | Engine reproducibility regressions (shuffle/rename/metadata → bit-identical; same seed → bit-identical at any thread count) |
 | 5 | `JointFailures` (1-comp 2/5-PFM × correlation × aggregation), `CompetingFailures`, `CommonCause`, `MutuallyExclusive`, `EAD` |
 | 6 | `SystemRisk` (2-comp/2-PFM, 5-comp/1-PFM × correlation × aggregation), `RiskAnalysis` N-element combos, NFIP Assurance TOL 50/55/70, LHS variance-reduction |
-| 9 | `Composite` family (mixture hazard/response/consequence, bootstrap uncertainty), NFIP TOL 60/65 |
+| 9 | `Composite` family engine-level scenarios (mixture hazard/response/consequence behind the engine, bootstrap uncertainty), NFIP TOL 60/65 |
 | 10 | `EventTree` (serialization round-trip + product oracle) |
 | 11 | `BivariateRisk` (100M→1M), `DAMRAE`, BestFit import contract |
 | Future | FDA integration (needs committed datasets via `verification-requests/`) |

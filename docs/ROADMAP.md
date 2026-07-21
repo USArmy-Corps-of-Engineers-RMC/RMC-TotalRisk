@@ -137,11 +137,13 @@ with no store, no resolver, and no consuming layer in the call path.
 
 ## Phase 7 — Remaining closed-form functions
 
-**Scope:** **`LinearTransform`** (`y = α + βx`, optional Gaussian uncertainty), **`PowerTransform`** (`y = α(x − ξ)^β`, log-space uncertainty, optional inversion) — thin wrappers over the existing `Numerics.Functions` `LinearFunction`/`PowerFunction` per [requirements/SHARED_FUNCTIONS_STRATEGY.md](requirements/SHARED_FUNCTIONS_STRATEGY.md); **`ParametricConsequenceFunction`** (new: `C(h) = clamp(α·max(h−h₀,0)^β, 0, U)` per ER 1110-2-1156); **`NonparametricHazard`** (empirical CDF + Weibull extrapolation). Domain labels, validation, serialization, hash identity, `ComputeUncertaintyResults` — zero math in the wrappers.
+> **Pulled forward (2026-07-21):** **`ParametricConsequence`** landed pre-Phase-4 (renamed from `ParametricConsequenceFunction` for cluster consistency — arch doc v0.12) with unit tests and a function-level verification family ([docs/verification/parametric-consequence.md](verification/parametric-consequence.md)). This phase's remaining scope is the three types below.
+
+**Scope:** **`LinearTransform`** (`y = α + βx`, optional Gaussian uncertainty), **`PowerTransform`** (`y = α(x − ξ)^β`, log-space uncertainty, optional inversion) — thin wrappers over the existing `Numerics.Functions` `LinearFunction`/`PowerFunction` per [requirements/SHARED_FUNCTIONS_STRATEGY.md](requirements/SHARED_FUNCTIONS_STRATEGY.md); **`NonparametricHazard`** (empirical CDF + Weibull extrapolation). Domain labels, validation, serialization, hash identity, `ComputeUncertaintyResults` — zero math in the wrappers.
 
 **Unit tests:** evaluation at known points vs closed forms (incl. uncertainty at fixed percentile, inverse power form, clamping), serialization/hash coverage, transformed-hazard bounds. Resolve open question Q-N (fail/non-fail consequence percentile coupling) formally if not already pinned by Phase 3.
 
-**Exit criteria:** four types P/T; any Phase 5/6 deferred scenarios that needed these types converted.
+**Exit criteria:** remaining three types P/T; any Phase 5/6 deferred scenarios that needed these types converted.
 
 ## Phase 8 — Numerics.Functions expansion (numerics repo) + package switch
 
@@ -151,9 +153,11 @@ with no store, no resolver, and no consuming layer in the call path.
 
 ## Phase 9 — Composites + RFA hazard + weighted wrappers
 
-**Scope:** `RFAHazard`, `CompositeHazard` + `WeightedHazardFunction`; `CompositeTransform` + `WeightedTransformFunction`; `CompositeResponse` + `WeightedResponseFunction`; `CompositeConsequence` + `WeightedConsequenceFunction` — composite math on Numerics `CompositeFunction`/`Mixture`/`CompetingRisks`. **`CompositeHazard` gains the parameter-set import option** (mirroring the Phase 2 parametric injection) so BestFit competing-risks/mixture/composite results import via the UI layer as Numerics artifacts. Resolve whether the injection path supersedes the planned `BestFitUnivariateHazard` type. Resolve Q-I (weighted-list ordering in the canonical hash) and Q-J (occurrence index within composites).
+> **Pulled forward (2026-07-21):** **`CompositeConsequence` + `WeightedConsequenceFunction`** landed pre-Phase-4 (combine math in the model library until N3 lands here; BestFit `CompositeAnalysis`-pattern wiring; projected-identity hashing per arch doc v0.12) with unit tests and a function-level verification family reproducing the 2024 report's three scenarios ([docs/verification/composite-consequence.md](verification/composite-consequence.md)). Q-I's composite half and Q-J are resolved for the consequence composite (declared order semantic; ordinal-in-seed) — the hazard/response composites below adopt the same rules. This phase migrates the consequence combine onto Numerics `CompositeFunction` when N3 ships and converts the engine-level composite oracles.
 
-**Verification:** `Test_Composite` (incl. its built-in mixture consistency cross-check), `Test_Composite_Uncertainty`, `Test_Composite_Consequence_Mixture`, NFIP TOL 60/65 (hazard bootstrap variants).
+**Scope:** `RFAHazard`, `CompositeHazard` + `WeightedHazardFunction`; `CompositeTransform` + `WeightedTransformFunction`; `CompositeResponse` + `WeightedResponseFunction` — composite math on Numerics `CompositeFunction`/`Mixture`/`CompetingRisks` (migrate `CompositeConsequence`'s in-library combine onto `CompositeFunction` at the same time). **`CompositeHazard` gains the parameter-set import option** (mirroring the Phase 2 parametric injection) so BestFit competing-risks/mixture/composite results import via the UI layer as Numerics artifacts. Resolve whether the injection path supersedes the planned `BestFitUnivariateHazard` type.
+
+**Verification:** `Test_Composite` (incl. its built-in mixture consistency cross-check), `Test_Composite_Uncertainty`, `Test_Composite_Consequence_Mixture` (the engine-level day/night oracles), NFIP TOL 60/65 (hazard bootstrap variants).
 
 **Exit criteria:** composite family P/T/V.
 

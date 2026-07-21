@@ -2,7 +2,14 @@
 
 > Living architectural specification for `RMC.TotalRisk.dll` — the headless .NET 10 compute library at the heart of the v1.1.0 modernization. **Authoritative home (since 2026-07-20): `docs/requirements/` in the RMC-TotalRisk repo**; the phased plan implementing this spec is [../ROADMAP.md](../ROADMAP.md). The copy at the `C:\GIT\RMC-TotalRisk-Dev` root is frozen with a pointer here, and legacy porting-source paths referenced below (e.g., `RMC-TotalRisk/RMC.TotalRisk.IO/...`) live in that Dev repo. The locked sections are the contract every cluster-port PR references.
 
-**Status**: 2026-07-20 — **v0.11** (layer boundaries; supersedes conflicting text below wherever it appears):
+**Status**: 2026-07-21 — **v0.12** (consequence-cluster completion; supersedes conflicting text below wherever it appears):
+
+1. **`ParametricConsequenceFunction` is named `ParametricConsequence`.** The `Function` suffix was inconsistent with every sibling concrete type (`TabularConsequence`, `ParametricResponse`, `ParametricUnivariateHazard`); the class name is the XML element name and hash typeTag, so the choice was made before first landing and is now permanent. §3, §5.5.3, §6.4, and §9 are updated in place.
+2. **`CompositeConsequence` hash recipe amended and implemented as a projected identity form** (the second instance of the v0.9 `SystemComponent` exception): typeTag + `CompositeFunctionType` + entry count + per entry (effective weight, child content hash). The original recipe omitted the combine mode — Additive vs Average vs Mixture changes results and must hash; Additive projects weights as 1 (computationally inert there); the persisted form (SelfContained inline vs ByReference `FunctionReference` markers) is never the hash surface, so the serialization mode and child metadata cannot move seeds. Structural wiring follows BestFit `CompositeAnalysis` with its warts fixed (complete self-written markers, id-authoritative resolution, entry-preserving unresolved references); nesting is allowed with a circular-reference validation error (deliberate divergence from BestFit).
+3. **Q-I's composite half and Q-J are resolved for the consequence composite** (see §10): declared entry order is semantic (drives sampler ordinals and the hashed order), and identical-content siblings draw independently via `HashCombine(seed, child.CanonicalHash(), ordinal)` — no occurrence-index machinery inside composites. `CompositeHazard`/`CompositeResponse` adopt both rules at Phase 9.
+4. **Two v1.0-behavior ratifications**: composite child label-mismatch checks are Warnings (the Phase 3 `FailureMode` downgrade — labels are unhashed metadata and never gate compute), and the composite's legacy child-level `HazardTransform`/`ConsequenceTransform` overrides are dropped (children are live functions that own their interpolation transforms; the hash recipe lists no composite transforms).
+
+v0.11 (2026-07-20, layer boundaries; supersedes conflicting text below wherever it appears):
 
 1. **New normative [§8 Layer boundaries & consumer contract](#8-layer-boundaries--consumer-contract).** What the UI/App/API layers own, how they reference model objects, and what the model library still refuses. Read it before starting the UI phase; it exists so that phase does not invent its own conventions.
 2. **Input functions are referenced by `Guid`, not by name.** `IRiskFunction` gains `Id` + `AssignNewId()`, serialized and stripped by `CanonicalizationRules.ModelRules` (identity, never content). BestFit's name-based references are its own documented regret — a rename or collision can silently re-resolve to a different type — and the shared framework's `NodeBase.NodeGuid` is the counter-example.
@@ -192,7 +199,7 @@ src/RMC.TotalRisk/
 │       ├── ConsequenceFunctionBase.cs
 │       ├── WeightedConsequenceFunction.cs
 │       ├── TabularConsequence.cs
-│       ├── ParametricConsequenceFunction.cs (power form per USACE ER 1110-2-1156)
+│       ├── ParametricConsequence.cs        (power form per USACE ER 1110-2-1156)
 │       ├── CompositeConsequence.cs
 │       ├── LifeSimConsequence.cs
 │       └── LifeSimResult.cs
@@ -430,9 +437,9 @@ Architecture is contract. The tables below enumerate each type's **compute-relev
 |---|---|
 | `TabularConsequence` | typeTag, ordinates |
 | `LifeSimConsequence` | typeTag, imported `UncertainOrderedPairedData` ordinates |
-| `ParametricConsequenceFunction` | typeTag, Alpha, Beta, Threshold, UpperBound, IsUncertain, [SigmaAlpha, SigmaBeta if uncertain] |
-| `CompositeConsequence` | typeTag, weighted-list count, per entry (weight, sub.CanonicalHash) |
-| `WeightedConsequenceFunction` | typeTag, weight, consequenceFunction.CanonicalHash |
+| `ParametricConsequence` | typeTag, Alpha, Beta, Threshold, UpperBound, IsUncertain, [SigmaAlpha, SigmaBeta if uncertain] |
+| `CompositeConsequence` | typeTag, **CompositeFunctionType**, weighted-list count, per entry (effective weight — coerced to 1 under Additive — and sub.CanonicalHash) — a **projected identity form** (the second instance of the ratified `SystemComponent` exception): the persisted form is never the composite's hash surface, so serialization mode and child metadata cannot move the hash. *(Amended at implementation, 2026-07-21: the original row omitted the combine mode, but Additive vs Average vs Mixture changes results and must hash; entry order is hashed — declared order is semantic.)* |
+| `WeightedConsequenceFunction` | (no hash surface of its own — the owning composite projects weight + child hash per entry) |
 
 **Risk analysis**:
 
@@ -1028,7 +1035,7 @@ Path: `Models/ConsequenceFunctions/`. Four concrete types + helpers.
 Concrete types:
 - **`TabularConsequence`** — paired-data hazard→consequence with optional uncertainty per ordinate.
 - **`LifeSimConsequence`** — imported from a separate LifeSim simulation; treated as a `TabularConsequence` with imported `UncertainOrderedPairedData`.
-- **`ParametricConsequenceFunction`** (NEW) — closed-form power model per USACE ER 1110-2-1156 / HEC-FDA conventions:
+- **`ParametricConsequence`** (NEW; landed 2026-07-21 — named without the `Function` suffix for cluster consistency with `TabularConsequence`/`ParametricResponse`) — closed-form power model per USACE ER 1110-2-1156 / HEC-FDA conventions:
 
   ```csharp
   // C(h) = clamp(Alpha * max(h - Threshold, 0)^Beta, 0, UpperBound)
@@ -1041,8 +1048,8 @@ Concrete types:
   public double SigmaBeta { get; set; }   // log-space stddev on Beta
   ```
 
-  `SamplingDimensions = IsUncertain ? 2 : 0` (two independent uncertain coefficients when uncertain). Suitable when a tabular function would over-fit sparse damage data, or when expert elicitation gives parametric form directly.
-- **`CompositeConsequence`** — weighted mixture / weighted average over `WeightedConsequenceFunction[]`.
+  `SamplingDimensions = IsUncertain ? 2 : 0` (two independent uncertain coefficients when uncertain: α_i = α·e^{σ_α·Z₁}, β_i = β·e^{σ_β·Z₂}). Suitable when a tabular function would over-fit sparse damage data, or when expert elicitation gives parametric form directly. Implementation notes (2026-07-21): the mean-curve overload returns the nominal (median) curve because with exponent scatter and no cap the analytic mean diverges for hazards more than one unit above the threshold (validation warns); sigmas serialize only while `IsUncertain` (recipe-literal conditional hashing); evaluation runs through the exact `ClampedPowerFunction` adapter (threshold-zero and saturation semantics that Numerics `PowerFunction` does not provide).
+- **`CompositeConsequence`** (landed 2026-07-21) — weighted mixture / weighted average / additive sum over `WeightedConsequenceFunction[]` (`CompositeFunctionType { Additive, Average, Mixture }`, default Mixture per v1.0). Children are live references to stored functions (the BestFit `CompositeAnalysis` pattern): the stored `ByReference` form carries only (Id, Name, Weight) per entry — no duplicated child content — while `SelfContained` embeds children inline for storeless contexts; unresolvable references keep their weighted entries and are reported by `Validate()`. Nesting is allowed with a circular-reference validation error (deliberate divergence from BestFit, which forbids nesting: pointwise consequence combines are well-defined recursively, and Mixture-over-Additive is a real modeling need).
 
 Contract:
 
@@ -1520,7 +1527,7 @@ Small after Phase 2.0 — the types are thin wrappers over `Numerics.Functions` 
 
 - Port `IConsequenceFunction`, `ConsequenceFunctionBase`, `WeightedConsequenceFunction`, `LifeSimResult`.
 - Port 3 existing types: `TabularConsequence`, `LifeSimConsequence`, `CompositeConsequence`.
-- Add 1 new type: `ParametricConsequenceFunction` (power form per ER 1110-2-1156).
+- Add 1 new type: `ParametricConsequence` (power form per ER 1110-2-1156; landed pre-Phase-4, 2026-07-21, along with `CompositeConsequence` + `WeightedConsequenceFunction`).
 - `CanonicalizationRules` entries + hash-invariance tests on each.
 - Unit tests + parity tests.
 
@@ -1565,8 +1572,8 @@ Living section. Append entries as we go. Once an item is resolved, move it under
 - **Q-E**: Threading audit — `Parallel.For` is straightforward, but are any `SampledComponent` / `SampledFailureMode` operations not thread-safe today? Audit during Phase 2.5.
 - **Q-F**: `BasicMessageItem` rich metadata — Phase 2 drops severity/code/source/property-name. If the future REST API or agentic clients need structured error codes, revisit this in v1.x with a `ValidationIssue` record.
 - **Q-H**: Numerics's `Random.NextIntegers(int)` — confirm it's part of public `Numerics.Utilities` API; if not, inline equivalent.
-- **Q-I** *(failure-mode half resolved 2026-07-20, v0.9)*: Failure-mode order within a component is **always declared order** — now grounded structurally: projected FM order is the consequence-element order in the graph's `Elements` list, which is serialized, canvas-free, and user-controllable; reordering terminals is a deliberate semantic edit (pinned by test). The composite-list half of the question (`CompositeHazard`/`CompositeResponse`/`CompositeConsequence` weighted lists when order is mathematically irrelevant) stays open for the composites phase.
-- **Q-J**: Should the `OccurrenceIndex` ALSO be applied within composites (e.g., a `CompositeHazard` containing two identical sub-hazards with different weights)? Currently the within-composite occurrence problem is handled by the `prng.Next()` cascade, BUT only because each `WeightedHazardFunction` has its own enclosing `WeightedHazardFunction` wrapper that distinguishes it via the weight. If two `WeightedHazardFunction`s have identical (weight, sub-hash) tuples, they receive the same draw. Audit during Phase 2.1: are there scenarios where two identical `(weight, sub)` pairs in the same composite need independent samples? If yes, extend occurrence-index to composites.
+- **Q-I** *(failure-mode half resolved 2026-07-20, v0.9; consequence-composite half resolved 2026-07-21)*: Failure-mode order within a component is **always declared order** — now grounded structurally: projected FM order is the consequence-element order in the graph's `Elements` list, which is serialized, canvas-free, and user-controllable; reordering terminals is a deliberate semantic edit (pinned by test). `CompositeConsequence` resolves its half the same way: **declared entry order is semantic** — it drives the child sampler ordinals and the hashed entry order, so reordering entries is a compute edit (pinned by test). `CompositeHazard`/`CompositeResponse` follow the same rule when they land (Phase 9).
+- **Q-J** *(answered for the consequence composite 2026-07-21)*: Should the `OccurrenceIndex` ALSO be applied within composites (e.g., a `CompositeHazard` containing two identical sub-hazards with different weights)? `CompositeConsequence.SetupSampler` answers it structurally: each child's seed is `HashCombine(seed, child.CanonicalHash(), ordinal)`, so identical-content siblings get independent draws from the list ordinal — no occurrence-index machinery and no dependence on distinguishing weights (pinned by test: two identical-content children draw independently). `CompositeHazard`/`CompositeResponse` adopt the same recipe in Phase 9.
 - **Q-K**: ~~Refactor `EventTreeResponse` to consume k percentiles…~~ **Resolved 2026-04-30**: incorporated into §5.8.6. Event trees are LHS-driven from day one of the Phase 2.3 port.
 - **Q-L**: Default value of `RiskAnalysisOptions.SamplingScheme` — `LatinHypercube` (proposed; gives the variance-reduction win out of the box) vs. `MonteCarlo` (legacy parity, opt-in). Recommended `LatinHypercube`. Confirm before Phase 2.5.
 - **Q-M**: Bootstrap posterior size vs. Realizations count. `ParametricHazard.SampleFunction(int idx)` looks up the idx-th posterior parameter set. The legacy bootstrap stores M ∈ [100, 100000] samples; risk analysis runs N ∈ [1000, 10000+] realizations. If M < N, indices currently wrap modularly. Two options: keep the index-based path (simpler, parity with legacy) or convert to a `SamplingDimensions = 1` percentile-based path (`posterior[(int)(p * M)]`) so the bootstrap participates in LHS. Decide during Phase 2.1; for the initial port, preserve index-based.
