@@ -88,9 +88,11 @@ namespace RMC.TotalRisk.Systems.Components.Graph
                 {
                     // An unresolved reference yields null; it is dropped from the ordered list and
                     // reported by Validate. Positional consequence pairing is checked there too,
-                    // so a silently shortened list cannot pass validation.
+                    // so a silently shortened list cannot pass validation. The resolver threads
+                    // into the inline factory so an inline composite child can resolve its own
+                    // by-reference children.
                     var consequence = ReadFunctionEntry<IConsequenceFunction>(
-                        child, resolver, RiskFunctionFactory.CreateFromXElement, "consequence function");
+                        child, resolver, c => RiskFunctionFactory.CreateFromXElement(c, resolver), "consequence function");
                     if (consequence != null) _functions.Add(consequence);
                 }
             }

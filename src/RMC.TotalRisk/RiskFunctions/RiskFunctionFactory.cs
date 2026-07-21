@@ -41,6 +41,23 @@ namespace RMC.TotalRisk.RiskFunctions
         /// <exception cref="ArgumentNullException">Thrown when the element is null.</exception>
         public static IRiskFunction? CreateFromXElement(XElement xElement)
         {
+            return CreateFromXElement(xElement, null);
+        }
+
+        /// <summary>
+        /// Reconstructs a concrete risk function from its serialized form, resolving any
+        /// by-reference children through the supplied resolver.
+        /// </summary>
+        /// <param name="xElement">The serialized form; the local name selects the concrete type.</param>
+        /// <param name="resolver">
+        /// The function resolver handed to container function types whose serialized children may
+        /// be <c>FunctionReference</c> markers (composite functions). Leaf types ignore it; null
+        /// reads self-contained forms.
+        /// </param>
+        /// <returns>The reconstructed function, or null when the local name is not a known concrete type.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when the element is null.</exception>
+        public static IRiskFunction? CreateFromXElement(XElement xElement, IRiskFunctionResolver? resolver)
+        {
             if (xElement == null) throw new ArgumentNullException(nameof(xElement));
 
             return xElement.Name.LocalName switch
@@ -99,6 +116,22 @@ namespace RMC.TotalRisk.RiskFunctions
         public static IConsequenceFunction? CreateConsequenceFunction(XElement xElement)
         {
             return CreateFromXElement(xElement) as IConsequenceFunction;
+        }
+
+        /// <summary>
+        /// Reconstructs a consequence function from its serialized form, resolving any
+        /// by-reference children through the supplied resolver.
+        /// </summary>
+        /// <param name="xElement">The serialized form; the local name selects the concrete type.</param>
+        /// <param name="resolver">
+        /// The function resolver handed to container consequence types (composite functions);
+        /// leaf types ignore it, and null reads self-contained forms.
+        /// </param>
+        /// <returns>The reconstructed consequence function, or null when the local name is unknown or names a non-consequence type.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when the element is null.</exception>
+        public static IConsequenceFunction? CreateConsequenceFunction(XElement xElement, IRiskFunctionResolver? resolver)
+        {
+            return CreateFromXElement(xElement, resolver) as IConsequenceFunction;
         }
     }
 }

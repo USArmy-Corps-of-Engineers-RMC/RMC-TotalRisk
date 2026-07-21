@@ -55,6 +55,27 @@ public class RiskFunctionFactoryTests
         Assert.IsNull(RiskFunctionFactory.CreateFromXElement(new XElement("BogusFunction")));
     }
 
+    /// <summary>
+    /// Verifies the resolver-aware overloads read self-contained forms identically with or
+    /// without a resolver (leaf types ignore it; null means self-contained).
+    /// </summary>
+    [TestMethod]
+    public void Test_CreateFromXElement_ResolverOverload_ForwardsForSelfContained()
+    {
+        // Arrange
+        var original = new ParametricConsequence { Name = "Life loss", Alpha = 10d };
+
+        // Act
+        var withNull = RiskFunctionFactory.CreateFromXElement(original.ToXElement(), null);
+        var typed = RiskFunctionFactory.CreateConsequenceFunction(original.ToXElement(), null);
+
+        // Assert
+        Assert.IsNotNull(withNull);
+        Assert.IsNotNull(typed);
+        CollectionAssert.AreEqual(original.CanonicalHash(), withNull.CanonicalHash());
+        CollectionAssert.AreEqual(original.CanonicalHash(), typed.CanonicalHash());
+    }
+
     /// <summary>Verifies null elements throw.</summary>
     [TestMethod]
     public void Test_CreateFromXElement_Null_Throws()

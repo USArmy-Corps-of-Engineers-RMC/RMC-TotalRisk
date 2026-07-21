@@ -194,7 +194,13 @@ namespace RMC.TotalRisk.Core
         public abstract XElement ToXElement();
 
         /// <inheritdoc/>
-        public byte[] CanonicalHash()
+        /// <remarks>
+        /// Virtual for container function types whose persisted form is not their identity
+        /// surface: a composite function hashes a projected identity form (mode, weights, child
+        /// content hashes) so serialization mode and child metadata can never move its hash — the
+        /// same ratified exception <c>SystemComponent</c> established.
+        /// </remarks>
+        public virtual byte[] CanonicalHash()
         {
             return CanonicalContentHasher.Hash(ToXElement(), CanonicalizationRules.ModelRules);
         }

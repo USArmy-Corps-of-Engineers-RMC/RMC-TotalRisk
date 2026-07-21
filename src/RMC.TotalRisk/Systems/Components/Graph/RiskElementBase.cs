@@ -5,6 +5,7 @@ using System.Xml.Linq;
 using RMC.TotalRisk.Core;
 using RMC.TotalRisk.Core.Enums;
 using RMC.TotalRisk.Core.Interfaces;
+using RMC.TotalRisk.RiskFunctions;
 
 namespace RMC.TotalRisk.Systems.Components.Graph
 {
@@ -251,9 +252,10 @@ namespace RMC.TotalRisk.Systems.Components.Graph
 
         /// <summary>
         /// The element name marking a serialized function reference, as opposed to inline function
-        /// content. Serialized contract.
+        /// content. Serialized contract, owned by <see cref="FunctionEntry"/> (the single
+        /// implementation shared with function containers outside the graph).
         /// </summary>
-        protected const string FunctionReferenceElementName = "FunctionReference";
+        protected const string FunctionReferenceElementName = FunctionEntry.ReferenceElementName;
 
         /// <summary>
         /// The name of the property holding this element's wrapped function(s) — the property
@@ -329,13 +331,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         /// <exception cref="ArgumentNullException">Thrown when the function is null.</exception>
         protected static XElement WriteFunctionEntry(IRiskFunction function, RiskSerializationMode mode)
         {
-            if (function == null) throw new ArgumentNullException(nameof(function));
-            if (mode != RiskSerializationMode.ByReference) return function.ToXElement();
-
-            var reference = new XElement(FunctionReferenceElementName);
-            reference.SetAttributeValue("Id", function.Id.ToString("D"));
-            reference.SetAttributeValue("Name", function.Name);
-            return reference;
+            return FunctionEntry.Write(function, mode);
         }
 
         /// <summary>
@@ -366,40 +362,8 @@ namespace RMC.TotalRisk.Systems.Components.Graph
             Func<XElement, IRiskFunction?> inlineFactory, string linkDescription)
             where T : class, IRiskFunction
         {
-            if (child == null) throw new ArgumentNullException(nameof(child));
-            if (inlineFactory == null) throw new ArgumentNullException(nameof(inlineFactory));
-
-            if (child.Name.LocalName != FunctionReferenceElementName)
-            {
-                return inlineFactory(child) as T
-                    ?? throw new InvalidOperationException(
-                        $"Unrecognized function element '{child.Name.LocalName}' in the serialized element '{_name}'. " +
-                        "The element cannot be reconstructed faithfully; the serialized form may come from a newer version.");
-            }
-
-            var pendingId = RiskElementResolver.ParsePendingId(child.Attribute("Id")?.Value);
-            string? pendingName = child.Attribute("Name")?.Value;
-            string reference = string.IsNullOrEmpty(pendingName)
-                ? $"{linkDescription} Id '{pendingId:D}'"
-                : $"{linkDescription} '{pendingName}'";
-
-            if (resolver == null)
-            {
-                _unresolvedFunctionReferences.Add(reference);
-                return null;
-            }
-
-            var resolved = resolver.Resolve(pendingId, pendingName, $"The {GetType().Name} '{_name}'");
-            if (resolved == null)
-            {
-                _unresolvedFunctionReferences.Add(reference);
-                return null;
-            }
-
-            return resolved as T
-                ?? throw new InvalidOperationException(
-                    $"The {GetType().Name} '{_name}' references {reference}, which resolved to a " +
-                    $"{resolved.GetType().Name} — the wrong kind of risk function for this element.");
+            return FunctionEntry.Read<T>(child, resolver, inlineFactory, _name,
+                $"The {GetType().Name} '{_name}'", linkDescription, _unresolvedFunctionReferences);
         }
 
         /// <summary>
