@@ -100,6 +100,23 @@ public class HashInvarianceKitchenSinkTests
                 SigmaBeta = 0.2d,
             },
             f => ((ParametricConsequence)f).Alpha = 2.5d);
+
+        yield return new RegistryEntry(
+            nameof(CompositeConsequence),
+            () => new CompositeConsequence(new[]
+            {
+                new WeightedConsequenceFunction(new TabularConsequence { Name = "Day", SpecifiedHazard = "Stage", HazardUnit = "ft", SpecifiedConsequence = "Life Loss", ConsequenceUnit = "lives" }, 0.42d),
+                new WeightedConsequenceFunction(new TabularConsequence { Name = "Night", SpecifiedHazard = "Stage", HazardUnit = "ft", SpecifiedConsequence = "Life Loss", ConsequenceUnit = "lives" }, 0.58d),
+            })
+            {
+                Name = "Day/Night",
+                SpecifiedHazard = "Stage",
+                HazardUnit = "ft",
+                SpecifiedConsequence = "Life Loss",
+                ConsequenceUnit = "lives",
+                CompositeFunctionType = CompositeFunctionType.Average,
+            },
+            f => ((CompositeConsequence)f).CompositeFunctionType = CompositeFunctionType.Mixture);
     }
 
     /// <summary>Verifies metadata edits (rename/re-describe/relabel) never move any registered type's hash.</summary>

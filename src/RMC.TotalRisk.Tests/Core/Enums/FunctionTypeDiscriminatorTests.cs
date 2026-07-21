@@ -36,7 +36,7 @@ public class FunctionTypeDiscriminatorTests
             new[] { "Tabular", "Parametric", "NonFail" },
             Enum.GetNames<ResponseFunctionType>());
         CollectionAssert.AreEqual(
-            new[] { "Tabular", "Parametric" },
+            new[] { "Tabular", "Parametric", "Composite" },
             Enum.GetNames<ConsequenceFunctionType>());
     }
 
@@ -53,6 +53,7 @@ public class FunctionTypeDiscriminatorTests
         Assert.AreEqual(ResponseFunctionType.NonFail, new NonFailResponse().FunctionType);
         Assert.AreEqual(ConsequenceFunctionType.Tabular, new TabularConsequence().FunctionType);
         Assert.AreEqual(ConsequenceFunctionType.Parametric, new ParametricConsequence().FunctionType);
+        Assert.AreEqual(ConsequenceFunctionType.Composite, new CompositeConsequence().FunctionType);
     }
 
     /// <summary>
@@ -73,6 +74,7 @@ public class FunctionTypeDiscriminatorTests
             new NonFailResponse().ToXElement(),
             new TabularConsequence().ToXElement(),
             new ParametricConsequence().ToXElement(),
+            new CompositeConsequence().ToXElement(),
         ];
 
         // Assert

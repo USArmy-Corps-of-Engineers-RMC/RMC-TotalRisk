@@ -32,6 +32,7 @@ public class RiskFunctionFactoryTests
             new NonFailResponse(),
             new TabularConsequence(),
             new ParametricConsequence(),
+            new CompositeConsequence(),
         };
 
         foreach (var original in functions)
@@ -105,6 +106,8 @@ public class RiskFunctionFactoryTests
         Assert.IsNotNull(RiskFunctionFactory.CreateConsequenceFunction(consequenceXml));
         Assert.IsNotNull(RiskFunctionFactory.CreateConsequenceFunction(parametricConsequenceXml));
         Assert.IsNull(RiskFunctionFactory.CreateResponseFunction(parametricConsequenceXml));
+        Assert.IsNotNull(RiskFunctionFactory.CreateConsequenceFunction(new CompositeConsequence().ToXElement()));
+        Assert.IsNull(RiskFunctionFactory.CreateHazardFunction(new CompositeConsequence().ToXElement()));
 
         // Cross-cluster mismatches return null.
         Assert.IsNull(RiskFunctionFactory.CreateHazardFunction(transformXml));

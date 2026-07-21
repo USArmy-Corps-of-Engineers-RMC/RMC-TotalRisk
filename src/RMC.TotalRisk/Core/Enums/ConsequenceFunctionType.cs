@@ -27,5 +27,11 @@ namespace RMC.TotalRisk.Core.Enums
         /// (<c>ParametricConsequence</c>).
         /// </summary>
         Parametric,
+
+        /// <summary>
+        /// A weighted combination of child consequence functions — additive, weighted-average, or
+        /// mixture (<c>CompositeConsequence</c>).
+        /// </summary>
+        Composite,
     }
 }
