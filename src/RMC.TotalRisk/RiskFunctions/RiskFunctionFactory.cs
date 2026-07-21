@@ -52,6 +52,7 @@ namespace RMC.TotalRisk.RiskFunctions
                 nameof(ParametricResponse) => new ParametricResponse(xElement),
                 nameof(NonFailResponse) => new NonFailResponse(xElement),
                 nameof(TabularConsequence) => new TabularConsequence(xElement),
+                nameof(ParametricConsequence) => new ParametricConsequence(xElement),
                 _ => null,
             };
         }

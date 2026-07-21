@@ -31,6 +31,7 @@ public class RiskFunctionFactoryTests
             new ParametricResponse(),
             new NonFailResponse(),
             new TabularConsequence(),
+            new ParametricConsequence(),
         };
 
         foreach (var original in functions)
@@ -73,6 +74,7 @@ public class RiskFunctionFactoryTests
         var responseXml = new TabularResponse().ToXElement();
         var nonFailXml = new NonFailResponse().ToXElement();
         var consequenceXml = new TabularConsequence().ToXElement();
+        var parametricConsequenceXml = new ParametricConsequence().ToXElement();
 
         // Assert — matches reconstruct.
         Assert.IsNotNull(RiskFunctionFactory.CreateHazardFunction(hazardXml));
@@ -80,6 +82,8 @@ public class RiskFunctionFactoryTests
         Assert.IsNotNull(RiskFunctionFactory.CreateResponseFunction(responseXml));
         Assert.IsNotNull(RiskFunctionFactory.CreateResponseFunction(nonFailXml));
         Assert.IsNotNull(RiskFunctionFactory.CreateConsequenceFunction(consequenceXml));
+        Assert.IsNotNull(RiskFunctionFactory.CreateConsequenceFunction(parametricConsequenceXml));
+        Assert.IsNull(RiskFunctionFactory.CreateResponseFunction(parametricConsequenceXml));
 
         // Cross-cluster mismatches return null.
         Assert.IsNull(RiskFunctionFactory.CreateHazardFunction(transformXml));

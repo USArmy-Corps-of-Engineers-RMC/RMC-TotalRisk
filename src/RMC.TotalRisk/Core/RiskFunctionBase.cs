@@ -274,9 +274,11 @@ namespace RMC.TotalRisk.Core
         /// <see cref="LatinHypercube"/> treats a non-positive seed as "use the wall clock", which
         /// would silently destroy reproducibility — content-derived seeds from
         /// <see cref="SeedHelpers.HashCombine(int, byte[], int)"/> must therefore be folded into the
-        /// positive range before reaching any Numerics sampler.
+        /// positive range before reaching any Numerics sampler. Protected so functions that run
+        /// their own content-seeded summary sampling (e.g., the parametric consequence's
+        /// uncertainty summary) apply the exact same fold.
         /// </remarks>
-        private static int ToPositiveSeed(int seed)
+        protected static int ToPositiveSeed(int seed)
         {
             return (int)((uint)seed % int.MaxValue) + 1;
         }

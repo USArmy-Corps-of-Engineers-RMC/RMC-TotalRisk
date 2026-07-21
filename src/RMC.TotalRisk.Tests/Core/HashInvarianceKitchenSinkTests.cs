@@ -79,6 +79,27 @@ public class HashInvarianceKitchenSinkTests
             nameof(TabularConsequence),
             () => new TabularConsequence { Name = "Damages", SpecifiedHazard = "Stage", HazardUnit = "ft", SpecifiedConsequence = "Damages", ConsequenceUnit = "$" },
             f => ((TabularConsequence)f).HazardTransform = Transform.Logarithmic);
+
+        // Pre-Phase-4 consequence-cluster completion — an uncertain instance so the conditional
+        // sigma attributes participate in the hash surface.
+        yield return new RegistryEntry(
+            nameof(ParametricConsequence),
+            () => new ParametricConsequence
+            {
+                Name = "Life loss",
+                SpecifiedHazard = "Stage",
+                HazardUnit = "ft",
+                SpecifiedConsequence = "Life Loss",
+                ConsequenceUnit = "lives",
+                Alpha = 10d,
+                Beta = 1.5d,
+                Threshold = 2d,
+                UpperBound = 500d,
+                IsUncertain = true,
+                SigmaAlpha = 0.3d,
+                SigmaBeta = 0.2d,
+            },
+            f => ((ParametricConsequence)f).Alpha = 2.5d);
     }
 
     /// <summary>Verifies metadata edits (rename/re-describe/relabel) never move any registered type's hash.</summary>

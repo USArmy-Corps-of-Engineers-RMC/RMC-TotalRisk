@@ -21,5 +21,11 @@ namespace RMC.TotalRisk.Core.Enums
     {
         /// <summary>A hazard vs. consequence table (<c>TabularConsequence</c>).</summary>
         Tabular,
+
+        /// <summary>
+        /// A closed-form power model of the hazard with optional coefficient uncertainty
+        /// (<c>ParametricConsequence</c>).
+        /// </summary>
+        Parametric,
     }
 }
