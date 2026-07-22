@@ -277,16 +277,14 @@ namespace RMC.TotalRisk.Core
         /// <param name="seed">The seed, possibly zero or negative (content-derived seeds span the full int range).</param>
         /// <returns>An equivalent strictly positive seed.</returns>
         /// <remarks>
-        /// <see cref="LatinHypercube"/> treats a non-positive seed as "use the wall clock", which
-        /// would silently destroy reproducibility — content-derived seeds from
-        /// <see cref="SeedHelpers.HashCombine(int, byte[], int)"/> must therefore be folded into the
-        /// positive range before reaching any Numerics sampler. Protected so functions that run
-        /// their own content-seeded summary sampling (e.g., the parametric consequence's
-        /// uncertainty summary) apply the exact same fold.
+        /// Delegates to <see cref="SeedHelpers.ToPositiveSeed(int)"/> — the fold moved to the seed
+        /// kernel when the risk engine gained non-function consumers (the failure-mode coupling
+        /// matrix and the per-realization VEGAS seeds). Kept protected here so existing function
+        /// implementations keep their call sites unchanged.
         /// </remarks>
         protected static int ToPositiveSeed(int seed)
         {
-            return (int)((uint)seed % int.MaxValue) + 1;
+            return SeedHelpers.ToPositiveSeed(seed);
         }
 
         #endregion

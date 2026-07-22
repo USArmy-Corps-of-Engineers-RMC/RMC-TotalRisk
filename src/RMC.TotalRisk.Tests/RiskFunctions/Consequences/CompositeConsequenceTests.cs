@@ -82,7 +82,7 @@ public class CompositeConsequenceTests
         Assert.AreEqual(CompositeFunctionType.Mixture, c.CompositeFunctionType);
         Assert.AreEqual(0, c.ConsequenceFunctions.Count);
         Assert.AreEqual(ConsequenceFunctionType.Composite, c.FunctionType);
-        Assert.AreEqual(1, c.SamplingDimensions, "Mixture mode owns one selector dimension.");
+        Assert.AreEqual(0, c.SamplingDimensions, "Ratified Q-V: the mixture branch is enumerated exposure, not a sampler dimension.");
         Assert.IsTrue(c.IsDeterministic, "No positively weighted branches and no children.");
     }
 
@@ -310,7 +310,11 @@ public class CompositeConsequenceTests
         Assert.AreEqual(before, average.SampleFunction(7).Function(10d), 0d, "Metadata edits must never move Monte Carlo draws.");
     }
 
-    /// <summary>Verifies the composite's own sampling dimensions by mode.</summary>
+    /// <summary>
+    /// Verifies the composite's own sampling dimensions are zero in every mode (ratified Q-V: the
+    /// mixture branch choice is enumerated exposure, not a drawn sampler dimension; the standalone
+    /// per-realization mixture surface rides an internal selector matrix instead).
+    /// </summary>
     [TestMethod]
     public void Test_SamplingDimensions_ByMode()
     {
@@ -318,7 +322,7 @@ public class CompositeConsequenceTests
         var c = Composite(CompositeFunctionType.Mixture, (DeterministicChild("Day", 100d), 1d));
 
         // Assert
-        Assert.AreEqual(1, c.SamplingDimensions);
+        Assert.AreEqual(0, c.SamplingDimensions);
         c.CompositeFunctionType = CompositeFunctionType.Average;
         Assert.AreEqual(0, c.SamplingDimensions);
         c.CompositeFunctionType = CompositeFunctionType.Additive;
@@ -663,5 +667,209 @@ public class CompositeConsequenceTests
         raised.Clear();
         entry.Weight = 0.123d;
         Assert.AreEqual(0, raised.Count, "A cleared entry must no longer notify the composite.");
+    }
+
+    /// <summary>
+    /// Verifies the ratified Q-V exposure-branch enumeration: a Mixture returns one weighted
+    /// branch per positively weighted child carrying the child's mean curve, with weights summing
+    /// to one and zero-weight children skipped as unreachable.
+    /// </summary>
+    [TestMethod]
+    public void Test_SampleExposureBranches_Mixture_EnumeratesWeightedChildren()
+    {
+        // Arrange — the day/night exposure model with an unreachable zero-weight entry.
+        var composite = Composite(CompositeFunctionType.Mixture,
+            (DeterministicChild("Day", 100d), 0.55d),
+            (DeterministicChild("Night", 300d), 0.45d),
+            (DeterministicChild("Unreachable", 999d), 0d));
+
+        // Act
+        var branches = composite.SampleExposureBranches();
+
+        // Assert
+        Assert.AreEqual(2, branches.Count);
+        Assert.AreEqual(0.55d, branches[0].Weight, 0d);
+        Assert.AreEqual(100d, branches[0].Function.Function(10d), 0d);
+        Assert.AreEqual(0.45d, branches[1].Weight, 0d);
+        Assert.AreEqual(300d, branches[1].Function.Function(10d), 0d);
+        Assert.AreEqual(1d, branches[0].Weight + branches[1].Weight, 1e-12);
+    }
+
+    /// <summary>
+    /// Verifies nested Mixture children flatten with multiplied weights, while an Average child
+    /// composite stays one branch carrying its collapsed curve.
+    /// </summary>
+    [TestMethod]
+    public void Test_SampleExposureBranches_NestedComposites_FlattenAndCollapse()
+    {
+        // Arrange — outer Mixture over a leaf (0.5), a nested Mixture (0.3 × {0.6, 0.4}), and an
+        // Average composite (0.2) that must stay collapsed.
+        var nestedMixture = Composite(CompositeFunctionType.Mixture,
+            (DeterministicChild("Day", 100d), 0.6d),
+            (DeterministicChild("Night", 300d), 0.4d));
+        var averageChild = Composite(CompositeFunctionType.Average,
+            (DeterministicChild("A", 100d), 0.5d),
+            (DeterministicChild("B", 300d), 0.5d));
+        var outer = Composite(CompositeFunctionType.Mixture,
+            (DeterministicChild("Leaf", 50d), 0.5d),
+            (nestedMixture, 0.3d),
+            (averageChild, 0.2d));
+
+        // Act
+        var branches = outer.SampleExposureBranches();
+
+        // Assert — leaf, day (0.3·0.6), night (0.3·0.4), collapsed average (0.2).
+        Assert.AreEqual(4, branches.Count);
+        Assert.AreEqual(0.5d, branches[0].Weight, 1e-15);
+        Assert.AreEqual(50d, branches[0].Function.Function(10d), 0d);
+        Assert.AreEqual(0.18d, branches[1].Weight, 1e-15);
+        Assert.AreEqual(100d, branches[1].Function.Function(10d), 0d);
+        Assert.AreEqual(0.12d, branches[2].Weight, 1e-15);
+        Assert.AreEqual(300d, branches[2].Function.Function(10d), 0d);
+        Assert.AreEqual(0.2d, branches[3].Weight, 1e-15);
+        Assert.AreEqual(200d, branches[3].Function.Function(10d), 1e-12, "The Average child collapses to its weighted mean.");
+        Assert.AreEqual(1d, branches.Sum(b => b.Weight), 1e-12);
+    }
+
+    /// <summary>
+    /// Verifies Additive and Average composites are single collapsed branches — genuine pointwise
+    /// combinations, not exposure states.
+    /// </summary>
+    [TestMethod]
+    public void Test_SampleExposureBranches_AdditiveAndAverage_SingleCollapsedBranch()
+    {
+        // Arrange
+        var additive = Composite(CompositeFunctionType.Additive,
+            (DeterministicChild("A", 100d), 1d), (DeterministicChild("B", 300d), 1d));
+        var average = Composite(CompositeFunctionType.Average,
+            (DeterministicChild("A", 100d), 0.5d), (DeterministicChild("B", 300d), 0.5d));
+
+        // Act
+        var additiveBranches = additive.SampleExposureBranches();
+        var averageBranches = average.SampleExposureBranches();
+
+        // Assert
+        Assert.AreEqual(1, additiveBranches.Count);
+        Assert.AreEqual(1d, additiveBranches[0].Weight, 0d);
+        Assert.AreEqual(400d, additiveBranches[0].Function.Function(10d), 1e-12);
+        Assert.AreEqual(1, averageBranches.Count);
+        Assert.AreEqual(200d, averageBranches[0].Function.Function(10d), 1e-12);
+    }
+
+    /// <summary>
+    /// Verifies the percentile overload samples every branch co-monotonically at the shared
+    /// knowledge percentile — the exact draw the failure/non-failure coupling (Q-N) shares.
+    /// </summary>
+    [TestMethod]
+    public void Test_SampleExposureBranches_Percentile_CoMonotonicWithChildren()
+    {
+        // Arrange
+        var day = NormalChild("Day", 100d, 10d);
+        var night = NormalChild("Night", 300d, 30d);
+        var composite = Composite(CompositeFunctionType.Mixture, (day, 0.55d), (night, 0.45d));
+
+        // Act
+        var branches = composite.SampleExposureBranches(0.9d);
+
+        // Assert — each branch equals its child sampled directly at the same percentile.
+        Assert.AreEqual(2, branches.Count);
+        Assert.AreEqual(day.SampleFunction(0.9d).Function(10d), branches[0].Function.Function(10d), 0d);
+        Assert.AreEqual(night.SampleFunction(0.9d).Function(10d), branches[1].Function.Function(10d), 0d);
+        Assert.AreEqual(0.55d, branches[0].Weight, 0d);
+        Assert.AreEqual(0.45d, branches[1].Weight, 0d);
+    }
+
+    /// <summary>
+    /// Verifies the non-composite default: a single unit-weight branch identical to the direct
+    /// sample, for both the mean and percentile overloads.
+    /// </summary>
+    [TestMethod]
+    public void Test_SampleExposureBranches_NonComposite_SingleUnitBranch()
+    {
+        // Arrange
+        var tabular = NormalChild("Solo", 100d, 10d);
+
+        // Act
+        var meanBranches = tabular.SampleExposureBranches();
+        var percentileBranches = tabular.SampleExposureBranches(0.75d);
+
+        // Assert
+        Assert.AreEqual(1, meanBranches.Count);
+        Assert.AreEqual(1d, meanBranches[0].Weight, 0d);
+        Assert.AreEqual(tabular.SampleFunction().Function(10d), meanBranches[0].Function.Function(10d), 0d);
+        Assert.AreEqual(1, percentileBranches.Count);
+        Assert.AreEqual(tabular.SampleFunction(0.75d).Function(10d), percentileBranches[0].Function.Function(10d), 0d);
+    }
+
+    /// <summary>
+    /// Verifies the structural branch count backing the engine's branch-explosion guardrails:
+    /// singles for non-composites and pointwise composites, flattened positive-weight leaves for
+    /// mixtures, and cycle-safe termination.
+    /// </summary>
+    [TestMethod]
+    public void Test_CountExposureBranches_StructuralMatrix()
+    {
+        // Arrange
+        var nested = Composite(CompositeFunctionType.Mixture,
+            (DeterministicChild("Day", 100d), 0.6d), (DeterministicChild("Night", 300d), 0.4d));
+        var mixture = Composite(CompositeFunctionType.Mixture,
+            (DeterministicChild("Leaf", 50d), 0.5d), (nested, 0.3d),
+            (Composite(CompositeFunctionType.Average, (DeterministicChild("A", 1d), 0.5d), (DeterministicChild("B", 2d), 0.5d)), 0.2d),
+            (DeterministicChild("Unreachable", 9d), 0d));
+
+        // Act / Assert
+        Assert.AreEqual(1, DeterministicChild("Solo", 1d).CountExposureBranches());
+        Assert.AreEqual(1, Composite(CompositeFunctionType.Additive, (DeterministicChild("A", 1d), 1d)).CountExposureBranches());
+        Assert.AreEqual(4, mixture.CountExposureBranches(), "Leaf + two flattened nested leaves + one collapsed average.");
+
+        // A cyclic mixture graph terminates (the cycle contributes no further leaves; Validate
+        // reports the cycle as an error separately).
+        var a = Composite(CompositeFunctionType.Mixture, (DeterministicChild("Day", 1d), 0.5d));
+        var b = Composite(CompositeFunctionType.Mixture, (a, 1d));
+        a.ConsequenceFunctions.Add(new WeightedConsequenceFunction(b, 0.5d));
+        Assert.AreEqual(1, a.CountExposureBranches(), "The cycle back through B contributes nothing.");
+    }
+
+    /// <summary>
+    /// Verifies the exposure-branch surface rejects unusable configurations: empty composites and
+    /// cyclic mixtures throw the standard invalid-configuration error.
+    /// </summary>
+    [TestMethod]
+    public void Test_SampleExposureBranches_InvalidComposite_Throws()
+    {
+        // Arrange — a cycle nested one level down, reached through enumeration.
+        var a = Composite(CompositeFunctionType.Mixture, (DeterministicChild("Day", 1d), 0.5d));
+        var b = Composite(CompositeFunctionType.Mixture, (a, 1d));
+        a.ConsequenceFunctions.Add(new WeightedConsequenceFunction(b, 0.5d));
+
+        // Act / Assert
+        Assert.ThrowsException<InvalidOperationException>(() => new CompositeConsequence().SampleExposureBranches());
+        Assert.ThrowsException<InvalidOperationException>(() => a.SampleExposureBranches());
+        Assert.ThrowsException<InvalidOperationException>(() => a.SampleExposureBranches(0.5d));
+    }
+
+    /// <summary>
+    /// Verifies the standalone per-realization mixture surface still requires its sampler and
+    /// still reproduces the mixture ensemble after the Q-V dimension change (the selector matrix
+    /// moved inside; the stream is unchanged).
+    /// </summary>
+    [TestMethod]
+    public void Test_SampleFunction_ByRealization_Mixture_RequiresSetupSampler()
+    {
+        // Arrange
+        var composite = Composite(CompositeFunctionType.Mixture,
+            (DeterministicChild("Day", 100d), 0.55d), (DeterministicChild("Night", 300d), 0.45d));
+
+        // Act / Assert — sampling before setup throws; after setup, a sweep visits both branches
+        // in proportions near the weights (deterministic children make branch identity exact).
+        Assert.ThrowsException<InvalidOperationException>(() => composite.SampleFunction(0));
+
+        composite.SetupSampler(2000, 12345, SamplingScheme.LatinHypercube);
+        int dayCount = 0;
+        for (int i = 0; i < 2000; i++)
+        {
+            if (Math.Abs(composite.SampleFunction(i).Function(10d) - 100d) < 1e-9) dayCount++;
+        }
+        Assert.AreEqual(0.55d, dayCount / 2000d, 0.02d, "The selector sweep must reproduce the exposure weights.");
     }
 }

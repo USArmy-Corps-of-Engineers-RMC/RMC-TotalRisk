@@ -11,6 +11,7 @@ using Numerics.Mathematics.SpecialFunctions;
 using RMC.TotalRisk.Core;
 using RMC.TotalRisk.Core.Enums;
 using RMC.TotalRisk.Core.Interfaces;
+using RMC.TotalRisk.Results;
 using RMC.TotalRisk.RiskFunctions.Responses;
 using RMC.TotalRisk.Systems.Components.Graph;
 
@@ -470,6 +471,19 @@ namespace RMC.TotalRisk.Systems.Components
         public int OccurrenceIndex { get; internal set; }
 
         /// <summary>
+        /// The failure-mode projection captured by <see cref="SetupSamplers"/> for the current
+        /// run — <see cref="FailureModes"/> builds a fresh projection on every access, so the
+        /// engine must sample against one frozen snapshot. Runtime sampler state: never
+        /// serialized, never hashed, never cloned.
+        /// </summary>
+        private IReadOnlyList<FailureMode>? _sampledModes;
+
+        /// <summary>
+        /// The snapshot's non-failure mode; null when the component has none.
+        /// </summary>
+        private FailureMode? _sampledNonFailureMode;
+
+        /// <summary>
         /// Raised when a component property changes. Passive contract — headless callers need
         /// not subscribe.
         /// </summary>
@@ -613,6 +627,30 @@ namespace RMC.TotalRisk.Systems.Components
                 }
             }
 
+            // The Q-W branch-explosion guardrail at the component level: joint failure pathways
+            // take the cross product of the failing modes' primary exposure branches, so the
+            // product across failure modes is bounded — warn above 64, error above 1024. The
+            // per-mode combination methods never cross modes, so the check applies to the joint
+            // method only.
+            if (_failureModeMethod == FailureModeMethod.JointFailures)
+            {
+                long pathwayBranches = 1;
+                for (int i = 0; i < modes.Count && pathwayBranches <= 1024; i++)
+                {
+                    if (modes[i].IsNonFailureMode) continue;
+                    var primary = modes[i].ConsequenceFunction;
+                    pathwayBranches *= Math.Max(1, primary?.CountExposureBranches() ?? 1);
+                }
+                if (pathwayBranches > 1024)
+                {
+                    messages.Add($"Error: The joint failure pathways' combined exposure branches exceed 1024 (the cross product of the failure modes' primary branch counts) for system component '{Name}'; reduce the mixture branch counts.");
+                }
+                else if (pathwayBranches > 64)
+                {
+                    messages.Add($"Warning: The joint failure pathways' combined exposure branches ({pathwayBranches}) exceed 64 for system component '{Name}'; the branch cross product grows compute cost accordingly.");
+                }
+            }
+
             return (messages.FindIndex(m => m.StartsWith("Error:", StringComparison.Ordinal)) < 0, messages);
         }
 
@@ -666,6 +704,85 @@ namespace RMC.TotalRisk.Systems.Components
                     : 0;
                 components[order[k]].OccurrenceIndex = occurrence;
             }
+        }
+
+        /// <summary>
+        /// Sets up the component's samplers for a run: captures the failure-mode projection once
+        /// (the frozen snapshot every realization samples against), then walks the hazard and
+        /// every projected mode in order, seeding each distinct function instance exactly once
+        /// with a content-derived seed
+        /// (<c>SeedHelpers.HashCombine(componentSeed, function.CanonicalHash(), ordinal)</c>).
+        /// </summary>
+        /// <param name="sampleSize">The realization count N.</param>
+        /// <param name="componentSeed">
+        /// The component's content-derived seed —
+        /// <c>SeedHelpers.HashCombine(analysisSeed, CanonicalHash(), OccurrenceIndex)</c>
+        /// (architecture doc §5.5.4), computed by the analysis after
+        /// <see cref="AssignOccurrenceIndices"/>.
+        /// </param>
+        /// <param name="scheme">The knowledge-uncertainty sampling scheme.</param>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown when the sample size is not positive.</exception>
+        /// <remarks>
+        /// Ordinals advance per walk position (every encounter); a function instance referenced
+        /// at several positions is seeded at its first canonical position only and draws the
+        /// identical realizations everywhere it appears — one shared instance is one knowledge
+        /// quantity (the single-owner rule; equal-content distinct instances get different
+        /// ordinals and draw independently). Consequence functions are not walked: their shared
+        /// knowledge percentiles come from each mode's coupling matrix (Q-N). Forward rule for
+        /// composite hazards/responses (Phase 9): the walk seeds cluster roots only, a root's
+        /// own <c>SetupSampler</c> owns its subtree, and the dedup set must absorb subtree
+        /// members.
+        /// </remarks>
+        public void SetupSamplers(int sampleSize, int componentSeed, SamplingScheme scheme)
+        {
+            if (sampleSize <= 0) throw new ArgumentOutOfRangeException(nameof(sampleSize), "The sample size must be positive.");
+
+            var modes = ProjectFailureModes();
+            _sampledModes = modes;
+            _sampledNonFailureMode = null;
+            for (int i = 0; i < modes.Count; i++)
+            {
+                if (modes[i].IsNonFailureMode)
+                {
+                    _sampledNonFailureMode = modes[i];
+                    break;
+                }
+            }
+
+            var seededFunctions = new HashSet<IRiskFunction>(ReferenceEqualityComparer.Instance);
+            int ordinal = 0;
+            var hazard = HazardFunction;
+            if (hazard != null)
+            {
+                if (seededFunctions.Add(hazard))
+                {
+                    hazard.SetupSampler(sampleSize, SeedHelpers.HashCombine(componentSeed, hazard.CanonicalHash(), ordinal), scheme);
+                }
+                ordinal++;
+            }
+            for (int i = 0; i < modes.Count; i++)
+            {
+                ordinal = modes[i].SetupSamplers(sampleSize, componentSeed, ordinal, scheme, seededFunctions);
+            }
+        }
+
+        /// <summary>
+        /// Samples the component for one realization against the snapshot captured by
+        /// <see cref="SetupSamplers"/>.
+        /// </summary>
+        /// <param name="realizationIndex">The realization index, or −1 for the mean functions.</param>
+        /// <returns>The sampled component.</returns>
+        /// <exception cref="InvalidOperationException">
+        /// Thrown before <see cref="SetupSamplers"/> has run, or when the component has no
+        /// hazard function.
+        /// </exception>
+        public SampledComponent Sample(int realizationIndex = -1)
+        {
+            if (_sampledModes == null)
+            {
+                throw new InvalidOperationException("SetupSamplers() must be called before sampling.");
+            }
+            return new SampledComponent(this, _sampledModes, _sampledNonFailureMode, realizationIndex);
         }
 
         /// <summary>

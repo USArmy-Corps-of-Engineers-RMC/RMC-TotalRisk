@@ -55,6 +55,24 @@ namespace RMC.TotalRisk.Core
         }
 
         /// <summary>
+        /// Maps any 32-bit seed onto [1, int.MaxValue] deterministically.
+        /// </summary>
+        /// <param name="seed">The seed, possibly zero or negative (content-derived seeds span the full int range).</param>
+        /// <returns>An equivalent strictly positive seed.</returns>
+        /// <remarks>
+        /// The Numerics Latin hypercube samplers treat a non-positive seed as "use the wall clock",
+        /// which would silently destroy reproducibility — every content-derived seed from
+        /// <see cref="HashCombine(int, byte[], int)"/> must be folded into the positive range before
+        /// reaching any Numerics sampler. Public because the fold is applied by function samplers,
+        /// the failure-mode coupling matrix, and the engine's per-realization VEGAS seeds alike;
+        /// one implementation keeps every consumer bit-identical.
+        /// </remarks>
+        public static int ToPositiveSeed(int seed)
+        {
+            return (int)((uint)seed % int.MaxValue) + 1;
+        }
+
+        /// <summary>
         /// Fills an N×D matrix with independent uniform draws — the
         /// <see cref="SamplingScheme.MonteCarlo"/> fallback that preserves legacy v1.0 sampling
         /// behavior behind the same matrix shape the Latin hypercube schemes use.

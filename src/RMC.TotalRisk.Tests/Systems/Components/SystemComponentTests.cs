@@ -733,4 +733,197 @@ public class SystemComponentTests
             nameof(SystemComponent.FailureModes),
         }, raised);
     }
+
+    /// <summary>Builds a data-bearing stage-frequency hazard for the sampler tests.</summary>
+    private static TabularHazard SamplerHazard()
+    {
+        return new TabularHazard
+        {
+            Name = "Stage Frequency",
+            SpecifiedHazard = "Stage",
+            HazardUnit = "ft",
+            NoUncertaintyFunction = new UncertainOrderedPairedData(
+                new[]
+                {
+                    new UncertainOrdinate(0.999d, new Deterministic(0d)),
+                    new UncertainOrdinate(0.5d, new Deterministic(10d)),
+                    new UncertainOrdinate(0.001d, new Deterministic(30d)),
+                },
+                true, SortOrder.Descending, true, SortOrder.Ascending, UnivariateDistributionType.Deterministic),
+        };
+    }
+
+    /// <summary>Builds an uncertain data-bearing fragility for the sampler tests.</summary>
+    private static TabularResponse SamplerFragility(string name)
+    {
+        return new TabularResponse
+        {
+            Name = name,
+            SpecifiedHazard = "Stage",
+            HazardUnit = "ft",
+            UncertainOrderedPairedData = new UncertainOrderedPairedData(
+                new[] { new UncertainOrdinate(10d, new Triangular(0d, 0.05d, 0.1d)), new UncertainOrdinate(20d, new Triangular(0.7d, 0.9d, 1d)) },
+                true, SortOrder.Ascending, false, SortOrder.None, UnivariateDistributionType.Triangular),
+        };
+    }
+
+    /// <summary>Builds a labeled deterministic data-bearing consequence for the sampler tests.</summary>
+    private static TabularConsequence SamplerConsequence(string name)
+    {
+        return new TabularConsequence
+        {
+            Name = name,
+            SpecifiedHazard = "Stage",
+            HazardUnit = "ft",
+            SpecifiedConsequence = "Life Loss",
+            ConsequenceUnit = "lives",
+            UncertainOrderedPairedData = new UncertainOrderedPairedData(
+                new[] { new UncertainOrdinate(0d, new Deterministic(0d)), new UncertainOrdinate(30d, new Deterministic(300d)) },
+                true, SortOrder.Ascending, false, SortOrder.None, UnivariateDistributionType.Deterministic),
+        };
+    }
+
+    /// <summary>Builds a labeled n-branch mixture of deterministic children with equal weights.</summary>
+    private static CompositeConsequence SamplerMixture(string name, int branches)
+    {
+        var mixture = new CompositeConsequence
+        {
+            Name = name,
+            SpecifiedHazard = "Stage",
+            HazardUnit = "ft",
+            SpecifiedConsequence = "Life Loss",
+            ConsequenceUnit = "lives",
+        };
+        for (int i = 0; i < branches; i++)
+        {
+            mixture.ConsequenceFunctions.Add(new WeightedConsequenceFunction(SamplerConsequence($"{name} Branch {i}"), 1d / branches));
+        }
+        return mixture;
+    }
+
+    /// <summary>Builds a component of two fail modes over the given response functions.</summary>
+    private static SystemComponent SamplerComponent(IResponseFunction responseA, IResponseFunction responseB)
+    {
+        var component = new SystemComponent { Name = "Sampler" };
+        component.HazardFunction = SamplerHazard();
+        component.AddFailureMode(new FailureMode(null, null, responseA, SamplerConsequence("A Loss")));
+        component.AddFailureMode(new FailureMode(null, null, responseB, SamplerConsequence("B Loss")));
+        return component;
+    }
+
+    /// <summary>
+    /// Verifies the single-owner seeding rule: one response instance shared by two modes draws
+    /// identical realizations everywhere it appears (one instance = one knowledge quantity),
+    /// while two distinct equal-content instances get different ordinals and draw independently.
+    /// </summary>
+    [TestMethod]
+    public void Test_SetupSamplers_SingleOwnerSeeding_SharedVersusDistinct()
+    {
+        // Arrange / Act — shared instance.
+        var shared = SamplerFragility("Shared Fragility");
+        var componentShared = SamplerComponent(shared, shared);
+        componentShared.SetupSamplers(32, componentSeed: 12345, SamplingScheme.LatinHypercube);
+
+        // Assert — both modes carry the identical sampled response in every realization.
+        for (int k = 0; k < 32; k++)
+        {
+            var sampled = componentShared.Sample(k);
+            Assert.AreEqual(sampled.FailureModes[0].SRP(15d), sampled.FailureModes[1].SRP(15d), 0d,
+                $"Realization {k}: a shared instance must draw identically at both positions.");
+        }
+
+        // Arrange / Act — distinct equal-content instances.
+        var componentDistinct = SamplerComponent(SamplerFragility("Fragility"), SamplerFragility("Fragility"));
+        componentDistinct.SetupSamplers(32, componentSeed: 12345, SamplingScheme.LatinHypercube);
+
+        // Assert — the ordinals decouple the streams.
+        bool anyDiffer = false;
+        for (int k = 0; k < 32; k++)
+        {
+            var sampled = componentDistinct.Sample(k);
+            anyDiffer |= sampled.FailureModes[0].SRP(15d) != sampled.FailureModes[1].SRP(15d);
+        }
+        Assert.IsTrue(anyDiffer, "Equal-content distinct instances must draw independently (ordinal in the seed).");
+    }
+
+    /// <summary>
+    /// Verifies metadata edits never move the Monte Carlo stream: renaming the component and its
+    /// functions and re-running the sampler walk reproduces bit-identical draws.
+    /// </summary>
+    [TestMethod]
+    public void Test_SetupSamplers_MetadataEdits_StreamUnchanged()
+    {
+        // Arrange
+        var fragility = SamplerFragility("Breach");
+        var component = SamplerComponent(fragility, SamplerFragility("Second"));
+        component.SetupSamplers(16, componentSeed: 12345, SamplingScheme.LatinHypercube);
+        var baseline = new double[16];
+        for (int k = 0; k < 16; k++)
+        {
+            baseline[k] = component.Sample(k).FailureModes[0].SRP(15d);
+        }
+
+        // Act — rename everything and re-run the walk with the same component seed.
+        component.Name = "Renamed Component";
+        fragility.Name = "Renamed Breach";
+        fragility.AssignNewId();
+        component.SetupSamplers(16, componentSeed: 12345, SamplingScheme.LatinHypercube);
+
+        // Assert
+        for (int k = 0; k < 16; k++)
+        {
+            Assert.AreEqual(baseline[k], component.Sample(k).FailureModes[0].SRP(15d), 0d,
+                "Metadata edits must never move Monte Carlo draws.");
+        }
+    }
+
+    /// <summary>
+    /// Verifies the run snapshot: Sample() uses the projection captured by SetupSamplers even if
+    /// the graph changes afterward (a fresh projection would carry unseeded coupling matrices).
+    /// </summary>
+    [TestMethod]
+    public void Test_Sample_UsesFrozenSnapshot()
+    {
+        // Arrange
+        var component = new SystemComponent { Name = "Snapshot" };
+        component.HazardFunction = SamplerHazard();
+        component.AddFailureMode(new FailureMode(null, null, SamplerFragility("Only Mode"), SamplerConsequence("Loss")));
+        component.SetupSamplers(8, componentSeed: 12345, SamplingScheme.LatinHypercube);
+
+        // Act — mutate the graph after the walk.
+        component.AddFailureMode(new FailureMode(null, null, SamplerFragility("Added Later"), SamplerConsequence("Late Loss")));
+        var sampled = component.Sample(0);
+
+        // Assert — the snapshot still carries one mode; sampling before any walk throws.
+        Assert.AreEqual(1, sampled.FailureModeCount);
+        Assert.ThrowsException<InvalidOperationException>(() => new SystemComponent().Sample());
+    }
+
+    /// <summary>
+    /// Verifies the component-level Q-W guardrails on the joint method: the cross product of the
+    /// failure modes' primary exposure branches warns above 64 and errors above 1024.
+    /// </summary>
+    [TestMethod]
+    public void Test_Validate_JointBranchProduct_Guardrails()
+    {
+        // Arrange / Act / Assert — 9 × 9 = 81 branches: warning only.
+        var warningComponent = SamplerComponent(SamplerFragility("A"), SamplerFragility("B"));
+        var warningTerminals = warningComponent.Graph.GetElements<ConsequenceElement>().ToList();
+        warningTerminals[0].Functions[0] = SamplerMixture("Mix A", 9);
+        warningTerminals[1].Functions[0] = SamplerMixture("Mix B", 9);
+        var (warnValid, warnMessages) = warningComponent.Validate();
+        Assert.IsTrue(warnValid, string.Join("; ", warnMessages));
+        Assert.IsTrue(warnMessages.Any(m => m.StartsWith("Warning:", StringComparison.Ordinal) && m.Contains("exposure branches (81)")),
+            string.Join("; ", warnMessages));
+
+        // 33 × 33 = 1089 branches: error.
+        var errorComponent = SamplerComponent(SamplerFragility("A"), SamplerFragility("B"));
+        var errorTerminals = errorComponent.Graph.GetElements<ConsequenceElement>().ToList();
+        errorTerminals[0].Functions[0] = SamplerMixture("Mix A", 33);
+        errorTerminals[1].Functions[0] = SamplerMixture("Mix B", 33);
+        var (errorValid, errorMessages) = errorComponent.Validate();
+        Assert.IsFalse(errorValid);
+        Assert.IsTrue(errorMessages.Any(m => m.StartsWith("Error:", StringComparison.Ordinal) && m.Contains("1024")),
+            string.Join("; ", errorMessages));
+    }
 }

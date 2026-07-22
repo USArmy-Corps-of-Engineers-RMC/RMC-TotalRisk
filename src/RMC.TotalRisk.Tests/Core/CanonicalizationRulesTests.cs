@@ -25,6 +25,9 @@ public class CanonicalizationRulesTests
             "SpecifiedHazard", "HazardUnit", "TransformedHazard", "TransformedHazardUnit",
             "SpecifiedConsequence", "ConsequenceUnit",
             "NameOnDisk", "Guid", "LeftPosition", "TopPosition", "ChartSettings",
+            // Appended with the Phase 4 analysis options: records who wrote the integration
+            // settings, not what they are.
+            "UseDefaults",
         };
 
         // Act

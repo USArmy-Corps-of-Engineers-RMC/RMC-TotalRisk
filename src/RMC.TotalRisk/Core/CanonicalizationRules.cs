@@ -33,6 +33,8 @@ namespace RMC.TotalRisk.Core
     /// future UI layer wraps model XML in project-tree envelopes; stripping them here guarantees a
     /// UI-wrapped form still hashes to the same content (the v1.0 canvas-position seed bug can
     /// never return).
+    /// <b>Stripped (options convenience):</b> <c>UseDefaults</c> — records who wrote the analysis
+    /// integration settings, not what they are; the settings themselves stay hashed.
     /// </para>
     /// <para>
     /// Owned child-element ORDER is preserved by the hasher and is therefore semantic content:
@@ -71,6 +73,10 @@ namespace RMC.TotalRisk.Core
                 "SpecifiedConsequence", "ConsequenceUnit",
                 // UI-envelope attributes stripped defensively (never written by the model library).
                 "NameOnDisk", "Guid", "LeftPosition", "TopPosition", "ChartSettings",
+                // Analysis-options convenience toggle: UseDefaults only chooses WHO wrote the
+                // integration settings (the user or SetIntegrationDefaults); the settings
+                // themselves are the compute content and remain hashed.
+                "UseDefaults",
             },
             strippedElements: Array.Empty<string>(),
             rewriters: Array.Empty<Action<XElement>>());

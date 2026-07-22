@@ -1,0 +1,654 @@
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Globalization;
+using System.Text;
+using System.Xml.Linq;
+using RMC.TotalRisk.Core;
+using RMC.TotalRisk.Core.Enums;
+
+namespace RMC.TotalRisk.Analyses
+{
+    /// <summary>
+    /// The risk analysis run options: the v1.0 option surface (names, defaults, and validation
+    /// ranges preserved) extracted into its own type, plus the ratified v1.1 additions — the
+    /// sampling scheme, the analysis mode, the adaptive-refinement objective, and the
+    /// system-risk tail knobs.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    ///     <b>Authors:</b>
+    ///     Haden Smith, USACE Risk Management Center, cole.h.smith@usace.army.mil
+    /// </para>
+    /// <para>
+    /// The full option surface lands at once (architecture doc v0.13): the fields the
+    /// multi-dimensional system-risk phase reads (<see cref="VegasTailFocusMode"/>,
+    /// <see cref="VegasTailFocusParameter"/>, <see cref="SystemConvolutionPoints"/>) and the
+    /// reliability mode (<see cref="Mode"/>) are validated but inert until their engine stages
+    /// enable them — writing the serialized attribute surface once keeps the append-only
+    /// contract churn-free. The effective v1.0 integration defaults are the
+    /// <see cref="SetIntegrationDefaults"/> values (the legacy field initializers were dead
+    /// because <c>UseDefaults</c> invoked the reset): one million evaluations, depth 100,
+    /// tolerance 1e-8, warm-up 1000·D capped at 50000 over five cycles, and 10000·D final
+    /// evaluations capped at 100000 — the component-count scaling of the final evaluations is
+    /// the ratified 4b extension, identical to v1.0 at one component.
+    /// </para>
+    /// <para>
+    /// <b>Hashing:</b> every compute-relevant field participates in the canonical hash through
+    /// <see cref="ToXElement"/>; <see cref="UseDefaults"/> is stripped (it records who wrote the
+    /// integration settings, not what they are), and the correlation matrix serializes (and
+    /// therefore hashes) only under <see cref="DependencyType.CorrelationMatrix"/> — in the
+    /// automatic modes it is derived state. The options hash never feeds Monte Carlo seeds
+    /// (only <see cref="PRNGSeed"/> does).
+    /// </para>
+    /// </remarks>
+    public class RiskAnalysisOptions : INotifyPropertyChanged
+    {
+        #region Construction
+
+        /// <summary>
+        /// Initializes options with the v1.0 defaults.
+        /// </summary>
+        public RiskAnalysisOptions()
+        {
+        }
+
+        /// <summary>
+        /// Restores options from their serialized form. Missing attributes fall back to the
+        /// defaults, so older forms load forward.
+        /// </summary>
+        /// <param name="xElement">The serialized form produced by <see cref="ToXElement"/>.</param>
+        /// <exception cref="ArgumentNullException">Thrown when the element is null.</exception>
+        public RiskAnalysisOptions(XElement xElement)
+        {
+            if (xElement == null) throw new ArgumentNullException(nameof(xElement));
+
+            _estimateMeanRiskOnly = SerializationUtilities.ReadBoolean(xElement, nameof(EstimateMeanRiskOnly), true);
+            _realizations = SerializationUtilities.ReadInt32(xElement, nameof(Realizations), 1000);
+            _confidenceIntervalWidth = SerializationUtilities.ReadDouble(xElement, nameof(ConfidenceIntervalWidth), 0.9d);
+            _prngSeed = SerializationUtilities.ReadInt32(xElement, nameof(PRNGSeed), 12345);
+            _lecOutputLength = SerializationUtilities.ReadInt32(xElement, nameof(LECOutputLength), 200);
+            _samplingScheme = SerializationUtilities.ReadEnum(xElement, nameof(SamplingScheme), SamplingScheme.LatinHypercube);
+            _mode = SerializationUtilities.ReadEnum(xElement, nameof(Mode), RiskAnalysisMode.Risk);
+            _riskIntegrand = SerializationUtilities.ReadEnum(xElement, nameof(RiskIntegrand), RiskIntegrand.MeanTotalRisk);
+            _systemRiskMethod = SerializationUtilities.ReadEnum(xElement, nameof(SystemRiskMethod), SystemRiskType.AdditiveRiskMethod);
+            _jointConsequences = SerializationUtilities.ReadEnum(xElement, nameof(JointConsequences), JointConsequenceType.Additive);
+            _componentHazardDependency = SerializationUtilities.ReadEnum(xElement, nameof(ComponentHazardDependency), DependencyType.Independent);
+            _hazardCorrelationMatrix = ParseMatrix(xElement.Attribute(nameof(HazardCorrelationMatrix))?.Value);
+            _consequenceThreshold = SerializationUtilities.ReadDouble(xElement, nameof(ConsequenceThreshold), 0d);
+            _alpha = SerializationUtilities.ReadDouble(xElement, nameof(Alpha), 0.01d);
+            _maxEvaluations = SerializationUtilities.ReadInt32(xElement, nameof(MaxEvaluations), 1_000_000);
+            _maxDepth = SerializationUtilities.ReadInt32(xElement, nameof(MaxDepth), 100);
+            _tolerance = SerializationUtilities.ReadDouble(xElement, nameof(Tolerance), 1e-8);
+            _warmupEvaluations = SerializationUtilities.ReadInt32(xElement, nameof(WarmupEvaluations), 1000);
+            _warmupCycles = SerializationUtilities.ReadInt32(xElement, nameof(WarmupCycles), 5);
+            _finalEvaluations = SerializationUtilities.ReadInt32(xElement, nameof(FinalEvaluations), 10_000);
+            _useDefaults = SerializationUtilities.ReadBoolean(xElement, nameof(UseDefaults), true);
+            _vegasTailFocusMode = SerializationUtilities.ReadEnum(xElement, nameof(VegasTailFocusMode), VegasTailFocusMode.Automatic);
+            _vegasTailFocusParameter = SerializationUtilities.ReadDouble(xElement, nameof(VegasTailFocusParameter), 1d);
+            _systemConvolutionPoints = SerializationUtilities.ReadInt32(xElement, nameof(SystemConvolutionPoints), 4096);
+        }
+
+        #endregion
+
+        #region Members
+
+        /// <summary>Backing field for <see cref="EstimateMeanRiskOnly"/>.</summary>
+        private bool _estimateMeanRiskOnly = true;
+
+        /// <summary>Backing field for <see cref="Realizations"/>.</summary>
+        private int _realizations = 1000;
+
+        /// <summary>Backing field for <see cref="ConfidenceIntervalWidth"/>.</summary>
+        private double _confidenceIntervalWidth = 0.9d;
+
+        /// <summary>Backing field for <see cref="PRNGSeed"/>.</summary>
+        private int _prngSeed = 12345;
+
+        /// <summary>Backing field for <see cref="LECOutputLength"/>.</summary>
+        private int _lecOutputLength = 200;
+
+        /// <summary>Backing field for <see cref="SamplingScheme"/>.</summary>
+        private SamplingScheme _samplingScheme = SamplingScheme.LatinHypercube;
+
+        /// <summary>Backing field for <see cref="Mode"/>.</summary>
+        private RiskAnalysisMode _mode = RiskAnalysisMode.Risk;
+
+        /// <summary>Backing field for <see cref="RiskIntegrand"/>.</summary>
+        private RiskIntegrand _riskIntegrand = RiskIntegrand.MeanTotalRisk;
+
+        /// <summary>Backing field for <see cref="SystemRiskMethod"/>.</summary>
+        private SystemRiskType _systemRiskMethod = SystemRiskType.AdditiveRiskMethod;
+
+        /// <summary>Backing field for <see cref="JointConsequences"/>.</summary>
+        private JointConsequenceType _jointConsequences = JointConsequenceType.Additive;
+
+        /// <summary>Backing field for <see cref="ComponentHazardDependency"/>.</summary>
+        private DependencyType _componentHazardDependency = DependencyType.Independent;
+
+        /// <summary>Backing field for <see cref="HazardCorrelationMatrix"/>.</summary>
+        private double[,]? _hazardCorrelationMatrix;
+
+        /// <summary>Backing field for <see cref="ConsequenceThreshold"/>.</summary>
+        private double _consequenceThreshold;
+
+        /// <summary>Backing field for <see cref="Alpha"/>.</summary>
+        private double _alpha = 0.01d;
+
+        /// <summary>Backing field for <see cref="MaxEvaluations"/>.</summary>
+        private int _maxEvaluations = 1_000_000;
+
+        /// <summary>Backing field for <see cref="MaxDepth"/>.</summary>
+        private int _maxDepth = 100;
+
+        /// <summary>Backing field for <see cref="Tolerance"/>.</summary>
+        private double _tolerance = 1e-8;
+
+        /// <summary>Backing field for <see cref="WarmupEvaluations"/>.</summary>
+        private int _warmupEvaluations = 1000;
+
+        /// <summary>Backing field for <see cref="WarmupCycles"/>.</summary>
+        private int _warmupCycles = 5;
+
+        /// <summary>Backing field for <see cref="FinalEvaluations"/>.</summary>
+        private int _finalEvaluations = 10_000;
+
+        /// <summary>Backing field for <see cref="UseDefaults"/>.</summary>
+        private bool _useDefaults = true;
+
+        /// <summary>Backing field for <see cref="VegasTailFocusMode"/>.</summary>
+        private VegasTailFocusMode _vegasTailFocusMode = VegasTailFocusMode.Automatic;
+
+        /// <summary>Backing field for <see cref="VegasTailFocusParameter"/>.</summary>
+        private double _vegasTailFocusParameter = 1d;
+
+        /// <summary>Backing field for <see cref="SystemConvolutionPoints"/>.</summary>
+        private int _systemConvolutionPoints = 4096;
+
+        /// <summary>
+        /// Determines whether the run estimates mean risk only (a single pass on the expected
+        /// input functions) instead of the full knowledge-uncertainty ensemble. The v1.0 default.
+        /// </summary>
+        public bool EstimateMeanRiskOnly
+        {
+            get { return _estimateMeanRiskOnly; }
+            set { SetField(ref _estimateMeanRiskOnly, value, nameof(EstimateMeanRiskOnly)); }
+        }
+
+        /// <summary>
+        /// The number of knowledge-uncertainty realizations in a full run, in [100, 10000].
+        /// </summary>
+        public int Realizations
+        {
+            get { return _realizations; }
+            set { SetField(ref _realizations, value, nameof(Realizations)); }
+        }
+
+        /// <summary>
+        /// The width of the reported confidence interval, in (0, 1) — drives the percentile
+        /// curves and the per-function uncertainty summaries.
+        /// </summary>
+        public double ConfidenceIntervalWidth
+        {
+            get { return _confidenceIntervalWidth; }
+            set { SetField(ref _confidenceIntervalWidth, value, nameof(ConfidenceIntervalWidth)); }
+        }
+
+        /// <summary>
+        /// The pseudo-random seed the content-based seed derivation folds with each component's
+        /// canonical hash. Must be positive.
+        /// </summary>
+        public int PRNGSeed
+        {
+            get { return _prngSeed; }
+            set { SetField(ref _prngSeed, value, nameof(PRNGSeed)); }
+        }
+
+        /// <summary>
+        /// The output resolution of stored loss exceedance curves, in [50, 1000]. Purely an
+        /// output knob — the exact construction computes statistics before thinning
+        /// (architecture doc §7.7).
+        /// </summary>
+        public int LECOutputLength
+        {
+            get { return _lecOutputLength; }
+            set { SetField(ref _lecOutputLength, value, nameof(LECOutputLength)); }
+        }
+
+        /// <summary>
+        /// The knowledge-uncertainty sampling scheme. Latin hypercube by default (the ratified
+        /// v1.1 variance-reduction upgrade); <see cref="SamplingScheme.MonteCarlo"/> preserves
+        /// v1.0 independent sampling.
+        /// </summary>
+        public SamplingScheme SamplingScheme
+        {
+            get { return _samplingScheme; }
+            set { SetField(ref _samplingScheme, value, nameof(SamplingScheme)); }
+        }
+
+        /// <summary>
+        /// What the analysis computes: full risk, or reliability (annual failure probability)
+        /// only. Reliability lands with its engine stage (Phase 4c) — validated but gated until
+        /// then.
+        /// </summary>
+        public RiskAnalysisMode Mode
+        {
+            get { return _mode; }
+            set { SetField(ref _mode, value, nameof(Mode)); }
+        }
+
+        /// <summary>
+        /// The adaptive-refinement objective steering where the risk integrator concentrates its
+        /// evaluations. All risk-type curves and measures are produced regardless; the default
+        /// reproduces v1.0 point placement.
+        /// </summary>
+        public RiskIntegrand RiskIntegrand
+        {
+            get { return _riskIntegrand; }
+            set { SetField(ref _riskIntegrand, value, nameof(RiskIntegrand)); }
+        }
+
+        /// <summary>
+        /// The system risk aggregation method (v1.0 name). The additive method assumes strictly
+        /// independent components (ratified v0.13 redefinition); cross-component dependence
+        /// belongs to the joint method.
+        /// </summary>
+        public SystemRiskType SystemRiskMethod
+        {
+            get { return _systemRiskMethod; }
+            set { SetField(ref _systemRiskMethod, value, nameof(SystemRiskMethod)); }
+        }
+
+        /// <summary>
+        /// How consequences combine when multiple components fail jointly (the joint method's
+        /// combination rule).
+        /// </summary>
+        public JointConsequenceType JointConsequences
+        {
+            get { return _jointConsequences; }
+            set { SetField(ref _jointConsequences, value, nameof(JointConsequences)); }
+        }
+
+        /// <summary>
+        /// The statistical dependence between component hazards (joint method only — the
+        /// additive method requires independence).
+        /// </summary>
+        public DependencyType ComponentHazardDependency
+        {
+            get { return _componentHazardDependency; }
+            set { SetField(ref _componentHazardDependency, value, nameof(ComponentHazardDependency)); }
+        }
+
+        /// <summary>
+        /// The cross-component hazard correlation matrix — user content under
+        /// <see cref="DependencyType.CorrelationMatrix"/> (one row per component; validated
+        /// positive definite at the analysis level, where the component count is known).
+        /// Serialized and hashed only in that mode.
+        /// </summary>
+        public double[,]? HazardCorrelationMatrix
+        {
+            get { return _hazardCorrelationMatrix; }
+            set
+            {
+                _hazardCorrelationMatrix = value;
+                RaisePropertyChange(nameof(HazardCorrelationMatrix));
+            }
+        }
+
+        /// <summary>
+        /// The consequence threshold behind the assurance measure, P(C &gt; threshold).
+        /// </summary>
+        public double ConsequenceThreshold
+        {
+            get { return _consequenceThreshold; }
+            set { SetField(ref _consequenceThreshold, value, nameof(ConsequenceThreshold)); }
+        }
+
+        /// <summary>
+        /// The exceedance level for value-at-risk and conditional value-at-risk, in
+        /// [1e-16, 1 − 1e-16].
+        /// </summary>
+        public double Alpha
+        {
+            get { return _alpha; }
+            set { SetField(ref _alpha, value, nameof(Alpha)); }
+        }
+
+        /// <summary>
+        /// The adaptive integrator's evaluation cap, in [10000, 1000000].
+        /// </summary>
+        public int MaxEvaluations
+        {
+            get { return _maxEvaluations; }
+            set { SetField(ref _maxEvaluations, value, nameof(MaxEvaluations)); }
+        }
+
+        /// <summary>
+        /// The adaptive integrator's recursion depth cap, in [10, 500].
+        /// </summary>
+        public int MaxDepth
+        {
+            get { return _maxDepth; }
+            set { SetField(ref _maxDepth, value, nameof(MaxDepth)); }
+        }
+
+        /// <summary>
+        /// The adaptive integrator's relative tolerance, in [1e-15, 0.01].
+        /// </summary>
+        public double Tolerance
+        {
+            get { return _tolerance; }
+            set { SetField(ref _tolerance, value, nameof(Tolerance)); }
+        }
+
+        /// <summary>
+        /// The VEGAS warm-up evaluations per cycle (joint method), in [100, 50000].
+        /// </summary>
+        public int WarmupEvaluations
+        {
+            get { return _warmupEvaluations; }
+            set { SetField(ref _warmupEvaluations, value, nameof(WarmupEvaluations)); }
+        }
+
+        /// <summary>
+        /// The VEGAS warm-up cycles (joint method), in [1, 100].
+        /// </summary>
+        public int WarmupCycles
+        {
+            get { return _warmupCycles; }
+            set { SetField(ref _warmupCycles, value, nameof(WarmupCycles)); }
+        }
+
+        /// <summary>
+        /// The VEGAS recording-pass evaluations (joint method), in [1000, 100000].
+        /// </summary>
+        public int FinalEvaluations
+        {
+            get { return _finalEvaluations; }
+            set { SetField(ref _finalEvaluations, value, nameof(FinalEvaluations)); }
+        }
+
+        /// <summary>
+        /// Determines whether the integration settings track the defaults: setting <c>true</c>
+        /// re-applies <see cref="SetIntegrationDefaults"/> (v1.0 behavior), and the analysis
+        /// re-derives the component-count scaling at run start. Convenience metadata — stripped
+        /// from the canonical hash (the settings themselves stay hashed).
+        /// </summary>
+        public bool UseDefaults
+        {
+            get { return _useDefaults; }
+            set
+            {
+                if (_useDefaults != value)
+                {
+                    _useDefaults = value;
+                    if (_useDefaults)
+                    {
+                        SetIntegrationDefaults();
+                    }
+                    RaisePropertyChange(nameof(UseDefaults));
+                }
+            }
+        }
+
+        /// <summary>
+        /// How the joint method sets the VEGAS power-transform tail focus. Automatic by default;
+        /// read by the multi-dimensional engine stage (Phase 4b).
+        /// </summary>
+        public VegasTailFocusMode VegasTailFocusMode
+        {
+            get { return _vegasTailFocusMode; }
+            set { SetField(ref _vegasTailFocusMode, value, nameof(VegasTailFocusMode)); }
+        }
+
+        /// <summary>
+        /// The manual VEGAS tail-focus parameter γ, in [1, 20]; γ = 1 is the identity transform
+        /// (exact v1.0 sampling).
+        /// </summary>
+        public double VegasTailFocusParameter
+        {
+            get { return _vegasTailFocusParameter; }
+            set { SetField(ref _vegasTailFocusParameter, value, nameof(VegasTailFocusParameter)); }
+        }
+
+        /// <summary>
+        /// The output resolution of the additive method's FFT system convolution, in
+        /// [4096, 1048576] — the linear convolution grid starves order-of-magnitude consequence
+        /// tails below 4096 points (Numerics follow-up N8).
+        /// </summary>
+        public int SystemConvolutionPoints
+        {
+            get { return _systemConvolutionPoints; }
+            set { SetField(ref _systemConvolutionPoints, value, nameof(SystemConvolutionPoints)); }
+        }
+
+        /// <summary>
+        /// Raised when an option changes. The owning analysis invalidates its results on any
+        /// option change.
+        /// </summary>
+        public event PropertyChangedEventHandler? PropertyChanged;
+
+        #endregion
+
+        #region Methods
+
+        /// <summary>
+        /// Applies the effective v1.0 integration defaults, with the warm-up and final
+        /// evaluations scaled by the component count (identical to v1.0 at one component; the
+        /// final-evaluation scaling is the ratified 4b extension for multi-dimensional tail
+        /// resolution).
+        /// </summary>
+        /// <param name="componentCount">The analysis component count; values below one are treated as one.</param>
+        public void SetIntegrationDefaults(int componentCount = 1)
+        {
+            int count = Math.Max(1, componentCount);
+            MaxEvaluations = 1_000_000;
+            MaxDepth = 100;
+            Tolerance = 1e-8;
+            WarmupEvaluations = Math.Min(1000 * count, 50_000);
+            WarmupCycles = 5;
+            FinalEvaluations = Math.Min(10_000 * count, 100_000);
+        }
+
+        /// <summary>
+        /// Validates the options and reports any issues found.
+        /// </summary>
+        /// <returns>
+        /// A tuple containing:
+        /// <list type="bullet">
+        /// <item>
+        /// <description><c>IsValid</c>: <c>true</c> if the options pass all validation checks; otherwise <c>false</c>.</description>
+        /// </item>
+        /// <item>
+        /// <description><c>ValidationMessages</c>: messages describing validation errors ("Error: …", invalidating) and warnings ("Warning: …", advisory).</description>
+        /// </item>
+        /// </list>
+        /// </returns>
+        /// <remarks>
+        /// Range checks per the v1.0 surface; a realization count below 1000 is an advisory
+        /// warning (thin ensembles make noisy percentile curves). Cross-field checks that need
+        /// the component count (the correlation matrix shape) run at the analysis level.
+        /// </remarks>
+        public (bool IsValid, List<string> ValidationMessages) Validate()
+        {
+            var messages = new List<string>();
+
+            if (_realizations < 100 || _realizations > 10_000)
+                messages.Add("Error: The number of realizations must be between 100 and 10,000.");
+            else if (_realizations < 1000)
+                messages.Add("Warning: Fewer than 1,000 realizations produce noisy uncertainty percentiles.");
+            if (double.IsNaN(_confidenceIntervalWidth) || _confidenceIntervalWidth <= 0d || _confidenceIntervalWidth >= 1d)
+                messages.Add("Error: The confidence interval width must be between 0 and 1.");
+            if (_prngSeed <= 0)
+                messages.Add("Error: The PRNG seed must be positive.");
+            if (_lecOutputLength < 50 || _lecOutputLength > 1000)
+                messages.Add("Error: The LEC output length must be between 50 and 1,000.");
+            if (!Enum.IsDefined(_samplingScheme))
+                messages.Add("Error: The sampling scheme is not a recognized member.");
+            if (!Enum.IsDefined(_mode))
+                messages.Add("Error: The analysis mode is not a recognized member.");
+            if (!Enum.IsDefined(_riskIntegrand))
+                messages.Add("Error: The risk integrand is not a recognized member.");
+            if (!Enum.IsDefined(_systemRiskMethod))
+                messages.Add("Error: The system risk method is not a recognized member.");
+            if (!Enum.IsDefined(_jointConsequences))
+                messages.Add("Error: The joint consequence type is not a recognized member.");
+            if (!Enum.IsDefined(_componentHazardDependency))
+                messages.Add("Error: The component hazard dependency is not a recognized member.");
+            if (double.IsNaN(_alpha) || _alpha < 1e-16 || _alpha > 1d - 1e-16)
+                messages.Add("Error: The exceedance level alpha must be between 1e-16 and 1 − 1e-16.");
+            if (_maxEvaluations < 10_000 || _maxEvaluations > 1_000_000)
+                messages.Add("Error: The maximum integrator evaluations must be between 10,000 and 1,000,000.");
+            if (_maxDepth < 10 || _maxDepth > 500)
+                messages.Add("Error: The maximum integrator depth must be between 10 and 500.");
+            if (double.IsNaN(_tolerance) || _tolerance < 1e-15 || _tolerance > 0.01d)
+                messages.Add("Error: The integrator tolerance must be between 1e-15 and 0.01.");
+            if (_warmupEvaluations < 100 || _warmupEvaluations > 50_000)
+                messages.Add("Error: The VEGAS warm-up evaluations must be between 100 and 50,000.");
+            if (_warmupCycles < 1 || _warmupCycles > 100)
+                messages.Add("Error: The VEGAS warm-up cycles must be between 1 and 100.");
+            if (_finalEvaluations < 1000 || _finalEvaluations > 100_000)
+                messages.Add("Error: The VEGAS final evaluations must be between 1,000 and 100,000.");
+            if (!Enum.IsDefined(_vegasTailFocusMode))
+                messages.Add("Error: The VEGAS tail focus mode is not a recognized member.");
+            if (double.IsNaN(_vegasTailFocusParameter) || _vegasTailFocusParameter < 1d || _vegasTailFocusParameter > 20d)
+                messages.Add("Error: The VEGAS tail focus parameter must be between 1 and 20.");
+            if (_systemConvolutionPoints < 4096 || _systemConvolutionPoints > 1_048_576)
+                messages.Add("Error: The system convolution points must be between 4,096 and 1,048,576.");
+
+            return (messages.FindIndex(m => m.StartsWith("Error:", StringComparison.Ordinal)) < 0, messages);
+        }
+
+        /// <summary>
+        /// Computes the options' canonical SHA-256 content hash: every compute-relevant field
+        /// through the serialized form, with <see cref="UseDefaults"/> stripped by the audited
+        /// canonicalization rules.
+        /// </summary>
+        /// <returns>The 32-byte SHA-256 hash of the canonicalized <see cref="ToXElement"/> form.</returns>
+        public byte[] CanonicalHash()
+        {
+            return CanonicalContentHasher.Hash(ToXElement(), CanonicalizationRules.ModelRules);
+        }
+
+        #endregion
+
+        #region Serialization
+
+        /// <summary>
+        /// Serializes the options — the persistence contract AND the canonical-hash identity
+        /// surface: attribute names and order are append-only. The correlation matrix serializes
+        /// (G17 row-major, rows ';'-separated, values ','-separated) only under the
+        /// correlation-matrix dependency mode.
+        /// </summary>
+        /// <returns>The serialized form.</returns>
+        public XElement ToXElement()
+        {
+            var element = new XElement(nameof(RiskAnalysisOptions));
+            element.SetAttributeValue(nameof(EstimateMeanRiskOnly), _estimateMeanRiskOnly);
+            element.SetAttributeValue(nameof(Realizations), _realizations);
+            element.SetAttributeValue(nameof(ConfidenceIntervalWidth), SerializationUtilities.FormatDouble(_confidenceIntervalWidth));
+            element.SetAttributeValue(nameof(PRNGSeed), _prngSeed);
+            element.SetAttributeValue(nameof(LECOutputLength), _lecOutputLength);
+            element.SetAttributeValue(nameof(SamplingScheme), _samplingScheme.ToString());
+            element.SetAttributeValue(nameof(Mode), _mode.ToString());
+            element.SetAttributeValue(nameof(RiskIntegrand), _riskIntegrand.ToString());
+            element.SetAttributeValue(nameof(SystemRiskMethod), _systemRiskMethod.ToString());
+            element.SetAttributeValue(nameof(JointConsequences), _jointConsequences.ToString());
+            element.SetAttributeValue(nameof(ComponentHazardDependency), _componentHazardDependency.ToString());
+            element.SetAttributeValue(nameof(HazardCorrelationMatrix),
+                _componentHazardDependency == DependencyType.CorrelationMatrix ? FormatMatrix(_hazardCorrelationMatrix) : string.Empty);
+            element.SetAttributeValue(nameof(ConsequenceThreshold), SerializationUtilities.FormatDouble(_consequenceThreshold));
+            element.SetAttributeValue(nameof(Alpha), SerializationUtilities.FormatDouble(_alpha));
+            element.SetAttributeValue(nameof(MaxEvaluations), _maxEvaluations);
+            element.SetAttributeValue(nameof(MaxDepth), _maxDepth);
+            element.SetAttributeValue(nameof(Tolerance), SerializationUtilities.FormatDouble(_tolerance));
+            element.SetAttributeValue(nameof(WarmupEvaluations), _warmupEvaluations);
+            element.SetAttributeValue(nameof(WarmupCycles), _warmupCycles);
+            element.SetAttributeValue(nameof(FinalEvaluations), _finalEvaluations);
+            element.SetAttributeValue(nameof(UseDefaults), _useDefaults);
+            element.SetAttributeValue(nameof(VegasTailFocusMode), _vegasTailFocusMode.ToString());
+            element.SetAttributeValue(nameof(VegasTailFocusParameter), SerializationUtilities.FormatDouble(_vegasTailFocusParameter));
+            element.SetAttributeValue(nameof(SystemConvolutionPoints), _systemConvolutionPoints);
+            return element;
+        }
+
+        #endregion
+
+        #region Private Helpers
+
+        /// <summary>
+        /// Sets a backing field and raises the change notification when the value differs.
+        /// </summary>
+        /// <typeparam name="T">The field type.</typeparam>
+        /// <param name="field">The backing field.</param>
+        /// <param name="value">The new value.</param>
+        /// <param name="propertyName">The property name to report.</param>
+        private void SetField<T>(ref T field, T value, string propertyName)
+        {
+            if (!EqualityComparer<T>.Default.Equals(field, value))
+            {
+                field = value;
+                RaisePropertyChange(propertyName);
+            }
+        }
+
+        /// <summary>
+        /// Raises the <see cref="PropertyChanged"/> event.
+        /// </summary>
+        /// <param name="propertyName">The name of the property that changed.</param>
+        private void RaisePropertyChange(string propertyName)
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        }
+
+        /// <summary>
+        /// Formats a matrix as G17 row-major text (rows ';'-separated, values ','-separated) —
+        /// the shared matrix persistence format.
+        /// </summary>
+        /// <param name="matrix">The matrix, possibly null.</param>
+        /// <returns>The formatted text, or empty for null.</returns>
+        private static string FormatMatrix(double[,]? matrix)
+        {
+            if (matrix == null) return string.Empty;
+            var builder = new StringBuilder();
+            int rows = matrix.GetLength(0);
+            int columns = matrix.GetLength(1);
+            for (int i = 0; i < rows; i++)
+            {
+                if (i > 0) builder.Append(';');
+                for (int j = 0; j < columns; j++)
+                {
+                    if (j > 0) builder.Append(',');
+                    builder.Append(SerializationUtilities.FormatDouble(matrix[i, j]));
+                }
+            }
+            return builder.ToString();
+        }
+
+        /// <summary>
+        /// Parses the matrix persistence format; empty, null, or ragged text yields null.
+        /// </summary>
+        /// <param name="text">The formatted text.</param>
+        /// <returns>The matrix, or null.</returns>
+        private static double[,]? ParseMatrix(string? text)
+        {
+            if (string.IsNullOrEmpty(text)) return null;
+            string[] rows = text.Split(';');
+            string[] first = rows[0].Split(',');
+            var matrix = new double[rows.Length, first.Length];
+            for (int i = 0; i < rows.Length; i++)
+            {
+                string[] values = rows[i].Split(',');
+                if (values.Length != first.Length) return null;
+                for (int j = 0; j < values.Length; j++)
+                {
+                    if (!double.TryParse(values[j], NumberStyles.Any, CultureInfo.InvariantCulture, out double value)) return null;
+                    matrix[i, j] = value;
+                }
+            }
+            return matrix;
+        }
+
+        #endregion
+    }
+}

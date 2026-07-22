@@ -586,4 +586,67 @@ public class FailureModeTests
         Assert.AreEqual(bool.FalseString.ToLower(CultureInfo.InvariantCulture),
             element.Attribute(nameof(FailureMode.MultipleConsequences))!.Value);
     }
+
+    /// <summary>Builds a labeled n-branch mixture of deterministic children with equal weights.</summary>
+    private static CompositeConsequence GuardrailMixture(string name, int branches)
+    {
+        var mixture = new CompositeConsequence
+        {
+            Name = name,
+            SpecifiedHazard = "Stage",
+            HazardUnit = "ft",
+            SpecifiedConsequence = "Life Loss",
+            ConsequenceUnit = "lives",
+        };
+        for (int i = 0; i < branches; i++)
+        {
+            var child = new TabularConsequence
+            {
+                Name = $"{name} Branch {i}",
+                SpecifiedHazard = "Stage",
+                HazardUnit = "ft",
+                SpecifiedConsequence = "Life Loss",
+                ConsequenceUnit = "lives",
+                UncertainOrderedPairedData = new UncertainOrderedPairedData(
+                    new[] { new UncertainOrdinate(0d, new Deterministic(0d)), new UncertainOrdinate(30d, new Deterministic(300d)) },
+                    true, SortOrder.Ascending, false, SortOrder.None, UnivariateDistributionType.Deterministic),
+            };
+            mixture.ConsequenceFunctions.Add(new WeightedConsequenceFunction(child, 1d / branches));
+        }
+        return mixture;
+    }
+
+    /// <summary>
+    /// Verifies the mode-level Q-W guardrails: the cross product of exposure branches across the
+    /// mode's consequence positions warns above 64 and errors above 1024.
+    /// </summary>
+    [TestMethod]
+    public void Test_Validate_ExposureBranchGuardrails()
+    {
+        // Arrange — a data-bearing fragility so the rest of the mode validates.
+        var fragility = new TabularResponse
+        {
+            Name = "Fragility",
+            SpecifiedHazard = "Stage",
+            HazardUnit = "ft",
+            UncertainOrderedPairedData = new UncertainOrderedPairedData(
+                new[] { new UncertainOrdinate(10d, new Deterministic(0d)), new UncertainOrdinate(20d, new Deterministic(1d)) },
+                true, SortOrder.Ascending, false, SortOrder.None, UnivariateDistributionType.Deterministic),
+        };
+
+        // Act / Assert — a 65-branch mixture on one position: warning only.
+        var warningMode = new FailureMode(null, null, fragility, GuardrailMixture("Big Mixture", 65));
+        var (warnValid, warnMessages) = warningMode.Validate();
+        Assert.IsTrue(warnValid, string.Join("; ", warnMessages));
+        Assert.IsTrue(warnMessages.Any(m => m.StartsWith("Warning:", StringComparison.Ordinal) && m.Contains("exposure branches (65)")),
+            string.Join("; ", warnMessages));
+
+        // Two positions of 33 branches: 1089 crosses the error threshold.
+        var errorMode = new FailureMode(null, null, fragility, GuardrailMixture("Mix One", 33));
+        errorMode.ConsequenceFunctions.Add(GuardrailMixture("Mix Two", 33));
+        var (errorValid, errorMessages) = errorMode.Validate();
+        Assert.IsFalse(errorValid);
+        Assert.IsTrue(errorMessages.Any(m => m.StartsWith("Error:", StringComparison.Ordinal) && m.Contains("1024")),
+            string.Join("; ", errorMessages));
+    }
 }

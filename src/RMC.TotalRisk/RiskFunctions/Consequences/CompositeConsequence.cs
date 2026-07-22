@@ -34,14 +34,25 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
     /// no mixture branch (Average and Mixture both produce Σwᵢ·fᵢ, Additive produces Σfᵢ); and
     /// combined consequences clamp at zero. The v1.0 percentile-reseeded <c>Random</c> is replaced
     /// by the deterministic sampler contract: children draw from their own content-seeded
-    /// samplers, and the mixture selector is this function's single sampler dimension. Structural
-    /// wiring follows the sibling BestFit <c>CompositeAnalysis</c> (live referenced children in an
-    /// observable weighted collection; reference-only stored serialization), improving on it where
-    /// it has documented warts: entries write complete <c>FunctionReference</c> markers themselves,
-    /// resolution is id-authoritative, and an unresolvable reference keeps its entry (weight
-    /// preserved, reported by <see cref="Validate"/>) instead of silently dropping it. The v1.0
-    /// child-level <c>HazardTransform</c>/<c>ConsequenceTransform</c> overrides are dropped:
-    /// children are live functions that own their interpolation transforms.
+    /// samplers. Structural wiring follows the sibling BestFit <c>CompositeAnalysis</c> (live
+    /// referenced children in an observable weighted collection; reference-only stored
+    /// serialization), improving on it where it has documented warts: entries write complete
+    /// <c>FunctionReference</c> markers themselves, resolution is id-authoritative, and an
+    /// unresolvable reference keeps its entry (weight preserved, reported by
+    /// <see cref="Validate"/>) instead of silently dropping it. The v1.0 child-level
+    /// <c>HazardTransform</c>/<c>ConsequenceTransform</c> overrides are dropped: children are live
+    /// functions that own their interpolation transforms.
+    /// </para>
+    /// <para>
+    /// <b>Exposure branches (ratified Q-V, architecture doc §6.4.1):</b> the mixture weights are
+    /// aleatory exposure probabilities, so the risk engine never draws a branch — it enumerates
+    /// the weighted branches through <see cref="SampleExposureBranches()"/> at every hazard point,
+    /// in the mean-only and full Monte Carlo paths alike, and each realization's loss-exceedance
+    /// curve carries the full day/night spread. <see cref="SamplingDimensions"/> is therefore
+    /// zero: the pre-Q-V selector dimension is gone, and the standalone per-realization mixture
+    /// surface (<see cref="SampleFunction(int)"/>, the uncertainty summary) rides an internal
+    /// selector matrix generated with the identical seed fold and scheme, keeping those streams
+    /// bit-for-bit unchanged.
     /// </para>
     /// <para>
     /// <b>Serialization:</b> under <see cref="RiskSerializationMode.SelfContained"/> (the default,
@@ -168,6 +179,22 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
         private CompositeFunctionType _compositeFunctionType = CompositeFunctionType.Mixture;
 
         /// <summary>
+        /// The internal N×1 mixture-selector matrix behind the standalone per-realization surface
+        /// (<see cref="SampleFunction(int)"/> and the uncertainty summary); allocated by
+        /// <see cref="SetupSampler"/> in Mixture mode, null otherwise.
+        /// </summary>
+        /// <remarks>
+        /// Under ratified Q-V the selector is no longer an engine sampling dimension
+        /// (<see cref="SamplingDimensions"/> is zero — the risk engine enumerates branches through
+        /// <see cref="SampleExposureBranches()"/> instead of drawing one), but the standalone
+        /// ensemble surface keeps its meaning: a sweep of <see cref="SampleFunction(int)"/> over a
+        /// set-up sampler still reproduces the exact mixture ensemble. The matrix is generated
+        /// with the same seed fold, scheme, and shape the selector dimension used before Q-V, so
+        /// pre-existing standalone and verification streams are bit-identical.
+        /// </remarks>
+        private double[,]? _mixtureSelector;
+
+        /// <summary>
         /// The distinct entries this composite currently holds a change subscription on — the
         /// shadow of <see cref="ConsequenceFunctions"/> that
         /// <see cref="ConsequenceFunctionsCollectionChanged"/> reconciles against.
@@ -271,11 +298,15 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
 
         /// <inheritdoc/>
         /// <remarks>
-        /// The composite's own dimensions only — one mixture-selector dimension in Mixture mode,
-        /// none otherwise. Children own their dimensions and are set up recursively by
-        /// <see cref="SetupSampler"/> (architecture doc §5.8.5).
+        /// Always zero (ratified Q-V, architecture doc §6.4.1): the mixture branch choice is
+        /// aleatory exposure that the risk engine enumerates through
+        /// <see cref="SampleExposureBranches()"/> rather than a knowledge-uncertainty dimension it
+        /// draws — so the selector dimension the pre-Q-V design declared in Mixture mode is gone.
+        /// Children own their dimensions and are set up recursively by <see cref="SetupSampler"/>
+        /// (architecture doc §5.8.5); the standalone per-realization mixture surface rides an
+        /// internal selector matrix instead (see <see cref="_mixtureSelector"/>).
         /// </remarks>
-        public override int SamplingDimensions => _compositeFunctionType == CompositeFunctionType.Mixture ? 1 : 0;
+        public override int SamplingDimensions => 0;
 
         #endregion
 
@@ -283,17 +314,37 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
 
         /// <inheritdoc/>
         /// <remarks>
-        /// Sets up this composite's own sampler (the mixture selector, when any), then recurses
-        /// into every child with a content-derived seed:
-        /// <c>SeedHelpers.HashCombine(seed, child.CanonicalHash(), ordinal)</c>. The ordinal gives
-        /// identical-content siblings independent draws; the child hash is metadata-inert, so
-        /// renaming a child can never change results. Nested composites recurse naturally.
+        /// Sets up the internal mixture-selector matrix (Mixture mode only — generated with the
+        /// exact seed fold, scheme, and N×1 shape the pre-Q-V selector dimension used, so
+        /// standalone streams are unchanged), then recurses into every child with a
+        /// content-derived seed: <c>SeedHelpers.HashCombine(seed, child.CanonicalHash(), ordinal)</c>.
+        /// The ordinal gives identical-content siblings independent draws; the child hash is
+        /// metadata-inert, so renaming a child can never change results. Nested composites recurse
+        /// naturally.
         /// </remarks>
         /// <exception cref="InvalidOperationException">Thrown when the composite configuration is invalid.</exception>
+        /// <exception cref="NotSupportedException">Thrown when the sampling scheme is unrecognized.</exception>
         public override void SetupSampler(int sampleSize, int seed, SamplingScheme scheme)
         {
             ThrowIfUnusable(checkCycles: true);
             base.SetupSampler(sampleSize, seed, scheme);
+
+            if (_compositeFunctionType == CompositeFunctionType.Mixture)
+            {
+                int positiveSeed = SeedHelpers.ToPositiveSeed(seed);
+                _mixtureSelector = scheme switch
+                {
+                    SamplingScheme.LatinHypercube => Numerics.Sampling.LatinHypercube.Random(sampleSize, 1, positiveSeed),
+                    SamplingScheme.LatinHypercubeMedian => Numerics.Sampling.LatinHypercube.Median(sampleSize, 1, positiveSeed),
+                    SamplingScheme.MonteCarlo => SeedHelpers.IndependentUniform(sampleSize, 1, positiveSeed),
+                    _ => throw new NotSupportedException($"The sampling scheme '{scheme}' is not supported."),
+                };
+            }
+            else
+            {
+                _mixtureSelector = null;
+            }
+
             for (int i = 0; i < _consequenceFunctions.Count; i++)
             {
                 var child = _consequenceFunctions[i].ConsequenceFunction;
@@ -437,10 +488,13 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
 
         /// <inheritdoc/>
         /// <remarks>
-        /// The engine path: every child samples realization <paramref name="realizationIndex"/>
-        /// from its own content-seeded matrix (children are mutually independent), and in Mixture
-        /// mode the selector reads this composite's own dimension 0 to pick the one child whose
-        /// curve is returned.
+        /// The standalone per-realization path: every child samples realization
+        /// <paramref name="realizationIndex"/> from its own content-seeded matrix (children are
+        /// mutually independent), and in Mixture mode the internal selector matrix picks the one
+        /// child whose curve is returned — a sweep over the sample size reproduces the exact
+        /// mixture ensemble. The risk engine does not use this path for mixtures (ratified Q-V):
+        /// it enumerates the weighted branches via <see cref="SampleExposureBranches(double)"/> so
+        /// every realization's loss-exceedance curve carries the full exposure spread.
         /// </remarks>
         /// <exception cref="InvalidOperationException">
         /// Thrown when the composite configuration is invalid, or when
@@ -451,7 +505,9 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
             ThrowIfUnusable(checkCycles: false);
             if (_compositeFunctionType == CompositeFunctionType.Mixture)
             {
-                var (index, _) = SelectMixtureChild(Percentile(realizationIndex, 0), rescale: false);
+                if (_mixtureSelector == null)
+                    throw new InvalidOperationException("SetupSampler() must be called before sampling by realization index.");
+                var (index, _) = SelectMixtureChild(_mixtureSelector[realizationIndex, 0], rescale: false);
                 var selected = _consequenceFunctions[index].ConsequenceFunction!.SampleFunction(realizationIndex);
                 return new CompositeUnivariateFunction(new[] { selected }, new[] { 1d });
             }
@@ -465,6 +521,64 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
                 weights[i] = EffectiveWeight(i);
             }
             return new CompositeUnivariateFunction(functions, weights);
+        }
+
+        /// <inheritdoc/>
+        /// <remarks>
+        /// The composite's real exposure branches (ratified Q-V, architecture doc §6.4.1):
+        /// Additive and Average composites are genuine pointwise combinations and return a single
+        /// unit-weight entry carrying the collapsed mean curve; a Mixture returns one entry per
+        /// positively weighted child carrying the child's mean curve, with nested Mixture children
+        /// flattened by multiplied weights (an Additive/Average child is one branch carrying its
+        /// collapsed curve). Zero-weight children are unreachable branches and are skipped.
+        /// </remarks>
+        /// <exception cref="InvalidOperationException">Thrown when the composite configuration is invalid.</exception>
+        public override IReadOnlyList<(double Weight, IUnivariateFunction Function)> SampleExposureBranches()
+        {
+            ThrowIfUnusable(checkCycles: true);
+            if (_compositeFunctionType != CompositeFunctionType.Mixture)
+            {
+                return new[] { (1d, SampleFunction()) };
+            }
+
+            var branches = new List<(double Weight, IUnivariateFunction Function)>();
+            CollectExposureBranches(branches, 1d, null);
+            return branches;
+        }
+
+        /// <inheritdoc/>
+        /// <remarks>
+        /// The branch set is structural — identical weights to
+        /// <see cref="SampleExposureBranches()"/> — and every branch curve is sampled
+        /// co-monotonically at the given knowledge percentile, the same single-uniform semantic
+        /// the percentile overloads already carry. One shared percentile driving both a failure
+        /// composite and its paired non-failure consequence keeps the pair coherent (Q-N).
+        /// </remarks>
+        /// <exception cref="InvalidOperationException">Thrown when the composite configuration is invalid.</exception>
+        public override IReadOnlyList<(double Weight, IUnivariateFunction Function)> SampleExposureBranches(double percentile)
+        {
+            ThrowIfUnusable(checkCycles: true);
+            if (_compositeFunctionType != CompositeFunctionType.Mixture)
+            {
+                return new[] { (1d, SampleFunction(percentile)) };
+            }
+
+            var branches = new List<(double Weight, IUnivariateFunction Function)>();
+            CollectExposureBranches(branches, 1d, percentile);
+            return branches;
+        }
+
+        /// <inheritdoc/>
+        /// <remarks>
+        /// Structural and sampling-free: one for Additive/Average composites, the flattened
+        /// positive-weight leaf count for a Mixture (nested Mixtures recurse; any other child is
+        /// one leaf). Cycle-safe — a cyclic child graph contributes no further leaves here and is
+        /// reported as an error by <see cref="Validate"/>.
+        /// </remarks>
+        public override int CountExposureBranches()
+        {
+            if (_compositeFunctionType != CompositeFunctionType.Mixture) return 1;
+            return CountExposureBranches(new HashSet<CompositeConsequence>());
         }
 
         /// <inheritdoc/>
@@ -774,6 +888,61 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
                 }
             }
             return (lastPositive, rescale ? 1d : percentile);
+        }
+
+        /// <summary>
+        /// Flattens this Mixture's positively weighted children into exposure branches: a nested
+        /// Mixture child recurses with multiplied weights (guarded by its own usability gate, so a
+        /// nested cycle throws the standard invalid-configuration error instead of recursing
+        /// without bound); any other child contributes one branch carrying its mean curve, or its
+        /// curve sampled co-monotonically at the given knowledge percentile.
+        /// </summary>
+        /// <param name="branches">The accumulating branch list.</param>
+        /// <param name="parentWeight">The product of ancestor mixture weights applied to this level.</param>
+        /// <param name="percentile">The shared knowledge percentile, or null for the mean curves.</param>
+        private void CollectExposureBranches(List<(double Weight, IUnivariateFunction Function)> branches,
+            double parentWeight, double? percentile)
+        {
+            for (int i = 0; i < _consequenceFunctions.Count; i++)
+            {
+                double weight = _consequenceFunctions[i].Weight;
+                if (weight <= 0d) continue;
+
+                var child = _consequenceFunctions[i].ConsequenceFunction!;
+                if (child is CompositeConsequence nested && nested.CompositeFunctionType == CompositeFunctionType.Mixture)
+                {
+                    nested.ThrowIfUnusable(checkCycles: true);
+                    nested.CollectExposureBranches(branches, parentWeight * weight, percentile);
+                }
+                else
+                {
+                    branches.Add((parentWeight * weight,
+                        percentile.HasValue ? child.SampleFunction(percentile.Value) : child.SampleFunction()));
+                }
+            }
+        }
+
+        /// <summary>
+        /// The cycle-safe recursion behind <see cref="CountExposureBranches()"/>: counts the
+        /// flattened positive-weight leaves of a Mixture. A null child entry counts as one leaf so
+        /// the guardrail product stays meaningful while <see cref="Validate"/> reports the missing
+        /// function.
+        /// </summary>
+        /// <param name="visited">The composites already counted (guards cyclic graphs).</param>
+        /// <returns>The leaf count contributed by this composite.</returns>
+        private int CountExposureBranches(HashSet<CompositeConsequence> visited)
+        {
+            if (!visited.Add(this)) return 0;
+            int count = 0;
+            for (int i = 0; i < _consequenceFunctions.Count; i++)
+            {
+                if (_consequenceFunctions[i].Weight <= 0d) continue;
+                count += _consequenceFunctions[i].ConsequenceFunction is CompositeConsequence nested
+                        && nested.CompositeFunctionType == CompositeFunctionType.Mixture
+                    ? nested.CountExposureBranches(visited)
+                    : 1;
+            }
+            return count;
         }
 
         /// <summary>

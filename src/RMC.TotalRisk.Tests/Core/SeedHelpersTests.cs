@@ -96,4 +96,33 @@ public class SeedHelpersTests
         Assert.ThrowsException<ArgumentOutOfRangeException>(() => SeedHelpers.IndependentUniform(0, 1, 1));
         Assert.ThrowsException<ArgumentOutOfRangeException>(() => SeedHelpers.IndependentUniform(1, 0, 1));
     }
+
+    /// <summary>
+    /// Verifies the positive-seed fold maps the full int range into [1, int.MaxValue] — the
+    /// Numerics Latin hypercube samplers treat non-positive seeds as "use the wall clock", which
+    /// would silently destroy reproducibility.
+    /// </summary>
+    [TestMethod]
+    public void Test_ToPositiveSeed_FullRange_MapsPositive()
+    {
+        // Arrange — the edge and representative cases across the int range.
+        int[] seeds = { int.MinValue, -12345, -1, 0, 1, 12345, int.MaxValue };
+
+        // Act / Assert
+        foreach (int seed in seeds)
+        {
+            int folded = SeedHelpers.ToPositiveSeed(seed);
+            Assert.IsTrue(folded >= 1, $"Seed {seed} folded to non-positive {folded}.");
+        }
+    }
+
+    /// <summary>Verifies the fold is deterministic and preserves already-positive seeds' identity of stream selection.</summary>
+    [TestMethod]
+    public void Test_ToPositiveSeed_Deterministic()
+    {
+        // Act / Assert — same input, same fold; distinct inputs stay distinct for typical values.
+        Assert.AreEqual(SeedHelpers.ToPositiveSeed(-987654), SeedHelpers.ToPositiveSeed(-987654));
+        Assert.AreEqual(12346, SeedHelpers.ToPositiveSeed(12345), "A positive seed folds to seed + 1 under the modular map.");
+        Assert.AreNotEqual(SeedHelpers.ToPositiveSeed(1), SeedHelpers.ToPositiveSeed(2));
+    }
 }

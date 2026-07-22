@@ -2,9 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Xml.Linq;
+using Numerics.Sampling;
 using RMC.TotalRisk.Core;
 using RMC.TotalRisk.Core.Enums;
 using RMC.TotalRisk.Core.Interfaces;
+using RMC.TotalRisk.Results;
 using RMC.TotalRisk.RiskFunctions;
 using RMC.TotalRisk.RiskFunctions.Responses;
 
@@ -199,6 +201,15 @@ namespace RMC.TotalRisk.Systems.Components
         /// Backing field for <see cref="MultipleConsequences"/>.
         /// </summary>
         private bool _multipleConsequences;
+
+        /// <summary>
+        /// The N×K consequence coupling matrix (K = one column per consequence position, at least
+        /// one): the shared knowledge percentiles that drive each realization's paired
+        /// failure/non-failure consequence samples co-monotonically (Q-N, resolved — the v1.0
+        /// engine drew one uniform for both sides of the pair). Runtime sampler state: allocated
+        /// by <see cref="SetupSamplers"/>, never serialized, never hashed, never cloned.
+        /// </summary>
+        private double[,]? _couplingPercentiles;
 
         /// <summary>
         /// The owning system component — wired by the component's projection (v1.0 collection
@@ -552,6 +563,25 @@ namespace RMC.TotalRisk.Systems.Components
                 messages.Add("Error: The failure mode consequence hazard dimension is Secondary, which requires a bivariate hazard (not yet supported).");
             }
 
+            // The Q-W branch-explosion guardrails: the engine takes the cross product of exposure
+            // branches across the mode's consequence positions (product weights), so the combined
+            // branch count is bounded — warn above 64, error above 1024 (ratified interim until a
+            // shared-exposure declaration lands).
+            long combinedBranches = 1;
+            for (int i = 0; i < _consequenceFunctions.Count && combinedBranches <= 1024; i++)
+            {
+                if (_consequenceFunctions[i] is null) continue;
+                combinedBranches *= Math.Max(1, _consequenceFunctions[i].CountExposureBranches());
+            }
+            if (combinedBranches > 1024)
+            {
+                messages.Add("Error: The failure mode's combined consequence exposure branches exceed 1024 (the cross product across consequence positions); reduce the mixture branch counts.");
+            }
+            else if (combinedBranches > 64)
+            {
+                messages.Add($"Warning: The failure mode's combined consequence exposure branches ({combinedBranches}) exceed 64; the branch cross product grows compute cost accordingly.");
+            }
+
             ValidateLabelContinuity(messages);
 
             return (messages.FindIndex(m => m.StartsWith("Error:", StringComparison.Ordinal)) < 0, messages);
@@ -565,6 +595,99 @@ namespace RMC.TotalRisk.Systems.Components
         public byte[] CanonicalHash()
         {
             return CanonicalContentHasher.Hash(ToXElement(), CanonicalizationRules.ModelRules);
+        }
+
+        /// <summary>
+        /// Sets up this mode's samplers for a run: allocates the consequence coupling matrix
+        /// (this mode claims the first ordinal), then walks the chain — stage transforms, stage
+        /// responses, trailing transforms, in declared order — seeding each function on its first
+        /// encounter with a content-derived seed. Consequence functions are deliberately not in
+        /// the walk: they need no percentile matrices, because the coupling matrix supplies their
+        /// shared knowledge percentile (architecture doc §5.8.7 as amended by Q-N).
+        /// </summary>
+        /// <param name="sampleSize">The realization count N.</param>
+        /// <param name="componentSeed">The owning component's content-derived seed.</param>
+        /// <param name="ordinal">The next structural ordinal in the component's walk.</param>
+        /// <param name="scheme">The knowledge-uncertainty sampling scheme.</param>
+        /// <param name="seededFunctions">
+        /// The functions already seeded in this component's walk (reference identity). The
+        /// ordinal advances for every encounter so structural positions stay stable, but a shared
+        /// function instance is seeded once — its first canonical owner wins, and everywhere it
+        /// appears it draws the identical realizations (one instance = one knowledge quantity).
+        /// Two distinct instances with equal content get different ordinals and draw
+        /// independently.
+        /// </param>
+        /// <returns>The next unclaimed ordinal.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when the seeded-function set is null.</exception>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown when the sample size is not positive.</exception>
+        /// <exception cref="NotSupportedException">Thrown when the sampling scheme is unrecognized.</exception>
+        internal int SetupSamplers(int sampleSize, int componentSeed, int ordinal, SamplingScheme scheme,
+            ISet<IRiskFunction> seededFunctions)
+        {
+            if (seededFunctions == null) throw new ArgumentNullException(nameof(seededFunctions));
+            if (sampleSize <= 0) throw new ArgumentOutOfRangeException(nameof(sampleSize), "The sample size must be positive.");
+
+            // The coupling matrix claims this mode's first ordinal so the pair-coupling stream is
+            // as content-stable as any function's.
+            int couplingSeed = SeedHelpers.ToPositiveSeed(SeedHelpers.HashCombine(componentSeed, CanonicalHash(), ordinal));
+            ordinal++;
+            int columns = Math.Max(1, _consequenceFunctions.Count);
+            _couplingPercentiles = scheme switch
+            {
+                SamplingScheme.LatinHypercube => LatinHypercube.Random(sampleSize, columns, couplingSeed),
+                SamplingScheme.LatinHypercubeMedian => LatinHypercube.Median(sampleSize, columns, couplingSeed),
+                SamplingScheme.MonteCarlo => SeedHelpers.IndependentUniform(sampleSize, columns, couplingSeed),
+                _ => throw new NotSupportedException($"The sampling scheme '{scheme}' is not supported."),
+            };
+
+            for (int s = 0; s < _responseStages.Count; s++)
+            {
+                var stage = _responseStages[s];
+                if (stage is null) continue;
+                for (int i = 0; i < stage.Transforms.Count; i++)
+                {
+                    ordinal = SetupFunction(stage.Transforms[i], sampleSize, componentSeed, ordinal, scheme, seededFunctions);
+                }
+                ordinal = SetupFunction(stage.Response, sampleSize, componentSeed, ordinal, scheme, seededFunctions);
+            }
+            for (int i = 0; i < _responseToConsequence.Count; i++)
+            {
+                ordinal = SetupFunction(_responseToConsequence[i], sampleSize, componentSeed, ordinal, scheme, seededFunctions);
+            }
+            return ordinal;
+        }
+
+        /// <summary>
+        /// Reads the shared knowledge percentile coupling a realization's paired consequences at
+        /// a consequence position.
+        /// </summary>
+        /// <param name="realizationIndex">The realization index in [0, sample size).</param>
+        /// <param name="position">The consequence position (0 is the primary).</param>
+        /// <returns>The uniform (0, 1) coupling percentile.</returns>
+        /// <exception cref="InvalidOperationException">Thrown before <see cref="SetupSamplers"/> has run.</exception>
+        internal double CouplingPercentile(int realizationIndex, int position)
+        {
+            if (_couplingPercentiles == null)
+            {
+                throw new InvalidOperationException("SetupSamplers() must be called before sampling by realization index.");
+            }
+            return _couplingPercentiles[realizationIndex, position];
+        }
+
+        /// <summary>
+        /// Samples this failure mode for one realization.
+        /// </summary>
+        /// <param name="nonFailureMode">
+        /// The component's non-failure mode, paired-sampled at this mode's coupling percentile
+        /// for the excess computation; null when the component has none.
+        /// </param>
+        /// <param name="realizationIndex">The realization index, or −1 for the mean functions.</param>
+        /// <returns>The sampled failure mode.</returns>
+        /// <exception cref="NotSupportedException">Thrown when the mode carries more than one response stage (deferred to the event-tree phase).</exception>
+        /// <exception cref="InvalidOperationException">Thrown when sampling by realization index before <see cref="SetupSamplers"/> has run.</exception>
+        public SampledFailureMode Sample(FailureMode? nonFailureMode, int realizationIndex = -1)
+        {
+            return new SampledFailureMode(this, nonFailureMode, realizationIndex);
         }
 
         /// <summary>
@@ -625,6 +748,29 @@ namespace RMC.TotalRisk.Systems.Components
         #endregion
 
         #region Private Helpers
+
+        /// <summary>
+        /// Seeds one walked function on first encounter and advances the structural ordinal for
+        /// every encounter. Null entries are skipped without advancing — a null slot is a
+        /// validation error the analysis gate rejects before any run.
+        /// </summary>
+        /// <param name="function">The function at this walk position, possibly null.</param>
+        /// <param name="sampleSize">The realization count N.</param>
+        /// <param name="componentSeed">The owning component's content-derived seed.</param>
+        /// <param name="ordinal">This walk position's ordinal.</param>
+        /// <param name="scheme">The knowledge-uncertainty sampling scheme.</param>
+        /// <param name="seededFunctions">The functions already seeded (reference identity).</param>
+        /// <returns>The next unclaimed ordinal.</returns>
+        private static int SetupFunction(IRiskFunction? function, int sampleSize, int componentSeed, int ordinal,
+            SamplingScheme scheme, ISet<IRiskFunction> seededFunctions)
+        {
+            if (function is null) return ordinal;
+            if (seededFunctions.Add(function))
+            {
+                function.SetupSampler(sampleSize, SeedHelpers.HashCombine(componentSeed, function.CanonicalHash(), ordinal), scheme);
+            }
+            return ordinal + 1;
+        }
 
         /// <summary>
         /// Stage 0, self-healing: if the stage list was emptied through the exposed list, a
