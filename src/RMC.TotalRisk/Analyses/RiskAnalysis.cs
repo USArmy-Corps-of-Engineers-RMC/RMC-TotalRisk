@@ -950,6 +950,13 @@ namespace RMC.TotalRisk.Analyses
         /// <param name="componentRealization">The component's realization sink.</param>
         /// <param name="realization">The system realization (diagnostics).</param>
         /// <param name="flags">The realization's computational-warning flags.</param>
+        /// <exception cref="InvalidOperationException">
+        /// Thrown when the integration reports failure — an integrand exception was absorbed by
+        /// the integrator (<c>ReportFailure</c> is false), so the recorded risk points are
+        /// truncated and no result may be published. Surfacing the failure here keeps a faulted
+        /// evaluation from silently reading as zero risk (the Phase 5 correction; the VEGAS
+        /// call sites carry the same guard).
+        /// </exception>
         private void IntegrateComponent(SampledComponent sampled, ComponentRealization componentRealization,
             SystemRealization realization, RiskComputeFlags flags)
         {
@@ -963,6 +970,10 @@ namespace RMC.TotalRisk.Analyses
                 MinDepth = 2,
             };
             integrator.Integrate(BuildStratificationBins(sampled, flags));
+            if (integrator.Status == IntegrationStatus.Failure)
+            {
+                throw new InvalidOperationException($"The risk integration failed for system component '{sampled.Name}': an integrand evaluation threw and the recorded curves are incomplete. The analysis cannot publish results for this run.");
+            }
 
             realization.FunctionEvaluations += integrator.FunctionEvaluations;
             realization.StandardError += integrator.StandardError / _components.Count;
@@ -1316,6 +1327,11 @@ namespace RMC.TotalRisk.Analyses
         /// </summary>
         /// <param name="component">The component to probe (its samplers are already set up).</param>
         /// <returns>The component's annualized failure probability on the mean sample.</returns>
+        /// <exception cref="InvalidOperationException">
+        /// Thrown when the probe integration reports failure — a swallowed integrand exception
+        /// would otherwise feed a truncated probability into the tail-focus target (the same
+        /// guard as <see cref="IntegrateComponent"/>).
+        /// </exception>
         private double ProbeAnnualFailureProbability(SystemComponent component)
         {
             var sampled = component.Sample(-1);
@@ -1332,6 +1348,10 @@ namespace RMC.TotalRisk.Analyses
                 MinDepth = 2,
             };
             integrator.Integrate(BuildHazardBins(sampled));
+            if (integrator.Status == IntegrationStatus.Failure)
+            {
+                throw new InvalidOperationException($"The failure-probability probe failed for system component '{sampled.Name}': an integrand evaluation threw, so the tail-focus target cannot be derived.");
+            }
             return Math.Min(1d, Math.Max(0d, integrator.Result));
         }
 

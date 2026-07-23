@@ -453,12 +453,28 @@ namespace RMC.TotalRisk.Systems.Components
         {
             get
             {
-                int count = FailurePathCount();
-                if (_mvnStale || count != _mvnForCount)
-                {
-                    UpdateMultivariateNormal(count);
-                }
-                return _matrixValid && count > 0 ? _mvn : null;
+                EnsureDependencyMatrixCurrent();
+                return _matrixValid && FailurePathCount() > 0 ? _mvn : null;
+            }
+        }
+
+        /// <summary>
+        /// Ensures the failure-mode dependence machinery is current for the present failure-path
+        /// count: rebuilds the multivariate normal when stale and — in the automatic dependency
+        /// modes — back-fills <see cref="CorrelationMatrix"/> with the derived matrix. v1.0
+        /// rebuilt eagerly on every ctor/setter/mode edit, so its compute paths always read a
+        /// fresh matrix; v1.1 builds lazily, so the per-run freeze point
+        /// (<see cref="SetupSamplers"/>) calls this before any sampling. Without this call the
+        /// perfectly-negative mode's derived matrix never materializes on the compute path (the
+        /// sampled component captures the raw <see cref="CorrelationMatrix"/> reference), which
+        /// silently zeroed dependent combination kernels before the Phase 5 correction.
+        /// </summary>
+        internal void EnsureDependencyMatrixCurrent()
+        {
+            int count = FailurePathCount();
+            if (_mvnStale || count != _mvnForCount)
+            {
+                UpdateMultivariateNormal(count);
             }
         }
 
@@ -780,11 +796,19 @@ namespace RMC.TotalRisk.Systems.Components
         /// knowledge percentiles come from each mode's coupling matrix (Q-N). Forward rule for
         /// composite hazards/responses (Phase 9): the walk seeds cluster roots only, a root's
         /// own <c>SetupSampler</c> owns its subtree, and the dedup set must absorb subtree
-        /// members.
+        /// members. This is also the per-run freeze point that materializes the effective
+        /// failure-mode dependency matrix (<see cref="EnsureDependencyMatrixCurrent"/>) so the
+        /// automatic modes' derived matrices are current before the first sample.
         /// </remarks>
         public void SetupSamplers(int sampleSize, int componentSeed, SamplingScheme scheme)
         {
             if (sampleSize <= 0) throw new ArgumentOutOfRangeException(nameof(sampleSize), "The sample size must be positive.");
+
+            // Materialize the effective failure-mode dependency matrix before any sampling: the
+            // sampled component captures the raw correlation-matrix reference, and the automatic
+            // modes derive theirs here (v1.0 rebuilt eagerly on every edit; v1.1 refreshes at
+            // this single-threaded per-run freeze point instead).
+            EnsureDependencyMatrixCurrent();
 
             var modes = ProjectFailureModes();
             _sampledModes = modes;

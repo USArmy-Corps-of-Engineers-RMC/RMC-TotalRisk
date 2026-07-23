@@ -461,6 +461,36 @@ public class SystemComponentTests
         Assert.AreEqual(DependencyType.Independent, component.FailureModeDependency);
     }
 
+    /// <summary>
+    /// Verifies that <see cref="SystemComponent.SetupSamplers"/> materializes the automatic
+    /// dependency matrix before any sampling — the compute path captures the raw
+    /// <see cref="SystemComponent.CorrelationMatrix"/> reference, and v1.0 kept it fresh by
+    /// rebuilding eagerly on every edit. The regression this pins: under perfectly negative
+    /// dependence the derived matrix previously never materialized on the run path (only the
+    /// <see cref="SystemComponent.FailureModeMultivariateNormal"/> getter built it), which
+    /// silently zeroed the dependent combination kernels.
+    /// </summary>
+    [TestMethod]
+    public void Test_SetupSamplers_MaterializesDependencyMatrix()
+    {
+        // Arrange — two failure paths, perfectly negative dependence; the MVN getter is never read.
+        var component = LeveeComponent();
+        var response = component.Graph.GetElements<ResponseElement>().Single();
+        var second = new ConsequenceElement("Second Damages") { Input = new RiskConnection(response) };
+        second.Functions.Add(Damages("Stage", "ft"));
+        component.Graph.AddElement(second);
+        component.FailureModeDependency = DependencyType.PerfectlyNegative;
+        Assert.IsNull(component.CorrelationMatrix, "Precondition: nothing has materialized the derived matrix yet.");
+
+        // Act
+        component.SetupSamplers(8, 12345, SamplingScheme.LatinHypercube);
+
+        // Assert — the derived matrix is current for the sampled-component capture.
+        Assert.IsNotNull(component.CorrelationMatrix, "SetupSamplers must materialize the automatic dependency matrix.");
+        Assert.AreEqual(-1d + Math.Sqrt(Tools.DoubleMachineEpsilon), component.CorrelationMatrix![0, 1], 0d,
+            "The perfectly negative off-diagonal must be −1/(D−1) + √εmach at D = 2.");
+    }
+
     /// <summary>Verifies the serialization round trip, including the G17 correlation matrix.</summary>
     [TestMethod]
     public void Test_Serialization_RoundTrip()

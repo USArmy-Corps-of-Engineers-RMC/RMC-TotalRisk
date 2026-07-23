@@ -254,6 +254,70 @@ public class RiskAnalysisTests
     }
 
     /// <summary>
+    /// The perfectly-negative dependency regression (Phase 5 pre-flight finding): the derived
+    /// dependency matrix previously never materialized on the run path — only the
+    /// multivariate-normal getter built it — so the joint and common-cause kernels threw into
+    /// the integrator's swallowing catch and published all-zero results with a success status,
+    /// and the competing pre-processing faulted the run. Pins for all three dependent methods:
+    /// the run estimates, risk is non-zero, the joint and common-cause unions agree tightly
+    /// (both derive the same union from the same Gaussian copula), competing agrees within its
+    /// 200-bin cumulative-incidence discretization, and negative dependence strictly raises the
+    /// failure union above independence (the reversed unimodal bound).
+    /// </summary>
+    [TestMethod]
+    public async Task Test_PerfectlyNegative_AllMethods_ComputeAndAgreeOnUnion()
+    {
+        // Arrange — two overlapping fragilities so the dependence direction matters, plus the
+        // standard non-failure mode. A fresh component per run keeps the cases independent.
+        static SystemComponent TwoModeComponent()
+        {
+            var secondFragility = new TabularResponse
+            {
+                Name = "Second Fragility",
+                SpecifiedHazard = "Stage",
+                HazardUnit = "ft",
+                UncertainOrderedPairedData = new UncertainOrderedPairedData(
+                    new[] { new UncertainOrdinate(12d, new Deterministic(0d)), new UncertainOrdinate(25d, new Deterministic(1d)) },
+                    true, SortOrder.Ascending, false, SortOrder.None, UnivariateDistributionType.Deterministic),
+            };
+            var component = new SystemComponent { Name = "Dam" };
+            component.HazardFunction = StageFrequency();
+            component.AddFailureMode(new FailureMode(null, null, Fragility(), Consequence("Failure Loss A", 300d)));
+            component.AddFailureMode(new FailureMode(null, null, secondFragility, Consequence("Failure Loss B", 200d)));
+            component.AddFailureMode(new FailureMode(null, null, null, Consequence("Non-Failure Loss", 60d)));
+            return component;
+        }
+
+        static async Task<double> RunApf(FailureModeMethod method, DependencyType dependency)
+        {
+            var component = TwoModeComponent();
+            component.FailureModeMethod = method;
+            component.FailureModeDependency = dependency;
+            var analysis = new RiskAnalysis(new[] { component });
+            await analysis.RunAsync();
+            Assert.IsTrue(analysis.IsEstimated, $"{method} + {dependency} must estimate.");
+            var summary = analysis.RiskResults![0]!;
+            Assert.IsTrue(summary.Fail.TotalProbability > 0d, $"{method} + {dependency}: the failure union must be non-zero.");
+            Assert.IsTrue(summary.Total.Mean > 0d, $"{method} + {dependency}: total risk must be non-zero.");
+            return summary.Fail.TotalProbability;
+        }
+
+        // Act
+        double independentJoint = await RunApf(FailureModeMethod.JointFailures, DependencyType.Independent);
+        double negativeJoint = await RunApf(FailureModeMethod.JointFailures, DependencyType.PerfectlyNegative);
+        double negativeCommonCause = await RunApf(FailureModeMethod.CommonCauseFailures, DependencyType.PerfectlyNegative);
+        double negativeCompeting = await RunApf(FailureModeMethod.CompetingFailures, DependencyType.PerfectlyNegative);
+
+        // Assert — same marginals + same dependency ⇒ same union across the combination methods.
+        Assert.AreEqual(negativeJoint, negativeCommonCause, 1e-6 * negativeJoint,
+            "Joint and common-cause must produce the same failure union under the same copula.");
+        Assert.AreEqual(negativeJoint, negativeCompeting, 1e-2 * negativeJoint,
+            "Competing must match the union within its 200-bin cumulative-incidence discretization.");
+        Assert.IsTrue(negativeJoint > independentJoint * 1.001d,
+            $"Negative dependence must raise the failure union (negative {negativeJoint} vs independent {independentJoint}).");
+    }
+
+    /// <summary>
     /// Verifies the validation catalog with its pinned messages: the empty analysis, the
     /// additive method's strict-independence requirement (ratified v0.13), the joint method's
     /// dimension limit and correlation-matrix checks, and the multi-stage response gate
