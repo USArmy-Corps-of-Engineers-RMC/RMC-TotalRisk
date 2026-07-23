@@ -307,6 +307,8 @@ public class RiskAnalysisTests
         double negativeJoint = await RunApf(FailureModeMethod.JointFailures, DependencyType.PerfectlyNegative);
         double negativeCommonCause = await RunApf(FailureModeMethod.CommonCauseFailures, DependencyType.PerfectlyNegative);
         double negativeCompeting = await RunApf(FailureModeMethod.CompetingFailures, DependencyType.PerfectlyNegative);
+        double positiveJoint = await RunApf(FailureModeMethod.JointFailures, DependencyType.PerfectlyPositive);
+        double positiveCommonCause = await RunApf(FailureModeMethod.CommonCauseFailures, DependencyType.PerfectlyPositive);
 
         // Assert — same marginals + same dependency ⇒ same union across the combination methods.
         Assert.AreEqual(negativeJoint, negativeCommonCause, 1e-6 * negativeJoint,
@@ -315,6 +317,14 @@ public class RiskAnalysisTests
             "Competing must match the union within its 200-bin cumulative-incidence discretization.");
         Assert.IsTrue(negativeJoint > independentJoint * 1.001d,
             $"Negative dependence must raise the failure union (negative {negativeJoint} vs independent {independentJoint}).");
+
+        // The perfectly-positive union (the lower unimodal bound) agrees across methods too —
+        // the common-cause factor faulted here before the Phase 5 correction (the Numerics
+        // overload rejects a null matrix even though the positive kernel never reads it).
+        Assert.AreEqual(positiveJoint, positiveCommonCause, 1e-6 * positiveJoint,
+            "Joint and common-cause must produce the same failure union under perfect positive dependence.");
+        Assert.IsTrue(positiveJoint < independentJoint,
+            $"Positive dependence must lower the failure union (positive {positiveJoint} vs independent {independentJoint}).");
     }
 
     /// <summary>

@@ -431,7 +431,12 @@ namespace RMC.TotalRisk.Results
         private static readonly double[] _zeroValue = { 0d };
 
         /// <summary>
-        /// The common-cause adjustment factor per the captured dependency (v1.0 mapping).
+        /// The common-cause adjustment factor per the captured dependency (v1.0 mapping). The
+        /// perfectly-positive branch passes the captured correlation matrix even though the
+        /// positive joint-probability kernel never reads it: the Numerics overload rejects a
+        /// null matrix before dispatching on the dependency, so the v1.0 matrix-free call form
+        /// faulted the run (Phase 5 correction; the matrix is always materialized by the
+        /// component's sampler setup).
         /// </summary>
         /// <param name="responseProbabilities">The per-mode response probabilities.</param>
         /// <returns>The scaling factor in [0, 1].</returns>
@@ -443,7 +448,7 @@ namespace RMC.TotalRisk.Results
             }
             if (_failureModeDependency == DependencyType.PerfectlyPositive)
             {
-                return Probability.CommonCauseAdjustment(responseProbabilities, dependency: Probability.DependencyType.PerfectlyPositive);
+                return Probability.CommonCauseAdjustment(responseProbabilities, _correlationMatrix, Probability.DependencyType.PerfectlyPositive);
             }
             return Probability.CommonCauseAdjustment(responseProbabilities, _correlationMatrix, Probability.DependencyType.CorrelationMatrix);
         }
