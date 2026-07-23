@@ -15,9 +15,9 @@ Porting sources in order of authority: (1) the partial C# port `C:\GIT\RMC-Total
 | 2 | Core input functions: tabular hazard/transform/response/consequence + parametric hazard/response + non-fail response | Not started |
 | 3 | Risk components + results containers (JSON results redesign) | Not started |
 | 3.5 | Layer boundary seams: function `Id`, serialization modes, function resolver, change propagation | Complete (2026-07-20) |
-| 4 | Analysis foundation + RiskAnalysis engine core (1D): AGK integrator, exact LEC + risk measures, `RiskIntegrand`, mixture-exposure mean-only | Not started |
-| 4b | Multi-dimensional system risk: additive FFT convolution (strict independence), joint Vegas tail focus + real combination enumeration | Not started |
-| 4c | `RiskAnalysisMode.Reliability` | Not started |
+| 4 | Analysis foundation + RiskAnalysis engine core (1D): AGK integrator, exact LEC + risk measures, `RiskIntegrand`, mixture-exposure mean-only | Complete (2026-07-22) |
+| 4b | Multi-dimensional system risk: additive lattice convolution (strict independence), joint Vegas tail focus + real combination enumeration | Complete (2026-07-23) |
+| 4c | `RiskAnalysisMode.Reliability` | Complete (2026-07-23) |
 | 5 | Verification I — single-component oracle families | Not started |
 | 6 | Verification II — system risk + NFIP assurance | Not started |
 | 7 | Remaining closed-form functions: linear/power transforms, parametric consequence, nonparametric hazard | Not started |
@@ -132,6 +132,19 @@ with no store, no resolver, and no consuming layer in the call path.
 
 ## Phase 4b — Multi-dimensional system risk
 
+> **Complete (2026-07-23)** with the v0.15 implementation errata (architecture doc status log):
+> the additive convolution is an **exact lattice** via `Fourier.FFT` (`Analyses/SystemConvolution`,
+> public) — `EmpiricalDistribution.Convolve` samples continuous PDFs and cannot represent the zero
+> atoms, so **N8 is extended** to an atom-aware convolution; the automatic γ target comes from a
+> **deterministic per-component AGK failure-probability probe** (the warm-up harvest both wiped the
+> importance grid via the `NumberOfBins` reset and could not see rare failures at γ = 1); recording
+> accumulates **five self-normalized passes**; defective system stream probabilities keep the v1.0
+> system-state semantics (failure union / complement); the convolution and the VEGAS seed base fold
+> in canonical-hash component order (additive reorder + rename bit-inert; joint rename bit-inert,
+> reorder statistically equivalent by construction). Exit gates met: system LEC for both methods,
+> convolved mean == Σ means by construction, brute-force MC tail cross-checks green
+> ([verification/system-risk.md](verification/system-risk.md)), γ-audit green.
+
 **Scope:** the two multi-component system-risk methods (§7.8), each producing a true system LEC for all five risk types.
 
 - **Additive → strict independence + FFT convolution.** Redefine the additive method to assume strictly independent components (ratified): error if a correlation is supplied under the additive method; delete the v1.0 correlation-matrix σ formula from the additive path; system `pF = Probability.IndependentUnion(pfs)`. Build the system LEC by zero-inflating each defective component curve (atom at 0 with mass `1−TotalProbability`) and convolving via `EmpiricalDistribution.Convolve(IList<EmpiricalDistribution>, numberOfPoints)` — this is exactly the 2^D failure/non-failure combination enumeration in O(n log n), and produces the system LEC v1.0 never built. New option `SystemConvolutionPoints` (default 4096, min 4096). Assert convolved mean == Σ component means to 1e-6 relative (the exact v1.0 additive answer). Grid caveat + log-spaced follow-up = Numerics item N8.
@@ -145,11 +158,21 @@ with no store, no resolver, and no consuming layer in the call path.
 
 ## Phase 4c — Reliability mode
 
-**`RiskAnalysisMode.Reliability`** (v0.10 — replaces the planned `ReliabilityAnalysis` sibling) — a mode of the one `RiskAnalysis`: failure probabilities / annualized failure probability per FM/component/system, no consequence functions required (relaxed FailureMode validation), reusing the sampled-component machinery with the **`RiskIntegrand.TotalProbabilityOfFailure`** integrand and its own results shape. One graph traversal serves both modes.
+> **Complete (2026-07-23).** The relaxation is a **mode-aware validation chain**
+> (`Validate(RiskAnalysisMode)` overloads on `FailureMode` / `ConsequenceElement` /
+> `ComponentGraph` / `SystemComponent`; consequence elements stay the structural terminals but
+> need no functions), the engine **forces** the effective refinement objective to
+> `TotalProbabilityOfFailure` in reliability mode (pinned by a bit-identity test across
+> configured objectives), and the results shape is the **existing containers** — AFP =
+> the Fail stream's `TotalProbability` at every level (mode/component/system; union under the
+> system methods), consequence surface degenerate at zero, mass-balance warning suppressed.
+> Multi-component reliability rides the Phase 4b machinery unchanged.
+
+**`RiskAnalysisMode.Reliability`** (v0.10 — replaces the planned `ReliabilityAnalysis` sibling) — a mode of the one `RiskAnalysis`: failure probabilities / annualized failure probability per FM/component/system, no consequence functions required (relaxed FailureMode validation), reusing the sampled-component machinery with the **`RiskIntegrand.TotalProbabilityOfFailure`** integrand. One graph traversal serves both modes.
 
 **Unit tests:** reliability-mode smoke (single + multi-component); consequence-free validation relaxation; AFP vs closed form; mode round-trips in options.
 
-**Exit criteria:** reliability mode P/T.
+**Exit criteria: met** — reliability mode P/T (AFP vs dense reference at 1e-3; union AFP exact; forcing pinned).
 
 ## Phase 5 — Verification I: single-component oracle families
 
@@ -177,7 +200,7 @@ with no store, no resolver, and no consuming layer in the call path.
 
 ## Phase 8 — Numerics.Functions expansion (numerics repo) + package switch
 
-**Scope:** Executed in `C:\GIT\numerics` (branch `bug-fixes-and-enhancements`) per [requirements/SHARED_FUNCTIONS_STRATEGY.md](requirements/SHARED_FUNCTIONS_STRATEGY.md) §4: N1 function serialization + `UnivariateFunctionFactory`; N2 `SegmentedPowerFunction` (BestFit BaRatin rating form, `ParameterSet`-compatible layout); N3 `CompositeFunction`; N4 `EnsembleFunction` posterior sampling; N5 `EmpiricalDistribution` XElement round-trip fix; N6 tests + `docs/functions/` guide. **Plus the v0.13 risk-engine follow-ups (raised by Phases 4/4b, non-blocking there because each has a documented interim):** N7 — an `AdaptiveGaussKronrod` integrand overload that hands the Kronrod weight to the callback (so LEC probability mass comes from the quadrature directly, retiring the midpoint-trapezoid fallback); N8 — a log-spaced / adaptive-grid option on `EmpiricalDistribution.Convolve` (the current linear grid starves order-of-magnitude consequence tails); N9 — Vegas power-transform Jacobian audit + unit tests (integrate a known heavy-tail function at γ ∈ {1,4,10} to the same value; confirm `Σ wgt` = domain volume at every γ). Release **RMC.Numerics 2.2.0** to the local feed; switch this repo's three csprojs from the HintPath to the PackageReference (Hydrologics does the same on its side).
+**Scope:** Executed in `C:\GIT\numerics` (branch `bug-fixes-and-enhancements`) per [requirements/SHARED_FUNCTIONS_STRATEGY.md](requirements/SHARED_FUNCTIONS_STRATEGY.md) §4: N1 function serialization + `UnivariateFunctionFactory`; N2 `SegmentedPowerFunction` (BestFit BaRatin rating form, `ParameterSet`-compatible layout); N3 `CompositeFunction`; N4 `EnsembleFunction` posterior sampling; N5 `EmpiricalDistribution` XElement round-trip fix; N6 tests + `docs/functions/` guide. **Plus the v0.13 risk-engine follow-ups (raised by Phases 4/4b, non-blocking there because each has a documented interim):** N7 — an `AdaptiveGaussKronrod` integrand overload that hands the Kronrod weight to the callback (so LEC probability mass comes from the quadrature directly, retiring the midpoint-trapezoid fallback); N8 — `EmpiricalDistribution.Convolve` upgrades: a log-spaced / adaptive-grid option (the current linear grid starves order-of-magnitude consequence tails) **and an atom-aware discrete/mixed-distribution overload** (v0.15 finding: `Convolve` samples continuous PDFs, so a zero-inflation atom has no representation — the engine's exact lattice kernel `SystemConvolution` migrates onto it when it ships); N9 — Vegas power-transform Jacobian unit tests (integrate a known heavy-tail function at γ ∈ {1,4,10} to the same value; confirm `Σ wgt` = domain volume at every γ — the engine-level empirical audit is green in `SystemRiskVerification`, this is the upstream unit-test half). Release **RMC.Numerics 2.2.0** to the local feed; switch this repo's three csprojs from the HintPath to the PackageReference (Hydrologics does the same on its side).
 
 **Exit criteria:** 2.2.0 on the feed; this repo builds green on the package.
 

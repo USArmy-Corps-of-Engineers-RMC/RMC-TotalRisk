@@ -61,6 +61,7 @@ the test executable with a TRX report:
 | [Engine reproducibility](engine-reproducibility.md) | `EngineReproducibilityVerification` | The v1 seed-dependency bug regression: repeated-run, metadata-edit, and round-trip bit-identity of full results JSON | ✅ Verified (2026-07-22) |
 | [Single-component mean parity](single-component-mean-parity.md) | `SingleComponentMeanParityVerification` | Legacy-style MC oracle over shared tables at `MersenneTwister(12345)`, N = 10⁶ — the five summary means + AFP (the free regression gate) | ✅ Verified (2026-07-22) |
 | [Exact LEC / mixture tail](exact-lec-tail.md) | `ExactLecTailVerification` | New brute-force MC oracle (seeds 12345/45678/78910, N = 10⁶) — σ, exceedance ordinates, VaR, CVaR for the day/night mixture (Monte-Carlo-parity per the v0.13 policy) | ✅ Verified (2026-07-22) |
+| [Multi-component system risk](system-risk.md) | `SystemRiskVerification` | New brute-force event-level MC oracles (seeds 12345/45678, N = 10⁶) — the additive lattice convolution's full system LEC, the correlated joint VEGAS path, the γ tail-focus audit (N9 gate), and the system reproducibility pins | ✅ Verified (2026-07-23) |
 
 Engine-level composite scenarios (the legacy `Test_Composite.vb` day/night oracles with a
 hazard curve and fragility in the loop) convert when the risk engine lands — see the

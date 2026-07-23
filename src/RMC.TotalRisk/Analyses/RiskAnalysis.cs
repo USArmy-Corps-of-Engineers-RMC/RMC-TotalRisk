@@ -4,15 +4,20 @@ using System.ComponentModel;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Linq;
+using Numerics;
 using Numerics.Data;
 using Numerics.Data.Statistics;
+using Numerics.Distributions;
 using Numerics.Mathematics;
 using Numerics.Mathematics.Integration;
+using Numerics.Mathematics.LinearAlgebra;
 using Numerics.Mathematics.RootFinding;
+using Numerics.Mathematics.SpecialFunctions;
 using Numerics.Sampling;
 using Numerics.Utilities;
 using RMC.TotalRisk.Core;
 using RMC.TotalRisk.Core.Enums;
+using RMC.TotalRisk.Core.Interfaces;
 using RMC.TotalRisk.Results;
 using RMC.TotalRisk.Systems.Components;
 
@@ -51,11 +56,33 @@ namespace RMC.TotalRisk.Analyses
     /// containers; the consuming layer persists them separately.
     /// </para>
     /// <para>
-    /// <b>Stage gates:</b> this engine stage computes the one-dimensional single-component path.
-    /// Multi-component system aggregation arrives with the system-risk stage (Phase 4b),
-    /// reliability mode with Phase 4c, and multi-stage response composition with the event-tree
-    /// phase — each is a validation error until its stage lands, with the message naming the
-    /// stage.
+    /// <b>Multi-component system risk (Phase 4b):</b> the additive method assumes strictly
+    /// independent components (ratified v0.13 — a supplied dependence is a validation error) and
+    /// builds the true system loss exceedance curves by zero-inflated lattice convolution
+    /// (<see cref="SystemConvolution"/>) — the exact enumeration of all component
+    /// failure/non-failure combinations, where v1.0 combined two moments and produced no system
+    /// curve at all; the reported stream probabilities keep the v1.0 system-state semantics
+    /// (failure union, its complement). The joint method integrates the correlated hazard
+    /// hypercube with VEGAS, enumerating real within-component pathway/branch entries across the
+    /// component combinations instead of collapsing each component to its conditional mean (the
+    /// documented v1.0 system-tail defect), accumulating recorded points across five recording
+    /// passes with the masses self-normalized so the exhaustive budget is exactly one, and
+    /// exposing the VEGAS power-transform tail focus (γ) with an automatic heuristic driven by a
+    /// deterministic per-component failure-probability quadrature probe.
+    /// </para>
+    /// <para>
+    /// <b>Reliability mode (Phase 4c):</b> <see cref="RiskAnalysisMode.Reliability"/> computes
+    /// annualized failure probability only: consequence functions become optional (the relaxed
+    /// mode-aware validation chain), the adaptive refinement objective is forced to
+    /// <see cref="RiskIntegrand.TotalProbabilityOfFailure"/> (the configured objective applies to
+    /// risk mode), and the annualized failure probability is read as the Fail stream's total
+    /// probability at every level — failure mode, component, and system (the same containers
+    /// serve both modes; a consequence-free model's curves are degenerate at zero consequence by
+    /// construction).
+    /// </para>
+    /// <para>
+    /// <b>Stage gates:</b> multi-stage response composition remains a validation error until the
+    /// event-tree phase, with the message naming the stage.
     /// </para>
     /// </remarks>
     public class RiskAnalysis : AnalysisBase
@@ -138,9 +165,79 @@ namespace RMC.TotalRisk.Analyses
         private const int HazardBinCount = 50;
 
         /// <summary>
+        /// The number of independent VEGAS recording passes the joint path accumulates loss
+        /// exceedance points across (v1.0 recorded a single pass — far too sparse for a tail
+        /// ordinate in D dimensions; ratified v0.13). The recorded masses are self-normalized by
+        /// the realized weight sum, so a pass count truncated by the evaluation cap stays
+        /// consistent.
+        /// </summary>
+        private const int VegasRecordingPasses = 5;
+
+        /// <summary>
+        /// The joint path's advisory guardrail on the product of the components' worst-case
+        /// recorded entry widths (the system combination cross product).
+        /// </summary>
+        private const long JointEntryWarningLimit = 4096;
+
+        /// <summary>
+        /// The joint path's invalidating guardrail on the product of the components' worst-case
+        /// recorded entry widths.
+        /// </summary>
+        private const long JointEntryErrorLimit = 65_536;
+
+        /// <summary>
+        /// The salt distinguishing the joint path's VEGAS driving stream from the component
+        /// sampler streams in the content-based seed derivation ("VEGAS" in ASCII).
+        /// </summary>
+        private static readonly byte[] JointStreamSalt = { 0x56, 0x45, 0x47, 0x41, 0x53 };
+
+        /// <summary>
         /// The owned components, in declared order.
         /// </summary>
         private readonly List<SystemComponent> _components;
+
+        /// <summary>
+        /// The correlated component-hazard latent structure for the joint method (v1.0
+        /// off-diagonal constants; identity under independence). Run-scoped runtime state —
+        /// rebuilt by every run, never serialized, never hashed.
+        /// </summary>
+        private MultivariateNormal? _jointMultivariateNormal;
+
+        /// <summary>
+        /// The component failure/non-failure indicator combinations for the joint method: 2^D
+        /// rows over D components with the all-zero (no-failure) combination first — the v1.0
+        /// engine-level layout. Run-scoped runtime state.
+        /// </summary>
+        private int[,]? _jointIndicators;
+
+        /// <summary>
+        /// The binomial subset counts over the components (how many combinations fail exactly k
+        /// components). Run-scoped runtime state.
+        /// </summary>
+        private int[]? _jointBinomialCombinations;
+
+        /// <summary>
+        /// The run's content-derived base seed for the VEGAS driving stream: the analysis seed
+        /// folded with every component's canonical hash and occurrence index in declared order.
+        /// Run-scoped runtime state.
+        /// </summary>
+        private int _jointSeedBase;
+
+        /// <summary>
+        /// The automatic tail-focus target probability harvested by the run's deterministic
+        /// failure-probability quadrature probe (the smallest component annualized failure
+        /// probability times the exceedance level, clamped to [1e-12, 1e-2]). Run-scoped runtime
+        /// state.
+        /// </summary>
+        private double _jointTailTargetProbability = 1e-2;
+
+        /// <summary>
+        /// The additive convolution order: component indices sorted by canonical hash, so the
+        /// sequential pairwise convolution associates identically however the components are
+        /// declared — reordering components can never move the system curves by
+        /// association-rounding. Run-scoped runtime state.
+        /// </summary>
+        private int[]? _additiveConvolutionOrder;
 
         /// <summary>Backing field for <see cref="Options"/>.</summary>
         private RiskAnalysisOptions _options;
@@ -344,10 +441,15 @@ namespace RMC.TotalRisk.Analyses
 
         /// <inheritdoc/>
         /// <remarks>
-        /// Errors: no components; more than one component (until the system-risk stage, Phase
-        /// 4b); reliability mode (until Phase 4c); any projected failure mode with more than one
-        /// response stage (until the event-tree phase); invalid options; and every component's
-        /// own errors, aggregated with the component name.
+        /// Errors: no components; the additive method with a component-hazard dependence (the
+        /// ratified v0.13 strict-independence redefinition — dependence belongs to the joint
+        /// method); the joint method above twenty components (the VEGAS dimension limit), with a
+        /// missing, mis-shaped, or non-positive-definite correlation matrix under the
+        /// correlation-matrix dependency, or with a combination cross product beyond the
+        /// guardrail; any projected failure mode with more than one response stage (until the
+        /// event-tree phase); invalid options; and every component's own errors, aggregated with
+        /// the component name. Component validation runs mode-aware: reliability relaxes exactly
+        /// the consequence-content requirements (Phase 4c).
         /// </remarks>
         public override (bool IsValid, List<string> ValidationMessages) Validate()
         {
@@ -359,19 +461,51 @@ namespace RMC.TotalRisk.Analyses
             {
                 messages.Add("Error: The analysis has no system components.");
             }
+
             if (_components.Count > 1)
             {
-                messages.Add($"Error: The analysis contains {_components.Count} system components; multi-component system risk aggregation is not available until the system-risk phase (Phase 4b) — a single system component is supported.");
-            }
-            if (_options.Mode == RiskAnalysisMode.Reliability)
-            {
-                messages.Add("Error: Reliability mode is not available until Phase 4c.");
+                if (_options.SystemRiskMethod == SystemRiskType.AdditiveRiskMethod)
+                {
+                    if (_options.ComponentHazardDependency != DependencyType.Independent)
+                    {
+                        messages.Add("Error: The additive system risk method assumes strictly independent components; select the joint method to model cross-component hazard dependence.");
+                    }
+                }
+                else
+                {
+                    if (_components.Count > 20)
+                    {
+                        messages.Add($"Error: The joint system risk method supports at most 20 components (the VEGAS dimension limit); the analysis has {_components.Count}.");
+                    }
+                    if (_options.ComponentHazardDependency == DependencyType.CorrelationMatrix &&
+                        !IsHazardCorrelationMatrixValid())
+                    {
+                        messages.Add($"Error: The component hazard correlation matrix must be a positive-definite {_components.Count}×{_components.Count} matrix (one row per component).");
+                    }
+
+                    // The system-level combination guardrail: the joint integrand crosses the
+                    // components' recorded entry lists, so the product of their worst-case widths
+                    // bounds the work per evaluation.
+                    long entryProduct = 1;
+                    for (int i = 0; i < _components.Count && entryProduct <= JointEntryErrorLimit; i++)
+                    {
+                        entryProduct *= _components[i].EstimateRecordedFailureEntries();
+                    }
+                    if (entryProduct > JointEntryErrorLimit)
+                    {
+                        messages.Add($"Error: The joint system combination cross product exceeds {JointEntryErrorLimit} entries per evaluation (the product of the components' pathway/branch widths); reduce the mixture branch counts or failure mode counts.");
+                    }
+                    else if (entryProduct > JointEntryWarningLimit)
+                    {
+                        messages.Add($"Warning: The joint system combination cross product ({entryProduct}) exceeds {JointEntryWarningLimit} entries per evaluation; the enumeration grows compute cost accordingly.");
+                    }
+                }
             }
 
             for (int i = 0; i < _components.Count; i++)
             {
                 var component = _components[i];
-                foreach (string message in component.Validate().ValidationMessages)
+                foreach (string message in component.Validate(_options.Mode).ValidationMessages)
                 {
                     messages.Add($"{message} [{component.Name}]");
                 }
@@ -386,6 +520,31 @@ namespace RMC.TotalRisk.Analyses
             }
 
             return (messages.FindIndex(m => m.StartsWith("Error:", StringComparison.Ordinal)) < 0, messages);
+        }
+
+        /// <summary>
+        /// Determines whether the options' hazard correlation matrix is usable for the joint
+        /// method: present, one row per component, and positive definite (Cholesky) — the same
+        /// check the component applies to its failure-mode matrix.
+        /// </summary>
+        /// <returns>True when the matrix is usable.</returns>
+        private bool IsHazardCorrelationMatrixValid()
+        {
+            var matrix = _options.HazardCorrelationMatrix;
+            if (matrix == null || matrix.GetLength(0) != _components.Count || matrix.GetLength(1) != _components.Count)
+            {
+                return false;
+            }
+            try
+            {
+                return new CholeskyDecomposition(new Matrix(matrix)).IsPositiveDefinite;
+            }
+            catch (Exception)
+            {
+                // A decomposition failure means the matrix is not usable — exactly what this
+                // check reports; the validation message carries the remedy.
+                return false;
+            }
         }
 
         /// <inheritdoc/>
@@ -437,11 +596,31 @@ namespace RMC.TotalRisk.Analyses
                     // disambiguate identical-content components, and each component's functions
                     // are seeded from (analysis seed, component hash, occurrence index).
                     SystemComponent.AssignOccurrenceIndices(_components);
+                    var contentHashes = new byte[_components.Count][];
                     for (int i = 0; i < _components.Count; i++)
                     {
-                        int componentSeed = SeedHelpers.HashCombine(_options.PRNGSeed, _components[i].CanonicalHash(), _components[i].OccurrenceIndex);
+                        contentHashes[i] = _components[i].CanonicalHash();
+                        int componentSeed = SeedHelpers.HashCombine(_options.PRNGSeed, contentHashes[i], _components[i].OccurrenceIndex);
                         _components[i].SetupSamplers(_options.Realizations, componentSeed, _options.SamplingScheme);
                     }
+
+                    // The canonical component order (hashes sorted): the additive convolution
+                    // associates in it, and the system seed base folds in it (§7.3 erratum) —
+                    // so declaration order can never move the convolved curves or the VEGAS
+                    // stream identity.
+                    var order = new int[_components.Count];
+                    for (int i = 0; i < order.Length; i++) order[i] = i;
+                    Array.Sort(order, (a, b) => ByteArrayComparer.Instance.Compare(contentHashes[a], contentHashes[b]));
+                    _additiveConvolutionOrder = order;
+
+                    int systemSeed = _options.PRNGSeed;
+                    for (int i = 0; i < order.Length; i++)
+                    {
+                        systemSeed = SeedHelpers.HashCombine(systemSeed, contentHashes[order[i]], _components[order[i]].OccurrenceIndex);
+                    }
+                    _jointSeedBase = systemSeed;
+
+                    PrepareJointSystem(token);
 
                     if (_options.EstimateMeanRiskOnly)
                     {
@@ -594,11 +773,14 @@ namespace RMC.TotalRisk.Analyses
 
         /// <summary>
         /// Raises a warning when an exhaustive curve's recorded mass drifted more than 1e-6 from
-        /// one (the silent v1.0 clamp made leaks invisible).
+        /// one (the silent v1.0 clamp made leaks invisible). Reliability mode skips the check —
+        /// a consequence-free model's total stream is degenerate at zero consequence by design,
+        /// so its recorded mass measures the failure probability, not a leak.
         /// </summary>
         /// <param name="realization">The realization to inspect.</param>
         private void CheckMassBalance(SystemRealization realization)
         {
+            if (_options.Mode == RiskAnalysisMode.Reliability) return;
             if (realization.Curves.Total.LECConsequences.Length > 0 && Math.Abs(realization.Curves.Total.MassBalance - 1d) > 1e-6)
             {
                 _computationWarnings.Add($"Warning: The total risk curve's recorded probability mass was {realization.Curves.Total.MassBalance:G6} instead of 1.");
@@ -610,10 +792,13 @@ namespace RMC.TotalRisk.Analyses
         #region Private Helpers — Realization Compute
 
         /// <summary>
-        /// Computes one full realization: per component, the adaptive Gauss–Kronrod pass over
-        /// the hazard probability domain records the risk points, then the exact curves,
-        /// profiles, and risk measures are built. The single-component system curves are the
-        /// component curves (v1.0 behavior); multi-component aggregation lands in Phase 4b.
+        /// Computes one full realization. On the one-dimensional and additive paths each
+        /// component gets its own adaptive Gauss–Kronrod pass over its hazard probability domain
+        /// and the exact curves, profiles, and risk measures are built per component; a single
+        /// component's curves are the system curves (v1.0 behavior), and multiple additive
+        /// components aggregate by zero-inflated lattice convolution. The joint path instead
+        /// integrates the correlated hazard hypercube with VEGAS, recording component and system
+        /// points together.
         /// </summary>
         /// <param name="realizationIndex">The realization index, or −1 for the mean pass.</param>
         /// <param name="flags">The realization's computational-warning flags.</param>
@@ -634,6 +819,13 @@ namespace RMC.TotalRisk.Analyses
             }
             var realization = new SystemRealization(componentRealizations);
 
+            if (_components.Count > 1 && _options.SystemRiskMethod == SystemRiskType.JointRiskMethod)
+            {
+                IntegrateJointSystem(sampledComponents, componentRealizations, realization, flags, realizationIndex, token);
+                realization.DumpMemory();
+                return realization;
+            }
+
             for (int i = 0; i < _components.Count; i++)
             {
                 token.ThrowIfCancellationRequested();
@@ -649,12 +841,103 @@ namespace RMC.TotalRisk.Analyses
                 realization.MaxH[i] = componentRealizations[i].MaxH;
             }
 
-            // Single-component system results are the component results (v1.0 behavior at the
-            // legacy clone site); Phase 4b replaces this with the aggregation methods.
-            realization.Curves = componentRealizations[0].Curves.Clone();
+            if (_components.Count == 1)
+            {
+                // Single-component system results are the component results (v1.0 behavior at
+                // the legacy clone site).
+                realization.Curves = componentRealizations[0].Curves.Clone();
+            }
+            else
+            {
+                AggregateAdditiveSystem(realization, componentRealizations, token);
+            }
 
             realization.DumpMemory();
             return realization;
+        }
+
+        /// <summary>
+        /// Aggregates the additive system realization (strictly independent components, ratified
+        /// v0.13): each risk-type stream's exact recorded pairs are zero-inflated and convolved
+        /// on the shared consequence lattice — the exact enumeration of all component
+        /// failure/non-failure combinations — and the defective stream probabilities are then
+        /// restored to the v1.0 system-state semantics: the failure union for Fail and Excess,
+        /// its complement for NonFail (the convolution's own recorded mass measures "any positive
+        /// consequence", which quantizes zero-valued events into the atom). The convolved system
+        /// mean equals the sum of the component means by construction — the v1.0 additive answer,
+        /// now with the full curve v1.0 never produced.
+        /// </summary>
+        /// <param name="realization">The system realization to fill.</param>
+        /// <param name="componentRealizations">The finished per-component realizations.</param>
+        /// <param name="token">The run cancellation token.</param>
+        private void AggregateAdditiveSystem(SystemRealization realization,
+            IReadOnlyList<ComponentRealization> componentRealizations, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            ConvolveSystemStream(realization.Curves.Excess, componentRealizations, c => c.Excess);
+            ConvolveSystemStream(realization.Curves.Background, componentRealizations, c => c.Background);
+            ConvolveSystemStream(realization.Curves.Total, componentRealizations, c => c.Total);
+            ConvolveSystemStream(realization.Curves.Fail, componentRealizations, c => c.Fail);
+            ConvolveSystemStream(realization.Curves.NonFail, componentRealizations, c => c.NonFail);
+
+            var failureProbabilities = new double[componentRealizations.Count];
+            for (int i = 0; i < componentRealizations.Count; i++)
+            {
+                failureProbabilities[i] = componentRealizations[i].Curves.Fail.TotalProbability;
+            }
+            double failureUnion = Probability.IndependentUnion(failureProbabilities);
+            realization.Curves.Fail.TotalProbability = failureUnion;
+            realization.Curves.Excess.TotalProbability = failureUnion;
+            realization.Curves.NonFail.TotalProbability = Math.Max(0d, 1d - failureUnion);
+
+            realization.Curves.ComputeRiskMeasures(_options.ConsequenceThreshold, _options.Alpha);
+
+            // The system support tops out at the sum of the component maxima — widen the
+            // percentile grid extent to the convolved Total curve.
+            if (realization.Curves.Total.LECConsequences.Length > 0)
+            {
+                realization.MaxN = Math.Max(realization.MaxN, realization.Curves.Total.LECConsequences[0]);
+            }
+        }
+
+        /// <summary>
+        /// Convolves one risk-type stream across the components onto the system curve: the
+        /// components' exact recorded pairs feed the shared lattice, the joint zero atom (lattice
+        /// node zero) is kept only on an exhaustive stream (on a defective stream it is the
+        /// no-event mass), and the exact curve construction runs on the lattice pairs. A stream
+        /// with no positive-consequence mass anywhere stays empty.
+        /// </summary>
+        /// <param name="target">The system stream to fill.</param>
+        /// <param name="componentRealizations">The finished per-component realizations.</param>
+        /// <param name="stream">Selects the stream from a component's curve set.</param>
+        /// <remarks>
+        /// The components enter the sequential convolution in canonical-hash order (computed at
+        /// run start), so the floating-point association is identical however the components are
+        /// declared — component reordering stays bit-inert on the system curves.
+        /// </remarks>
+        private void ConvolveSystemStream(Curve target, IReadOnlyList<ComponentRealization> componentRealizations,
+            Func<Curves, Curve> stream)
+        {
+            var order = _additiveConvolutionOrder!;
+            var componentPairs = new List<IReadOnlyList<(double Mass, double Consequence)>>(componentRealizations.Count);
+            for (int i = 0; i < componentRealizations.Count; i++)
+            {
+                componentPairs.Add(stream(componentRealizations[order[i]].Curves).CollectRecordedPairs());
+            }
+
+            var (pmf, step) = SystemConvolution.Convolve(componentPairs, _options.SystemConvolutionPoints);
+            if (step <= 0d) return;
+
+            var pairs = new List<(double Mass, double Consequence)>(pmf.Length);
+            for (int k = target.IsExhaustive ? 0 : 1; k < pmf.Length; k++)
+            {
+                if (pmf[k] > 0d)
+                {
+                    pairs.Add((pmf[k], k * step));
+                }
+            }
+            if (pairs.Count == 0) return;
+            target.CreateCurve(pairs, _options.LECOutputLength);
         }
 
         /// <summary>
@@ -686,6 +969,16 @@ namespace RMC.TotalRisk.Analyses
         }
 
         /// <summary>
+        /// The effective adaptive-refinement objective: reliability mode always refines on the
+        /// failure probability (its natural pairing — a consequence-free model's consequence
+        /// objectives are identically zero, which would defeat the adaptivity); risk mode uses
+        /// the configured objective.
+        /// </summary>
+        private RiskIntegrand EffectiveIntegrand => _options.Mode == RiskAnalysisMode.Reliability
+            ? RiskIntegrand.TotalProbabilityOfFailure
+            : _options.RiskIntegrand;
+
+        /// <summary>
         /// Builds the integrand for the selected refinement objective (architecture doc §7.7).
         /// Every evaluation computes and records the full component risk regardless of the
         /// objective — the objective changes only where the adaptive refinement concentrates.
@@ -697,7 +990,7 @@ namespace RMC.TotalRisk.Analyses
         private Func<double, double> BuildObjective(SampledComponent sampled, ComponentRealization componentRealization,
             RiskComputeFlags flags)
         {
-            if (_options.RiskIntegrand == RiskIntegrand.Balanced)
+            if (EffectiveIntegrand == RiskIntegrand.Balanced)
             {
                 double meanScale = ObjectiveScale(sampled, flags, RiskIntegrand.MeanTotalRisk);
                 double secondScale = ObjectiveScale(sampled, flags, RiskIntegrand.SecondMoment);
@@ -711,7 +1004,7 @@ namespace RMC.TotalRisk.Analyses
                 };
             }
 
-            var integrand = _options.RiskIntegrand;
+            var integrand = EffectiveIntegrand;
             return p =>
             {
                 var output = Evaluate(sampled, componentRealization, flags, p, recordOutput: true);
@@ -817,15 +1110,13 @@ namespace RMC.TotalRisk.Analyses
         /// <returns>The stratification bins in probability space.</returns>
         private List<StratificationBin> BuildStratificationBins(SampledComponent sampled, RiskComputeFlags flags)
         {
-            var bins = Stratify.XValues(new StratificationOptions(
-                sampled.Hazard.InverseCDF(ProbabilityFloor), sampled.Hazard.InverseCDF(1d - ProbabilityFloor), HazardBinCount), true);
-            bins = Stratify.XToProbability(bins, sampled.Hazard.CDF, false);
+            var bins = BuildHazardBins(sampled);
 
-            if (_options.RiskIntegrand == RiskIntegrand.TailConditionalRisk)
+            if (EffectiveIntegrand == RiskIntegrand.TailConditionalRisk)
             {
                 InjectBoundary(bins, _options.Alpha);
             }
-            else if (_options.RiskIntegrand == RiskIntegrand.ThresholdExceedanceProbability)
+            else if (EffectiveIntegrand == RiskIntegrand.ThresholdExceedanceProbability)
             {
                 var scratch = new ComponentRealization(sampled.FailureModeCount);
                 double Crossing(double p)
@@ -844,6 +1135,19 @@ namespace RMC.TotalRisk.Analyses
                 }
             }
             return bins;
+        }
+
+        /// <summary>
+        /// Builds the plain 50-bin hazard stratification in probability space (v1.0 constants) —
+        /// shared by the risk integral's seeding and the tail-focus quadrature probe.
+        /// </summary>
+        /// <param name="sampled">The sampled component.</param>
+        /// <returns>The stratification bins in probability space.</returns>
+        private static List<StratificationBin> BuildHazardBins(SampledComponent sampled)
+        {
+            var bins = Stratify.XValues(new StratificationOptions(
+                sampled.Hazard.InverseCDF(ProbabilityFloor), sampled.Hazard.InverseCDF(1d - ProbabilityFloor), HazardBinCount), true);
+            return Stratify.XToProbability(bins, sampled.Hazard.CDF, false);
         }
 
         /// <summary>
@@ -866,6 +1170,558 @@ namespace RMC.TotalRisk.Analyses
                     return;
                 }
             }
+        }
+
+        #endregion
+
+        #region Private Helpers — Joint System Integration
+
+        /// <summary>
+        /// Prepares the run-scoped joint-method state: the correlated-hazard latent structure,
+        /// the 2^D component combination caches (all-zero row first — the v1.0 engine-level
+        /// layout), and, under the automatic tail-focus mode, the deterministic per-component
+        /// failure-probability quadrature probe that sets the VEGAS power-transform target. A
+        /// no-op outside the multi-component joint method.
+        /// </summary>
+        /// <param name="token">The run cancellation token.</param>
+        /// <remarks>
+        /// The ratified v0.13 heuristic harvested the target from the VEGAS warm-up itself; at
+        /// implementation two facts forced this probe instead (recorded in the phase log): the
+        /// automatic configuration resets the VEGAS bin count, which reallocates the importance
+        /// grid — so γ must be set before the warm-up, not after it — and a γ = 1 Monte Carlo
+        /// warm-up cannot observe the rare failure probabilities the target needs (that is the
+        /// very problem the transform solves). The adaptive Gauss–Kronrod probe of
+        /// AFP_i = ∫ P_F,i(p) dp on the mean sample is deterministic, costs about a thousand
+        /// evaluations per component once per run, and measures the failure probabilities to
+        /// quadrature accuracy.
+        /// </remarks>
+        private void PrepareJointSystem(CancellationToken token)
+        {
+            _jointMultivariateNormal = null;
+            _jointIndicators = null;
+            _jointBinomialCombinations = null;
+            _jointTailTargetProbability = 1e-2;
+            if (_components.Count < 2 || _options.SystemRiskMethod != SystemRiskType.JointRiskMethod)
+            {
+                return;
+            }
+
+            int d = _components.Count;
+            _jointMultivariateNormal = BuildHazardMultivariateNormal(d);
+            _jointIndicators = BuildSystemIndicators(d);
+            _jointBinomialCombinations = BuildSystemBinomialCombinations(d);
+
+            if (_options.VegasTailFocusMode == VegasTailFocusMode.Automatic)
+            {
+                double minimumFailureProbability = double.MaxValue;
+                for (int i = 0; i < d; i++)
+                {
+                    token.ThrowIfCancellationRequested();
+                    minimumFailureProbability = Math.Min(minimumFailureProbability, ProbeAnnualFailureProbability(_components[i]));
+                }
+                _jointTailTargetProbability = Math.Min(1e-2, Math.Max(1e-12, minimumFailureProbability * _options.Alpha));
+            }
+        }
+
+        /// <summary>
+        /// Builds the correlated component-hazard latent structure per the dependency option,
+        /// with the exact v1.0 off-diagonal constants: identity (independent), <c>1 − √εmach</c>
+        /// (perfectly positive), <c>−1/(D − 1) + √εmach</c> (perfectly negative), or the
+        /// analysis-validated user matrix.
+        /// </summary>
+        /// <param name="dimension">The component count D.</param>
+        /// <returns>The multivariate normal over the component hazard probabilities.</returns>
+        private MultivariateNormal BuildHazardMultivariateNormal(int dimension)
+        {
+            var mean = new double[dimension];
+            var covariance = new double[dimension, dimension];
+            double offDiagonal;
+            switch (_options.ComponentHazardDependency)
+            {
+                case DependencyType.PerfectlyPositive:
+                    offDiagonal = 1d - Math.Sqrt(Tools.DoubleMachineEpsilon);
+                    break;
+                case DependencyType.PerfectlyNegative:
+                    offDiagonal = -1d / (dimension - 1) + Math.Sqrt(Tools.DoubleMachineEpsilon);
+                    break;
+                case DependencyType.CorrelationMatrix:
+                {
+                    var matrix = _options.HazardCorrelationMatrix!;
+                    for (int i = 0; i < dimension; i++)
+                    {
+                        for (int j = 0; j < dimension; j++)
+                        {
+                            covariance[i, j] = matrix[i, j];
+                        }
+                    }
+                    return new MultivariateNormal(mean, covariance);
+                }
+                default:
+                    offDiagonal = 0d;
+                    break;
+            }
+            for (int i = 0; i < dimension; i++)
+            {
+                for (int j = 0; j < dimension; j++)
+                {
+                    covariance[i, j] = i == j ? 1d : offDiagonal;
+                }
+            }
+            return new MultivariateNormal(mean, covariance);
+        }
+
+        /// <summary>
+        /// Builds the engine-level failure/non-failure indicator combinations: 2^D rows over the
+        /// D components, the all-zero (no-failure) combination first and the remaining rows in
+        /// subset-size order — the layout <c>Probability.IndependentExclusive</c> enumerates and
+        /// the v1.0 engine used.
+        /// </summary>
+        /// <param name="dimension">The component count D.</param>
+        /// <returns>The indicator matrix.</returns>
+        private static int[,] BuildSystemIndicators(int dimension)
+        {
+            var combinations = Factorial.AllCombinations(dimension);
+            var indicators = new int[1 << dimension, dimension];
+            for (int i = 0; i < combinations.GetLength(0); i++)
+            {
+                for (int j = 0; j < dimension; j++)
+                {
+                    indicators[i + 1, j] = combinations[i, j];
+                }
+            }
+            return indicators;
+        }
+
+        /// <summary>
+        /// Builds the binomial subset counts over the components: how many combinations fail
+        /// exactly k of the D components, for k = 1..D.
+        /// </summary>
+        /// <param name="dimension">The component count D.</param>
+        /// <returns>The subset counts.</returns>
+        private static int[] BuildSystemBinomialCombinations(int dimension)
+        {
+            var counts = new int[dimension];
+            for (int i = 1; i <= dimension; i++)
+            {
+                counts[i - 1] = (int)Factorial.BinomialCoefficient(dimension, i);
+            }
+            return counts;
+        }
+
+        /// <summary>
+        /// The deterministic annual-failure-probability probe: integrates one component's
+        /// combined failure probability over its hazard probability domain on the mean sample
+        /// with adaptive Gauss–Kronrod — the one call site where the integral's returned value is
+        /// the product.
+        /// </summary>
+        /// <param name="component">The component to probe (its samplers are already set up).</param>
+        /// <returns>The component's annualized failure probability on the mean sample.</returns>
+        private double ProbeAnnualFailureProbability(SystemComponent component)
+        {
+            var sampled = component.Sample(-1);
+            var scratch = new ComponentRealization(sampled.FailureModeCount);
+            var flags = new RiskComputeFlags();
+            var integrator = new AdaptiveGaussKronrod(
+                p => sampled.ComputeRisk(p, sampled.Hazard.InverseCDF(p), flags, scratch).ProbabilityOfFailure,
+                ProbabilityFloor, 1d - ProbabilityFloor)
+            {
+                ReportFailure = false,
+                MaxFunctionEvaluations = _options.MaxEvaluations,
+                MaxDepth = _options.MaxDepth,
+                RelativeTolerance = _options.Tolerance,
+                MinDepth = 2,
+            };
+            integrator.Integrate(BuildHazardBins(sampled));
+            return Math.Min(1d, Math.Max(0d, integrator.Result));
+        }
+
+        /// <summary>
+        /// Applies the VEGAS power-transform tail focus per the configured mode — always before
+        /// the warm-up, because raising the bin count reallocates the importance grid (setting γ
+        /// after the warm-up would discard it). Automatic uses the probe-derived target through
+        /// <c>ConfigureForRareEvents</c>; manual applies the user's γ with the same bin-count and
+        /// grid-damping adjustments when γ exceeds one; none leaves γ = 1 — sampling identical to
+        /// v1.0.
+        /// </summary>
+        /// <param name="integrator">The VEGAS integrator to configure.</param>
+        private void ConfigureTailFocus(Vegas integrator)
+        {
+            switch (_options.VegasTailFocusMode)
+            {
+                case VegasTailFocusMode.Manual:
+                    integrator.TailFocusParameter = _options.VegasTailFocusParameter;
+                    if (_options.VegasTailFocusParameter > 1d)
+                    {
+                        integrator.NumberOfBins = Math.Max(100, integrator.NumberOfBins);
+                        integrator.Alpha = 1.8;
+                    }
+                    break;
+                case VegasTailFocusMode.Automatic:
+                    integrator.ConfigureForRareEvents(_jointTailTargetProbability);
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// The joint system-risk pass: VEGAS integrates over the D-dimensional hypercube of
+        /// correlated hazard probabilities, and each evaluation computes every component's risk,
+        /// enumerates the exclusive component failure/non-failure combinations, and — the v1.1
+        /// correction of the documented v1.0 system-tail defect — crosses the failing components'
+        /// recorded pathway/branch entries (conditional weights from the per-pathway lists)
+        /// instead of collapsing each component to its conditional mean. Non-failing components
+        /// contribute their branch-weighted mean non-failure consequence (the documented
+        /// <see cref="ComponentRiskOutput"/> interim). The VEGAS weight is the recorded
+        /// probability mass; recorded points accumulate across the recording passes and are
+        /// self-normalized by the realized weight sum so the exhaustive budget is exactly one.
+        /// </summary>
+        /// <param name="sampledComponents">The sampled components for this realization.</param>
+        /// <param name="componentRealizations">The per-component realization sinks.</param>
+        /// <param name="realization">The system realization.</param>
+        /// <param name="flags">The realization's computational-warning flags.</param>
+        /// <param name="realizationIndex">The realization index, or −1 for the mean pass.</param>
+        /// <param name="token">The run cancellation token.</param>
+        /// <exception cref="InvalidOperationException">Thrown when the VEGAS integration fails.</exception>
+        /// <remarks>
+        /// The legacy engine's <c>tPF</c> accumulator (incremented twice per combination when
+        /// recording) is not carried forward — the failure union is the Fail stream's recorded
+        /// mass, and no scalar duplicates it. The exclusive-probability enumeration inherits the
+        /// legacy convergence shortcut, which can truncate the deepest combinations of a
+        /// high-dimensional system; the mass it drops is bounded by the enumeration tolerance
+        /// and surfaces honestly through the mass-balance witness.
+        /// </remarks>
+        private void IntegrateJointSystem(SampledComponent[] sampledComponents,
+            List<ComponentRealization> componentRealizations, SystemRealization realization,
+            RiskComputeFlags flags, int realizationIndex, CancellationToken token)
+        {
+            int d = _components.Count;
+            var multivariateNormal = _jointMultivariateNormal
+                ?? throw new InvalidOperationException("The joint-method state was not prepared. The run sequence must call PrepareJointSystem before computing realizations.");
+            var indicators = _jointIndicators!;
+            var binomialCombinations = _jointBinomialCombinations!;
+
+            // The integration extents: the hazard probability hypercube (v1.0 constants).
+            var minimums = new double[d];
+            var maximums = new double[d];
+            for (int i = 0; i < d; i++)
+            {
+                minimums[i] = ProbabilityFloor;
+                maximums[i] = 1d - ProbabilityFloor;
+            }
+
+            // Pre-allocated evaluation buffers — the integrand allocates nothing it controls.
+            var hazardLevels = new double[d];
+            var failureProbabilities = new double[d];
+            var nonFailureValues = new double[d];
+            var outputs = new ComponentRiskOutput[d];
+            var participating = new List<int>(d);
+            var branchPick = new int[d];
+
+            bool recording = false;
+            double recordedWeightSum = 0d;
+
+            double Integrand(double[] point, double weight)
+            {
+                if (token.IsCancellationRequested) return 0d;
+
+                // Correlated hazard probabilities through the latent normal (Cholesky).
+                var latent = multivariateNormal.InverseCDF(point);
+                for (int i = 0; i < d; i++)
+                {
+                    double probability = Normal.StandardCDF(latent[i]);
+                    probability = Math.Max(ProbabilityFloor, Math.Min(1d - ProbabilityFloor, probability));
+                    hazardLevels[i] = sampledComponents[i].Hazard.InverseCDF(probability);
+
+                    // The VEGAS weight is the recorded probability-mass coordinate (v1.0
+                    // semantics — the component sinks record mass = weight directly).
+                    outputs[i] = sampledComponents[i].ComputeRisk(weight, hazardLevels[i], flags, componentRealizations[i], recording);
+                    failureProbabilities[i] = outputs[i].ProbabilityOfFailure;
+                    nonFailureValues[i] = outputs[i].NonFailureConsequences;
+                }
+
+                // The background consequence combines every component's non-failure scalar.
+                double background = CombineAll(nonFailureValues, _options.JointConsequences);
+
+                RiskPoint? failPoint = null;
+                RiskPoint? excessPoint = null;
+                RiskPoint? totalPoint = null;
+                RiskPoint? nonFailPoint = null;
+                if (recording)
+                {
+                    recordedWeightSum += weight;
+                    realization.Curves.Background.AddRiskPoint(weight, 1d, background);
+                    failPoint = new RiskPoint { HazardProbability = weight, HazardProbabilityMass = weight };
+                    excessPoint = new RiskPoint { HazardProbability = weight, HazardProbabilityMass = weight };
+                    totalPoint = new RiskPoint { HazardProbability = weight, HazardProbabilityMass = weight };
+                    nonFailPoint = new RiskPoint { HazardProbability = weight, HazardProbabilityMass = weight };
+                    realization.Curves.Fail.RiskPoints.Add(failPoint);
+                    realization.Curves.Excess.RiskPoints.Add(excessPoint);
+                    realization.Curves.Total.RiskPoints.Add(totalPoint);
+                    realization.Curves.NonFail.RiskPoints.Add(nonFailPoint);
+                }
+
+                // The exclusive component failure/non-failure combinations. Conditional on the
+                // hazard levels, component failures are independent — dependence enters only
+                // through the correlated hazards (the v1.0 model).
+                Probability.IndependentExclusive(failureProbabilities, binomialCombinations, indicators,
+                    out var exclusiveProbabilities, out var exclusiveIndicators);
+
+                double expectedFailure = 0d;
+                double expectedNonFailure = 0d;
+                for (int c = 0; c < exclusiveIndicators.Count; c++)
+                {
+                    double combinationProbability = exclusiveProbabilities[c];
+                    if (combinationProbability <= 0d) continue;
+                    var combination = exclusiveIndicators[c];
+
+                    participating.Clear();
+                    bool entriesAvailable = true;
+                    for (int i = 0; i < d; i++)
+                    {
+                        if (combination[i] == 1)
+                        {
+                            participating.Add(i);
+                            if (outputs[i].FailureConsequences.Count == 0) entriesAvailable = false;
+                        }
+                    }
+
+                    double complementNonFailure = CombineComplement(nonFailureValues, combination, _options.JointConsequences);
+                    expectedNonFailure += combinationProbability * complementNonFailure;
+
+                    if (participating.Count == 0)
+                    {
+                        // The no-failure combination: non-failure and total only (v1.0 layout).
+                        if (recording)
+                        {
+                            nonFailPoint!.Add(combinationProbability, complementNonFailure);
+                            totalPoint!.Add(combinationProbability, complementNonFailure);
+                            realization.MinN = Math.Min(realization.MinN, complementNonFailure);
+                            realization.MaxN = Math.Max(realization.MaxN, complementNonFailure);
+                        }
+                        continue;
+                    }
+                    if (!entriesAvailable) continue;
+
+                    // The odometer over the failing components' recorded entries: conditional
+                    // branch weights multiply; consequences combine per the joint rule.
+                    Array.Clear(branchPick, 0, participating.Count);
+                    while (true)
+                    {
+                        double tupleWeight = 1d;
+                        double combinedFailure = 0d;
+                        double combinedExcess = 0d;
+                        for (int p = 0; p < participating.Count; p++)
+                        {
+                            var output = outputs[participating[p]];
+                            double raw = failureProbabilities[participating[p]];
+                            double entryWeight = raw > 0d
+                                ? output.ResponseProbabilities[branchPick[p]] / raw
+                                : (branchPick[p] == 0 ? 1d : 0d);
+                            tupleWeight *= entryWeight;
+                            double failureValue = output.FailureConsequences[branchPick[p]];
+                            double excessValue = output.ExcessConsequences[branchPick[p]];
+                            if (p == 0)
+                            {
+                                combinedFailure = failureValue;
+                                combinedExcess = excessValue;
+                            }
+                            else
+                            {
+                                switch (_options.JointConsequences)
+                                {
+                                    case JointConsequenceType.Additive:
+                                    case JointConsequenceType.Average:
+                                        combinedFailure += failureValue;
+                                        combinedExcess += excessValue;
+                                        break;
+                                    case JointConsequenceType.Maximum:
+                                        combinedFailure = Math.Max(combinedFailure, failureValue);
+                                        combinedExcess = Math.Max(combinedExcess, excessValue);
+                                        break;
+                                    default:
+                                        combinedFailure = Math.Min(combinedFailure, failureValue);
+                                        combinedExcess = Math.Min(combinedExcess, excessValue);
+                                        break;
+                                }
+                            }
+                        }
+                        if (_options.JointConsequences == JointConsequenceType.Average)
+                        {
+                            combinedFailure /= participating.Count;
+                            combinedExcess /= participating.Count;
+                        }
+
+                        if (tupleWeight > 0d)
+                        {
+                            double entryProbability = combinationProbability * tupleWeight;
+                            expectedFailure += entryProbability * combinedFailure;
+                            if (recording)
+                            {
+                                failPoint!.Add(entryProbability, combinedFailure);
+                                excessPoint!.Add(entryProbability, combinedExcess);
+                                totalPoint!.Add(entryProbability, combinedFailure + complementNonFailure);
+                                realization.MinN = Math.Min(realization.MinN, complementNonFailure);
+                                realization.MaxN = Math.Max(realization.MaxN, Math.Max(combinedFailure, complementNonFailure));
+                            }
+                        }
+
+                        // Advance the odometer.
+                        int digit = 0;
+                        while (digit < participating.Count)
+                        {
+                            branchPick[digit]++;
+                            if (branchPick[digit] < outputs[participating[digit]].FailureConsequences.Count) break;
+                            branchPick[digit] = 0;
+                            digit++;
+                        }
+                        if (digit == participating.Count) break;
+                    }
+
+                    // The non-failure stream records one entry per combination from the
+                    // complement's scalars, excluding the all-fail combination whose complement
+                    // is empty (v1.0 layout).
+                    if (recording && participating.Count < d)
+                    {
+                        nonFailPoint!.Add(combinationProbability, complementNonFailure);
+                    }
+                }
+
+                return expectedFailure + expectedNonFailure;
+            }
+
+            int vegasSeed = SeedHelpers.ToPositiveSeed(SeedHelpers.HashCombine(_jointSeedBase, JointStreamSalt, realizationIndex));
+            var integrator = new Vegas(Integrand, d, minimums, maximums)
+            {
+                Random = new MersenneTwister(vegasSeed),
+                UseSobolSequence = false,
+                ReportFailure = false,
+                CheckConvergence = false,
+                RelativeTolerance = 1e-3,
+                MaxFunctionEvaluations = _options.MaxEvaluations,
+                FunctionCalls = _options.WarmupEvaluations,
+                IndependentEvaluations = _options.WarmupCycles,
+                Initialize = 0,
+            };
+            ConfigureTailFocus(integrator);
+
+            // The warm-up builds the importance grid; nothing is recorded.
+            integrator.Integrate();
+            realization.ChiSquared = integrator.ChiSquared;
+            token.ThrowIfCancellationRequested();
+            if (integrator.Status == IntegrationStatus.Failure)
+            {
+                throw new InvalidOperationException("The VEGAS warm-up failed; the joint system risk integration cannot proceed.");
+            }
+
+            // The recording passes inherit the grid but not its answers; masses self-normalize.
+            recording = true;
+            integrator.Initialize = 1;
+            integrator.FunctionCalls = _options.FinalEvaluations;
+            integrator.IndependentEvaluations = VegasRecordingPasses;
+            integrator.Integrate();
+            token.ThrowIfCancellationRequested();
+            if (integrator.Status == IntegrationStatus.Failure)
+            {
+                throw new InvalidOperationException("The VEGAS recording pass failed; the joint system risk integration cannot proceed.");
+            }
+            realization.FunctionEvaluations += integrator.FunctionEvaluations;
+            realization.StandardError = integrator.StandardError;
+
+            if (recordedWeightSum > 0d)
+            {
+                double scale = 1d / recordedWeightSum;
+                realization.Curves.ScaleRecordedMass(scale);
+                for (int i = 0; i < componentRealizations.Count; i++)
+                {
+                    componentRealizations[i].ScaleRecordedMass(scale);
+                }
+            }
+
+            // Build the component curves from the recorded masses (no mass re-derivation — the
+            // VEGAS weights are the masses), then the system curves and measures.
+            for (int i = 0; i < componentRealizations.Count; i++)
+            {
+                token.ThrowIfCancellationRequested();
+                componentRealizations[i].CreateCurves(_options.LECOutputLength);
+                componentRealizations[i].CreateProfiles();
+                componentRealizations[i].ComputeRiskMeasures(_options.ConsequenceThreshold, _options.Alpha, _components[i].HazardThreshold);
+                realization.MinN = Math.Min(realization.MinN, componentRealizations[i].MinN);
+                realization.MaxN = Math.Max(realization.MaxN, componentRealizations[i].MaxN);
+                realization.MinH[i] = componentRealizations[i].MinH;
+                realization.MaxH[i] = componentRealizations[i].MaxH;
+            }
+            realization.Curves.CreateCurves(_options.LECOutputLength);
+            realization.Curves.ComputeRiskMeasures(_options.ConsequenceThreshold, _options.Alpha);
+        }
+
+        /// <summary>
+        /// Combines every component's value under the joint-consequence rule.
+        /// </summary>
+        /// <param name="values">The per-component values.</param>
+        /// <param name="rule">The combination rule.</param>
+        /// <returns>The combined value.</returns>
+        private static double CombineAll(double[] values, JointConsequenceType rule)
+        {
+            double combined = values[0];
+            for (int i = 1; i < values.Length; i++)
+            {
+                switch (rule)
+                {
+                    case JointConsequenceType.Additive:
+                    case JointConsequenceType.Average:
+                        combined += values[i];
+                        break;
+                    case JointConsequenceType.Maximum:
+                        combined = Math.Max(combined, values[i]);
+                        break;
+                    default:
+                        combined = Math.Min(combined, values[i]);
+                        break;
+                }
+            }
+            return rule == JointConsequenceType.Average ? combined / values.Length : combined;
+        }
+
+        /// <summary>
+        /// Combines the non-participating (indicator zero) components' values under the
+        /// joint-consequence rule; an empty complement yields zero (the v1.0 sentinel guard).
+        /// </summary>
+        /// <param name="values">The per-component values.</param>
+        /// <param name="indicators">The combination's failure indicators.</param>
+        /// <param name="rule">The combination rule.</param>
+        /// <returns>The combined complement value.</returns>
+        private static double CombineComplement(double[] values, int[] indicators, JointConsequenceType rule)
+        {
+            double combined = 0d;
+            int count = 0;
+            for (int i = 0; i < values.Length; i++)
+            {
+                if (indicators[i] != 0) continue;
+                if (count == 0)
+                {
+                    combined = values[i];
+                }
+                else
+                {
+                    switch (rule)
+                    {
+                        case JointConsequenceType.Additive:
+                        case JointConsequenceType.Average:
+                            combined += values[i];
+                            break;
+                        case JointConsequenceType.Maximum:
+                            combined = Math.Max(combined, values[i]);
+                            break;
+                        default:
+                            combined = Math.Min(combined, values[i]);
+                            break;
+                    }
+                }
+                count++;
+            }
+            if (count == 0) return 0d;
+            return rule == JointConsequenceType.Average ? combined / count : combined;
         }
 
         #endregion

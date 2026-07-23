@@ -474,6 +474,31 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         /// </remarks>
         public (bool IsValid, List<string> ValidationMessages) Validate()
         {
+            return Validate(RiskAnalysisMode.Risk);
+        }
+
+        /// <summary>
+        /// Validates the graph structure for the given analysis mode. Reliability mode (Phase 4c)
+        /// relaxes exactly the consequence-content requirements — consequence elements remain the
+        /// structural path terminals but need no functions assigned, and the positional
+        /// excess-pairing alignment is not enforced (reliability computes failure probability
+        /// only, never consequences). Every structural check is identical to
+        /// <see cref="Validate()"/> otherwise.
+        /// </summary>
+        /// <param name="mode">The analysis mode the graph is being validated for.</param>
+        /// <returns>
+        /// A tuple containing:
+        /// <list type="bullet">
+        /// <item>
+        /// <description><c>IsValid</c>: <c>true</c> if the graph passes all validation checks; otherwise <c>false</c>.</description>
+        /// </item>
+        /// <item>
+        /// <description><c>ValidationMessages</c>: messages describing validation errors ("Error: …", invalidating) and warnings ("Warning: …", advisory).</description>
+        /// </item>
+        /// </list>
+        /// </returns>
+        public (bool IsValid, List<string> ValidationMessages) Validate(RiskAnalysisMode mode)
+        {
             var messages = new List<string>();
 
             // Exactly one hazard root.
@@ -485,10 +510,13 @@ namespace RMC.TotalRisk.Systems.Components.Graph
 
             ValidateUniqueness(messages);
 
-            // Per-element validation (element messages already carry element context).
+            // Per-element validation (element messages already carry element context); the
+            // consequence elements take the mode so reliability can relax their function content.
             for (int i = 0; i < _elements.Count; i++)
             {
-                messages.AddRange(_elements[i].Validate().ValidationMessages);
+                messages.AddRange(_elements[i] is ConsequenceElement consequenceElement
+                    ? consequenceElement.Validate(mode).ValidationMessages
+                    : _elements[i].Validate().ValidationMessages);
             }
 
             ValidateConnections(messages);
@@ -501,7 +529,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
 
             if (hazards.Count == 1 && acyclic)
             {
-                ValidatePaths(hazards[0], messages);
+                ValidatePaths(hazards[0], messages, mode);
                 ValidateSharedInstances(messages);
             }
 
@@ -707,7 +735,8 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         /// </summary>
         /// <param name="root">The single hazard element.</param>
         /// <param name="messages">The message sink.</param>
-        private void ValidatePaths(HazardElement root, List<string> messages)
+        /// <param name="mode">The analysis mode (reliability skips the consequence alignment).</param>
+        private void ValidatePaths(HazardElement root, List<string> messages, RiskAnalysisMode mode)
         {
             // Reachability: breadth-first over the derived fan-out from the root.
             var reachable = new HashSet<IRiskElement> { root };
@@ -777,7 +806,9 @@ namespace RMC.TotalRisk.Systems.Components.Graph
                 messages.Add($"Error: At most one non-failure path (a path with no response element) is allowed per component; found {responseFreePaths}.");
             }
 
-            if (nonFailTerminal != null)
+            // Positional excess pairing has no meaning in reliability mode — no consequence is
+            // ever computed, so mismatched counts cannot corrupt anything.
+            if (nonFailTerminal != null && mode == RiskAnalysisMode.Risk)
             {
                 ValidateConsequenceAlignment(terminals, nonFailTerminal, messages);
             }

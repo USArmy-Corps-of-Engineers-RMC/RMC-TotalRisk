@@ -502,6 +502,30 @@ namespace RMC.TotalRisk.Systems.Components
         /// </remarks>
         public (bool IsValid, List<string> ValidationMessages) Validate()
         {
+            return Validate(RiskAnalysisMode.Risk);
+        }
+
+        /// <summary>
+        /// Validates the failure mode for the given analysis mode. Reliability mode (Phase 4c)
+        /// relaxes the at-least-one-consequence requirement only — a consequence-free mode
+        /// computes failure probability through the single zero-consequence branch; every other
+        /// check (including validation of any consequences that are present) is identical to
+        /// <see cref="Validate()"/>.
+        /// </summary>
+        /// <param name="mode">The analysis mode the failure mode is being validated for.</param>
+        /// <returns>
+        /// A tuple containing:
+        /// <list type="bullet">
+        /// <item>
+        /// <description><c>IsValid</c>: <c>true</c> if the failure mode passes all validation checks; otherwise <c>false</c>.</description>
+        /// </item>
+        /// <item>
+        /// <description><c>ValidationMessages</c>: messages describing validation errors ("Error: …", invalidating) and warnings ("Warning: …", advisory).</description>
+        /// </item>
+        /// </list>
+        /// </returns>
+        public (bool IsValid, List<string> ValidationMessages) Validate(RiskAnalysisMode mode)
+        {
             var messages = new List<string>();
 
             if (_responseStages.Count == 0)
@@ -532,7 +556,7 @@ namespace RMC.TotalRisk.Systems.Components
                 messages.AddRange(_responseToConsequence[i].Validate().ValidationMessages);
             }
 
-            if (_consequenceFunctions.Count == 0)
+            if (_consequenceFunctions.Count == 0 && mode == RiskAnalysisMode.Risk)
             {
                 messages.Add("Error: The failure mode must have at least one consequence function.");
             }

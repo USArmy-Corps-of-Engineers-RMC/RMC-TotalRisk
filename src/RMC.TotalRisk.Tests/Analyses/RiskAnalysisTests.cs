@@ -254,9 +254,11 @@ public class RiskAnalysisTests
     }
 
     /// <summary>
-    /// Verifies the stage gates with their pinned messages: component count (Phase 4b),
-    /// reliability mode (Phase 4c), multi-stage response composition (event-tree phase), and
-    /// the empty analysis.
+    /// Verifies the validation catalog with its pinned messages: the empty analysis, the
+    /// additive method's strict-independence requirement (ratified v0.13), the joint method's
+    /// dimension limit and correlation-matrix checks, and the multi-stage response gate
+    /// (event-tree phase). Two independent additive components and reliability mode now
+    /// validate — their Phase 4 gates are gone.
     /// </summary>
     [TestMethod]
     public async Task Test_Validate_StageGates_PinnedMessages()
@@ -265,14 +267,32 @@ public class RiskAnalysisTests
         var empty = new RiskAnalysis(Array.Empty<SystemComponent>());
         Assert.IsTrue(empty.Validate().ValidationMessages.Any(m => m.Contains("no system components")));
 
-        // Two components → Phase 4b gate.
+        // Two independent additive components validate (the Phase 4b gate is gone).
         var two = new RiskAnalysis(new[] { Component(Consequence("A", 300d)), Component(Consequence("B", 300d)) });
-        Assert.IsTrue(two.Validate().ValidationMessages.Any(m => m.Contains("Phase 4b")));
+        Assert.IsTrue(two.Validate().IsValid);
 
-        // Reliability mode → Phase 4c gate.
+        // The additive method with a hazard dependence → the strict-independence error.
+        var dependentAdditive = new RiskAnalysis(new[] { Component(Consequence("A", 300d)), Component(Consequence("B", 300d)) });
+        dependentAdditive.Options.ComponentHazardDependency = DependencyType.PerfectlyPositive;
+        Assert.IsTrue(dependentAdditive.Validate().ValidationMessages.Any(m => m.Contains("strictly independent")));
+        await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => dependentAdditive.RunAsync());
+
+        // The joint method under the correlation-matrix dependency needs a valid matrix.
+        var jointMatrix = new RiskAnalysis(new[] { Component(Consequence("A", 300d)), Component(Consequence("B", 300d)) });
+        jointMatrix.Options.SystemRiskMethod = SystemRiskType.JointRiskMethod;
+        jointMatrix.Options.ComponentHazardDependency = DependencyType.CorrelationMatrix;
+        Assert.IsTrue(jointMatrix.Validate().ValidationMessages.Any(m => m.Contains("correlation matrix")),
+            "A missing matrix under the correlation-matrix dependency must be an error.");
+        jointMatrix.Options.HazardCorrelationMatrix = new[,] { { 1d, 2d }, { 2d, 1d } };
+        Assert.IsTrue(jointMatrix.Validate().ValidationMessages.Any(m => m.Contains("positive-definite")),
+            "A non-positive-definite matrix must be an error.");
+        jointMatrix.Options.HazardCorrelationMatrix = new[,] { { 1d, 0.5d }, { 0.5d, 1d } };
+        Assert.IsTrue(jointMatrix.Validate().IsValid, "A valid matrix passes.");
+
+        // Reliability mode validates (the Phase 4c gate is gone).
         var reliability = new RiskAnalysis(new[] { Component(Consequence("A", 300d)) });
         reliability.Options.Mode = RiskAnalysisMode.Reliability;
-        Assert.IsTrue(reliability.Validate().ValidationMessages.Any(m => m.Contains("Phase 4c")));
+        Assert.IsTrue(reliability.Validate().IsValid);
 
         // A multi-stage mode → event-tree gate (authoring stays valid; the engine refuses).
         var multiStage = Component(Consequence("A", 300d));
@@ -286,9 +306,6 @@ public class RiskAnalysisTests
         multiStage.AddFailureMode(chained);
         var multiStageAnalysis = new RiskAnalysis(new[] { multiStage });
         Assert.IsTrue(multiStageAnalysis.Validate().ValidationMessages.Any(m => m.Contains("event-tree")));
-
-        // RunAsync throws on validation errors (a caller error, not a run outcome).
-        await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => two.RunAsync());
     }
 
     /// <summary>
@@ -399,5 +416,358 @@ public class RiskAnalysisTests
         CollectionAssert.AreEqual(
             first.MeanRiskResults!.Curves.Total.LECProbabilities,
             second.MeanRiskResults!.Curves.Total.LECProbabilities);
+    }
+
+    /// <summary>Builds a second, distinct component (steeper fragility, smaller consequences).</summary>
+    private static SystemComponent ComponentB()
+    {
+        var fragility = new TabularResponse
+        {
+            Name = "Fragility B",
+            SpecifiedHazard = "Stage",
+            HazardUnit = "ft",
+            UncertainOrderedPairedData = new UncertainOrderedPairedData(
+                new[] { new UncertainOrdinate(14d, new Deterministic(0d)), new UncertainOrdinate(24d, new Deterministic(1d)) },
+                true, SortOrder.Ascending, false, SortOrder.None, UnivariateDistributionType.Deterministic),
+        };
+        var component = new SystemComponent { Name = "Levee" };
+        component.HazardFunction = StageFrequency();
+        component.AddFailureMode(new FailureMode(null, null, fragility, Consequence("Levee Failure Loss", 150d)));
+        component.AddFailureMode(new FailureMode(null, null, null, Consequence("Levee Non-Failure Loss", 25d)));
+        return component;
+    }
+
+    /// <summary>Builds a consequence-free component for reliability mode (Phase 4c).</summary>
+    private static SystemComponent ReliabilityComponent(string name, IResponseFunction? response = null)
+    {
+        var component = new SystemComponent { Name = name };
+        component.HazardFunction = StageFrequency();
+        component.AddFailureMode(new FailureMode(null, null, response ?? Fragility(), null));
+        return component;
+    }
+
+    /// <summary>
+    /// Verifies the additive system aggregation (Phase 4b): the convolved system mean equals the
+    /// sum of the component means (the v1.0 mean-parity gate, exact by construction), the system
+    /// failure probability is the independent union with the v1.0 stream-probability semantics,
+    /// independent variances add, the decomposition identity holds, and — the headline v1.1
+    /// capability — a true system loss exceedance curve exists where v1.0 produced none.
+    /// </summary>
+    [TestMethod]
+    public async Task Test_AdditiveSystem_TwoComponents_ExactAggregates()
+    {
+        // Arrange
+        var analysis = new RiskAnalysis(new[] { Component(Consequence("Failure Loss", 300d)), ComponentB() });
+
+        // Act
+        await analysis.RunAsync();
+
+        // Assert
+        var summary = analysis.RiskResults![0]!;
+        var componentA = summary.ComponentResults[0];
+        var componentB = summary.ComponentResults[1];
+
+        // Mean parity: system mean == Σ component means (per stream).
+        double expectedTotalMean = componentA.Total.Mean + componentB.Total.Mean;
+        Assert.AreEqual(expectedTotalMean, summary.Total.Mean, 1e-6 * expectedTotalMean,
+            "The convolved system Total mean must equal the sum of the component means (the v1.0 additive answer).");
+        double expectedFailMean = componentA.Fail.Mean + componentB.Fail.Mean;
+        Assert.AreEqual(expectedFailMean, summary.Fail.Mean, 1e-6 * expectedFailMean,
+            "The convolved system Fail mean must equal the sum of the component means.");
+
+        // The failure union and the v1.0 stream-probability semantics.
+        double union = 1d - (1d - componentA.Fail.TotalProbability) * (1d - componentB.Fail.TotalProbability);
+        Assert.AreEqual(union, summary.Fail.TotalProbability, 1e-12, "System AFP must be the independent union.");
+        Assert.AreEqual(union, summary.Excess.TotalProbability, 1e-12);
+        Assert.AreEqual(1d - union, summary.NonFail.TotalProbability, 1e-12);
+
+        // Independent variances add (within the lattice quantization).
+        double expectedTotalVariance = componentA.Total.StandardDeviation * componentA.Total.StandardDeviation
+            + componentB.Total.StandardDeviation * componentB.Total.StandardDeviation;
+        double systemVariance = summary.Total.StandardDeviation * summary.Total.StandardDeviation;
+        Assert.AreEqual(expectedTotalVariance, systemVariance, 1e-4 * expectedTotalVariance,
+            "Independent component variances must add through the convolution.");
+
+        // Decomposition identity survives aggregation.
+        Assert.AreEqual(summary.Total.Mean, summary.Fail.Mean + summary.NonFail.Mean, 1e-9 * summary.Total.Mean);
+
+        // The system LEC exists (v1.0's additive path produced no system curve at all).
+        var systemLec = analysis.MeanRiskResults!.Curves.Total;
+        Assert.IsTrue(systemLec.LECConsequences.Length > 2, "The additive system Total LEC must be produced.");
+        Assert.IsTrue(systemLec.LECConsequences[0] > 300d,
+            "The system curve support must extend beyond a single component's maximum (the summed tail).");
+        Assert.AreEqual(1d, systemLec.MassBalance, 1e-9, "The exhaustive system budget must be exactly one.");
+    }
+
+    /// <summary>
+    /// Verifies the additive full-uncertainty smoke: system percentile curves exist and order at
+    /// a probe consequence.
+    /// </summary>
+    [TestMethod]
+    public async Task Test_AdditiveSystem_FullUncertainty_Percentiles()
+    {
+        // Arrange
+        var analysis = new RiskAnalysis(new[] { Component(Consequence("Failure Loss", 300d), UncertainFragility()), ComponentB() });
+        analysis.Options.EstimateMeanRiskOnly = false;
+        analysis.Options.Realizations = 100;
+
+        // Act
+        await analysis.RunAsync();
+
+        // Assert
+        Assert.AreEqual(100, analysis.RiskResults!.Count);
+        double lower = analysis.LowerRiskResults!.Curves.Total.LEC.GetYFromX(60d, Transform.Logarithmic, Transform.Logarithmic);
+        double median = analysis.MedianRiskResults!.Curves.Total.LEC.GetYFromX(60d, Transform.Logarithmic, Transform.Logarithmic);
+        double upper = analysis.UpperRiskResults!.Curves.Total.LEC.GetYFromX(60d, Transform.Logarithmic, Transform.Logarithmic);
+        Assert.IsTrue(lower <= median + 1e-12 && median <= upper + 1e-12,
+            $"System percentile curves must order: {lower} ≤ {median} ≤ {upper}.");
+    }
+
+    /// <summary>
+    /// Verifies the joint method (Phase 4b) against the additive method on the same independent
+    /// two-component system: the VEGAS estimate of the system mean must agree statistically with
+    /// the exact convolution, the recorded exhaustive budget must self-normalize to exactly one,
+    /// and the integration diagnostics must reflect the warm-up plus the five recording passes.
+    /// </summary>
+    [TestMethod]
+    public async Task Test_JointSystem_IndependentMatchesAdditive()
+    {
+        // Arrange — identical components; only the aggregation method differs.
+        var additive = new RiskAnalysis(new[] { Component(Consequence("Failure Loss", 300d)), ComponentB() });
+        var joint = new RiskAnalysis(new[] { Component(Consequence("Failure Loss", 300d)), ComponentB() });
+        joint.Options.SystemRiskMethod = SystemRiskType.JointRiskMethod;
+        joint.Options.VegasTailFocusMode = VegasTailFocusMode.None;
+
+        // Act
+        await additive.RunAsync();
+        await joint.RunAsync();
+
+        // Assert — statistical agreement on the means (the joint path is Monte Carlo).
+        var additiveSummary = additive.RiskResults![0]!;
+        var jointSummary = joint.RiskResults![0]!;
+        Assert.AreEqual(additiveSummary.Total.Mean, jointSummary.Total.Mean, 0.05d * additiveSummary.Total.Mean,
+            $"Joint mean {jointSummary.Total.Mean} must agree with the exact additive mean {additiveSummary.Total.Mean}.");
+        Assert.AreEqual(additiveSummary.Fail.TotalProbability, jointSummary.Fail.TotalProbability,
+            0.10d * additiveSummary.Fail.TotalProbability,
+            "The joint failure union must agree statistically with the exact independent union.");
+
+        // The self-normalized exhaustive budget and the diagnostics.
+        Assert.AreEqual(1d, joint.MeanRiskResults!.Curves.Total.MassBalance, 1e-9,
+            "The joint Total budget must self-normalize to exactly one.");
+        Assert.IsTrue(joint.MeanRiskResults.Curves.Total.LECConsequences.Length > 2, "The joint system LEC must be produced.");
+        Assert.IsTrue(jointSummary.FunctionEvaluations > 90_000d,
+            $"The warm-up plus five recording passes must evaluate; saw {jointSummary.FunctionEvaluations}.");
+        Assert.IsTrue(jointSummary.ChiSquared >= 0d);
+
+        // Component curves exist in the joint path too (recorded through the VEGAS weights).
+        Assert.IsTrue(joint.MeanRiskResults.Components[0].Curves.Fail.LECConsequences.Length > 2);
+        Assert.IsTrue(joint.MeanRiskResults.Components[1].Curves.Fail.LECConsequences.Length > 2);
+    }
+
+    /// <summary>
+    /// Verifies joint-path reproducibility: two runs over equal-content components under the
+    /// automatic tail focus (the default) are bit-identical — the content-derived VEGAS stream
+    /// and the deterministic probe heuristic together.
+    /// </summary>
+    [TestMethod]
+    public async Task Test_JointSystem_SameSeed_BitIdentical()
+    {
+        // Arrange
+        static RiskAnalysis Build()
+        {
+            var analysis = new RiskAnalysis(new[] { Component(Consequence("Failure Loss", 300d)), ComponentB() });
+            analysis.Options.SystemRiskMethod = SystemRiskType.JointRiskMethod;
+            analysis.Options.UseDefaults = false;
+            analysis.Options.WarmupEvaluations = 500;
+            analysis.Options.WarmupCycles = 2;
+            analysis.Options.FinalEvaluations = 2000;
+            return analysis;
+        }
+        var first = Build();
+        var second = Build();
+
+        // Act
+        await first.RunAsync();
+        await second.RunAsync();
+
+        // Assert
+        Assert.AreEqual(
+            BitConverter.DoubleToInt64Bits(first.RiskResults![0]!.Total.Mean),
+            BitConverter.DoubleToInt64Bits(second.RiskResults![0]!.Total.Mean));
+        CollectionAssert.AreEqual(
+            first.MeanRiskResults!.Curves.Fail.LECProbabilities,
+            second.MeanRiskResults!.Curves.Fail.LECProbabilities);
+    }
+
+    /// <summary>
+    /// Verifies the tail-focus modes agree statistically on the mean: γ = 1 (None), a manual
+    /// γ = 4, and the automatic probe-driven γ are all unbiased samplings of the same integral —
+    /// the unit-level Jacobian audit (the verification family pins the k·SE budget).
+    /// </summary>
+    [TestMethod]
+    public async Task Test_JointSystem_TailFocusModes_MeanConsistent()
+    {
+        // Arrange
+        static RiskAnalysis Build(VegasTailFocusMode mode, double gamma = 1d)
+        {
+            var analysis = new RiskAnalysis(new[] { Component(Consequence("Failure Loss", 300d)), ComponentB() });
+            analysis.Options.SystemRiskMethod = SystemRiskType.JointRiskMethod;
+            analysis.Options.VegasTailFocusMode = mode;
+            analysis.Options.VegasTailFocusParameter = gamma;
+            return analysis;
+        }
+        var none = Build(VegasTailFocusMode.None);
+        var manual = Build(VegasTailFocusMode.Manual, 4d);
+        var automatic = Build(VegasTailFocusMode.Automatic);
+
+        // Act
+        await none.RunAsync();
+        await manual.RunAsync();
+        await automatic.RunAsync();
+
+        // Assert — the transform must not bias the mean or the recorded budget.
+        double reference = none.RiskResults![0]!.Total.Mean;
+        Assert.AreEqual(reference, manual.RiskResults![0]!.Total.Mean, 0.05d * reference,
+            "A manual γ = 4 must leave the mean unbiased (the Jacobian reaches the weights).");
+        Assert.AreEqual(reference, automatic.RiskResults![0]!.Total.Mean, 0.05d * reference,
+            "The automatic tail focus must leave the mean unbiased.");
+        Assert.AreEqual(1d, manual.MeanRiskResults!.Curves.Total.MassBalance, 1e-9);
+        Assert.AreEqual(1d, automatic.MeanRiskResults!.Curves.Total.MassBalance, 1e-9);
+    }
+
+    /// <summary>
+    /// Verifies reliability mode on a single consequence-free component (Phase 4c): risk-mode
+    /// validation rejects the model, reliability-mode validation accepts it, and the annualized
+    /// failure probability matches a dense independent reference at every level — failure mode,
+    /// component, and system.
+    /// </summary>
+    [TestMethod]
+    public async Task Test_Reliability_SingleComponent_AfpVsDenseReference()
+    {
+        // Arrange
+        var component = ReliabilityComponent("Dam");
+        var analysis = new RiskAnalysis(new[] { component });
+        Assert.IsFalse(analysis.Validate().IsValid, "A consequence-free model must fail risk-mode validation.");
+        analysis.Options.Mode = RiskAnalysisMode.Reliability;
+        Assert.IsTrue(analysis.Validate().IsValid, "Reliability mode must accept a consequence-free model.");
+
+        // Act
+        await analysis.RunAsync();
+
+        // The dense trapezoid reference over the same sampled math.
+        var sampled = component.Sample(-1);
+        var scratch = new ComponentRealization(sampled.FailureModeCount);
+        var flags = new RiskComputeFlags();
+        int gridCount = 20_000;
+        double lower = 1e-16;
+        double upper = 1d - 1e-16;
+        double step = (upper - lower) / gridCount;
+        double reference = 0d;
+        double previous = FailureProbability(lower);
+        for (int i = 1; i <= gridCount; i++)
+        {
+            double current = FailureProbability(lower + i * step);
+            reference += 0.5d * (previous + current) * step;
+            previous = current;
+        }
+        double FailureProbability(double probability)
+        {
+            return sampled.ComputeRisk(probability, sampled.Hazard.InverseCDF(probability), flags, scratch).ProbabilityOfFailure;
+        }
+
+        // Assert — the AFP at every level, and the degenerate consequence surface.
+        Assert.IsTrue(analysis.IsEstimated);
+        var summary = analysis.RiskResults![0]!;
+        Assert.AreEqual(reference, summary.Fail.TotalProbability, 1e-3 * reference,
+            $"System AFP {summary.Fail.TotalProbability} vs dense reference {reference}.");
+        Assert.AreEqual(reference, analysis.MeanRiskResults!.Components[0].Curves.Fail.TotalProbability, 1e-3 * reference);
+        Assert.AreEqual(reference, analysis.MeanRiskResults.Components[0].FailureModes[0].Curves.Fail.TotalProbability, 1e-3 * reference);
+        Assert.AreEqual(0d, summary.Total.Mean, 1e-12, "A consequence-free model carries zero risk mean.");
+        Assert.AreEqual(0d, analysis.ComputationWarnings.Count,
+            "Reliability mode must not raise the mass-balance drift warning on its degenerate total stream.");
+    }
+
+    /// <summary>
+    /// Verifies multi-component reliability (Phase 4b + 4c): the additive system annualized
+    /// failure probability is the independent union of the component probabilities.
+    /// </summary>
+    [TestMethod]
+    public async Task Test_Reliability_MultiComponent_UnionAfp()
+    {
+        // Arrange
+        var analysis = new RiskAnalysis(new[] { ReliabilityComponent("Dam"), ReliabilityComponent("Levee") });
+        analysis.Options.Mode = RiskAnalysisMode.Reliability;
+
+        // Act
+        await analysis.RunAsync();
+
+        // Assert
+        var summary = analysis.RiskResults![0]!;
+        double first = summary.ComponentResults[0].Fail.TotalProbability;
+        double second = summary.ComponentResults[1].Fail.TotalProbability;
+        Assert.IsTrue(first > 0d && second > 0d);
+        double union = 1d - (1d - first) * (1d - second);
+        Assert.AreEqual(union, summary.Fail.TotalProbability, 1e-12,
+            "The reliability system AFP must be the independent union of the component AFPs.");
+    }
+
+    /// <summary>
+    /// Verifies the reliability integrand forcing: in reliability mode the adaptive refinement
+    /// objective is <see cref="RiskIntegrand.TotalProbabilityOfFailure"/> regardless of the
+    /// configured option, so two runs differing only in <see cref="RiskAnalysisOptions.RiskIntegrand"/>
+    /// are bit-identical.
+    /// </summary>
+    [TestMethod]
+    public async Task Test_Reliability_EffectiveIntegrand_BitIdentical()
+    {
+        // Arrange
+        static RiskAnalysis Build(RiskIntegrand integrand)
+        {
+            var analysis = new RiskAnalysis(new[] { ReliabilityComponent("Dam") });
+            analysis.Options.Mode = RiskAnalysisMode.Reliability;
+            analysis.Options.RiskIntegrand = integrand;
+            return analysis;
+        }
+        var meanObjective = Build(RiskIntegrand.MeanTotalRisk);
+        var failureObjective = Build(RiskIntegrand.TotalProbabilityOfFailure);
+
+        // Act
+        await meanObjective.RunAsync();
+        await failureObjective.RunAsync();
+
+        // Assert — identical refinement, identical bits.
+        Assert.AreEqual(
+            BitConverter.DoubleToInt64Bits(meanObjective.RiskResults![0]!.Fail.TotalProbability),
+            BitConverter.DoubleToInt64Bits(failureObjective.RiskResults![0]!.Fail.TotalProbability));
+    }
+
+    /// <summary>
+    /// Verifies the joint full-uncertainty smoke at reduced budgets: the ensemble completes and
+    /// the system percentile curves order.
+    /// </summary>
+    [TestMethod]
+    public async Task Test_JointSystem_FullUncertainty_Smoke()
+    {
+        // Arrange
+        var analysis = new RiskAnalysis(new[] { Component(Consequence("Failure Loss", 300d), UncertainFragility()), ComponentB() });
+        analysis.Options.SystemRiskMethod = SystemRiskType.JointRiskMethod;
+        analysis.Options.EstimateMeanRiskOnly = false;
+        analysis.Options.Realizations = 100;
+        analysis.Options.UseDefaults = false;
+        analysis.Options.WarmupEvaluations = 500;
+        analysis.Options.WarmupCycles = 2;
+        analysis.Options.FinalEvaluations = 1000;
+
+        // Act
+        await analysis.RunAsync();
+
+        // Assert
+        Assert.IsTrue(analysis.IsEstimated);
+        Assert.AreEqual(100, analysis.RiskResults!.Count);
+        Assert.IsNotNull(analysis.LowerRiskResults);
+        Assert.IsNotNull(analysis.UpperRiskResults);
+        double lower = analysis.LowerRiskResults!.Curves.Total.LEC.GetYFromX(60d, Transform.Logarithmic, Transform.Logarithmic);
+        double upper = analysis.UpperRiskResults!.Curves.Total.LEC.GetYFromX(60d, Transform.Logarithmic, Transform.Logarithmic);
+        Assert.IsTrue(lower <= upper + 1e-12, $"Joint percentile curves must order: {lower} ≤ {upper}.");
     }
 }

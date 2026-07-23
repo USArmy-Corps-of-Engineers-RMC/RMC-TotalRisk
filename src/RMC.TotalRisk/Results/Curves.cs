@@ -115,6 +115,20 @@ namespace RMC.TotalRisk.Results
         }
 
         /// <summary>
+        /// Scales every stream's recorded risk-point masses by the given factor (the joint
+        /// system path's VEGAS weight self-normalization).
+        /// </summary>
+        /// <param name="factor">The positive scale factor.</param>
+        internal void ScaleRecordedMass(double factor)
+        {
+            Excess.ScaleRecordedMass(factor);
+            Background.ScaleRecordedMass(factor);
+            Total.ScaleRecordedMass(factor);
+            Fail.ScaleRecordedMass(factor);
+            NonFail.ScaleRecordedMass(factor);
+        }
+
+        /// <summary>
         /// Clears every stream's recorded risk points — call only after post-processing.
         /// </summary>
         public void DumpMemory()

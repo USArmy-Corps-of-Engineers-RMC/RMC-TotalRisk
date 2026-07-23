@@ -65,7 +65,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         /// <param name="xElement">The serialized form produced by <see cref="ToXElement(RiskSerializationMode)"/>.</param>
         /// <param name="resolver">
         /// The function resolver, required only to read a by-reference form. An unresolvable
-        /// reference is recorded and reported by <see cref="Validate"/>.
+        /// reference is recorded and reported by <see cref="Validate()"/>.
         /// </param>
         /// <exception cref="ArgumentNullException">Thrown when the element is null.</exception>
         /// <exception cref="InvalidOperationException">
@@ -276,9 +276,32 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         /// </remarks>
         public override (bool IsValid, List<string> ValidationMessages) Validate()
         {
+            return Validate(RiskAnalysisMode.Risk);
+        }
+
+        /// <summary>
+        /// Validates the element for the given analysis mode. Reliability mode (Phase 4c) relaxes
+        /// the no-functions error only — a consequence element stays the structural path terminal
+        /// but needs no functions when the analysis computes failure probability alone. Assigned
+        /// functions are still validated in both modes.
+        /// </summary>
+        /// <param name="mode">The analysis mode the element is being validated for.</param>
+        /// <returns>
+        /// A tuple containing:
+        /// <list type="bullet">
+        /// <item>
+        /// <description><c>IsValid</c>: <c>true</c> if the element passes all validation checks; otherwise <c>false</c>.</description>
+        /// </item>
+        /// <item>
+        /// <description><c>ValidationMessages</c>: messages describing validation errors ("Error: …", invalidating) and warnings ("Warning: …", advisory).</description>
+        /// </item>
+        /// </list>
+        /// </returns>
+        public (bool IsValid, List<string> ValidationMessages) Validate(RiskAnalysisMode mode)
+        {
             var (_, messages) = base.Validate();
 
-            if (_functions.Count == 0 && !HasUnresolvedFunctionReferences)
+            if (_functions.Count == 0 && !HasUnresolvedFunctionReferences && mode == RiskAnalysisMode.Risk)
             {
                 messages.Add($"Error: The consequence element '{Name}' has no consequence functions.");
             }

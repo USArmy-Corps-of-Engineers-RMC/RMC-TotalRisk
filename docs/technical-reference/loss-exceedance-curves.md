@@ -140,14 +140,14 @@ built exactly.
 
 After each component has its five LECs, the system LECs are assembled per `SystemRiskMethod`.
 
-### Additive method — strict independence + FFT convolution
+### Additive method — strict independence + exact lattice convolution
 
 The additive method is **redefined (ratified v0.13) to assume the components are strictly
 independent.** Validation: `SystemRiskMethod = Additive` with `ComponentHazardDependency ≠ Independent`
-(or a non-identity `HazardCorrelationMatrix`) is an **Error**; the correlation matrix applies to the
-joint method only. The v1.0 additive path combined only the first two moments — means added, variances
-combined through the correlation matrix — and produced **no system LEC at all** (a warning told the user
-so). Under independence we can do far better: build the true system LEC by convolution.
+is an **Error**; the correlation matrix applies to the joint method only. The v1.0 additive path
+combined only the first two moments — means added, variances combined through the correlation matrix —
+and produced **no system LEC at all** (a warning told the user so). Under independence we can do far
+better: build the true system LEC by convolution.
 
 **Zero-inflation makes convolution equal to full combination enumeration.** The `Fail`, `Excess`, and
 `NonFail` component curves are defective — with probability `1 − TotalProbability` the component did not
@@ -157,26 +157,43 @@ consequence 0 with mass `1 − TotalProbability`. Convolving the D zero-inflated
 term is "this component failed and contributed `c`, or it didn't and contributed 0"), in `O(n log n)`
 instead of `2^D`, and it reproduces the full tail rather than a conditional mean.
 
-```csharp
-// Per risk type: build an EmpiricalDistribution per component (X ascending consequence,
-// P = 1 − exceedance), zero-inflated for the defective curves, then convolve.
-var systemFail = EmpiricalDistribution.Convolve(
-    components.Select(c => ZeroInflate(c.Fail)).ToList(),
-    numberOfPoints: Options.SystemConvolutionPoints);   // default 4096, min 4096
+**The atoms force a lattice (v0.15 implementation).** The v0.13 plan routed this through
+`EmpiricalDistribution.Convolve`, which proved unusable at implementation: it samples continuous
+`PDF`s on a uniform grid (`EmpiricalDistribution.cs:549`, `:734`), and a distribution-function jump —
+the zero atom — has no finite density. Any ramp-width approximation either loses the atom or corrupts
+the sampled density and its renormalization, and the per-stage PDF-normalize/regrid chain cannot hold
+the 1e-6 mean-parity gate. The engine therefore convolves **exactly on a shared consequence lattice**
+(`RMC.TotalRisk.Analyses.SystemConvolution`, public):
+
+```
+1. Lattice: step Δ = (Σ component maxima) / (SystemConvolutionPoints − 1); node k ↔ consequence k·Δ.
+2. Per component: bin its exact recorded (mass, consequence) pairs — Curve.CollectRecordedPairs() —
+   with the moment-preserving two-node split (mass divides between the bracketing nodes so the
+   pair's first moment is preserved exactly); add the zero atom 1 − Σmass at node 0.
+3. Convolve the lattice mass vectors pairwise by Fourier.FFT (zero-padded, power-of-two complex
+   length — the same Numerics primitive Convolve uses internally), in canonical-hash component
+   order so declaration order can never move the result by association-rounding.
+4. Feed the system lattice into the shared exact construction: Curve.CreateCurve(pairs, LECOutputLength).
 ```
 
-- `Background` is already exhaustive (convolve directly). Convolve the component `Total` curves for the
-  system `Total`. Convert `Fail`/`Excess`/`NonFail` results back to defective form (strip the 0-atom
-  into `TotalProbability`) afterward. System `pF = Probability.IndependentUnion(pfs)`.
-- **Grid caveat.** `EmpiricalDistribution.Convolve` samples the PDFs on a **linear** uniform grid over
-  `[Σmin, Σmax]` with `fftPoints = NextPowerOfTwo(max(8·numberOfPoints, 2048))`
-  (`EmpiricalDistribution.cs:549`, `:734`). Life-loss consequences span orders of magnitude, so a linear
-  grid starves the tail — require `SystemConvolutionPoints ≥ 4096`, and raise a **log-spaced /
-  adaptive-grid** convolution as Numerics item **N8** (Phase 8).
-- **Free regression gate.** Assert the convolved system mean equals `Σ` component means to 1e-6
-  relative — that is exactly the v1.0 additive answer, so it proves the FFT did not disturb the mean
-  while adding the tail. Gate the phase on a brute-force Monte Carlo cross-check of the system LEC tail
-  ([../verification.md](../verification.md), v0.13 policy).
+Mass and first moments are preserved exactly at every step, so **the convolved system mean equals Σ
+component means to floating-point roundoff by construction** — the v1.0 additive answer, now with the
+full curve. Higher moments carry an O(Δ²) binning quantization that `SystemConvolutionPoints ≥ 4096`
+keeps far below sampling error (and under independence the v1.0 σ answer, `√Σσᵢ²`, is reproduced too).
+
+- `Background` is already exhaustive (convolve directly); convolve the component `Total` curves for
+  the system `Total`. The lattice zero node is **kept** on exhaustive streams (it is real probability
+  at zero consequence, and the recorded budget stays exactly one) and **dropped** on defective streams
+  (it is the no-event atom; zero-valued events quantize into it).
+- **Stream probabilities keep the v1.0 system-state semantics** after the curve is built: `Fail` and
+  `Excess` carry `pF = Probability.IndependentUnion(pfs)`, `NonFail` carries `1 − pF` — the values the
+  v1.0 additive summary reported — while the curve mass distribution comes from the convolution.
+- **Numerics item N8 is extended** (Phase 8): alongside the log-spaced grid, `Convolve` needs an
+  atom-aware (discrete/mixed-distribution) overload; until then the lattice kernel stays in the
+  model library.
+- **Verified** ([../verification/system-risk.md](../verification/system-risk.md)): mean, σ, failure
+  union, tail exceedances, VaR, and CVaR of the convolved system curve against a brute-force
+  event-level Monte Carlo oracle at N = 10⁶ — every deviation within ~1.2 oracle standard errors.
 
 ### Joint method — real combination enumeration
 

@@ -470,7 +470,19 @@ namespace RMC.TotalRisk.Results
         public void CreateCurve(int outputLength)
         {
             if (RiskPoints.Count < 2) return;
+            CreateCurve(CollectRecordedPairs(), outputLength);
+        }
 
+        /// <summary>
+        /// Collects the recorded weighted (mass, consequence) pairs from the risk points — the
+        /// exact empirical loss distribution the curve is built from, and the input the additive
+        /// system convolution consumes per component. Only meaningful after the masses are final
+        /// (post <see cref="ProcessHazardProbabilities"/> on the one-dimensional path); available
+        /// until <see cref="DumpMemory"/> clears the points.
+        /// </summary>
+        /// <returns>The weighted pairs, one per recorded entry, in recording order.</returns>
+        public List<(double Mass, double Consequence)> CollectRecordedPairs()
+        {
             int entries = 0;
             for (int i = 0; i < RiskPoints.Count; i++)
             {
@@ -486,7 +498,23 @@ namespace RMC.TotalRisk.Results
                     pairs.Add((point.HazardProbabilityMass * point.ResponseProbabilities[j], point.Consequences[j]));
                 }
             }
-            CreateCurve(pairs, outputLength);
+            return pairs;
+        }
+
+        /// <summary>
+        /// Scales every recorded risk point's probability coordinate and mass by the given factor —
+        /// the joint system path's self-normalization of accumulated VEGAS weights across its
+        /// recording passes (the weights sum to the domain volume only in expectation; scaling by
+        /// the reciprocal of the realized sum makes the exhaustive mass budget exactly one).
+        /// </summary>
+        /// <param name="factor">The positive scale factor to apply to each point.</param>
+        internal void ScaleRecordedMass(double factor)
+        {
+            for (int i = 0; i < RiskPoints.Count; i++)
+            {
+                RiskPoints[i].HazardProbability *= factor;
+                RiskPoints[i].HazardProbabilityMass *= factor;
+            }
         }
 
         /// <summary>

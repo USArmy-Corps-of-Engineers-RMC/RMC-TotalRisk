@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Xml.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using RMC.TotalRisk.Core.Enums;
 using RMC.TotalRisk.Core.Interfaces;
 using RMC.TotalRisk.RiskFunctions.Consequences;
 using RMC.TotalRisk.Systems.Components.Graph;
@@ -323,5 +324,28 @@ public class ConsequenceElementTests
         CollectionAssert.AreEqual(original.Functions[0].CanonicalHash(), clone.Functions[0].CanonicalHash());
         Assert.AreSame(hazardClone, clone.HazardSource!.Source);
         Assert.IsNull(clone.Input);
+    }
+
+    /// <summary>
+    /// Verifies the mode-aware validation overload (Phase 4c): a function-free element errors in
+    /// risk mode (and through the parameterless override), passes in reliability mode, and any
+    /// functions that are present are still validated in both modes.
+    /// </summary>
+    [TestMethod]
+    public void Test_Validate_ReliabilityMode_RelaxesFunctionRequirement()
+    {
+        // Arrange
+        var empty = new ConsequenceElement("Terminal") { Input = new RiskConnection(new HazardElement("Hazard")) };
+
+        // Act / Assert — risk mode rejects the empty terminal; reliability accepts it.
+        Assert.IsFalse(empty.Validate().IsValid);
+        Assert.IsTrue(empty.Validate().ValidationMessages.Any(m => m.Contains("no consequence functions")));
+        Assert.IsTrue(empty.Validate(RiskAnalysisMode.Reliability).IsValid);
+
+        // An assigned function still validates in reliability mode (an invalid one still errors).
+        var withInvalid = new ConsequenceElement("Terminal") { Input = new RiskConnection(new HazardElement("Hazard")) };
+        withInvalid.Functions.Add(new TabularConsequence { Name = "Empty Table" });
+        Assert.IsFalse(withInvalid.Validate(RiskAnalysisMode.Reliability).IsValid,
+            "Reliability mode relaxes absence, never correctness.");
     }
 }

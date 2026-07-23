@@ -607,8 +607,31 @@ namespace RMC.TotalRisk.Systems.Components
         /// </remarks>
         public (bool IsValid, List<string> ValidationMessages) Validate()
         {
+            return Validate(RiskAnalysisMode.Risk);
+        }
+
+        /// <summary>
+        /// Validates the component for the given analysis mode. Reliability mode (Phase 4c)
+        /// threads through to the graph's and failure modes' relaxed consequence checks —
+        /// consequence elements stay the structural terminals but need no functions; everything
+        /// else is identical to <see cref="Validate()"/>.
+        /// </summary>
+        /// <param name="mode">The analysis mode the component is being validated for.</param>
+        /// <returns>
+        /// A tuple containing:
+        /// <list type="bullet">
+        /// <item>
+        /// <description><c>IsValid</c>: <c>true</c> if the component passes all validation checks; otherwise <c>false</c>.</description>
+        /// </item>
+        /// <item>
+        /// <description><c>ValidationMessages</c>: messages describing validation errors ("Error: …", invalidating) and warnings ("Warning: …", advisory).</description>
+        /// </item>
+        /// </list>
+        /// </returns>
+        public (bool IsValid, List<string> ValidationMessages) Validate(RiskAnalysisMode mode)
+        {
             var messages = new List<string>();
-            messages.AddRange(_graph.Validate().ValidationMessages);
+            messages.AddRange(_graph.Validate(mode).ValidationMessages);
 
             if (_failureModeDependency == DependencyType.CorrelationMatrix && !IsCorrelationMatrixValid())
             {
@@ -618,7 +641,7 @@ namespace RMC.TotalRisk.Systems.Components
             var modes = ProjectFailureModes();
             for (int i = 0; i < modes.Count; i++)
             {
-                foreach (string message in modes[i].Validate().ValidationMessages)
+                foreach (string message in modes[i].Validate(mode).ValidationMessages)
                 {
                     if (message.StartsWith("Warning:", StringComparison.Ordinal) && !messages.Contains(message))
                     {
@@ -652,6 +675,32 @@ namespace RMC.TotalRisk.Systems.Components
             }
 
             return (messages.FindIndex(m => m.StartsWith("Error:", StringComparison.Ordinal)) < 0, messages);
+        }
+
+        /// <summary>
+        /// Estimates the worst-case number of failure pathway/branch entries this component can
+        /// record at one hazard evaluation — the joint system-risk path's per-component
+        /// combination width. For the joint failure-mode method the bound is
+        /// <c>Π (1 + bᵢ) − 1</c> over the failure modes' primary branch counts (every failure
+        /// subset crossed with its branch tuples); for the per-mode methods it is <c>Σ bᵢ</c>.
+        /// The running product is capped so the estimate never overflows.
+        /// </summary>
+        /// <returns>The worst-case entry count, at least one.</returns>
+        internal long EstimateRecordedFailureEntries()
+        {
+            const long cap = 1L << 40;
+            var modes = ProjectFailureModes();
+            long jointBound = 1;
+            long perModeBound = 0;
+            for (int i = 0; i < modes.Count; i++)
+            {
+                if (modes[i].IsNonFailureMode) continue;
+                long branches = Math.Max(1, modes[i].ConsequenceFunction?.CountExposureBranches() ?? 1);
+                perModeBound += branches;
+                if (jointBound < cap) jointBound *= 1 + branches;
+            }
+            long estimate = _failureModeMethod == FailureModeMethod.JointFailures ? jointBound - 1 : perModeBound;
+            return Math.Max(1, Math.Min(cap, estimate));
         }
 
         /// <summary>

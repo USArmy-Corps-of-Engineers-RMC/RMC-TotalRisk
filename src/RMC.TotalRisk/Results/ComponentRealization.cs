@@ -130,6 +130,20 @@ namespace RMC.TotalRisk.Results
         }
 
         /// <summary>
+        /// Scales the recorded risk-point masses on the component and every failure mode (the
+        /// joint system path's VEGAS weight self-normalization).
+        /// </summary>
+        /// <param name="factor">The positive scale factor.</param>
+        internal void ScaleRecordedMass(double factor)
+        {
+            Curves.ScaleRecordedMass(factor);
+            for (int i = 0; i < FailureModes.Count; i++)
+            {
+                FailureModes[i].Curves.ScaleRecordedMass(factor);
+            }
+        }
+
+        /// <summary>
         /// Clears the recorded risk points on the component and every failure mode — call only
         /// after post-processing.
         /// </summary>

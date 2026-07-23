@@ -156,31 +156,53 @@ sets `γ = ln(pTarget)/ln(0.05)` clamped to [1, 20], `NumberOfBins ≥ 100`, and
   v1.0 comparability; `Manual` uses the supplied γ.
 - `VegasTailFocusParameter` (γ) — default 1.0, valid [1, 20].
 
-**The heuristic (`Automatic`) is the new design work.** VEGAS already runs a warm-up pass with
-`recordOutput = false` that currently discards everything but the importance grid
-(legacy `RiskAnalysis.vb:3153-3163`). Instead, accumulate the observed per-component failure
-probabilities during the warm-up and set
+**The heuristic (`Automatic`) — v0.15 implementation: a deterministic quadrature probe.** The v0.13
+plan harvested `pTarget` from the VEGAS warm-up itself; two implementation facts broke that mechanism
+(architecture doc v0.15, item 2). First, `ConfigureForRareEvents` raises `NumberOfBins`, whose setter
+reallocates the importance-grid arrays — configuring γ *after* the warm-up would wipe the warmed grid,
+so γ must be set **before** any VEGAS pass. Second, a γ = 1 Monte Carlo warm-up cannot observe the
+rare failure probabilities the target needs — that blindness is the very problem the transform
+solves. The engine instead probes each component's annualized failure probability **on the mean
+sample with adaptive Gauss–Kronrod**, once per run:
 
 ```
-pTarget = clamp( min_i( P̂_f,i ) · Alpha , 1e-12 , 1e-2 )
+AFP_i = ∫ P_F,i(p) dp          (the one call site where the integral's returned value is the product)
+pTarget = clamp( min_i AFP_i · Alpha , 1e-12 , 1e-2 )
 ```
 
-then call `Vegas.ConfigureForRareEvents(pTarget)` before the recording pass. This costs nothing extra,
-is fully deterministic (the warm-up seed is fixed), and adapts γ to the system's actual fragility
-rather than a guess.
+then calls `Vegas.ConfigureForRareEvents(pTarget)` before the warm-up. The probe costs about a
+thousand evaluations per component, is fully deterministic (mean sample, fixed stratification),
+measures the failure probabilities to quadrature accuracy however rare they are — and the warm-up
+itself then adapts under the active γ, strictly better than the post-warm-up ordering the v0.13 text
+assumed.
 
-### Two correctness items before enabling γ > 1
+### Driving stream, recording passes, and mass normalization (v0.15)
 
-- **Jacobian must reach the weight.** In TotalRisk `wgt` *is* the LEC probability mass, so if the
-  power-transform Jacobian is not folded into the `wgt` handed to the integrand, every LEC ordinate is
-  biased even though the returned integral is correct. `Vegas.cs` appears to apply it — **verify with a
-  test** (Numerics item **N9**, Phase 8: integrate a known heavy-tail function at γ ∈ {1, 4, 10} to the
-  same value; confirm `Σ wgt` = domain volume at every γ) before making γ > 1 a default.
-- **Record more than one final pass.** v1.0 records LEC points from a single pass of `FinalEvaluations`
-  (default 10,000) — far too sparse for a tail ordinate in D dimensions. Accumulate across
-  `IndependentEvaluations > 1` recording passes and scale `FinalEvaluations` with D in
-  `SetIntegrationDefaults`.
+- **Seeded Mersenne Twister, not Sobol.** Numerics' VEGAS defaults to `UseSobolSequence = true`,
+  which would make the driving stream seed-independent and void the §5.5 content-seed contract. The
+  engine sets `UseSobolSequence = false` and `Random = new MersenneTwister(vegasSeed)` with
+  `vegasSeed = ToPositiveSeed(HashCombine(systemSeed, "VEGAS", realizationIndex))`, where
+  `systemSeed` folds the analysis seed with every component's canonical hash and occurrence index in
+  canonical-hash order.
+- **Five recording passes, self-normalized.** v1.0 recorded a single pass of `FinalEvaluations`
+  (default 10,000) — far too sparse for a tail ordinate in D dimensions. The engine records across
+  five passes (`Initialize = 1`, `IndependentEvaluations = 5`) with `FinalEvaluations` scaled by D in
+  `SetIntegrationDefaults`, then scales every recorded mass by the reciprocal of the realized weight
+  sum: per-pass `Σ wgt` equals the domain volume only in expectation, so self-normalization makes the
+  exhaustive Total budget exactly one (and stays consistent if the evaluation cap truncates a pass).
+- **The Jacobian demonstrably reaches the weight.** In TotalRisk `wgt` *is* the LEC probability mass,
+  so a Jacobian missing from the recorded weight would bias every LEC ordinate even with a correct
+  returned integral. Source-confirmed (`Vegas.cs:466-472` folds `PowerTransformJacobian` into the
+  weight handed to the integrand) and **empirically gated** by the Phase 4b tail-focus audit
+  ([../verification/system-risk.md](../verification/system-risk.md)): γ = 1, manual γ = 4, and the
+  automatic focus agree on the mean, the failure union, and a deep-tail ordinate, with every recorded
+  budget self-normalizing to one. The upstream Numerics unit tests remain item **N9** (Phase 8:
+  integrate a known heavy-tail function at γ ∈ {1, 4, 10} to the same value; confirm `Σ wgt` = domain
+  volume at every γ).
 
 See [loss-exceedance-curves.md](loss-exceedance-curves.md) §System aggregation for how the joint path
 enumerates real component failure/non-failure combinations (rather than convolving conditional means)
-once the per-pathway lists on `ComponentRiskOutput` are activated.
+through the per-pathway lists on `ComponentRiskOutput`. Reproducibility scope: renaming is bit-inert;
+component *reordering* under the joint method is statistically equivalent but not bit-identical — the
+VEGAS variates couple the hypercube dimensions, so reordering permutes which coordinate stream drives
+which component (architecture doc v0.15, item 4).

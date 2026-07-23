@@ -649,4 +649,40 @@ public class FailureModeTests
         Assert.IsTrue(errorMessages.Any(m => m.StartsWith("Error:", StringComparison.Ordinal) && m.Contains("1024")),
             string.Join("; ", errorMessages));
     }
+
+    /// <summary>
+    /// Verifies the mode-aware validation overload (Phase 4c): a consequence-free mode fails
+    /// risk-mode validation with the pinned message, passes reliability-mode validation, and a
+    /// null consequence slot stays an error in both modes (a wiring defect, not a relaxation).
+    /// </summary>
+    [TestMethod]
+    public void Test_Validate_ReliabilityMode_RelaxesConsequenceRequirement()
+    {
+        // Arrange — a valid fragility, no consequence.
+        var fragility = new TabularResponse
+        {
+            Name = "Fragility",
+            SpecifiedHazard = "Stage",
+            HazardUnit = "ft",
+            UncertainOrderedPairedData = new UncertainOrderedPairedData(
+                new[] { new UncertainOrdinate(10d, new Deterministic(0d)), new UncertainOrdinate(20d, new Deterministic(1d)) },
+                true, SortOrder.Ascending, false, SortOrder.None, UnivariateDistributionType.Deterministic),
+        };
+        var mode = new FailureMode(null, null, fragility, null);
+
+        // Act / Assert — risk mode rejects; the parameterless overload is the risk-mode contract.
+        var (riskValid, riskMessages) = mode.Validate();
+        Assert.IsFalse(riskValid);
+        Assert.IsTrue(riskMessages.Any(m => m.Contains("at least one consequence function")), string.Join("; ", riskMessages));
+        CollectionAssert.AreEqual(riskMessages, mode.Validate(RiskAnalysisMode.Risk).ValidationMessages);
+
+        // Reliability mode accepts the consequence-free mode.
+        var (reliabilityValid, reliabilityMessages) = mode.Validate(RiskAnalysisMode.Reliability);
+        Assert.IsTrue(reliabilityValid, string.Join("; ", reliabilityMessages));
+
+        // A null slot is a wiring defect in both modes.
+        var nullSlot = new FailureMode(null, null, fragility, null);
+        nullSlot.ConsequenceFunctions.Add(null!);
+        Assert.IsFalse(nullSlot.Validate(RiskAnalysisMode.Reliability).IsValid);
+    }
 }
