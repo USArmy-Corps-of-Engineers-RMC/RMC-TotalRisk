@@ -858,17 +858,199 @@ public class RiskAnalysisTests
     }
 
     /// <summary>Builds a component whose failure and non-failure paths both carry the two-type axis [Life Loss, Damages].</summary>
-    private static SystemComponent TwoTypeComponent()
+    private static SystemComponent TwoTypeComponent(IResponseFunction? response = null,
+        double failureDamagesAtThirty = 5_000_000d, double nonFailureDamagesAtThirty = 1_000_000d)
     {
         var component = new SystemComponent { Name = "Dam" };
         component.HazardFunction = StageFrequency();
-        var failure = new FailureMode(null, null, Fragility(), Consequence("Failure Loss", 300d));
-        failure.ConsequenceFunctions.Add(Damages("Failure Damages", 5_000_000d));
+        var failure = new FailureMode(null, null, response ?? Fragility(), Consequence("Failure Loss", 300d));
+        failure.ConsequenceFunctions.Add(Damages("Failure Damages", failureDamagesAtThirty));
         component.AddFailureMode(failure);
         var nonFailure = new FailureMode(null, null, null, Consequence("Non-Failure Loss", 60d));
-        nonFailure.ConsequenceFunctions.Add(Damages("Non-Failure Damages", 1_000_000d));
+        nonFailure.ConsequenceFunctions.Add(Damages("Non-Failure Damages", nonFailureDamagesAtThirty));
         component.AddFailureMode(nonFailure);
         return component;
+    }
+
+    /// <summary>Declares the [Life Loss, Damages] axis on an analysis over the given components.</summary>
+    private static RiskAnalysis TwoTypeAnalysis(params SystemComponent[] components)
+    {
+        var analysis = new RiskAnalysis(components)
+        {
+            SpecifiedConsequence = "Life Loss",
+            ConsequenceUnit = "lives",
+        };
+        analysis.AdditionalConsequenceTypes.Add(new ConsequenceTypeDescriptor("Damages", "$"));
+        return analysis;
+    }
+
+    /// <summary>
+    /// The Phase 6.5 mean-pass equivalence pin (Q-U closure): adding a second consequence type
+    /// leaves the primary type's mean-pass results bit-identical to the single-type run (the
+    /// mean pass is seed-free and refinement is primary-driven), and a secondary type that is an
+    /// exact scalar multiple of the primary reproduces every stream scaled — with identical
+    /// per-type failure probabilities.
+    /// </summary>
+    [TestMethod]
+    public async Task Test_MultiConsequence_MeanPass_PrimaryBitIdentical_SecondaryScales()
+    {
+        // Arrange — damages are exactly 1000 × lives at every hazard level.
+        const double scale = 1000d;
+        var singleType = new RiskAnalysis(new[] { Component(Consequence("Failure Loss", 300d)) });
+        var twoType = TwoTypeAnalysis(TwoTypeComponent(null, 300d * scale, 60d * scale));
+
+        // Act
+        await singleType.RunAsync();
+        await twoType.RunAsync();
+
+        // Assert — the primary axis is bit-identical to the single-type run.
+        var single = singleType.MeanRiskResults!.Curves;
+        var primary = twoType.MeanRiskResults!.Curves;
+        Assert.AreEqual(single.Total.Mean, primary.Total.Mean, 0d, "The primary mean-pass mean must be bit-identical.");
+        Assert.AreEqual(single.Fail.TotalProbability, primary.Fail.TotalProbability, 0d, "The primary failure probability must be bit-identical.");
+        Assert.AreEqual(single.Excess.Mean, primary.Excess.Mean, 0d, "The primary excess mean must be bit-identical.");
+        CollectionAssert.AreEqual(single.Total.LECConsequences, primary.Total.LECConsequences, "The primary Total LEC must be bit-identical.");
+        CollectionAssert.AreEqual(single.Total.LECProbabilities, primary.Total.LECProbabilities, "The primary Total LEC probabilities must be bit-identical.");
+
+        // The secondary axis exists at every scope and scales exactly.
+        Assert.AreEqual(1, twoType.MeanRiskResults.AdditionalCurves.Count);
+        var secondary = twoType.MeanRiskResults.AdditionalCurves[0];
+        Assert.AreEqual(primary.Total.Mean * scale, secondary.Total.Mean, 1e-9 * primary.Total.Mean * scale,
+            "A secondary type that is 1000 × the primary must produce 1000 × the mean.");
+        Assert.AreEqual(primary.Excess.Mean * scale, secondary.Excess.Mean, 1e-9 * Math.Max(1d, primary.Excess.Mean * scale));
+        Assert.AreEqual(primary.NonFail.Mean * scale, secondary.NonFail.Mean, 1e-9 * Math.Max(1d, primary.NonFail.Mean * scale));
+
+        // Probability streams are identical across types (weights per type sum to one).
+        Assert.AreEqual(primary.Fail.TotalProbability, secondary.Fail.TotalProbability, 1e-12 * primary.Fail.TotalProbability,
+            "Per-type failure probabilities must agree — the probability structure is shared.");
+        Assert.AreEqual(primary.Total.MassBalance, secondary.Total.MassBalance, 1e-12,
+            "Per-type exhaustive mass must agree.");
+
+        // The component and failure-mode scopes carry the secondary axis too.
+        var component = twoType.MeanRiskResults.Components[0];
+        Assert.AreEqual(1, component.AdditionalCurves.Count);
+        Assert.IsTrue(component.AdditionalCurves[0].Total.LECConsequences.Length > 2);
+        Assert.AreEqual(1, component.FailureModes[0].AdditionalCurves.Count);
+        Assert.IsTrue(component.FailureModes[0].AdditionalCurves[0].Fail.LECConsequences.Length > 2);
+
+        // Secondary assurance is NaN (the threshold is declared in the primary type's units).
+        Assert.IsTrue(double.IsNaN(secondary.Total.ConsequenceThresholdProbability));
+        Assert.IsFalse(double.IsNaN(primary.Total.ConsequenceThresholdProbability));
+    }
+
+    /// <summary>
+    /// Verifies the K = 2 full-uncertainty smoke: the ensemble runs, the percentile realizations
+    /// carry the secondary axis on its own grid, and the secondary percentile curves order.
+    /// </summary>
+    [TestMethod]
+    public async Task Test_MultiConsequence_FullUncertainty_Smoke()
+    {
+        // Arrange
+        var analysis = TwoTypeAnalysis(TwoTypeComponent(UncertainFragility(), 300_000d, 60_000d));
+        analysis.Options.EstimateMeanRiskOnly = false;
+        analysis.Options.Realizations = 100;
+
+        // Act
+        await analysis.RunAsync();
+
+        // Assert
+        Assert.IsTrue(analysis.IsEstimated);
+        Assert.AreEqual(1, analysis.MeanRiskResults!.AdditionalCurves.Count);
+        Assert.AreEqual(1, analysis.LowerRiskResults!.AdditionalCurves.Count);
+        Assert.IsTrue(analysis.MeanRiskResults.AdditionalCurves[0].Total.LECConsequences.Length > 2,
+            "The secondary ensemble-mean curve must be assembled on its own grid.");
+
+        double lower = analysis.LowerRiskResults!.AdditionalCurves[0].Fail.LEC.GetYFromX(50_000d, Transform.Logarithmic, Transform.Logarithmic);
+        double median = analysis.MedianRiskResults!.AdditionalCurves[0].Fail.LEC.GetYFromX(50_000d, Transform.Logarithmic, Transform.Logarithmic);
+        double upper = analysis.UpperRiskResults!.AdditionalCurves[0].Fail.LEC.GetYFromX(50_000d, Transform.Logarithmic, Transform.Logarithmic);
+        Assert.IsTrue(lower <= median + 1e-12 && median <= upper + 1e-12,
+            $"Secondary percentile curves must order: {lower} ≤ {median} ≤ {upper}.");
+    }
+
+    /// <summary>
+    /// Verifies the K = 2 additive system: both types convolve onto system curves, the
+    /// type-independent failure union is shared, and a proportional secondary type scales the
+    /// convolved system mean.
+    /// </summary>
+    [TestMethod]
+    public async Task Test_MultiConsequence_AdditiveSystem_SecondaryScales()
+    {
+        // Arrange — two independent two-type components, damages = 1000 × lives on both.
+        const double scale = 1000d;
+        var analysis = TwoTypeAnalysis(
+            TwoTypeComponent(null, 300d * scale, 60d * scale),
+            TwoTypeComponent(null, 300d * scale, 60d * scale));
+
+        // Act
+        await analysis.RunAsync();
+
+        // Assert
+        var system = analysis.MeanRiskResults!;
+        Assert.AreEqual(1, system.AdditionalCurves.Count);
+        var primary = system.Curves;
+        var secondary = system.AdditionalCurves[0];
+        Assert.IsTrue(secondary.Total.LECConsequences.Length > 2, "The secondary system Total must be convolved.");
+        Assert.AreEqual(primary.Total.Mean * scale, secondary.Total.Mean, 1e-9 * primary.Total.Mean * scale,
+            "The convolved secondary system mean must scale with the type.");
+        Assert.AreEqual(primary.Fail.TotalProbability, secondary.Fail.TotalProbability, 0d,
+            "The failure union is type-independent and shared verbatim.");
+    }
+
+    /// <summary>
+    /// Verifies the K = 2 joint system: both types record through the VEGAS combination
+    /// enumeration and a proportional secondary type scales the system mean under the additive
+    /// joint-consequence rule.
+    /// </summary>
+    [TestMethod]
+    public async Task Test_MultiConsequence_JointSystem_SecondaryScales()
+    {
+        // Arrange
+        const double scale = 1000d;
+        var analysis = TwoTypeAnalysis(
+            TwoTypeComponent(null, 300d * scale, 60d * scale),
+            TwoTypeComponent(null, 300d * scale, 60d * scale));
+        analysis.Options.SystemRiskMethod = SystemRiskType.JointRiskMethod;
+        analysis.Options.UseDefaults = false;
+        analysis.Options.WarmupEvaluations = 500;
+        analysis.Options.WarmupCycles = 2;
+        analysis.Options.FinalEvaluations = 1000;
+
+        // Act
+        await analysis.RunAsync();
+
+        // Assert
+        var system = analysis.MeanRiskResults!;
+        Assert.AreEqual(1, system.AdditionalCurves.Count);
+        Assert.IsTrue(system.AdditionalCurves[0].Total.LECConsequences.Length > 2);
+        Assert.AreEqual(system.Curves.Total.Mean * scale, system.AdditionalCurves[0].Total.Mean,
+            1e-9 * system.Curves.Total.Mean * scale,
+            "The joint secondary system mean must scale with the type.");
+        Assert.AreEqual(system.Curves.Fail.TotalProbability, system.AdditionalCurves[0].Fail.TotalProbability,
+            1e-12 * system.Curves.Fail.TotalProbability,
+            "Per-type failure mass must agree on the joint path.");
+    }
+
+    /// <summary>
+    /// Verifies reliability mode carries no consequence-type axis: consequence-free modes
+    /// produce no additional curve sets.
+    /// </summary>
+    [TestMethod]
+    public async Task Test_MultiConsequence_Reliability_NoAdditionalCurves()
+    {
+        // Arrange — a consequence-free reliability model with a declared (inert) second type.
+        var component = new SystemComponent { Name = "Dam" };
+        component.HazardFunction = StageFrequency();
+        component.AddFailureMode(new FailureMode(null, null, Fragility(), null));
+        var analysis = new RiskAnalysis(new[] { component });
+        analysis.Options.Mode = RiskAnalysisMode.Reliability;
+        analysis.AdditionalConsequenceTypes.Add(new ConsequenceTypeDescriptor("Damages", "$"));
+
+        // Act
+        await analysis.RunAsync();
+
+        // Assert
+        Assert.IsTrue(analysis.IsEstimated);
+        Assert.AreEqual(0, analysis.MeanRiskResults!.AdditionalCurves.Count);
     }
 
     /// <summary>

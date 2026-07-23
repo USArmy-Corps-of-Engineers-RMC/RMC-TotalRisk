@@ -684,10 +684,14 @@ namespace RMC.TotalRisk.Results
         /// Measures are NaN when the curve is too short to interpolate. <see cref="ValueAtRisk"/>
         /// returns 0 when <paramref name="alpha"/> exceeds <see cref="TotalProbability"/> — at
         /// that exceedance level the consequence is not realized (v1.0 returned the curve's
-        /// smallest consequence). The conditional-value-at-risk integral runs
-        /// <see cref="AdaptiveGaussKronrod"/> over [1e-16, α] of the log-log LEC quantile with
-        /// explicit caps (relative tolerance 1e-8, depth 100, one million evaluations, minimum
-        /// depth 2 — the engine's steepest integrand gets the same discipline as the risk
+        /// smallest consequence). A NaN <paramref name="consequenceThreshold"/> skips the
+        /// assurance lookup and leaves <see cref="ConsequenceThresholdProbability"/> NaN — the
+        /// Phase 6.5 secondary-consequence-type convention: the analysis threshold is declared in
+        /// the primary type's units, so it cannot be evaluated on another type's axis (per-type
+        /// thresholds land with the risk-measures phase). The conditional-value-at-risk integral
+        /// runs <see cref="AdaptiveGaussKronrod"/> over [1e-16, α] of the log-log LEC quantile
+        /// with explicit caps (relative tolerance 1e-8, depth 100, one million evaluations,
+        /// minimum depth 2 — the engine's steepest integrand gets the same discipline as the risk
         /// integral; v1.0 used library defaults).
         /// </remarks>
         public void ComputeRiskMeasures(double consequenceThreshold, double alpha, double hazardThreshold = double.NaN)
@@ -703,7 +707,10 @@ namespace RMC.TotalRisk.Results
             if (_lecConsequences.Length > 2)
             {
                 var lec = LEC;
-                ConsequenceThresholdProbability = lec.GetYFromX(consequenceThreshold, Transform.Logarithmic, Transform.Logarithmic);
+                if (!double.IsNaN(consequenceThreshold))
+                {
+                    ConsequenceThresholdProbability = lec.GetYFromX(consequenceThreshold, Transform.Logarithmic, Transform.Logarithmic);
+                }
 
                 if (alpha > TotalProbability)
                 {

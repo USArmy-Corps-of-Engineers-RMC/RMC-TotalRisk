@@ -41,6 +41,16 @@ namespace RMC.TotalRisk.Results
     /// entry lists collapse the paired non-failure spread to its mean — the documented
     /// <see cref="ComponentRiskOutput"/> interim).
     /// </para>
+    /// <para>
+    /// Q-U closure (Phase 6.5): the probability structure — response probabilities, pathway
+    /// decomposition, combination adjustments, and the total failure probability — is computed
+    /// once per evaluation and shared by every consequence type; the consequence kernels then
+    /// run per type over that type's branch entries (types never cross), recording into the
+    /// realization's primary curves (type 0) or <c>AdditionalCurves[k − 1]</c>, with per-type
+    /// consequence extents. Secondary types are evaluated only when recording or when the caller
+    /// supplies a per-type output sink, so probe and warm-up evaluations pay the single-type
+    /// cost.
+    /// </para>
     /// </remarks>
     public class SampledComponent
     {
@@ -78,10 +88,12 @@ namespace RMC.TotalRisk.Results
 
             _failureModes = new List<SampledFailureMode>(projectedModes.Count);
             _fModes = new List<SampledFailureMode>(projectedModes.Count);
+            int consequenceTypeCount = 1;
             for (int i = 0; i < projectedModes.Count; i++)
             {
                 var sampled = new SampledFailureMode(projectedModes[i], projectedModes[i].IsNonFailureMode ? null : nonFailureMode, realizationIndex);
                 _failureModes.Add(sampled);
+                consequenceTypeCount = Math.Max(consequenceTypeCount, sampled.ConsequenceTypeCount);
                 if (sampled.IsNonFailureMode)
                 {
                     _nfMode = sampled;
@@ -91,6 +103,7 @@ namespace RMC.TotalRisk.Results
                     _fModes.Add(sampled);
                 }
             }
+            ConsequenceTypeCount = consequenceTypeCount;
 
             // Weak-link competing failures: pre-process the cumulative incidence functions over
             // 200 stratified hazard levels (v1.0 constants). A single mode short-circuits to its
@@ -251,80 +264,97 @@ namespace RMC.TotalRisk.Results
         /// </summary>
         public int FailureModeCount => _fModes.Count;
 
+        /// <summary>
+        /// The number of consequence types the component carries (the declared-axis length; the
+        /// analysis validation gate guarantees every path agrees).
+        /// </summary>
+        public int ConsequenceTypeCount { get; }
+
         #endregion
 
         #region Methods
 
         /// <summary>
         /// Computes the component's risk at one hazard evaluation point: the per-mode responses,
-        /// the failure-mode combination, the branch-enumerated pathway entries, and the recorded
-        /// risk points.
+        /// the failure-mode combination, the branch-enumerated pathway entries per consequence
+        /// type, and the recorded risk points.
         /// </summary>
         /// <param name="probability">The hazard non-exceedance probability at the evaluation point (the recorded probability coordinate; the VEGAS path passes its weight).</param>
         /// <param name="hazardLevel">The hazard level.</param>
         /// <param name="flags">The realization's computational-warning flags.</param>
         /// <param name="realization">The component's realization sink (with one failure-mode realization per failure mode, in projected order).</param>
         /// <param name="recordOutput">True to record risk-point entries on the realization curves.</param>
-        /// <returns>The component's risk output at the evaluation point.</returns>
+        /// <param name="typeOutputs">
+        /// The optional per-type output sink, length at least <see cref="ConsequenceTypeCount"/>
+        /// (entry k receives type k's output; entry 0 is the returned primary). Secondary types
+        /// are computed only when recording or when this sink is supplied.
+        /// </param>
+        /// <returns>The component's primary-type risk output at the evaluation point.</returns>
         /// <exception cref="ArgumentNullException">Thrown when the flags or realization sink is null.</exception>
         public ComponentRiskOutput ComputeRisk(double probability, double hazardLevel, RiskComputeFlags flags,
-            ComponentRealization realization, bool recordOutput = false)
+            ComponentRealization realization, bool recordOutput = false, ComponentRiskOutput[]? typeOutputs = null)
         {
             if (flags == null) throw new ArgumentNullException(nameof(flags));
             if (realization == null) throw new ArgumentNullException(nameof(realization));
-
-            var output = new ComponentRiskOutput();
 
             // The profile-axis remap (ProfileHazardFunction) is deferred with Q-T: recorded
             // hazard levels are the raw driving hazard.
             double recordedHazard = hazardLevel;
 
-            // The non-failure consequence branches from the non-failure mode's OWN sample (its
-            // own coupling draw — v1.0 behavior; the per-mode excess uses each mode's PAIRED
-            // sample inside SampledFailureMode.ComputeRisk).
-            double[] nonFailWeights = _unitWeight;
-            double[] nonFailValues = _zeroValue;
-            double nonFailureConsequences = 0d;
-            if (_nfMode != null)
-            {
-                _nfMode.EvaluateConsequenceBranches(hazardLevel, flags, out nonFailWeights, out nonFailValues);
-                for (int j = 0; j < nonFailWeights.Length; j++)
-                {
-                    nonFailureConsequences += nonFailWeights[j] * nonFailValues[j];
-                }
-            }
+            // Secondary types ride along only when their results are consumed (recording, or the
+            // caller's per-type sink); probes and warm-up evaluations stay single-type.
+            bool wantSecondary = ConsequenceTypeCount > 1 && (recordOutput || typeOutputs != null);
+            int componentTypes = wantSecondary ? ConsequenceTypeCount : 1;
 
-            // Per-mode risk at this hazard level.
+            // Per-mode risk at this hazard level — every computed consequence type in one pass
+            // per mode.
             var modeOutputs = new ComponentRiskOutput[_fModes.Count];
+            ComponentRiskOutput[][]? modeTypeOutputs = wantSecondary ? new ComponentRiskOutput[_fModes.Count][] : null;
             var responseProbabilities = new List<double>(_fModes.Count);
             for (int j = 0; j < _fModes.Count; j++)
             {
-                modeOutputs[j] = _fModes[j].ComputeRisk(probability, hazardLevel, _nfMode, flags, realization.FailureModes[j], recordOutput);
+                if (wantSecondary)
+                {
+                    modeTypeOutputs![j] = new ComponentRiskOutput[componentTypes];
+                    _fModes[j].ComputeRisk(probability, hazardLevel, _nfMode, flags, realization.FailureModes[j], recordOutput, modeTypeOutputs[j]);
+                    modeOutputs[j] = modeTypeOutputs[j][0];
+                }
+                else
+                {
+                    modeOutputs[j] = _fModes[j].ComputeRisk(probability, hazardLevel, _nfMode, flags, realization.FailureModes[j], recordOutput);
+                }
                 responseProbabilities.Add(modeOutputs[j].ProbabilityOfFailure);
             }
 
-            // The accumulated pathway entries (these lists double as the output lists and, when
-            // recording, the Fail/Total risk-point entries).
-            var failEntryValues = output.FailureConsequences;
-            var failEntryProbabilities = output.ResponseProbabilities;
-            var excessEntryProbabilities = new List<double>();
-            var excessEntryValues = new List<double>();
-
+            // The combination structure is type-independent — compute it once and share it with
+            // every consequence kernel: the joint pathway decomposition, or the per-mode
+            // adjusted probabilities.
+            List<double>? pathwayProbabilities = null;
+            List<int[]>? pathwayIndicators = null;
+            double[]? adjustedProbabilities = null;
             double totalProbabilityOfFailure = 0d;
-            double expectedFailureConsequences = 0d;
-            double expectedExcessConsequences = 0d;
-
             if (_fModes.Count > 0)
             {
                 if (_failureModeMethod == FailureModeMethod.JointFailures)
                 {
-                    ComputeJointPathways(responseProbabilities, modeOutputs, nonFailWeights, nonFailValues,
-                        failEntryProbabilities, failEntryValues, excessEntryProbabilities, excessEntryValues,
-                        realization, ref totalProbabilityOfFailure, ref expectedFailureConsequences, ref expectedExcessConsequences);
+                    ComputePathwayDecomposition(responseProbabilities, out pathwayProbabilities, out pathwayIndicators);
+                    for (int j = 0; j < pathwayProbabilities.Count; j++)
+                    {
+                        totalProbabilityOfFailure += pathwayProbabilities[j];
+                    }
                 }
                 else
                 {
-                    // The per-mode methods: an adjusted probability per mode, entries per branch.
+                    adjustedProbabilities = new double[_fModes.Count];
+                    double commonCauseFactor = _failureModeMethod == FailureModeMethod.CommonCauseFailures
+                        ? CommonCauseFactor(responseProbabilities)
+                        : 0d;
+                    double normalization = 1d;
+                    if (_failureModeMethod == FailureModeMethod.MutuallyExclusive)
+                    {
+                        normalization = Probability.MutuallyExclusiveAdjustment(responseProbabilities);
+                        if (normalization < 1d) flags.HasProbabilityGreaterThanOne = true;
+                    }
                     for (int j = 0; j < _fModes.Count; j++)
                     {
                         double adjusted;
@@ -334,86 +364,168 @@ namespace RMC.TotalRisk.Results
                         }
                         else if (_failureModeMethod == FailureModeMethod.CommonCauseFailures)
                         {
-                            adjusted = responseProbabilities[j] * CommonCauseFactor(responseProbabilities);
+                            adjusted = responseProbabilities[j] * commonCauseFactor;
                         }
                         else
                         {
-                            double normalization = Probability.MutuallyExclusiveAdjustment(responseProbabilities);
-                            if (normalization < 1d) flags.HasProbabilityGreaterThanOne = true;
                             adjusted = responseProbabilities[j] * normalization;
                         }
-
-                        AppendModeEntries(modeOutputs[j], responseProbabilities[j], adjusted,
-                            failEntryProbabilities, failEntryValues, excessEntryProbabilities, excessEntryValues, realization);
-
-                        expectedFailureConsequences += adjusted * modeOutputs[j].MeanFailureConsequences;
-                        expectedExcessConsequences += adjusted * modeOutputs[j].MeanExcessConsequences;
+                        adjustedProbabilities[j] = adjusted;
                         totalProbabilityOfFailure += adjusted;
                     }
                 }
             }
-
             totalProbabilityOfFailure = Math.Min(1d, totalProbabilityOfFailure);
             double probabilityOfNonFailure = _nfMode == null ? 0d : Math.Max(0d, 1d - totalProbabilityOfFailure);
-            nonFailureConsequences = _nfMode == null ? 0d : nonFailureConsequences;
-            double meanFailureConsequences = totalProbabilityOfFailure == 0d ? 0d : expectedFailureConsequences / totalProbabilityOfFailure;
-            double meanExcessConsequences = totalProbabilityOfFailure == 0d ? 0d : expectedExcessConsequences / totalProbabilityOfFailure;
 
-            // The excess output list against the mean non-failure consequence (the documented
-            // ComponentRiskOutput interim; the recorded curves carry the exact pairs).
-            for (int k = 0; k < failEntryValues.Count; k++)
+            // The consequence kernels, per type: the non-failure branches from the non-failure
+            // mode's OWN sample at this type (its own coupling draw — v1.0 behavior; the
+            // per-mode excess uses each mode's PAIRED sample inside
+            // SampledFailureMode.ComputeRisk), then the pathway/branch entries, the recorded
+            // points, and the per-type consequence extents.
+            ComponentRiskOutput primary = null!;
+            for (int k = 0; k < componentTypes; k++)
             {
-                output.ExcessConsequences.Add(Math.Max(0d, failEntryValues[k] - nonFailureConsequences));
-            }
+                var typeOutput = new ComponentRiskOutput();
+                if (k == 0) primary = typeOutput;
 
-            // Record the component-level risk points.
-            if (recordOutput)
-            {
-                if (_fModes.Count > 0)
-                {
-                    realization.Curves.Fail.AddRiskPoint(recordedHazard, probability,
-                        new List<double>(failEntryProbabilities), new List<double>(failEntryValues));
-                    realization.Curves.Excess.AddRiskPoint(recordedHazard, probability, excessEntryProbabilities, excessEntryValues);
-                }
-
-                var totalProbabilities = new List<double>(failEntryProbabilities.Count + nonFailWeights.Length);
-                var totalValues = new List<double>(failEntryValues.Count + nonFailValues.Length);
-                totalProbabilities.AddRange(failEntryProbabilities);
-                totalValues.AddRange(failEntryValues);
-
+                double[] nonFailWeights = _unitWeight;
+                double[] nonFailValues = _zeroValue;
+                double nonFailureConsequences = 0d;
                 if (_nfMode != null)
                 {
-                    var backgroundProbabilities = new List<double>(nonFailWeights.Length);
-                    var backgroundValues = new List<double>(nonFailValues.Length);
-                    var nonFailProbabilities = new List<double>(nonFailWeights.Length);
-                    var nonFailPointValues = new List<double>(nonFailValues.Length);
+                    _nfMode.EvaluateConsequenceBranches(hazardLevel, k, flags, out nonFailWeights, out nonFailValues);
                     for (int j = 0; j < nonFailWeights.Length; j++)
                     {
-                        backgroundProbabilities.Add(nonFailWeights[j]);
-                        backgroundValues.Add(nonFailValues[j]);
-                        nonFailProbabilities.Add(probabilityOfNonFailure * nonFailWeights[j]);
-                        nonFailPointValues.Add(nonFailValues[j]);
-                        totalProbabilities.Add(probabilityOfNonFailure * nonFailWeights[j]);
-                        totalValues.Add(nonFailValues[j]);
+                        nonFailureConsequences += nonFailWeights[j] * nonFailValues[j];
                     }
-                    realization.Curves.Background.AddRiskPoint(recordedHazard, probability, backgroundProbabilities, backgroundValues);
-                    realization.Curves.NonFail.AddRiskPoint(recordedHazard, probability, nonFailProbabilities, nonFailPointValues);
                 }
-                realization.Curves.Total.AddRiskPoint(recordedHazard, probability, totalProbabilities, totalValues);
+
+                var failEntryValues = typeOutput.FailureConsequences;
+                var failEntryProbabilities = typeOutput.ResponseProbabilities;
+                var excessEntryProbabilities = new List<double>();
+                var excessEntryValues = new List<double>();
+
+                double expectedFailureConsequences = 0d;
+                double expectedExcessConsequences = 0d;
+                double minN = k == 0 ? realization.MinN : realization.AdditionalMinN[k - 1];
+                double maxN = k == 0 ? realization.MaxN : realization.AdditionalMaxN[k - 1];
+
+                if (_fModes.Count > 0)
+                {
+                    var typeModeOutputs = k == 0 ? modeOutputs : ExtractTypeColumn(modeTypeOutputs!, k);
+                    if (_failureModeMethod == FailureModeMethod.JointFailures)
+                    {
+                        ComputeJointPathwayEntries(responseProbabilities, typeModeOutputs, pathwayProbabilities!, pathwayIndicators!,
+                            nonFailWeights, nonFailValues,
+                            failEntryProbabilities, failEntryValues, excessEntryProbabilities, excessEntryValues,
+                            ref expectedFailureConsequences, ref expectedExcessConsequences, ref minN, ref maxN);
+                    }
+                    else
+                    {
+                        for (int j = 0; j < _fModes.Count; j++)
+                        {
+                            AppendModeEntries(typeModeOutputs[j], responseProbabilities[j], adjustedProbabilities![j],
+                                failEntryProbabilities, failEntryValues, excessEntryProbabilities, excessEntryValues, ref minN, ref maxN);
+
+                            expectedFailureConsequences += adjustedProbabilities[j] * typeModeOutputs[j].MeanFailureConsequences;
+                            expectedExcessConsequences += adjustedProbabilities[j] * typeModeOutputs[j].MeanExcessConsequences;
+                        }
+                    }
+                }
+
+                double effectiveNonFailure = _nfMode == null ? 0d : nonFailureConsequences;
+                double meanFailureConsequences = totalProbabilityOfFailure == 0d ? 0d : expectedFailureConsequences / totalProbabilityOfFailure;
+                double meanExcessConsequences = totalProbabilityOfFailure == 0d ? 0d : expectedExcessConsequences / totalProbabilityOfFailure;
+
+                // The excess output list against the mean non-failure consequence (the documented
+                // ComponentRiskOutput interim; the recorded curves carry the exact pairs).
+                for (int e = 0; e < failEntryValues.Count; e++)
+                {
+                    typeOutput.ExcessConsequences.Add(Math.Max(0d, failEntryValues[e] - effectiveNonFailure));
+                }
+
+                // Record the component-level risk points on this type's curves.
+                if (recordOutput)
+                {
+                    var target = k == 0 ? realization.Curves : realization.AdditionalCurves[k - 1];
+                    if (_fModes.Count > 0)
+                    {
+                        target.Fail.AddRiskPoint(recordedHazard, probability,
+                            new List<double>(failEntryProbabilities), new List<double>(failEntryValues));
+                        target.Excess.AddRiskPoint(recordedHazard, probability, excessEntryProbabilities, excessEntryValues);
+                    }
+
+                    var totalProbabilities = new List<double>(failEntryProbabilities.Count + nonFailWeights.Length);
+                    var totalValues = new List<double>(failEntryValues.Count + nonFailValues.Length);
+                    totalProbabilities.AddRange(failEntryProbabilities);
+                    totalValues.AddRange(failEntryValues);
+
+                    if (_nfMode != null)
+                    {
+                        var backgroundProbabilities = new List<double>(nonFailWeights.Length);
+                        var backgroundValues = new List<double>(nonFailValues.Length);
+                        var nonFailProbabilities = new List<double>(nonFailWeights.Length);
+                        var nonFailPointValues = new List<double>(nonFailValues.Length);
+                        for (int j = 0; j < nonFailWeights.Length; j++)
+                        {
+                            backgroundProbabilities.Add(nonFailWeights[j]);
+                            backgroundValues.Add(nonFailValues[j]);
+                            nonFailProbabilities.Add(probabilityOfNonFailure * nonFailWeights[j]);
+                            nonFailPointValues.Add(nonFailValues[j]);
+                            totalProbabilities.Add(probabilityOfNonFailure * nonFailWeights[j]);
+                            totalValues.Add(nonFailValues[j]);
+                        }
+                        target.Background.AddRiskPoint(recordedHazard, probability, backgroundProbabilities, backgroundValues);
+                        target.NonFail.AddRiskPoint(recordedHazard, probability, nonFailProbabilities, nonFailPointValues);
+                    }
+                    target.Total.AddRiskPoint(recordedHazard, probability, totalProbabilities, totalValues);
+                }
+
+                // Per-type consequence extents for the percentile post-processing grids (v1.0
+                // behavior on the primary).
+                minN = Math.Min(minN, effectiveNonFailure);
+                maxN = Math.Max(maxN, Math.Max(meanFailureConsequences, effectiveNonFailure));
+                if (k == 0)
+                {
+                    realization.MinN = minN;
+                    realization.MaxN = maxN;
+                }
+                else
+                {
+                    realization.AdditionalMinN[k - 1] = minN;
+                    realization.AdditionalMaxN[k - 1] = maxN;
+                }
+
+                typeOutput.ProbabilityOfFailure = totalProbabilityOfFailure;
+                typeOutput.ProbabilityOfNonFailure = probabilityOfNonFailure;
+                typeOutput.NonFailureConsequences = effectiveNonFailure;
+                typeOutput.MeanFailureConsequences = meanFailureConsequences;
+                typeOutput.MeanExcessConsequences = meanExcessConsequences;
+                if (typeOutputs != null) typeOutputs[k] = typeOutput;
             }
 
-            // Extent tracking for the percentile post-processing grids (v1.0 behavior).
-            realization.MinN = Math.Min(realization.MinN, nonFailureConsequences);
-            realization.MaxN = Math.Max(realization.MaxN, Math.Max(meanFailureConsequences, nonFailureConsequences));
+            // Hazard extents are type-independent.
             realization.MinH = Math.Min(realization.MinH, recordedHazard);
             realization.MaxH = Math.Max(realization.MaxH, recordedHazard);
 
-            output.ProbabilityOfFailure = totalProbabilityOfFailure;
-            output.ProbabilityOfNonFailure = probabilityOfNonFailure;
-            output.NonFailureConsequences = nonFailureConsequences;
-            output.MeanFailureConsequences = meanFailureConsequences;
-            output.MeanExcessConsequences = meanExcessConsequences;
-            return output;
+            return primary;
+        }
+
+        /// <summary>
+        /// Extracts one consequence type's column from the per-mode, per-type outputs.
+        /// </summary>
+        /// <param name="modeTypeOutputs">The per-mode arrays of per-type outputs.</param>
+        /// <param name="typeIndex">The consequence-type position.</param>
+        /// <returns>The per-mode outputs at the given type.</returns>
+        private static ComponentRiskOutput[] ExtractTypeColumn(ComponentRiskOutput[][] modeTypeOutputs, int typeIndex)
+        {
+            var column = new ComponentRiskOutput[modeTypeOutputs.Length];
+            for (int j = 0; j < modeTypeOutputs.Length; j++)
+            {
+                column[j] = modeTypeOutputs[j][typeIndex];
+            }
+            return column;
         }
 
         #endregion
@@ -459,17 +571,18 @@ namespace RMC.TotalRisk.Results
         /// entries from the mode's paired pair distribution scaled to the adjusted probability,
         /// and the extent tracking.
         /// </summary>
-        /// <param name="modeOutput">The mode's risk output at this hazard level.</param>
+        /// <param name="modeOutput">The mode's risk output at this hazard level (one consequence type).</param>
         /// <param name="rawProbability">The mode's unadjusted response probability.</param>
         /// <param name="adjustedProbability">The mode's combination-adjusted probability.</param>
         /// <param name="failEntryProbabilities">The accumulating failure entry probabilities.</param>
         /// <param name="failEntryValues">The accumulating failure entry values.</param>
         /// <param name="excessEntryProbabilities">The accumulating excess entry probabilities.</param>
         /// <param name="excessEntryValues">The accumulating excess entry values.</param>
-        /// <param name="realization">The component realization (extent tracking).</param>
+        /// <param name="minN">The type's running minimum consequence extent.</param>
+        /// <param name="maxN">The type's running maximum consequence extent.</param>
         private static void AppendModeEntries(ComponentRiskOutput modeOutput, double rawProbability, double adjustedProbability,
             List<double> failEntryProbabilities, List<double> failEntryValues,
-            List<double> excessEntryProbabilities, List<double> excessEntryValues, ComponentRealization realization)
+            List<double> excessEntryProbabilities, List<double> excessEntryValues, ref double minN, ref double maxN)
         {
             // Branch entry probabilities are the mode's (rawProbability·weight) entries rescaled
             // to the adjusted probability. A zero raw probability contributes nothing.
@@ -483,39 +596,26 @@ namespace RMC.TotalRisk.Results
                 failEntryValues.Add(entryValue);
                 excessEntryProbabilities.Add(entryProbability);
                 excessEntryValues.Add(entryExcess);
-                realization.MinN = Math.Min(realization.MinN, entryExcess);
-                realization.MaxN = Math.Max(realization.MaxN, entryValue);
+                minN = Math.Min(minN, entryExcess);
+                maxN = Math.Max(maxN, entryValue);
             }
         }
 
         /// <summary>
-        /// The joint-failures pathway kernel: inclusion–exclusion pathway probabilities per the
-        /// captured dependency, then per pathway the cross product over the failing modes'
-        /// exposure branches (weights multiply; the combined consequence follows the
-        /// joint-consequence rule), crossed with the component's non-failure branches for the
-        /// exact excess pairs.
+        /// Decomposes the per-mode response probabilities into the exclusive joint-failure
+        /// pathway probabilities and indicators per the captured dependency — the
+        /// type-independent half of the joint kernel, computed once per evaluation.
         /// </summary>
         /// <param name="responseProbabilities">The per-mode response probabilities.</param>
-        /// <param name="modeOutputs">The per-mode risk outputs (branch entries).</param>
-        /// <param name="nonFailWeights">The non-failure branch weights.</param>
-        /// <param name="nonFailValues">The non-failure branch values.</param>
-        /// <param name="failEntryProbabilities">The accumulating failure entry probabilities.</param>
-        /// <param name="failEntryValues">The accumulating failure entry values.</param>
-        /// <param name="excessEntryProbabilities">The accumulating excess entry probabilities.</param>
-        /// <param name="excessEntryValues">The accumulating excess entry values.</param>
-        /// <param name="realization">The component realization (extent tracking).</param>
-        /// <param name="totalProbabilityOfFailure">Accumulates the pathway union probability (once per pathway).</param>
-        /// <param name="expectedFailureConsequences">Accumulates Σ entry probability × consequence.</param>
-        /// <param name="expectedExcessConsequences">Accumulates Σ excess entry probability × excess.</param>
-        private void ComputeJointPathways(List<double> responseProbabilities, ComponentRiskOutput[] modeOutputs,
-            double[] nonFailWeights, double[] nonFailValues,
-            List<double> failEntryProbabilities, List<double> failEntryValues,
-            List<double> excessEntryProbabilities, List<double> excessEntryValues,
-            ComponentRealization realization,
-            ref double totalProbabilityOfFailure, ref double expectedFailureConsequences, ref double expectedExcessConsequences)
+        /// <param name="pathwayProbabilities">Receives the exclusive pathway probabilities.</param>
+        /// <param name="pathwayIndicators">Receives the pathway on/off indicators.</param>
+        /// <exception cref="InvalidOperationException">
+        /// Thrown when the combination caches or the dependent-mode correlation matrix are
+        /// missing — an engine wiring defect, not a data condition.
+        /// </exception>
+        private void ComputePathwayDecomposition(List<double> responseProbabilities,
+            out List<double> pathwayProbabilities, out List<int[]> pathwayIndicators)
         {
-            // The combination caches exist whenever the component projects failure paths; a miss
-            // here is an engine wiring defect, not a data condition.
             int[]? binomialCombinations = _binomialCombinations;
             int[,]? indicatorCombinations = _indicators;
             if (binomialCombinations == null || indicatorCombinations == null)
@@ -523,8 +623,6 @@ namespace RMC.TotalRisk.Results
                 throw new InvalidOperationException("The failure-mode combination caches are missing. The component was not sampled through SetupSamplers().");
             }
 
-            List<double> pathwayProbabilities;
-            List<int[]> pathwayIndicators;
             switch (_failureModeDependency)
             {
                 case DependencyType.Independent:
@@ -544,13 +642,41 @@ namespace RMC.TotalRisk.Results
                         out pathwayProbabilities, out pathwayIndicators);
                     break;
             }
+        }
 
+        /// <summary>
+        /// The joint-failures consequence kernel for one consequence type: per pathway, the
+        /// cross product over the failing modes' exposure branches (weights multiply; the
+        /// combined consequence follows the joint-consequence rule), crossed with the
+        /// component's non-failure branches for the exact excess pairs. The pathway
+        /// decomposition is supplied by the caller — it is type-independent and shared.
+        /// </summary>
+        /// <param name="responseProbabilities">The per-mode response probabilities.</param>
+        /// <param name="modeOutputs">The per-mode risk outputs at this consequence type (branch entries).</param>
+        /// <param name="pathwayProbabilities">The exclusive pathway probabilities.</param>
+        /// <param name="pathwayIndicators">The pathway on/off indicators.</param>
+        /// <param name="nonFailWeights">The type's non-failure branch weights.</param>
+        /// <param name="nonFailValues">The type's non-failure branch values.</param>
+        /// <param name="failEntryProbabilities">The accumulating failure entry probabilities.</param>
+        /// <param name="failEntryValues">The accumulating failure entry values.</param>
+        /// <param name="excessEntryProbabilities">The accumulating excess entry probabilities.</param>
+        /// <param name="excessEntryValues">The accumulating excess entry values.</param>
+        /// <param name="expectedFailureConsequences">Accumulates Σ entry probability × consequence.</param>
+        /// <param name="expectedExcessConsequences">Accumulates Σ excess entry probability × excess.</param>
+        /// <param name="minN">The type's running minimum consequence extent.</param>
+        /// <param name="maxN">The type's running maximum consequence extent.</param>
+        private void ComputeJointPathwayEntries(List<double> responseProbabilities, ComponentRiskOutput[] modeOutputs,
+            List<double> pathwayProbabilities, List<int[]> pathwayIndicators,
+            double[] nonFailWeights, double[] nonFailValues,
+            List<double> failEntryProbabilities, List<double> failEntryValues,
+            List<double> excessEntryProbabilities, List<double> excessEntryValues,
+            ref double expectedFailureConsequences, ref double expectedExcessConsequences, ref double minN, ref double maxN)
+        {
             var participating = new List<int>(_fModes.Count);
             var branchPick = new int[_fModes.Count];
             for (int j = 0; j < pathwayProbabilities.Count; j++)
             {
                 double pathwayProbability = pathwayProbabilities[j];
-                totalProbabilityOfFailure += pathwayProbability;
                 if (pathwayProbability <= 0d) continue;
 
                 participating.Clear();
@@ -583,6 +709,7 @@ namespace RMC.TotalRisk.Results
                                 JointConsequenceType.Additive => combined + value,
                                 JointConsequenceType.Average => combined + value,
                                 JointConsequenceType.Maximum => Math.Max(combined, value),
+                                // Minimum — and the defensive arm for an undefined member.
                                 _ => Math.Min(combined, value),
                             };
                     }
@@ -597,7 +724,7 @@ namespace RMC.TotalRisk.Results
                         failEntryProbabilities.Add(entryProbability);
                         failEntryValues.Add(combined);
                         expectedFailureConsequences += entryProbability * combined;
-                        realization.MaxN = Math.Max(realization.MaxN, combined);
+                        maxN = Math.Max(maxN, combined);
 
                         // Exact excess pairs against the non-failure branches.
                         for (int q = 0; q < nonFailWeights.Length; q++)
@@ -607,7 +734,7 @@ namespace RMC.TotalRisk.Results
                             excessEntryProbabilities.Add(excessProbability);
                             excessEntryValues.Add(excess);
                             expectedExcessConsequences += excessProbability * excess;
-                            realization.MinN = Math.Min(realization.MinN, excess);
+                            minN = Math.Min(minN, excess);
                         }
                     }
 

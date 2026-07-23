@@ -35,9 +35,15 @@ namespace RMC.TotalRisk.Results
     /// multi-stage modes before any sampling, so the throw is defense in depth.
     /// </para>
     /// <para>
-    /// Q-U interim (ratified): risk math consumes the primary consequence
-    /// (<c>ConsequenceFunctions[0]</c>) only; later positions stay coupled through the coupling
-    /// matrix shape but are not evaluated until the multi-axis results design lands.
+    /// Q-U closure (Phase 6.5): every consequence position of the mode's ordered
+    /// <c>ConsequenceFunctions</c> list is sampled and computed — position k reads the coupling
+    /// matrix at column k (the per-type Q-N shared draw pairing the failure and non-failure
+    /// consequences of the same type), and type k's results record into the realization's
+    /// primary curves (k = 0) or <c>AdditionalCurves[k − 1]</c>. Probability structure (SRP,
+    /// pathway decomposition) is computed once and shared by every type; adaptive refinement is
+    /// driven by the primary type, with the secondary types riding the same hazard nodes.
+    /// Secondary types are evaluated only when recording or when the caller supplies a per-type
+    /// output sink, so probe and warm-up evaluations pay the single-type cost.
     /// </para>
     /// </remarks>
     public class SampledFailureMode
@@ -95,30 +101,50 @@ namespace RMC.TotalRisk.Results
                 _responseToConsequence[i] = mean ? trailing[i].SampleFunction() : trailing[i].SampleFunction(realizationIndex);
             }
 
-            // The primary consequence pair, branch-enumerated (Q-V) and coupled on one knowledge
-            // percentile (Q-N). A consequence-free mode (reliability) carries the single
-            // zero-consequence branch so failure probability still records.
-            var primary = failureMode.ConsequenceFunction;
-            if (primary == null)
+            // Every consequence position, branch-enumerated (Q-V) and coupled per type on one
+            // knowledge percentile (per-type Q-N: position k reads coupling column k, so the
+            // failure and non-failure consequences of one type share a draw while distinct types
+            // draw independently — the coupling matrix has carried K columns since Phase 3). A
+            // consequence-free mode (reliability) carries the single zero-consequence branch so
+            // failure probability still records.
+            var consequences = failureMode.ConsequenceFunctions;
+            int typeCount = Math.Max(1, consequences.Count);
+            _failureBranchesByType = new IReadOnlyList<(double Weight, IUnivariateFunction Function)>[typeCount];
+            for (int k = 0; k < typeCount; k++)
             {
-                _failureBranches = ZeroBranch;
-            }
-            else if (mean)
-            {
-                _failureBranches = primary.SampleExposureBranches();
-            }
-            else
-            {
-                double percentile = failureMode.CouplingPercentile(realizationIndex, 0);
-                _failureBranches = primary.SampleExposureBranches(percentile);
+                var consequence = k < consequences.Count ? consequences[k] : null;
+                if (consequence == null)
+                {
+                    _failureBranchesByType[k] = ZeroBranch;
+                }
+                else if (mean)
+                {
+                    _failureBranchesByType[k] = consequence.SampleExposureBranches();
+                }
+                else
+                {
+                    _failureBranchesByType[k] = consequence.SampleExposureBranches(failureMode.CouplingPercentile(realizationIndex, k));
+                }
             }
 
-            var pairedNonFail = nonFailureMode?.ConsequenceFunction;
-            if (pairedNonFail != null)
+            var pairedConsequences = nonFailureMode?.ConsequenceFunctions;
+            if (pairedConsequences != null && pairedConsequences.Count > 0)
             {
-                _nonFailureBranches = mean
-                    ? pairedNonFail.SampleExposureBranches()
-                    : pairedNonFail.SampleExposureBranches(failureMode.CouplingPercentile(realizationIndex, 0));
+                _nonFailureBranchesByType = new IReadOnlyList<(double Weight, IUnivariateFunction Function)>[typeCount];
+                for (int k = 0; k < typeCount; k++)
+                {
+                    var paired = k < pairedConsequences.Count ? pairedConsequences[k] : null;
+                    if (paired == null)
+                    {
+                        _nonFailureBranchesByType[k] = ZeroBranch;
+                    }
+                    else
+                    {
+                        _nonFailureBranchesByType[k] = mean
+                            ? paired.SampleExposureBranches()
+                            : paired.SampleExposureBranches(failureMode.CouplingPercentile(realizationIndex, k));
+                    }
+                }
             }
         }
 
@@ -149,16 +175,17 @@ namespace RMC.TotalRisk.Results
         private readonly IUnivariateFunction[] _responseToConsequence;
 
         /// <summary>
-        /// The weighted exposure branches of the primary failure consequence at this
-        /// realization's shared knowledge percentile.
+        /// The weighted exposure branches of each failure consequence type at this realization's
+        /// per-type shared knowledge percentiles (entry k is consequence-type position k).
         /// </summary>
-        private readonly IReadOnlyList<(double Weight, IUnivariateFunction Function)> _failureBranches;
+        private readonly IReadOnlyList<(double Weight, IUnivariateFunction Function)>[] _failureBranchesByType;
 
         /// <summary>
-        /// The weighted exposure branches of the paired non-failure consequence, sampled at THIS
-        /// mode's coupling percentile (the Q-N shared draw); null when no non-failure mode pairs.
+        /// The weighted exposure branches of each paired non-failure consequence type, sampled at
+        /// THIS mode's per-type coupling percentiles (the per-type Q-N shared draw); null when no
+        /// non-failure mode pairs.
         /// </summary>
-        private readonly IReadOnlyList<(double Weight, IUnivariateFunction Function)>? _nonFailureBranches;
+        private readonly IReadOnlyList<(double Weight, IUnivariateFunction Function)>[]? _nonFailureBranchesByType;
 
         /// <summary>
         /// The resolved consequence hazard position: 0 binds the raw hazard, k the signal after
@@ -179,7 +206,13 @@ namespace RMC.TotalRisk.Results
         /// <summary>
         /// The number of weighted exposure branches the primary failure consequence carries.
         /// </summary>
-        public int FailureBranchCount => _failureBranches.Count;
+        public int FailureBranchCount => _failureBranchesByType[0].Count;
+
+        /// <summary>
+        /// The number of consequence types this mode carries (the declared-axis length; one for a
+        /// consequence-free reliability mode).
+        /// </summary>
+        public int ConsequenceTypeCount => _failureBranchesByType.Length;
 
         #endregion
 
@@ -251,16 +284,34 @@ namespace RMC.TotalRisk.Results
         /// <exception cref="ArgumentNullException">Thrown when the flags sink is null.</exception>
         public void EvaluateConsequenceBranches(double hazardLevel, RiskComputeFlags flags, out double[] weights, out double[] values)
         {
+            EvaluateConsequenceBranches(hazardLevel, 0, flags, out weights, out values);
+        }
+
+        /// <summary>
+        /// Evaluates this mode's own exposure branches at a hazard level for one consequence
+        /// type (position k of the declared axis). The consequence input signal is
+        /// type-independent — the chain and bound position are shared — so only the branch set
+        /// changes with the type.
+        /// </summary>
+        /// <param name="hazardLevel">The raw hazard level.</param>
+        /// <param name="typeIndex">The consequence-type position (0 is the primary).</param>
+        /// <param name="flags">The realization's computational-warning flags (negative values clamp with the matching flag).</param>
+        /// <param name="weights">Receives the branch weights.</param>
+        /// <param name="values">Receives the branch consequence values, clamped at zero.</param>
+        /// <exception cref="ArgumentNullException">Thrown when the flags sink is null.</exception>
+        public void EvaluateConsequenceBranches(double hazardLevel, int typeIndex, RiskComputeFlags flags, out double[] weights, out double[] values)
+        {
             if (flags == null) throw new ArgumentNullException(nameof(flags));
 
             double signal = ConsequenceInput(hazardLevel);
-            int count = _failureBranches.Count;
+            var branches = _failureBranchesByType[typeIndex];
+            int count = branches.Count;
             weights = new double[count];
             values = new double[count];
             for (int i = 0; i < count; i++)
             {
-                weights[i] = _failureBranches[i].Weight;
-                double value = _failureBranches[i].Function?.Function(signal) ?? 0d;
+                weights[i] = branches[i].Weight;
+                double value = branches[i].Function?.Function(signal) ?? 0d;
                 if (value < 0d)
                 {
                     if (IsNonFailureMode)
@@ -279,8 +330,8 @@ namespace RMC.TotalRisk.Results
 
         /// <summary>
         /// Computes this mode's risk at one hazard evaluation point: the response probability,
-        /// the branch-enumerated failure and excess consequences, and the recorded risk-point
-        /// entries.
+        /// the branch-enumerated failure and excess consequences per consequence type, and the
+        /// recorded risk-point entries.
         /// </summary>
         /// <param name="probability">The hazard non-exceedance probability at the evaluation point.</param>
         /// <param name="hazardLevel">The hazard level.</param>
@@ -291,43 +342,99 @@ namespace RMC.TotalRisk.Results
         /// <param name="flags">The realization's computational-warning flags.</param>
         /// <param name="realization">The failure mode's realization sink.</param>
         /// <param name="recordOutput">True to record risk-point entries on the realization curves.</param>
-        /// <returns>The mode's risk output at the evaluation point.</returns>
+        /// <param name="typeOutputs">
+        /// The optional per-type output sink, length at least <see cref="ConsequenceTypeCount"/>
+        /// (entry k receives type k's output; entry 0 is the returned primary). Secondary types
+        /// are computed only when recording or when this sink is supplied — probe evaluations
+        /// pay the single-type cost.
+        /// </param>
+        /// <returns>The mode's primary-type risk output at the evaluation point.</returns>
         /// <exception cref="ArgumentNullException">Thrown when the flags or realization sink is null.</exception>
         /// <remarks>
         /// The v1.0 clamping rules are preserved: negative consequences clamp to zero with the
         /// matching warning flag (failure and excess flags raise only when the failure
         /// probability is positive — a negative consequence on an impossible event is not
-        /// actionable). Excess is computed per failure/non-failure branch pair,
+        /// actionable). Excess is computed per failure/non-failure branch pair within each type,
         /// <c>max(0, cF_i − cNF_j)</c>, so the recorded Excess entries carry the exact pair
         /// distribution; the output's excess LIST entries use the mean non-failure consequence
         /// (the documented 4b interim on <see cref="ComponentRiskOutput"/>), while the scalar
-        /// mean excess is pair-exact.
+        /// mean excess is pair-exact. Type k's points record into the realization's primary
+        /// curves (k = 0) or <c>AdditionalCurves[k − 1]</c>; the analysis validation gate
+        /// guarantees the realization carries a slot per declared type.
         /// </remarks>
         public ComponentRiskOutput ComputeRisk(double probability, double hazardLevel, SampledFailureMode? nonFailureMode,
-            RiskComputeFlags flags, FailureModeRealization realization, bool recordOutput = false)
+            RiskComputeFlags flags, FailureModeRealization realization, bool recordOutput = false,
+            ComponentRiskOutput[]? typeOutputs = null)
         {
             if (flags == null) throw new ArgumentNullException(nameof(flags));
             if (realization == null) throw new ArgumentNullException(nameof(realization));
 
-            var output = new ComponentRiskOutput();
             double probabilityOfFailure = SRP(hazardLevel);
+            bool record = recordOutput && !IsNonFailureMode;
+
+            // Secondary types ride along only when their results are consumed: the recorded
+            // curves or the caller's per-type sink. Probes and warm-up evaluations stay
+            // single-type.
+            int computedTypes = record || typeOutputs != null ? _failureBranchesByType.Length : 1;
+
+            // Type-independent signals: the consequence input chain and the paired non-failure
+            // mode's chain are shared by every consequence type.
+            double consequenceSignal = ConsequenceInput(hazardLevel);
+            bool hasPairedNonFailure = _nonFailureBranchesByType != null && nonFailureMode != null;
+            double nonFailSignal = hasPairedNonFailure ? nonFailureMode!.ConsequenceInput(hazardLevel) : 0d;
+
+            ComponentRiskOutput primary = null!;
+            for (int k = 0; k < computedTypes; k++)
+            {
+                var output = ComputeTypeRisk(k, probability, hazardLevel, probabilityOfFailure,
+                    consequenceSignal, nonFailSignal, hasPairedNonFailure, flags, realization, record);
+                if (k == 0) primary = output;
+                if (typeOutputs != null) typeOutputs[k] = output;
+            }
+            return primary;
+        }
+
+        /// <summary>
+        /// Computes one consequence type's risk at one hazard evaluation point — the per-type
+        /// kernel behind <see cref="ComputeRisk"/>: the paired non-failure branches at the
+        /// type's shared draw, the failure branches, the exact excess pairs, and the recorded
+        /// entries on the type's curve set.
+        /// </summary>
+        /// <param name="typeIndex">The consequence-type position (0 is the primary).</param>
+        /// <param name="probability">The hazard non-exceedance probability at the evaluation point.</param>
+        /// <param name="hazardLevel">The hazard level.</param>
+        /// <param name="probabilityOfFailure">The mode's response probability at the hazard level (type-independent).</param>
+        /// <param name="consequenceSignal">This mode's consequence input signal (type-independent).</param>
+        /// <param name="nonFailSignal">The paired non-failure mode's consequence input signal.</param>
+        /// <param name="hasPairedNonFailure">Whether a paired non-failure consequence exists.</param>
+        /// <param name="flags">The realization's computational-warning flags.</param>
+        /// <param name="realization">The failure mode's realization sink.</param>
+        /// <param name="record">True to record risk-point entries on the type's curves.</param>
+        /// <returns>The type's risk output at the evaluation point.</returns>
+        private ComponentRiskOutput ComputeTypeRisk(int typeIndex, double probability, double hazardLevel,
+            double probabilityOfFailure, double consequenceSignal, double nonFailSignal, bool hasPairedNonFailure,
+            RiskComputeFlags flags, FailureModeRealization realization, bool record)
+        {
+            var output = new ComponentRiskOutput();
+            var failureBranches = _failureBranchesByType[typeIndex];
 
             // Paired non-failure consequence branches, evaluated at the NON-FAILURE mode's own
-            // consequence input signal (its transform chain), with THIS mode's paired sample.
+            // consequence input signal (its transform chain), with THIS mode's paired sample at
+            // this type's coupling column.
             int nonFailCount = 1;
             double meanNonFail = 0d;
             double[] nonFailWeights = _singleUnitWeight;
             double[] nonFailValues = _singleZeroValue;
-            if (_nonFailureBranches != null && nonFailureMode != null)
+            if (hasPairedNonFailure)
             {
-                double nonFailSignal = nonFailureMode.ConsequenceInput(hazardLevel);
-                nonFailCount = _nonFailureBranches.Count;
+                var nonFailureBranches = _nonFailureBranchesByType![typeIndex];
+                nonFailCount = nonFailureBranches.Count;
                 nonFailWeights = new double[nonFailCount];
                 nonFailValues = new double[nonFailCount];
                 for (int j = 0; j < nonFailCount; j++)
                 {
-                    nonFailWeights[j] = _nonFailureBranches[j].Weight;
-                    double value = _nonFailureBranches[j].Function?.Function(nonFailSignal) ?? 0d;
+                    nonFailWeights[j] = nonFailureBranches[j].Weight;
+                    double value = nonFailureBranches[j].Function?.Function(nonFailSignal) ?? 0d;
                     if (value < 0d)
                     {
                         flags.HasNegativeNonFailureConsequence = true;
@@ -339,16 +446,14 @@ namespace RMC.TotalRisk.Results
             }
 
             // Failure consequence branches at the bound consequence input signal.
-            bool record = recordOutput && !IsNonFailureMode;
-            var excessProbabilities = record ? new List<double>(_failureBranches.Count * nonFailCount) : null;
-            var excessValues = record ? new List<double>(_failureBranches.Count * nonFailCount) : null;
-            double consequenceSignal = ConsequenceInput(hazardLevel);
+            var excessProbabilities = record ? new List<double>(failureBranches.Count * nonFailCount) : null;
+            var excessValues = record ? new List<double>(failureBranches.Count * nonFailCount) : null;
             double meanFailure = 0d;
             double meanExcess = 0d;
-            for (int i = 0; i < _failureBranches.Count; i++)
+            for (int i = 0; i < failureBranches.Count; i++)
             {
-                double weight = _failureBranches[i].Weight;
-                double failureValue = _failureBranches[i].Function?.Function(consequenceSignal) ?? 0d;
+                double weight = failureBranches[i].Weight;
+                double failureValue = failureBranches[i].Function?.Function(consequenceSignal) ?? 0d;
                 if (failureValue < 0d)
                 {
                     if (probabilityOfFailure > 0d) flags.HasNegativeFailureConsequence = true;
@@ -380,19 +485,20 @@ namespace RMC.TotalRisk.Results
                 output.ExcessConsequences.Add(Math.Max(0d, failureValue - meanNonFail));
             }
 
-            // Record the mode-level risk points: Fail entries per failure branch, Excess entries
-            // per branch pair.
+            // Record the mode-level risk points on this type's curves: Fail entries per failure
+            // branch, Excess entries per branch pair.
             if (record)
             {
-                var failProbabilities = new List<double>(_failureBranches.Count);
-                var failValues = new List<double>(_failureBranches.Count);
-                for (int i = 0; i < _failureBranches.Count; i++)
+                var target = typeIndex == 0 ? realization.Curves : realization.AdditionalCurves[typeIndex - 1];
+                var failProbabilities = new List<double>(failureBranches.Count);
+                var failValues = new List<double>(failureBranches.Count);
+                for (int i = 0; i < failureBranches.Count; i++)
                 {
                     failProbabilities.Add(output.ResponseProbabilities[i]);
                     failValues.Add(output.FailureConsequences[i]);
                 }
-                realization.Curves.Fail.AddRiskPoint(hazardLevel, probability, failProbabilities, failValues);
-                realization.Curves.Excess.AddRiskPoint(hazardLevel, probability, excessProbabilities!, excessValues!);
+                target.Fail.AddRiskPoint(hazardLevel, probability, failProbabilities, failValues);
+                target.Excess.AddRiskPoint(hazardLevel, probability, excessProbabilities!, excessValues!);
             }
 
             output.ProbabilityOfFailure = probabilityOfFailure;

@@ -5,12 +5,21 @@ namespace RMC.TotalRisk.Results
 {
     /// <summary>
     /// The per-realization results of one system component: its five loss exceedance curve
-    /// streams, the per-failure-mode realizations, and the hazard/consequence extent tracking.
+    /// streams per consequence type, the per-failure-mode realizations, and the
+    /// hazard/consequence extent tracking.
     /// </summary>
     /// <remarks>
     /// <para>
     ///     <b>Authors:</b>
     ///     Haden Smith, USACE Risk Management Center, cole.h.smith@usace.army.mil
+    /// </para>
+    /// <para>
+    /// The multi-consequence axis (Phase 6.5, Q-U closure): <see cref="Curves"/> and the
+    /// <see cref="MinN"/>/<see cref="MaxN"/> extents carry the primary consequence type;
+    /// <see cref="AdditionalCurves"/> and the parallel <see cref="AdditionalMinN"/>/
+    /// <see cref="AdditionalMaxN"/> extents carry type k at entry k − 1, in declared order.
+    /// Per-type extents exist because consequence types live on different magnitude scales
+    /// (lives versus dollars) — every type gets its own percentile grid.
     /// </para>
     /// </remarks>
     public class ComponentRealization
@@ -22,6 +31,9 @@ namespace RMC.TotalRisk.Results
         {
             Curves = new Curves();
             FailureModes = new List<FailureModeRealization>();
+            AdditionalCurves = new List<Curves>();
+            AdditionalMinN = new List<double>();
+            AdditionalMaxN = new List<double>();
         }
 
         /// <summary>
@@ -39,6 +51,9 @@ namespace RMC.TotalRisk.Results
             {
                 FailureModes.Add(new FailureModeRealization());
             }
+            AdditionalCurves = new List<Curves>();
+            AdditionalMinN = new List<double>();
+            AdditionalMaxN = new List<double>();
         }
 
         /// <summary>
@@ -52,19 +67,61 @@ namespace RMC.TotalRisk.Results
         public List<FailureModeRealization> FailureModes { get; set; }
 
         /// <summary>
-        /// The component-level five loss exceedance curve streams.
+        /// The component-level five loss exceedance curve streams of the primary consequence
+        /// type.
         /// </summary>
         public Curves Curves { get; set; }
 
         /// <summary>
-        /// The smallest consequence observed for this component in this realization.
+        /// The component-level five-stream curve sets of the additional consequence types, in
+        /// declared order (entry k − 1 is type k). Empty on a single-type analysis.
+        /// </summary>
+        public List<Curves> AdditionalCurves { get; set; }
+
+        /// <summary>
+        /// The smallest consequence observed for this component in this realization (primary
+        /// consequence type).
         /// </summary>
         public double MinN { get; set; } = double.MaxValue;
 
         /// <summary>
-        /// The largest consequence observed for this component in this realization.
+        /// The largest consequence observed for this component in this realization (primary
+        /// consequence type).
         /// </summary>
         public double MaxN { get; set; } = double.MinValue;
+
+        /// <summary>
+        /// The smallest consequence observed per additional consequence type, parallel to
+        /// <see cref="AdditionalCurves"/>.
+        /// </summary>
+        public List<double> AdditionalMinN { get; set; }
+
+        /// <summary>
+        /// The largest consequence observed per additional consequence type, parallel to
+        /// <see cref="AdditionalCurves"/>.
+        /// </summary>
+        public List<double> AdditionalMaxN { get; set; }
+
+        /// <summary>
+        /// Ensures the additional consequence-type slots exist on this component and every
+        /// failure-mode realization (curve sets and extent slots), creating any missing entries.
+        /// </summary>
+        /// <param name="count">The number of additional consequence types. Must not be negative.</param>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown when the count is negative.</exception>
+        public void EnsureAdditionalCurves(int count)
+        {
+            if (count < 0) throw new ArgumentOutOfRangeException(nameof(count), "The additional consequence-type count must not be negative.");
+            while (AdditionalCurves.Count < count)
+            {
+                AdditionalCurves.Add(new Curves());
+                AdditionalMinN.Add(double.MaxValue);
+                AdditionalMaxN.Add(double.MinValue);
+            }
+            for (int i = 0; i < FailureModes.Count; i++)
+            {
+                FailureModes[i].EnsureAdditionalCurves(count);
+            }
+        }
 
         /// <summary>
         /// The smallest hazard level observed for this component in this realization.
@@ -78,12 +135,16 @@ namespace RMC.TotalRisk.Results
 
         /// <summary>
         /// Post-processes the recorded hazard probabilities into masses on the component and every
-        /// failure mode (one-dimensional path only).
+        /// failure mode, across every consequence type (one-dimensional path only).
         /// </summary>
         /// <exception cref="InvalidOperationException">Thrown when a stream's mass budget does not telescope to one.</exception>
         public void ProcessHazardProbabilities()
         {
             Curves.ProcessHazardProbabilities();
+            for (int k = 0; k < AdditionalCurves.Count; k++)
+            {
+                AdditionalCurves[k].ProcessHazardProbabilities();
+            }
             for (int i = 0; i < FailureModes.Count; i++)
             {
                 FailureModes[i].ProcessHazardProbabilities();
@@ -91,13 +152,18 @@ namespace RMC.TotalRisk.Results
         }
 
         /// <summary>
-        /// Builds the exact curves and moments on the component and every failure mode.
+        /// Builds the exact curves and moments on the component and every failure mode, across
+        /// every consequence type.
         /// </summary>
         /// <param name="outputLength">The output resolution of the stored curves.</param>
         /// <exception cref="ArgumentOutOfRangeException">Thrown when the output length is less than two.</exception>
         public void CreateCurves(int outputLength)
         {
             Curves.CreateCurves(outputLength);
+            for (int k = 0; k < AdditionalCurves.Count; k++)
+            {
+                AdditionalCurves[k].CreateCurves(outputLength);
+            }
             for (int i = 0; i < FailureModes.Count; i++)
             {
                 FailureModes[i].CreateCurves(outputLength);
@@ -105,24 +171,35 @@ namespace RMC.TotalRisk.Results
         }
 
         /// <summary>
-        /// Builds the component-level hazard profiles. Failure-mode profiles are not built (v1.0
-        /// behavior — the component profiles carry the reporting surface).
+        /// Builds the component-level hazard profiles across every consequence type.
+        /// Failure-mode profiles are not built (v1.0 behavior — the component profiles carry the
+        /// reporting surface).
         /// </summary>
         public void CreateProfiles()
         {
             Curves.CreateProfiles();
+            for (int k = 0; k < AdditionalCurves.Count; k++)
+            {
+                AdditionalCurves[k].CreateProfiles();
+            }
         }
 
         /// <summary>
         /// Computes the risk-measure catalog on the component (with the hazard threshold) and on
-        /// every failure mode (without — v1.0 behavior).
+        /// every failure mode (without — v1.0 behavior), across every consequence type. The
+        /// consequence threshold applies to the primary type only (declared in its units); the
+        /// additional types compute with a NaN threshold.
         /// </summary>
-        /// <param name="consequenceThreshold">The consequence threshold for the assurance measure.</param>
+        /// <param name="consequenceThreshold">The consequence threshold for the primary type's assurance measure.</param>
         /// <param name="alpha">The exceedance level for value-at-risk and conditional value-at-risk.</param>
         /// <param name="hazardThreshold">The component hazard threshold, or NaN when none applies.</param>
         public void ComputeRiskMeasures(double consequenceThreshold, double alpha, double hazardThreshold = double.NaN)
         {
             Curves.ComputeRiskMeasures(consequenceThreshold, alpha, hazardThreshold);
+            for (int k = 0; k < AdditionalCurves.Count; k++)
+            {
+                AdditionalCurves[k].ComputeRiskMeasures(double.NaN, alpha, hazardThreshold);
+            }
             for (int i = 0; i < FailureModes.Count; i++)
             {
                 FailureModes[i].ComputeRiskMeasures(consequenceThreshold, alpha);
@@ -130,26 +207,34 @@ namespace RMC.TotalRisk.Results
         }
 
         /// <summary>
-        /// Scales the recorded risk-point masses on the component and every failure mode (the
-        /// joint system path's VEGAS weight self-normalization).
+        /// Scales the recorded risk-point masses on the component and every failure mode, across
+        /// every consequence type (the joint system path's VEGAS weight self-normalization).
         /// </summary>
         /// <param name="factor">The positive scale factor.</param>
         internal void ScaleRecordedMass(double factor)
         {
             Curves.ScaleRecordedMass(factor);
+            for (int k = 0; k < AdditionalCurves.Count; k++)
+            {
+                AdditionalCurves[k].ScaleRecordedMass(factor);
+            }
             for (int i = 0; i < FailureModes.Count; i++)
             {
-                FailureModes[i].Curves.ScaleRecordedMass(factor);
+                FailureModes[i].ScaleRecordedMass(factor);
             }
         }
 
         /// <summary>
-        /// Clears the recorded risk points on the component and every failure mode — call only
-        /// after post-processing.
+        /// Clears the recorded risk points on the component and every failure mode, across every
+        /// consequence type — call only after post-processing.
         /// </summary>
         public void DumpMemory()
         {
             Curves.DumpMemory();
+            for (int k = 0; k < AdditionalCurves.Count; k++)
+            {
+                AdditionalCurves[k].DumpMemory();
+            }
             for (int i = 0; i < FailureModes.Count; i++)
             {
                 FailureModes[i].DumpMemory();

@@ -34,6 +34,9 @@ namespace RMC.TotalRisk.Results
             Components = new List<ComponentRealization>();
             MinH = new List<double>();
             MaxH = new List<double>();
+            AdditionalCurves = new List<Curves>();
+            AdditionalMinN = new List<double>();
+            AdditionalMaxN = new List<double>();
         }
 
         /// <summary>
@@ -54,6 +57,9 @@ namespace RMC.TotalRisk.Results
                 MinH.Add(double.MaxValue);
                 MaxH.Add(double.MinValue);
             }
+            AdditionalCurves = new List<Curves>();
+            AdditionalMinN = new List<double>();
+            AdditionalMaxN = new List<double>();
         }
 
         /// <summary>
@@ -68,19 +74,40 @@ namespace RMC.TotalRisk.Results
         public List<ComponentRealization> Components { get; set; }
 
         /// <summary>
-        /// The system-level five loss exceedance curve streams.
+        /// The system-level five loss exceedance curve streams of the primary consequence type.
         /// </summary>
         public Curves Curves { get; set; }
 
         /// <summary>
-        /// The smallest consequence observed anywhere in this realization.
+        /// The system-level five-stream curve sets of the additional consequence types, in
+        /// declared order (entry k − 1 is type k of the analysis's declared axis — Phase 6.5,
+        /// Q-U closure). Empty on a single-type analysis.
+        /// </summary>
+        public List<Curves> AdditionalCurves { get; set; }
+
+        /// <summary>
+        /// The smallest consequence observed anywhere in this realization (primary consequence
+        /// type).
         /// </summary>
         public double MinN { get; set; } = double.MaxValue;
 
         /// <summary>
-        /// The largest consequence observed anywhere in this realization.
+        /// The largest consequence observed anywhere in this realization (primary consequence
+        /// type).
         /// </summary>
         public double MaxN { get; set; } = double.MinValue;
+
+        /// <summary>
+        /// The smallest consequence observed per additional consequence type, parallel to
+        /// <see cref="AdditionalCurves"/>.
+        /// </summary>
+        public List<double> AdditionalMinN { get; set; }
+
+        /// <summary>
+        /// The largest consequence observed per additional consequence type, parallel to
+        /// <see cref="AdditionalCurves"/>.
+        /// </summary>
+        public List<double> AdditionalMaxN { get; set; }
 
         /// <summary>
         /// The smallest hazard level observed per component, parallel to <see cref="Components"/>.
@@ -111,11 +138,37 @@ namespace RMC.TotalRisk.Results
         public double ChiSquared { get; set; }
 
         /// <summary>
-        /// Clears every recorded risk point in the realization — call only after post-processing.
+        /// Ensures the additional consequence-type slots exist on the system scope and every
+        /// component (curve sets and extent slots), creating any missing entries.
+        /// </summary>
+        /// <param name="count">The number of additional consequence types. Must not be negative.</param>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown when the count is negative.</exception>
+        public void EnsureAdditionalCurves(int count)
+        {
+            if (count < 0) throw new ArgumentOutOfRangeException(nameof(count), "The additional consequence-type count must not be negative.");
+            while (AdditionalCurves.Count < count)
+            {
+                AdditionalCurves.Add(new Curves());
+                AdditionalMinN.Add(double.MaxValue);
+                AdditionalMaxN.Add(double.MinValue);
+            }
+            for (int i = 0; i < Components.Count; i++)
+            {
+                Components[i].EnsureAdditionalCurves(count);
+            }
+        }
+
+        /// <summary>
+        /// Clears every recorded risk point in the realization, across every consequence type —
+        /// call only after post-processing.
         /// </summary>
         public void DumpMemory()
         {
             Curves.DumpMemory();
+            for (int k = 0; k < AdditionalCurves.Count; k++)
+            {
+                AdditionalCurves[k].DumpMemory();
+            }
             for (int i = 0; i < Components.Count; i++)
             {
                 Components[i].DumpMemory();
