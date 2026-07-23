@@ -62,9 +62,14 @@ the test executable with a TRX report:
 | [Single-component mean parity](single-component-mean-parity.md) | `SingleComponentMeanParityVerification` | Legacy-style MC oracle over shared tables at `MersenneTwister(12345)`, N = 10⁶ — the five summary means + AFP (the free regression gate) | ✅ Verified (2026-07-22) |
 | [Exact LEC / mixture tail](exact-lec-tail.md) | `ExactLecTailVerification` | New brute-force MC oracle (seeds 12345/45678/78910, N = 10⁶) — σ, exceedance ordinates, VaR, CVaR for the day/night mixture (Monte-Carlo-parity per the v0.13 policy) | ✅ Verified (2026-07-22) |
 | [Multi-component system risk](system-risk.md) | `SystemRiskVerification` | New brute-force event-level MC oracles (seeds 12345/45678, N = 10⁶) — the additive lattice convolution's full system LEC, the correlated joint VEGAS path, the γ tail-focus audit (N9 gate), and the system reproducibility pins | ✅ Verified (2026-07-23) |
+| [Joint failure modes](joint-failures.md) | `JointFailuresVerification` | Legacy `Test_MC_JointFailures` ported (32 methods consolidated to 8 dependency groups, seeds 12345/12345, N = 10⁶) + 2024 report constants (tables 61–76) — means, unions, σ, LEC probes, VaR/CVaR across {2, 5}-PFM × 4 dependencies × 4 rules | ✅ Verified (2026-07-23) |
+| [Competing failure modes](competing-failures.md) | `CompetingFailuresVerification` | Legacy `Test_MC_CompetingFailures` ported (8 methods incl. the corrected 5-PFM Positive body) + report constants (tables 59–60) — the weak-link CIF path across 4 dependencies | ✅ Verified (2026-07-23) |
+| [Common cause adjustment](common-cause.md) | `CommonCauseVerification` | Legacy `Test_MC_CommonCause` ported (10 methods, the `_CCA` pair merged into Independent; seeds 12345/45678) + report constants (tables 55–58) — the CCA factor across 4 dependencies | ✅ Verified (2026-07-23) |
+| [Mutually exclusive](mutually-exclusive.md) | `MutuallyExclusiveVerification` | Legacy `Test_MC_MutuallyExclusive` ported (seeds 12345/45678) — the capped-sum normalization with its warning surface pinned | ✅ Verified (2026-07-23) |
+| [Expected annual damage](ead.md) | `EadVerification` | Legacy `Test_EAD` ported + exact closed form (mean, σ, VaR, CVaR of the clamped piecewise-linear curve) — two equivalent engine mappings (background and always-fail) | ✅ Verified (2026-07-23) |
 
 Engine-level composite scenarios (the legacy `Test_Composite.vb` day/night oracles with a
 hazard curve and fragility in the loop) convert when the risk engine lands — see the
 conversion order in [docs/verification.md](../verification.md); this folder gains their pages
-then. Families verified in Phases 5–6 (joint/competing/common-cause failures, system risk,
-NFIP assurance) add their pages the same way.
+then. Families verified in Phase 6 (multi-component system-risk oracles, NFIP assurance, the
+LHS variance-reduction check) add their pages the same way.
