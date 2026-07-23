@@ -33,6 +33,42 @@ For a Monte Carlo mean estimate over N realizations, the standard error is SE �
 - Curve (FN / loss-exceedance) checks assert at a small set of exceedance levels, not all 200 stratification bins; tail bins with < ~100 expected exceedances get proportionally wider tolerances or are excluded (documented per test).
 - Deep re-runs: any converted test can be re-run at the legacy N = 10M by a user-set realization constant; this is deliberate and user-triggered, never part of the standard suite.
 
+### Finalized policy (Phase 6)
+
+The policy above is **final** as of Phase 6, with the following amendments calibrated by the
+system-risk, combos, NFIP, and variance-reduction conversions (each figure is measured and
+documented in the owning test's XML docs):
+
+- **Deterministic engine paths** (adaptive Gauss–Kronrod, the additive lattice convolution,
+  reliability integrals): asserts carry the oracle's k·SE only, plus documented deterministic
+  allowances where an interim applies — the N7 recorded-mass interim (≤ ~1e-5 relative on
+  means), loss-exceedance output thinning (probes read resolution 1000 — the Phase 5 finding),
+  convolution-lattice quantization (system probes run 65,536 nodes to keep it an order below
+  the binomial tolerance), and log-log interpolation of frequency profiles at a threshold
+  (≤ 1e-4 relative, the NFIP engine-versus-exact allowance).
+- **Monte Carlo engine paths** (the joint VEGAS method): stream-mean asserts combine the
+  oracle SE with the run's reported VEGAS standard error additively (the total-mean SE is the
+  conservative proxy for every stream); probability and curve-ordinate asserts combine
+  binomial errors in quadrature at the recorded evaluation count (five recording passes × the
+  final evaluations). Tail focus is off (γ = 1) in oracle-parity runs; γ > 1 is audited by the
+  dedicated N9 gate.
+- **Report constant pins**: engine versus the 2024 report's published 10M Monte Carlo values
+  at k·σ̂/√10⁷ (σ̂ from the converted oracle's matching stream) plus a relative
+  tabulation allowance — 1e-3 for single-component scenarios, 2e-3 for multi-component
+  scenarios (the z-grid bias adds coherently across summed components) — plus the reported
+  VEGAS error on joint-method pins. The NFIP Table 104 pins bind the oracle at the combined
+  1M/10M binomial error and the engine at a 0.5% v1.0-parity band.
+- **Enumeration-truncation witnesses**: the joint method's exhaustive mass balance and its
+  additive-rule component-mean identity are exact (1e-9) at D = 2 and bounded by the
+  documented Numerics `IndependentExclusive` convergence tolerance (1e-4; observed ~1e-6)
+  above — the engine's honest surface of the upstream shortcut, re-verified when the Numerics
+  follow-up lands.
+- **Ensemble (knowledge-uncertainty) asserts**: realization-for-realization parity against
+  exact per-realization oracles where the sampling walk is deterministic (D = 0 posterior
+  injection); ensemble summary statistics at the deterministic allowance; scheme-level
+  variance-reduction asserts on replicate variances with health guards proving the scenario
+  discriminates.
+
 ## v0.13 policy: means vs tails after the Phase 4 engine corrections
 
 The Phase 4 / 4b / 4c engine corrections (arch doc v0.13: exact LEC construction, weighted-Welford
@@ -91,7 +127,7 @@ their scheduled phase below — the function-level families do not replace them.
 | 4 | Engine reproducibility regressions (shuffle/rename/metadata → bit-identical; same seed → bit-identical at any thread count); single-component mean parity + a new MC tail oracle for the exact-LEC and mixture-exposure fixes |
 | 4b | Additive FFT convolution (convolved-mean = Σ means; MC tail cross-check) and joint combination enumeration (mean parity + MC tail) — both means-vs-tails per the v0.13 policy above |
 | 5 (landed 2026-07-23) | `JointFailures` (1-comp 2/5-PFM × dependency × aggregation; 32 legacy methods consolidated to 8 shared-sampling groups), `CompetingFailures` (incl. the corrected 5-PFM Positive body — the legacy code path was broken), `CommonCause` (the `_CCA` pair merged into Independent — identical streams), `MutuallyExclusive`, `EAD` (+ exact closed form); **plus two new families beyond the legacy suite**: `SingleComponentUncertainty` (two-loop knowledge-uncertainty oracle with an exact inner integral, Q-N coupling counter-pin, `ParametricResponse` posterior-injection anchor) and `CombinationMethodConsistency` (engine-only property pins: union invariance across methods, Fréchet bound ordering, background/`RiskIntegrand` invariance, reliability parity). Results: [verification/](verification/README.md) |
-| 6 | `SystemRisk` (2-comp/2-PFM, 5-comp/1-PFM × correlation × aggregation), `RiskAnalysis` N-element combos, NFIP Assurance TOL 50/55/70, LHS variance-reduction |
+| 6 (landed 2026-07-23) | `SystemRiskMatrix` (the legacy `Test_MC_SystemRisk` 36 methods consolidated to 12 dependency groups: 2-comp/2-PFM, 2-comp/1-PFM, 5-comp/1-PFM × {Independent, Positive, Negative, Correlation} × rules, + report tables 77–103 pins), `RiskAnalysisCombos` (the `Test_RiskAnalysis` combos: 1-comp 3/4-PFM, 3/4-comp systems, the r = −0.25 average scenario; every legacy method's disposition documented), `NfipAssurance` (TOL 50/55/70 API oracles + exact quadrature + Table 104 pins + the full-uncertainty assurance ensemble per the TR NFIP appendix), `LhsVarianceReduction` (MC vs LHS at N = 1k over replicate runs). Results: [verification/](verification/README.md) |
 | 9 | `Composite` family engine-level scenarios (mixture hazard/response/consequence behind the engine, bootstrap uncertainty), NFIP TOL 60/65 |
 | 10 | `EventTree` (serialization round-trip + product oracle) |
 | 11 | `BivariateRisk` (100M→1M), `DAMRAE`, BestFit import contract |

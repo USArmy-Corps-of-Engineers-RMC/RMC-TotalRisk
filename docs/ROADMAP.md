@@ -19,7 +19,7 @@ Porting sources in order of authority: (1) the partial C# port `C:\GIT\RMC-Total
 | 4b | Multi-dimensional system risk: additive lattice convolution (strict independence), joint Vegas tail focus + real combination enumeration | Complete (2026-07-23) |
 | 4c | `RiskAnalysisMode.Reliability` | Complete (2026-07-23) |
 | 5 | Verification I — single-component oracle families | Complete (2026-07-23) |
-| 6 | Verification II — system risk + NFIP assurance | Not started |
+| 6 | Verification II — system risk + NFIP assurance | Complete (2026-07-23) |
 | 7 | Remaining closed-form functions: linear/power transforms, parametric consequence, nonparametric hazard | Not started |
 | 8 | Numerics.Functions expansion (numerics repo) + RMC.Numerics 2.2.0 package switch | Not started |
 | 9 | Composites + RFA hazard + weighted wrappers + BestFit composite imports | Not started |
@@ -205,9 +205,34 @@ with no store, no resolver, and no consuming layer in the call path.
 
 ## Phase 6 — Verification II: system risk + NFIP assurance
 
+> **Complete (2026-07-23).** Four families landed: `SystemRiskMatrixVerification` (the 36
+> legacy `Test_MC_SystemRisk` methods consolidated to 12 dependency-group tests — 2-comp/2-PFM
+> additive, 2-comp/1-PFM and 5-comp/1-PFM across {Independent, PerfectlyPositive,
+> PerfectlyNegative, CorrelationMatrix} × all four joint-consequence rules — with the 2024
+> report's tables 77–103 pinned for every published scenario, the additive engine asserted on
+> the full Phase 5 catalog and the joint engine on the 4b convention, plus the 5-component
+> additive shuffle/rename bit-identity pin); `RiskAnalysisCombosVerification` (the
+> `Test_RiskAnalysis` combos: 1-comp 3/4-PFM perfectly negative groups across all rules, the
+> 3/4-component negative systems, the r = −0.25 average scenario the mislabeled
+> `Test_5Element_1PFM_2` body computes, with every remaining legacy method's disposition
+> documented — stream-identical duplicates, workbenches, and Phase 9 scope); the roadmap's
+> "2-component/2-PFM and 5-component/1-PFM" reading of the legacy matrix was extended from the
+> bodies (2-comp/1-PFM is the published bulk of the legacy file). `NfipAssuranceVerification`
+> (TOL 50/55/70 API oracles at the legacy seed + an exact-quadrature reference + Table 104
+> pins, both parametric-LP3 and dense-tabular hazard engine variants in reliability mode with
+> the top-of-levee `HazardThreshold` mapped to exact rating knots; **plus the full-uncertainty
+> assurance ensemble the TR NFIP appendix requires** — a 300-set injected LP3 posterior,
+> per-realization API parity against exact quadrature, and the assurance fraction
+> P(API ≤ 0.01) pinned exactly). `LhsVarianceReductionVerification` (MC vs LHS at N = 1k over
+> 5 replicate pairs — variance ratio, unbiasedness, mean-only linearity anchor). One latent
+> engine gap found and fixed: the additive system's failure union folded component
+> probabilities in declaration order (reorder moved the union by 1–2 ulp against the 4b
+> bit-inertness contract) — it now folds in the canonical-hash order the convolution uses.
+> Tolerance policy finalized in [verification.md](verification.md).
+
 **Scope:** Convert `Test_MC_SystemRisk` (2-component/2-PFM and 5-component/1-PFM across the correlation × aggregation matrix — port from method *bodies*, several legacy names are mislabeled), the `Test_RiskAnalysis` N-element/N-PFM combos, and NFIP Assurance TOL 50/55/70 (LP3 flow frequency → rating transform → fragility → AEP). Add the LHS variance-reduction test (MC vs LHS at N=1k over repeated runs). Finalize the tolerance policy in [verification.md](verification.md).
 
-**Exit criteria:** multi-component system risk + NFIP verified; tabular+parametric clusters, the engine, and the reliability mode all carry V status in the matrix.
+**Exit criteria: met** — multi-component system risk + NFIP verified; tabular+parametric clusters, the engine, and the reliability mode all carry V status in the matrix.
 
 ## Phase 7 — Remaining closed-form functions
 
