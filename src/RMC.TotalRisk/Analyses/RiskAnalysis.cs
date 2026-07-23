@@ -865,7 +865,11 @@ namespace RMC.TotalRisk.Analyses
         /// its complement for NonFail (the convolution's own recorded mass measures "any positive
         /// consequence", which quantizes zero-valued events into the atom). The convolved system
         /// mean equals the sum of the component means by construction — the v1.0 additive answer,
-        /// now with the full curve v1.0 never produced.
+        /// now with the full curve v1.0 never produced. The failure union folds the component
+        /// probabilities in the canonical-hash component order — the same association the
+        /// convolution uses — so declaration order cannot move the union even at the last bit
+        /// (a Phase 6 reproducibility-pin finding; declaration order previously reassociated the
+        /// union product by one or two units in the last place).
         /// </summary>
         /// <param name="realization">The system realization to fill.</param>
         /// <param name="componentRealizations">The finished per-component realizations.</param>
@@ -880,10 +884,11 @@ namespace RMC.TotalRisk.Analyses
             ConvolveSystemStream(realization.Curves.Fail, componentRealizations, c => c.Fail);
             ConvolveSystemStream(realization.Curves.NonFail, componentRealizations, c => c.NonFail);
 
+            var order = _additiveConvolutionOrder!;
             var failureProbabilities = new double[componentRealizations.Count];
             for (int i = 0; i < componentRealizations.Count; i++)
             {
-                failureProbabilities[i] = componentRealizations[i].Curves.Fail.TotalProbability;
+                failureProbabilities[i] = componentRealizations[order[i]].Curves.Fail.TotalProbability;
             }
             double failureUnion = Probability.IndependentUnion(failureProbabilities);
             realization.Curves.Fail.TotalProbability = failureUnion;
