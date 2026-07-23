@@ -178,21 +178,21 @@ Status legend: — planned · P ported · T unit-tested · V verification covera
 | Hazard | TabularHazard | P/T | NFIP assurance oracles (Phase 6) |
 | Hazard | ParametricUnivariateHazard | P/T | NFIP assurance oracles (Phase 6) |
 | Transform | TabularTransform | P/T | rating-curve oracles (Phase 6) |
-| Response | TabularResponse | P/T | joint/competing/common-cause oracles (Phase 5) |
-| Response | ParametricResponse | P/T | joint/competing/common-cause oracles (Phase 5) |
-| Response | NonFailResponse | P/T | engine scenarios (Phase 5) |
-| Consequence | TabularConsequence | P/T | joint-failures oracles (Phase 5) |
+| Response | TabularResponse | P/T/V | joint/competing/common-cause/mutually-exclusive oracle families (Phase 5 — landed 2026-07-23; docs/verification/) |
+| Response | ParametricResponse | P/T/V | posterior-injection realization-for-realization anchor (`SingleComponentUncertaintyVerification`, landed 2026-07-23) |
+| Response | NonFailResponse | P/T/V | every Phase 5 engine scenario carries the non-failure mode (landed 2026-07-23) |
+| Consequence | TabularConsequence | P/T/V | joint/competing/common-cause/mutually-exclusive + EAD oracle families (Phase 5 — landed 2026-07-23) |
 | Consequence | ParametricConsequence + ClampedPowerFunction | P/T/V | function-level exact/lognormal/MC-oracle family (`ParametricConsequenceVerification`, landed 2026-07-21; docs/verification/parametric-consequence.md) |
 | Consequence | CompositeConsequence + WeightedConsequenceFunction + CompositeUnivariateFunction | P/T/V | function-level 2024-report family (`CompositeConsequenceVerification`, landed 2026-07-21; docs/verification/composite-consequence.md); engine-level `Test_Composite*` oracles remain Phase 9 |
 | Core.Enums | FailureModeMethod / DependencyType / JointConsequenceType / RiskType / HazardDimension | P/T | value/order pinning tests (Phase 3 — landed 2026-07-20) |
 | Core.Enums | HazardFunctionType / TransformFunctionType / ResponseFunctionType / ConsequenceFunctionType / RiskElementType / RiskAnalysisMode | P/T | member pinning + not-serialized assertions (v0.10 namespace reorganization — landed 2026-07-20) |
 | Core.Enums | RiskSerializationMode | P/T | mode-invariant hashing + by-reference round-trip tests (Phase 3.5 — landed 2026-07-20) |
 | Core.Enums | RiskIntegrand (adaptive-refinement objective) / VegasTailFocusMode / SystemRiskType | P/T | member/order pins + options round-trip + hash-recipe tests (Phase 4 — landed 2026-07-22) |
-| Systems | ResponseStage / FailureMode | P/T | joint/competing/common-cause oracles (Phase 5) |
-| Systems | SystemComponent (graph-owned; projection + identity hash + occurrence indices + MVN) | P/T | engine scenarios + seed-bug regressions (Phases 4–6) |
+| Systems | ResponseStage / FailureMode | P/T/V | joint/competing/common-cause/mutually-exclusive oracle families across the dependency × combination matrix (Phase 5 — landed 2026-07-23) |
+| Systems | SystemComponent (graph-owned; projection + identity hash + occurrence indices + MVN) | P/T/V | engine scenarios + seed-bug regressions (Phases 4–5 landed; Phase 6 adds the multi-component system oracles) |
 | Graph | IRiskElement / RiskElementBase / Hazard-Transform-Response-ConsequenceElement / RiskConnection / ComponentGraph / factory / resolver / HazardSourceOption | P/T | levee projection acceptance + identity-inertness unit tests (Phase 3); engine scenarios (Phases 5–6) |
 | Results | SampledComponent / SampledFailureMode / ComponentRiskOutput / RiskComputeFlags / Curve / Curves / RiskPoint / realization + summary trees / EnsembleResults (JSON) | P/T/V | Phase 4 (landed 2026-07-22): combination-rule known-point tests, exact-LEC/Welford/measure tests, JSON round-trips; engine families `EngineReproducibilityVerification` + `ExactLecTailVerification` (docs/verification/) |
-| Analyses | RiskAnalysis + RiskAnalysisOptions + AnalysisBase/IAnalysis (1D engine core + Phase 4b multi-D system risk + Phase 4c reliability mode) | P/T/V | Phases 4–4c (landed 2026-07-22/23): seed-bug regressions (`EngineReproducibilityVerification`), mean parity (`SingleComponentMeanParityVerification`), MC tail oracles (`ExactLecTailVerification`, `SystemRiskVerification` incl. the γ-audit and system reproducibility pins; docs/verification/system-risk.md); full oracle families Phases 5–6 |
+| Analyses | RiskAnalysis + RiskAnalysisOptions + AnalysisBase/IAnalysis (1D engine core + Phase 4b multi-D system risk + Phase 4c reliability mode) | P/T/V | Phases 4–5 (landed 2026-07-22/23): seed-bug regressions (`EngineReproducibilityVerification`), mean parity (`SingleComponentMeanParityVerification`), MC tail oracles (`ExactLecTailVerification`, `SystemRiskVerification` incl. the γ-audit), the five Bucket-1 families (`JointFailures`/`CompetingFailures`/`CommonCause`/`MutuallyExclusive`/`Ead` — 22 report-constant pin scenarios), and the new `SingleComponentUncertainty` + `CombinationMethodConsistency` families; Phase 6 adds system oracles + NFIP assurance |
 | Analyses | SystemConvolution (exact lattice FFT convolution — the additive system aggregation kernel) | P/T/V | Phase 4b (landed 2026-07-23): exact-enumeration/mean-preservation/variance-additivity unit tests; system-LEC-vs-event-oracle family (`SystemRiskVerification`) |
 | Analyses | CostBenefitAnalysis | — | future phase (the Phase 4 self-contained-analysis foundation is its design driver) |
 | Backfill | LinearTransform / PowerTransform / NonparametricHazard | — | closed-form checks + deferred EAD/NFIP scenarios (Phase 7) |

@@ -18,7 +18,7 @@ Porting sources in order of authority: (1) the partial C# port `C:\GIT\RMC-Total
 | 4 | Analysis foundation + RiskAnalysis engine core (1D): AGK integrator, exact LEC + risk measures, `RiskIntegrand`, mixture-exposure mean-only | Complete (2026-07-22) |
 | 4b | Multi-dimensional system risk: additive lattice convolution (strict independence), joint Vegas tail focus + real combination enumeration | Complete (2026-07-23) |
 | 4c | `RiskAnalysisMode.Reliability` | Complete (2026-07-23) |
-| 5 | Verification I — single-component oracle families | Not started |
+| 5 | Verification I — single-component oracle families | Complete (2026-07-23) |
 | 6 | Verification II — system risk + NFIP assurance | Not started |
 | 7 | Remaining closed-form functions: linear/power transforms, parametric consequence, nonparametric hazard | Not started |
 | 8 | Numerics.Functions expansion (numerics repo) + RMC.Numerics 2.2.0 package switch | Not started |
@@ -175,6 +175,27 @@ with no store, no resolver, and no consuming layer in the call path.
 **Exit criteria: met** — reliability mode P/T (AFP vs dense reference at 1e-3; union AFP exact; forcing pinned).
 
 ## Phase 5 — Verification I: single-component oracle families
+
+> **Complete (2026-07-23).** All five Bucket-1 families converted at N = 10⁶ (53 legacy
+> methods → 27 scenario tests plus per-family reproducibility pins; sampling-identical rule
+> variants consolidated per group, the
+> broken legacy 5-PFM Competing-Positive body replaced by the correct r = 1 − √ε oracle, the
+> `_CCA`/`_CommonCause_Independent` pairs merged — identical streams), with the 2024 report's
+> published constants pinned for all 22 published scenarios and the v0.13 tails policy
+> realized (each ported oracle doubles as the brute-force tail oracle for σ, LEC probes, VaR,
+> CVaR, conditional means, and assurance). **Two new families beyond the roadmap scope**
+> (ratified at session start): `SingleComponentUncertainty` (two-loop knowledge-uncertainty
+> oracle with an exact inner integral; Q-N coupling counter-pin; the `ParametricResponse`
+> posterior-injection anchor) and `CombinationMethodConsistency` (union invariance across
+> methods, Fréchet bound ordering, background/`RiskIntegrand` invariance, reliability
+> parity). Pre-flight verification exposed and fixed **two latent engine defects** before any
+> test was written: the perfectly-negative dependency matrix never materialized on the run
+> path (silent zero risk under Joint/CCA, a faulted run under Competing — corrected at the
+> `SetupSamplers` freeze point, with the integrator failure-status guard added so swallowed
+> integrand exceptions can never truncate curves into silent zeros again), and the
+> common-cause perfectly-positive factor faulted against the Numerics overload's
+> unconditional null-matrix check. No `LinearTransform`/`PowerTransform` pull-forward was
+> needed (the legacy Bucket-1 scenarios use none). Results: [verification/](verification/README.md).
 
 **Scope:** Convert the Bucket-1 legacy oracles to asserted C# verification classes at **1,000,000 realizations** (policy: [verification.md](verification.md)): `Test_MC_JointFailures` (1-component, 2- and 5-PFM, {Independent/Positive/Negative/Correlation} × {Additive/Average/Maximum/Minimum}), `Test_MC_CompetingFailures`, `Test_MC_CommonCause`, `Test_MC_MutuallyExclusive`, `Test_EAD`. Engine-vs-oracle statistical asserts on the five summary outputs (incremental/irreducible/total/failure/non-failure means) + failure probability; FN-curve spot checks. If a legacy scenario requires a `LinearTransform`/`PowerTransform` as a typed model object, pull that thin wrapper forward from Phase 7 (zero-math wrappers over existing `Numerics.Functions`).
 
