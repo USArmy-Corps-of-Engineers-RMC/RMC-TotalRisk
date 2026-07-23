@@ -11,18 +11,18 @@ Porting sources in order of authority: (1) the partial C# port `C:\GIT\RMC-Total
 | Phase | Scope | Status |
 |---|---|---|
 | 0 | Repo bootstrap: structure, projects, process machinery, docs | Complete (2026-07-20) |
-| 1 | Model kernel foundation: `IRiskFunction`/`RiskFunctionBase`, hashing, seeding, sampling, serialization support | Not started |
-| 2 | Core input functions: tabular hazard/transform/response/consequence + parametric hazard/response + non-fail response | Not started |
-| 3 | Risk components + results containers (JSON results redesign) | Not started |
+| 1 | Model kernel foundation: `IRiskFunction`/`RiskFunctionBase`, hashing, seeding, sampling, serialization support | Complete (2026-07-20) |
+| 2 | Core input functions: tabular hazard/transform/response/consequence + parametric hazard/response + non-fail response | Complete (2026-07-20) |
+| 3 | Risk components + the structured component graph (results containers moved to Phase 4) | Complete (2026-07-20) |
 | 3.5 | Layer boundary seams: function `Id`, serialization modes, function resolver, change propagation | Complete (2026-07-20) |
 | 4 | Analysis foundation + RiskAnalysis engine core (1D): AGK integrator, exact LEC + risk measures, `RiskIntegrand`, mixture-exposure mean-only | Complete (2026-07-22) |
 | 4b | Multi-dimensional system risk: additive lattice convolution (strict independence), joint Vegas tail focus + real combination enumeration | Complete (2026-07-23) |
 | 4c | `RiskAnalysisMode.Reliability` | Complete (2026-07-23) |
 | 5 | Verification I — single-component oracle families | Complete (2026-07-23) |
 | 6 | Verification II — system risk + NFIP assurance | Complete (2026-07-23) |
-| 7 | Remaining closed-form functions: linear/power transforms, parametric consequence, nonparametric hazard | Not started |
+| 7 | Remaining closed-form functions: linear/power transforms, parametric consequence, nonparametric hazard | Not started (`ParametricConsequence` pulled forward 2026-07-21) |
 | 8 | Numerics.Functions expansion (numerics repo) + RMC.Numerics 2.2.0 package switch | Not started |
-| 9 | Composites + RFA hazard + weighted wrappers + BestFit composite imports | Not started |
+| 9 | Composites + RFA hazard + weighted wrappers + BestFit composite imports | Not started (`CompositeConsequence` + `WeightedConsequenceFunction` pulled forward 2026-07-21) |
 | 10 | Event trees | Not started |
 | 11 | Bivariate + BestFit import + LifeSim | Not started |
 | 12 | Hardening: coverage gate, Linux check, examples, getting-started | Not started |
@@ -37,7 +37,7 @@ Porting sources in order of authority: (1) the partial C# port `C:\GIT\RMC-Total
 
 **Exit criteria:** solution builds 0-warning; 2 smoke tests pass in Release; Verification produces no Release output; doc script green; docs tree live; work committed on `v1.1-development`. **Complete 2026-07-20.**
 
-## Phase 1 — Model kernel foundation
+## Phase 1 — Model kernel foundation — **COMPLETE (2026-07-20)**
 
 **Scope:** `Models/Support` — the model library's domain-named kernel (no "element" vocabulary; that is UI-layer lingo from the wpf-framework `IElement` world, and no root `IModel` abstraction; rationale in [requirements/MODEL_LIBRARY_ARCHITECTURE.md](requirements/MODEL_LIBRARY_ARCHITECTURE.md) v0.8):
 
@@ -50,7 +50,7 @@ Porting sources in order of authority: (1) the partial C# port `C:\GIT\RMC-Total
 
 **Exit criteria:** all support types P/T; the kitchen-sink invariance test runs green and is extendable per cluster.
 
-## Phase 2 — Core input functions
+## Phase 2 — Core input functions — **COMPLETE (2026-07-20)**
 
 **Scope:** the minimal function surface the Dam Screening Tool and the engine phases need, with the v1.0 domain surface preserved verbatim:
 
