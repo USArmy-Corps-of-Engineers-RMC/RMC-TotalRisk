@@ -587,23 +587,25 @@ namespace RMC.TotalRisk.Systems.Components
                 messages.Add("Error: The failure mode consequence hazard dimension is Secondary, which requires a bivariate hazard (not yet supported).");
             }
 
-            // The Q-W branch-explosion guardrails: the engine takes the cross product of exposure
-            // branches across the mode's consequence positions (product weights), so the combined
-            // branch count is bounded — warn above 64, error above 1024 (ratified interim until a
-            // shared-exposure declaration lands).
-            long combinedBranches = 1;
-            for (int i = 0; i < _consequenceFunctions.Count && combinedBranches <= 1024; i++)
+            // The branch-explosion guardrails under per-type marginal compute (Phase 6.5,
+            // §6.4.1 erratum): each consequence position's exposure branches enumerate
+            // separately for that type's results — types are never crossed — so the mode's
+            // per-evaluation branch work is the SUM across its consequence positions, not the
+            // pre-6.5 cross product (which modeled a cross-type coupling the engine never
+            // performs). Warn above 64, error above 1024.
+            long combinedBranches = 0;
+            for (int i = 0; i < _consequenceFunctions.Count; i++)
             {
                 if (_consequenceFunctions[i] is null) continue;
-                combinedBranches *= Math.Max(1, _consequenceFunctions[i].CountExposureBranches());
+                combinedBranches += Math.Max(1, _consequenceFunctions[i].CountExposureBranches());
             }
             if (combinedBranches > 1024)
             {
-                messages.Add("Error: The failure mode's combined consequence exposure branches exceed 1024 (the cross product across consequence positions); reduce the mixture branch counts.");
+                messages.Add("Error: The failure mode's combined consequence exposure branches exceed 1024 (the sum across consequence positions); reduce the mixture branch counts.");
             }
             else if (combinedBranches > 64)
             {
-                messages.Add($"Warning: The failure mode's combined consequence exposure branches ({combinedBranches}) exceed 64; the branch cross product grows compute cost accordingly.");
+                messages.Add($"Warning: The failure mode's combined consequence exposure branches ({combinedBranches}) exceed 64; the branch enumeration grows compute cost accordingly.");
             }
 
             ValidateLabelContinuity(messages);

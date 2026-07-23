@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Threading;
 using System.Threading.Tasks;
@@ -81,6 +82,17 @@ namespace RMC.TotalRisk.Analyses
     /// construction).
     /// </para>
     /// <para>
+    /// <b>Declared consequence-type axis (Phase 6.5, user-ratified):</b> the analysis declares
+    /// its ordered consequence types — the primary through
+    /// <see cref="SpecifiedConsequence"/>/<see cref="ConsequenceUnit"/> and every additional
+    /// position through <see cref="AdditionalConsequenceTypes"/> — and validation strictly
+    /// matches each component's failure and non-failure paths against the declaration: counts
+    /// and order always, labels and units whenever both sides are non-blank (blank is a
+    /// wildcard). The declaration is label metadata: it can never enter a canonical hash, so it
+    /// never gates or rewires compute for a valid model — validity may depend on metadata
+    /// consistency while results identity depends only on compute-relevant content.
+    /// </para>
+    /// <para>
     /// <b>Stage gates:</b> multi-stage response composition remains a validation error until the
     /// event-tree phase, with the message naming the stage.
     /// </para>
@@ -134,6 +146,15 @@ namespace RMC.TotalRisk.Analyses
             Description = SerializationUtilities.ReadString(xElement, nameof(Description));
             SpecifiedConsequence = SerializationUtilities.ReadString(xElement, nameof(SpecifiedConsequence));
             ConsequenceUnit = SerializationUtilities.ReadString(xElement, nameof(ConsequenceUnit));
+
+            var typesElement = xElement.Element(nameof(AdditionalConsequenceTypes));
+            if (typesElement != null)
+            {
+                foreach (var child in typesElement.Elements(nameof(ConsequenceTypeDescriptor)))
+                {
+                    _additionalConsequenceTypes.Add(new ConsequenceTypeDescriptor(child));
+                }
+            }
 
             var optionsElement = xElement.Element(nameof(RiskAnalysisOptions));
             if (optionsElement != null)
@@ -254,6 +275,10 @@ namespace RMC.TotalRisk.Analyses
         /// <summary>Backing field for <see cref="ConsequenceUnit"/>.</summary>
         private string _consequenceUnit = string.Empty;
 
+        /// <summary>Backing field for <see cref="AdditionalConsequenceTypes"/>.</summary>
+        private readonly ObservableCollection<ConsequenceTypeDescriptor> _additionalConsequenceTypes =
+            new ObservableCollection<ConsequenceTypeDescriptor>();
+
         /// <summary>Backing field for <see cref="RiskResults"/>.</summary>
         private EnsembleResults? _riskResults;
 
@@ -335,6 +360,16 @@ namespace RMC.TotalRisk.Analyses
                 }
             }
         }
+
+        /// <summary>
+        /// The declared consequence types beyond the primary, in order: entry k − 1 declares
+        /// consequence-type position k of the analysis's axis (position 0 is the
+        /// <see cref="SpecifiedConsequence"/>/<see cref="ConsequenceUnit"/> pair). Empty declares
+        /// the legacy single-type axis. Validation strictly matches every component's failure and
+        /// non-failure paths against the declared axis in risk mode; reliability mode carries no
+        /// consequences and ignores it. Metadata — serialized, never hashed.
+        /// </summary>
+        public ObservableCollection<ConsequenceTypeDescriptor> AdditionalConsequenceTypes => _additionalConsequenceTypes;
 
         /// <summary>
         /// The run options. Assigning replaces the subscription; any option change invalidates
@@ -446,10 +481,14 @@ namespace RMC.TotalRisk.Analyses
         /// method); the joint method above twenty components (the VEGAS dimension limit), with a
         /// missing, mis-shaped, or non-positive-definite correlation matrix under the
         /// correlation-matrix dependency, or with a combination cross product beyond the
-        /// guardrail; any projected failure mode with more than one response stage (until the
-        /// event-tree phase); invalid options; and every component's own errors, aggregated with
-        /// the component name. Component validation runs mode-aware: reliability relaxes exactly
-        /// the consequence-content requirements (Phase 4c).
+        /// guardrail; any failure or non-failure path that does not carry the declared
+        /// consequence-type axis (count and order always; labels and units when both sides are
+        /// non-blank — risk mode only); any projected failure mode with more than one response
+        /// stage (until the event-tree phase); invalid options; and every component's own errors,
+        /// aggregated with the component name. Component validation runs mode-aware: reliability
+        /// relaxes exactly the consequence-content requirements (Phase 4c). Advisory: components
+        /// whose driving hazards disagree on non-blank axis labels warn — one analysis models one
+        /// hazard axis.
         /// </remarks>
         public override (bool IsValid, List<string> ValidationMessages) Validate()
         {
@@ -519,7 +558,122 @@ namespace RMC.TotalRisk.Analyses
                 }
             }
 
+            ValidateConsequenceTypeAxis(messages);
+            ValidateHazardAxisConsistency(messages);
+
             return (messages.FindIndex(m => m.StartsWith("Error:", StringComparison.Ordinal)) < 0, messages);
+        }
+
+        /// <summary>
+        /// Strictly matches every component's failure and non-failure paths against the declared
+        /// consequence-type axis (Phase 6.5, user-ratified): each path must carry exactly one
+        /// consequence function per declared type, in declared order, and a non-blank declared
+        /// label or unit must agree (ordinal, case-insensitive) with a non-blank function label
+        /// at the same position — blank on either side is a wildcard. Risk mode only: a
+        /// reliability model carries no consequences, so the axis is inert there. Null function
+        /// entries are skipped here — they are already component-level errors.
+        /// </summary>
+        /// <param name="messages">The message sink.</param>
+        private void ValidateConsequenceTypeAxis(List<string> messages)
+        {
+            if (_options.Mode != RiskAnalysisMode.Risk) return;
+
+            int declaredCount = 1 + _additionalConsequenceTypes.Count;
+            var labels = new string[declaredCount];
+            var units = new string[declaredCount];
+            labels[0] = _specifiedConsequence;
+            units[0] = _consequenceUnit;
+            for (int k = 1; k < declaredCount; k++)
+            {
+                labels[k] = _additionalConsequenceTypes[k - 1].SpecifiedConsequence;
+                units[k] = _additionalConsequenceTypes[k - 1].ConsequenceUnit;
+            }
+
+            for (int i = 0; i < _components.Count; i++)
+            {
+                var component = _components[i];
+                var modes = component.FailureModes;
+                for (int m = 0; m < modes.Count; m++)
+                {
+                    string pathName = modes[m].IsNonFailureMode ? "the non-failure path" : "a failure path";
+                    var consequences = modes[m].ConsequenceFunctions;
+                    if (consequences.Count != declaredCount)
+                    {
+                        messages.Add($"Error: On {pathName} of system component '{component.Name}', {consequences.Count} consequence function(s) are carried but the analysis declares {declaredCount} consequence type(s); every failure and non-failure path must carry the declared consequence-type axis.");
+                        continue;
+                    }
+                    for (int k = 0; k < declaredCount; k++)
+                    {
+                        var function = consequences[k];
+                        if (function is null) continue;
+                        if (LabelsMismatch(labels[k], function.SpecifiedConsequence))
+                        {
+                            messages.Add($"Error: The consequence function at position {k} of {pathName} of system component '{component.Name}' is typed '{function.SpecifiedConsequence}' but the analysis declares '{labels[k]}' at that position.");
+                        }
+                        if (LabelsMismatch(units[k], function.ConsequenceUnit))
+                        {
+                            messages.Add($"Error: The consequence function at position {k} of {pathName} of system component '{component.Name}' has unit '{function.ConsequenceUnit}' but the analysis declares '{units[k]}' at that position.");
+                        }
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Determines whether two axis labels disagree: both must be non-blank and differ under
+        /// an ordinal case-insensitive comparison (the graph alignment comparison semantics) —
+        /// blank on either side is a wildcard.
+        /// </summary>
+        /// <param name="declared">The declared axis label.</param>
+        /// <param name="actual">The function's label.</param>
+        /// <returns>True when both are non-blank and differ.</returns>
+        private static bool LabelsMismatch(string declared, string actual)
+        {
+            return !string.IsNullOrEmpty(declared) && !string.IsNullOrEmpty(actual) &&
+                !string.Equals(declared, actual, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Warns when the components' driving hazards disagree on non-blank axis labels: one
+        /// analysis models one hazard axis (the hazard-type companion of the declared
+        /// consequence-type axis), so a label mismatch usually means a mis-assembled system.
+        /// Advisory only — labels are unhashed display metadata.
+        /// </summary>
+        /// <param name="messages">The message sink.</param>
+        private void ValidateHazardAxisConsistency(List<string> messages)
+        {
+            if (_components.Count < 2) return;
+
+            string label = string.Empty, unit = string.Empty, labelOwner = string.Empty, unitOwner = string.Empty;
+            for (int i = 0; i < _components.Count; i++)
+            {
+                var hazard = _components[i].HazardFunction;
+                if (hazard == null) continue;
+                if (!string.IsNullOrEmpty(hazard.SpecifiedHazard))
+                {
+                    if (string.IsNullOrEmpty(label))
+                    {
+                        label = hazard.SpecifiedHazard;
+                        labelOwner = _components[i].Name;
+                    }
+                    else if (!string.Equals(label, hazard.SpecifiedHazard, StringComparison.OrdinalIgnoreCase))
+                    {
+                        messages.Add($"Warning: System component '{_components[i].Name}' drives on hazard '{hazard.SpecifiedHazard}' but component '{labelOwner}' drives on '{label}'; the components of one analysis should share the driving hazard axis.");
+                    }
+                }
+                if (!string.IsNullOrEmpty(hazard.HazardUnit))
+                {
+                    if (string.IsNullOrEmpty(unit))
+                    {
+                        unit = hazard.HazardUnit;
+                        unitOwner = _components[i].Name;
+                    }
+                    else if (!string.Equals(unit, hazard.HazardUnit, StringComparison.OrdinalIgnoreCase))
+                    {
+                        messages.Add($"Warning: System component '{_components[i].Name}' hazard unit '{hazard.HazardUnit}' differs from component '{unitOwner}' unit '{unit}'; the components of one analysis should share the driving hazard axis.");
+                    }
+                }
+            }
         }
 
         /// <summary>
@@ -664,6 +818,12 @@ namespace RMC.TotalRisk.Analyses
             element.SetAttributeValue(nameof(ConsequenceUnit), _consequenceUnit);
             element.SetAttributeValue(nameof(IsEstimated), _isEstimated);
             element.Add(_options.ToXElement());
+            var typesElement = new XElement(nameof(AdditionalConsequenceTypes));
+            for (int i = 0; i < _additionalConsequenceTypes.Count; i++)
+            {
+                typesElement.Add(_additionalConsequenceTypes[i].ToXElement());
+            }
+            element.Add(typesElement);
             return element;
         }
 

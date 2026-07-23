@@ -444,9 +444,12 @@ public class RiskAnalysisTests
         var restored = new RiskAnalysis(new[] { Component(Consequence("A", 300d)) }, element,
             analysis.RiskResults, analysis.MeanRiskResults);
 
-        // Assert — configuration only: one options child, nothing else.
-        Assert.AreEqual(1, element.Elements().Count());
+        // Assert — configuration only: the options child and the declared-axis child (empty
+        // here — the legacy single-type declaration), nothing else.
+        Assert.AreEqual(2, element.Elements().Count());
         Assert.AreEqual(nameof(RiskAnalysisOptions), element.Elements().First().Name.LocalName);
+        Assert.AreEqual(nameof(RiskAnalysis.AdditionalConsequenceTypes), element.Elements().Skip(1).First().Name.LocalName);
+        Assert.AreEqual(0, restored.AdditionalConsequenceTypes.Count);
         Assert.AreEqual("Levee Study", restored.Name);
         Assert.AreEqual(0.02d, restored.Options.Alpha, 0d);
         Assert.IsTrue(restored.IsEstimated, "Supplied results restore the estimated state.");
@@ -843,5 +846,174 @@ public class RiskAnalysisTests
         double lower = analysis.LowerRiskResults!.Curves.Total.LEC.GetYFromX(60d, Transform.Logarithmic, Transform.Logarithmic);
         double upper = analysis.UpperRiskResults!.Curves.Total.LEC.GetYFromX(60d, Transform.Logarithmic, Transform.Logarithmic);
         Assert.IsTrue(lower <= upper + 1e-12, $"Joint percentile curves must order: {lower} ≤ {upper}.");
+    }
+
+    /// <summary>Builds a labeled deterministic damages consequence: linear from (0 → 0) to (30 → valueAtThirty).</summary>
+    private static TabularConsequence Damages(string name, double valueAtThirty)
+    {
+        var damages = Consequence(name, valueAtThirty);
+        damages.SpecifiedConsequence = "Damages";
+        damages.ConsequenceUnit = "$";
+        return damages;
+    }
+
+    /// <summary>Builds a component whose failure and non-failure paths both carry the two-type axis [Life Loss, Damages].</summary>
+    private static SystemComponent TwoTypeComponent()
+    {
+        var component = new SystemComponent { Name = "Dam" };
+        component.HazardFunction = StageFrequency();
+        var failure = new FailureMode(null, null, Fragility(), Consequence("Failure Loss", 300d));
+        failure.ConsequenceFunctions.Add(Damages("Failure Damages", 5_000_000d));
+        component.AddFailureMode(failure);
+        var nonFailure = new FailureMode(null, null, null, Consequence("Non-Failure Loss", 60d));
+        nonFailure.ConsequenceFunctions.Add(Damages("Non-Failure Damages", 1_000_000d));
+        component.AddFailureMode(nonFailure);
+        return component;
+    }
+
+    /// <summary>
+    /// Verifies the declared consequence-type axis round-trips through the configuration
+    /// serialization (Phase 6.5): order and labels survive, and an axis-free legacy form
+    /// restores the single-type declaration.
+    /// </summary>
+    [TestMethod]
+    public void Test_AdditionalConsequenceTypes_SerializationRoundTrip()
+    {
+        // Arrange
+        var analysis = new RiskAnalysis(new[] { Component(Consequence("A", 300d)) })
+        {
+            SpecifiedConsequence = "Life Loss",
+            ConsequenceUnit = "lives",
+        };
+        analysis.AdditionalConsequenceTypes.Add(new ConsequenceTypeDescriptor("Damages", "$"));
+        analysis.AdditionalConsequenceTypes.Add(new ConsequenceTypeDescriptor("Environmental", "acres"));
+
+        // Act
+        var restored = new RiskAnalysis(new[] { Component(Consequence("A", 300d)) }, analysis.ToXElement());
+
+        // Assert — order and labels survive.
+        Assert.AreEqual(2, restored.AdditionalConsequenceTypes.Count);
+        Assert.AreEqual("Damages", restored.AdditionalConsequenceTypes[0].SpecifiedConsequence);
+        Assert.AreEqual("$", restored.AdditionalConsequenceTypes[0].ConsequenceUnit);
+        Assert.AreEqual("Environmental", restored.AdditionalConsequenceTypes[1].SpecifiedConsequence);
+        Assert.AreEqual("acres", restored.AdditionalConsequenceTypes[1].ConsequenceUnit);
+
+        // An axis-free legacy form restores the single-type declaration.
+        var legacyElement = analysis.ToXElement();
+        legacyElement.Element(nameof(RiskAnalysis.AdditionalConsequenceTypes))!.Remove();
+        var legacy = new RiskAnalysis(new[] { Component(Consequence("A", 300d)) }, legacyElement);
+        Assert.AreEqual(0, legacy.AdditionalConsequenceTypes.Count);
+    }
+
+    /// <summary>
+    /// Verifies the declared-axis count gate (Phase 6.5, user-ratified): every failure and
+    /// non-failure path must carry exactly one consequence function per declared type — a
+    /// two-type declaration over single-consequence paths errors, the two-type component
+    /// satisfies it, and the two-type component under the legacy single-type declaration errors
+    /// the other way.
+    /// </summary>
+    [TestMethod]
+    public void Test_Validate_ConsequenceTypeAxis_Counts()
+    {
+        // A K = 2 declaration over single-consequence paths: every path errors.
+        var underDeclared = new RiskAnalysis(new[] { Component(Consequence("A", 300d)) });
+        underDeclared.AdditionalConsequenceTypes.Add(new ConsequenceTypeDescriptor("Damages", "$"));
+        var (isValid, messages) = underDeclared.Validate();
+        Assert.IsFalse(isValid);
+        Assert.IsTrue(messages.Any(m => m.StartsWith("Error:", StringComparison.Ordinal) && m.Contains("declares 2 consequence type(s)")),
+            string.Join("; ", messages));
+
+        // The two-type component satisfies the K = 2 declaration.
+        var matched = new RiskAnalysis(new[] { TwoTypeComponent() })
+        {
+            SpecifiedConsequence = "Life Loss",
+            ConsequenceUnit = "lives",
+        };
+        matched.AdditionalConsequenceTypes.Add(new ConsequenceTypeDescriptor("Damages", "$"));
+        var matchedResult = matched.Validate();
+        Assert.IsTrue(matchedResult.IsValid, string.Join("; ", matchedResult.ValidationMessages));
+
+        // The two-type component under a K = 1 declaration errors the other way.
+        var overCarried = new RiskAnalysis(new[] { TwoTypeComponent() });
+        var overResult = overCarried.Validate();
+        Assert.IsFalse(overResult.IsValid);
+        Assert.IsTrue(overResult.ValidationMessages.Any(m => m.Contains("declares 1 consequence type(s)")),
+            string.Join("; ", overResult.ValidationMessages));
+    }
+
+    /// <summary>
+    /// Verifies the declared-axis label gate: non-blank labels and units must agree per
+    /// position (ordinal, case-insensitive), blank on either side is a wildcard, and
+    /// reliability mode ignores the axis entirely.
+    /// </summary>
+    [TestMethod]
+    public void Test_Validate_ConsequenceTypeAxis_Labels()
+    {
+        // A mismatched non-blank label at position 1 errors.
+        var mismatched = new RiskAnalysis(new[] { TwoTypeComponent() })
+        {
+            SpecifiedConsequence = "Life Loss",
+            ConsequenceUnit = "lives",
+        };
+        mismatched.AdditionalConsequenceTypes.Add(new ConsequenceTypeDescriptor("Environmental", "$"));
+        var (labelValid, labelMessages) = mismatched.Validate();
+        Assert.IsFalse(labelValid);
+        Assert.IsTrue(labelMessages.Any(m => m.Contains("position 1") && m.Contains("'Damages'") && m.Contains("'Environmental'")),
+            string.Join("; ", labelMessages));
+
+        // A mismatched non-blank unit errors.
+        var unitMismatch = new RiskAnalysis(new[] { TwoTypeComponent() })
+        {
+            SpecifiedConsequence = "Life Loss",
+            ConsequenceUnit = "lives",
+        };
+        unitMismatch.AdditionalConsequenceTypes.Add(new ConsequenceTypeDescriptor("Damages", "EUR"));
+        var (unitValid, unitMessages) = unitMismatch.Validate();
+        Assert.IsFalse(unitValid);
+        Assert.IsTrue(unitMessages.Any(m => m.Contains("unit '$'") && m.Contains("'EUR'")),
+            string.Join("; ", unitMessages));
+
+        // Blank declarations are wildcards: an all-blank K = 2 axis accepts labeled functions.
+        var wildcard = new RiskAnalysis(new[] { TwoTypeComponent() });
+        wildcard.AdditionalConsequenceTypes.Add(new ConsequenceTypeDescriptor(string.Empty, string.Empty));
+        var wildcardResult = wildcard.Validate();
+        Assert.IsTrue(wildcardResult.IsValid, string.Join("; ", wildcardResult.ValidationMessages));
+
+        // Case difference is not a mismatch.
+        var cased = new RiskAnalysis(new[] { TwoTypeComponent() })
+        {
+            SpecifiedConsequence = "LIFE LOSS",
+            ConsequenceUnit = "LIVES",
+        };
+        cased.AdditionalConsequenceTypes.Add(new ConsequenceTypeDescriptor("damages", "$"));
+        Assert.IsTrue(cased.Validate().IsValid, string.Join("; ", cased.Validate().ValidationMessages));
+
+        // Reliability mode ignores the axis (consequence-free models declare nothing usable).
+        var reliability = new RiskAnalysis(new[] { Component(Consequence("A", 300d)) });
+        reliability.Options.Mode = RiskAnalysisMode.Reliability;
+        reliability.AdditionalConsequenceTypes.Add(new ConsequenceTypeDescriptor("Damages", "$"));
+        Assert.IsTrue(reliability.Validate().IsValid, string.Join("; ", reliability.Validate().ValidationMessages));
+    }
+
+    /// <summary>
+    /// Verifies the hazard-axis consistency advisory: components whose driving hazards disagree
+    /// on non-blank labels warn (one analysis models one hazard axis) without invalidating.
+    /// </summary>
+    [TestMethod]
+    public void Test_Validate_HazardAxis_MismatchWarns()
+    {
+        // Arrange — two additive components whose hazards are labeled differently.
+        var flowComponent = Component(Consequence("B", 300d));
+        flowComponent.Name = "Levee";
+        flowComponent.HazardFunction!.SpecifiedHazard = "Flow";
+        var analysis = new RiskAnalysis(new[] { Component(Consequence("A", 300d)), flowComponent });
+
+        // Act
+        var (isValid, messages) = analysis.Validate();
+
+        // Assert — advisory only.
+        Assert.IsTrue(isValid, string.Join("; ", messages));
+        Assert.IsTrue(messages.Any(m => m.StartsWith("Warning:", StringComparison.Ordinal) && m.Contains("share the driving hazard axis")),
+            string.Join("; ", messages));
     }
 }

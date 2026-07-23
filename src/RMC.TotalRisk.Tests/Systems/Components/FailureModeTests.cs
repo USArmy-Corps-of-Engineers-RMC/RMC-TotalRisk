@@ -617,8 +617,11 @@ public class FailureModeTests
     }
 
     /// <summary>
-    /// Verifies the mode-level Q-W guardrails: the cross product of exposure branches across the
-    /// mode's consequence positions warns above 64 and errors above 1024.
+    /// Verifies the mode-level branch guardrails under per-type marginal compute (Phase 6.5,
+    /// §6.4.1 erratum): the SUM of exposure branches across the mode's consequence positions
+    /// warns above 64 and errors above 1024 — consequence types never cross, so two 33-branch
+    /// mixtures are 66 branches of per-evaluation work (a warning), not the pre-6.5 product
+    /// bound's 1089 (which modeled a cross-type coupling the engine never performs).
     /// </summary>
     [TestMethod]
     public void Test_Validate_ExposureBranchGuardrails()
@@ -641,9 +644,17 @@ public class FailureModeTests
         Assert.IsTrue(warnMessages.Any(m => m.StartsWith("Warning:", StringComparison.Ordinal) && m.Contains("exposure branches (65)")),
             string.Join("; ", warnMessages));
 
-        // Two positions of 33 branches: 1089 crosses the error threshold.
-        var errorMode = new FailureMode(null, null, fragility, GuardrailMixture("Mix One", 33));
-        errorMode.ConsequenceFunctions.Add(GuardrailMixture("Mix Two", 33));
+        // Two positions of 33 branches sum to 66 — a warning, not an error (the Σ pin).
+        var sumMode = new FailureMode(null, null, fragility, GuardrailMixture("Mix One", 33));
+        sumMode.ConsequenceFunctions.Add(GuardrailMixture("Mix Two", 33));
+        var (sumValid, sumMessages) = sumMode.Validate();
+        Assert.IsTrue(sumValid, string.Join("; ", sumMessages));
+        Assert.IsTrue(sumMessages.Any(m => m.StartsWith("Warning:", StringComparison.Ordinal) && m.Contains("exposure branches (66)")),
+            string.Join("; ", sumMessages));
+
+        // Two positions of 513 branches sum to 1026 — crosses the error threshold.
+        var errorMode = new FailureMode(null, null, fragility, GuardrailMixture("Mix Big One", 513));
+        errorMode.ConsequenceFunctions.Add(GuardrailMixture("Mix Big Two", 513));
         var (errorValid, errorMessages) = errorMode.Validate();
         Assert.IsFalse(errorValid);
         Assert.IsTrue(errorMessages.Any(m => m.StartsWith("Error:", StringComparison.Ordinal) && m.Contains("1024")),

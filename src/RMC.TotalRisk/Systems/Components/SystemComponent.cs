@@ -667,22 +667,17 @@ namespace RMC.TotalRisk.Systems.Components
             }
 
             // The Q-W branch-explosion guardrail at the component level: joint failure pathways
-            // take the cross product of the failing modes' primary exposure branches, so the
-            // product across failure modes is bounded — warn above 64, error above 1024. The
-            // per-mode combination methods never cross modes, so the check applies to the joint
-            // method only.
+            // take the cross product of the failing modes' exposure branches within one
+            // consequence type (per-type marginal compute — types never cross), so the worst
+            // type's product across failure modes is bounded — warn above 64, error above 1024.
+            // The per-mode combination methods never cross modes, so the check applies to the
+            // joint method only.
             if (_failureModeMethod == FailureModeMethod.JointFailures)
             {
-                long pathwayBranches = 1;
-                for (int i = 0; i < modes.Count && pathwayBranches <= 1024; i++)
-                {
-                    if (modes[i].IsNonFailureMode) continue;
-                    var primary = modes[i].ConsequenceFunction;
-                    pathwayBranches *= Math.Max(1, primary?.CountExposureBranches() ?? 1);
-                }
+                long pathwayBranches = WorstCasePathwayBranches(modes);
                 if (pathwayBranches > 1024)
                 {
-                    messages.Add($"Error: The joint failure pathways' combined exposure branches exceed 1024 (the cross product of the failure modes' primary branch counts) for system component '{Name}'; reduce the mixture branch counts.");
+                    messages.Add($"Error: The joint failure pathways' combined exposure branches exceed 1024 (the cross product of the failure modes' branch counts within the worst consequence type) for system component '{Name}'; reduce the mixture branch counts.");
                 }
                 else if (pathwayBranches > 64)
                 {
@@ -696,27 +691,90 @@ namespace RMC.TotalRisk.Systems.Components
         /// <summary>
         /// Estimates the worst-case number of failure pathway/branch entries this component can
         /// record at one hazard evaluation — the joint system-risk path's per-component
-        /// combination width. For the joint failure-mode method the bound is
-        /// <c>Π (1 + bᵢ) − 1</c> over the failure modes' primary branch counts (every failure
-        /// subset crossed with its branch tuples); for the per-mode methods it is <c>Σ bᵢ</c>.
-        /// The running product is capped so the estimate never overflows.
+        /// combination width. Entries are recorded per consequence type and types never cross
+        /// (per-type marginal compute), so the estimate is the worst type's bound: for the joint
+        /// failure-mode method <c>Π (1 + bᵢ) − 1</c> over the failure modes' branch counts at
+        /// that type (every failure subset crossed with its branch tuples); for the per-mode
+        /// methods <c>Σ bᵢ</c>. The running product is capped so the estimate never overflows.
         /// </summary>
         /// <returns>The worst-case entry count, at least one.</returns>
         internal long EstimateRecordedFailureEntries()
         {
             const long cap = 1L << 40;
             var modes = ProjectFailureModes();
-            long jointBound = 1;
-            long perModeBound = 0;
+            int typeCount = ConsequenceTypeCount(modes);
+            long estimate = 1;
+            for (int k = 0; k < typeCount; k++)
+            {
+                long jointBound = 1;
+                long perModeBound = 0;
+                for (int i = 0; i < modes.Count; i++)
+                {
+                    if (modes[i].IsNonFailureMode) continue;
+                    long branches = BranchCountAt(modes[i], k);
+                    perModeBound += branches;
+                    if (jointBound < cap) jointBound *= 1 + branches;
+                }
+                long typeEstimate = _failureModeMethod == FailureModeMethod.JointFailures ? jointBound - 1 : perModeBound;
+                estimate = Math.Max(estimate, typeEstimate);
+            }
+            return Math.Max(1, Math.Min(cap, estimate));
+        }
+
+        /// <summary>
+        /// The worst consequence type's joint-pathway branch cross product across the failure
+        /// modes (per-type marginal compute — types never cross), capped just past the error
+        /// guardrail so the product never overflows.
+        /// </summary>
+        /// <param name="modes">The projected failure modes.</param>
+        /// <returns>The worst type's cross product, at least one.</returns>
+        private static long WorstCasePathwayBranches(IReadOnlyList<FailureMode> modes)
+        {
+            int typeCount = ConsequenceTypeCount(modes);
+            long worst = 1;
+            for (int k = 0; k < typeCount; k++)
+            {
+                long pathwayBranches = 1;
+                for (int i = 0; i < modes.Count && pathwayBranches <= 1024; i++)
+                {
+                    if (modes[i].IsNonFailureMode) continue;
+                    pathwayBranches *= BranchCountAt(modes[i], k);
+                }
+                worst = Math.Max(worst, pathwayBranches);
+            }
+            return worst;
+        }
+
+        /// <summary>
+        /// The number of consequence-type positions any failure path carries (misaligned counts
+        /// are an analysis-level validation error; the guardrails bound whatever is present).
+        /// </summary>
+        /// <param name="modes">The projected failure modes.</param>
+        /// <returns>The maximum consequence count across the failure paths, at least one.</returns>
+        private static int ConsequenceTypeCount(IReadOnlyList<FailureMode> modes)
+        {
+            int typeCount = 1;
             for (int i = 0; i < modes.Count; i++)
             {
-                if (modes[i].IsNonFailureMode) continue;
-                long branches = Math.Max(1, modes[i].ConsequenceFunction?.CountExposureBranches() ?? 1);
-                perModeBound += branches;
-                if (jointBound < cap) jointBound *= 1 + branches;
+                if (!modes[i].IsNonFailureMode)
+                {
+                    typeCount = Math.Max(typeCount, modes[i].ConsequenceFunctions.Count);
+                }
             }
-            long estimate = _failureModeMethod == FailureModeMethod.JointFailures ? jointBound - 1 : perModeBound;
-            return Math.Max(1, Math.Min(cap, estimate));
+            return typeCount;
+        }
+
+        /// <summary>
+        /// A failure mode's exposure-branch count at one consequence-type position (one for a
+        /// missing or null position — the mode then contributes no branching at that type).
+        /// </summary>
+        /// <param name="mode">The failure mode.</param>
+        /// <param name="position">The consequence-type position.</param>
+        /// <returns>The branch count, at least one.</returns>
+        private static long BranchCountAt(FailureMode mode, int position)
+        {
+            var consequence = position < mode.ConsequenceFunctions.Count ? mode.ConsequenceFunctions[position] : null;
+            return Math.Max(1, consequence?.CountExposureBranches() ?? 1);
         }
 
         /// <summary>
