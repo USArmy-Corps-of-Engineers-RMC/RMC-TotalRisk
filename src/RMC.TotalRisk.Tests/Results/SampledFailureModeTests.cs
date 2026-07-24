@@ -279,6 +279,97 @@ public class SampledFailureModeTests
     }
 
     /// <summary>
+    /// Pins the cascade knowledge-sampling contract (user directive 2026-07-24): every stage's
+    /// response uncertainty samples independently like any other function — two equal-content
+    /// uncertain fragilities in one chain draw different curves at a realization — while ONE
+    /// shared instance wired into sibling end states stays one knowledge quantity (its Fail and
+    /// Non-Fail branches must ride the same sampled curve). The only cross-function coupling
+    /// remains the Q-N failure/non-failure consequence pairing.
+    /// </summary>
+    [TestMethod]
+    public void Test_MultiStage_ResponseKnowledge_IndependentPerStage()
+    {
+        // Arrange — a two-stage chain whose stages wrap EQUAL-CONTENT but DISTINCT uncertain
+        // fragilities (triangular ordinates), inside a component so the seeded walk runs.
+        static TabularResponse UncertainFragility() => new TabularResponse
+        {
+            Name = "Uncertain Fragility",
+            SpecifiedHazard = "Stage",
+            HazardUnit = "ft",
+            UncertainOrderedPairedData = new UncertainOrderedPairedData(
+                new[]
+                {
+                    new UncertainOrdinate(10d, new Triangular(0d, 0.05d, 0.1d)),
+                    new UncertainOrdinate(20d, new Triangular(0.7d, 0.9d, 1d)),
+                },
+                true, SortOrder.Ascending, false, SortOrder.None, UnivariateDistributionType.Triangular),
+        };
+
+        var component = new SystemComponent { Name = "Cascade Sampling Pin" };
+        component.HazardFunction = SampledComponentTests.StageFrequency();
+        var chained = new FailureMode(
+            new List<ResponseStage>
+            {
+                new ResponseStage(new List<RMC.TotalRisk.Core.Interfaces.ITransformFunction>(), UncertainFragility()),
+                new ResponseStage(new List<RMC.TotalRisk.Core.Interfaces.ITransformFunction>(), UncertainFragility()),
+            },
+            null,
+            new List<RMC.TotalRisk.Core.Interfaces.IConsequenceFunction> { Consequence("Damages", 300d) });
+        component.AddFailureMode(chained);
+        component.SetupSamplers(64, componentSeed: 12345, SamplingScheme.LatinHypercube);
+
+        // Act / Assert — equal-content stages draw independent knowledge: at some realization
+        // the two stages' sampled fragilities must differ (identical draws would make the SRP
+        // the square of one curve at every probe).
+        var projected = component.FailureModes[0];
+        bool stagesDiffer = false;
+        for (int k = 0; k < 64 && !stagesDiffer; k++)
+        {
+            var stage0 = projected.ResponseStages[0].Response.SampleFunction(k);
+            var stage1 = projected.ResponseStages[1].Response.SampleFunction(k);
+            stagesDiffer = Math.Abs(stage0.CDF(15d) - stage1.CDF(15d)) > 1e-12;
+        }
+        Assert.IsTrue(stagesDiffer,
+            "Equal-content cascade stages must sample their knowledge uncertainty independently.");
+
+        // A shared instance across sibling end states is ONE knowledge quantity: both branches
+        // of one chance node read the identical sampled curve.
+        var sharedComponent = new SystemComponent { Name = "Shared Instance Pin" };
+        var hazardElement = new RMC.TotalRisk.Systems.Components.Graph.HazardElement("Hazard")
+        {
+            Function = SampledComponentTests.StageFrequency(),
+        };
+        var response = new RMC.TotalRisk.Systems.Components.Graph.ResponseElement("Initiation")
+        {
+            Function = UncertainFragility(),
+            Input = new RMC.TotalRisk.Systems.Components.Graph.RiskConnection(hazardElement),
+        };
+        var fail = new RMC.TotalRisk.Systems.Components.Graph.ConsequenceElement("Fail Damages")
+        {
+            Input = new RMC.TotalRisk.Systems.Components.Graph.RiskConnection(response),
+        };
+        fail.Functions.Add(Consequence("Fail Loss", 300d));
+        var partial = new RMC.TotalRisk.Systems.Components.Graph.ConsequenceElement("Partial Damages")
+        {
+            Input = new RMC.TotalRisk.Systems.Components.Graph.RiskConnection(response, 1),
+        };
+        partial.Functions.Add(Consequence("Partial Loss", 100d));
+        sharedComponent.Graph.AddElement(hazardElement);
+        sharedComponent.Graph.AddElement(response);
+        sharedComponent.Graph.AddElement(fail);
+        sharedComponent.Graph.AddElement(partial);
+        sharedComponent.SetupSamplers(64, componentSeed: 12345, SamplingScheme.LatinHypercube);
+        var sampledShared = sharedComponent.Sample(7);
+        var sharedRealization = new ComponentRealization(sampledShared.FailureModeCount);
+        var sharedFlags = new RiskComputeFlags();
+        var sharedOutput = sampledShared.ComputeRisk(0.5d, 15d, sharedFlags, sharedRealization, recordOutput: true);
+        double failWeight = sharedOutput.ProbabilityOfFailure;
+        double partialWeight = sharedRealization.FailureModes[1].Curves.NonFail.RiskPoints[0].ResponseProbabilities[0];
+        Assert.AreEqual(1d, failWeight + partialWeight, 1e-12,
+            "Sibling branches of one shared response must partition exactly — one sampled curve drives p and 1 − p.");
+    }
+
+    /// <summary>
     /// Verifies the InverseSRP policy (arch doc §7.9): exact for a single-stage Fail-polarity
     /// mode, unsupported for cascades and Non-Fail polarities (a polarity product has no
     /// monotone inverse; no engine path consumes the member).
