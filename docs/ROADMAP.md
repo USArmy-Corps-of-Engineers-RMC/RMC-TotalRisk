@@ -20,6 +20,9 @@ Porting sources in order of authority: (1) the partial C# port `C:\GIT\RMC-Total
 | 4c | `RiskAnalysisMode.Reliability` | Complete (2026-07-23) |
 | 5 | Verification I — single-component oracle families | Complete (2026-07-23) |
 | 6 | Verification II — system risk + NFIP assurance | Complete (2026-07-23) |
+| 6.5 | Multi-consequence axis (Q-U closure) + engine performance + cascade design ratification | Complete (2026-07-23) |
+| 6.6 | Risk measures, diagnostics & sensitivity | Not started |
+| 6.7 | Cascading response end states (the event tree in the risk diagram) | Not started (design ratified 2026-07-23, arch doc v0.16) |
 | 7 | Remaining closed-form functions: linear/power transforms, parametric consequence, nonparametric hazard | Not started (`ParametricConsequence` pulled forward 2026-07-21) |
 | 8 | Numerics.Functions expansion (numerics repo) + RMC.Numerics 2.2.0 package switch | Not started |
 | 9 | Composites + RFA hazard + weighted wrappers + BestFit composite imports | Not started (`CompositeConsequence` + `WeightedConsequenceFunction` pulled forward 2026-07-21) |
@@ -234,6 +237,62 @@ with no store, no resolver, and no consuming layer in the call path.
 
 **Exit criteria: met** — multi-component system risk + NFIP verified; tabular+parametric clusters, the engine, and the reliability mode all carry V status in the matrix.
 
+## Phase 6.5 — Multi-consequence axis + engine performance — **COMPLETE (2026-07-23)**
+
+> The post-Phase-6 gap-audit session (plan ratified with five user decisions recorded in
+> PROGRESS). Three deliverables:
+>
+> 1. **The Q-U closure.** The consequence-type axis is declared at the analysis level
+>    (`ConsequenceTypeDescriptor` + `RiskAnalysis.AdditionalConsequenceTypes`, append-only
+>    serialization) with strict bubble-down validation — counts and order always, labels/units
+>    when both sides are non-blank — and the engine computes **every** declared type in one
+>    pass: per-type Q-N coupling columns, shared probability structure, primary-driven
+>    refinement, per-type curves/extents/percentile grids at every scope, `ConsequenceResults`
+>    on the summary tree with the declared labels echoed. RNG-silent for fixed models (the full
+>    pinned suite passed unchanged) and verified by the new `MultiConsequenceVerification`
+>    family ([verification/multi-consequence.md](verification/multi-consequence.md)).
+> 2. **The dedicated performance pass** (the PROGRESS-recorded ~10× regression brief):
+>    realization-owned compute workspaces, single-pass balanced-objective scales, an in-place
+>    cached-Cholesky joint latent transform, a zero-ulp merge-walk percentile interpolator
+>    (`Curve.InterpolateLogLogDescending`), the exact closed-form CVaR (retiring the deepest
+>    per-realization quadrature), and the relaxed ensemble integration budget
+>    (`EnsembleTolerance` 1e-4 / `EnsembleMinDepth` 0 defaults; the mean pass, probes, and
+>    mean-only runs keep 1e-8/MinDepth-2). **F1 fixture 31.5 → 3.9 s (8.1×), allocations
+>    39 → 3.7 GB**; zero pinned verification constants moved (exact-anchored families pin
+>    their discipline in-test). Measurements: [scripts/perf/RESULTS.md](../scripts/perf/RESULTS.md).
+> 3. **The cascade design ratification** (arch doc v0.16): Q-X closes into the Phase 6.7
+>    design below; Phase 6.5 landed the resilience hooks (per-terminal results scope, factored
+>    SRP, reserved `ResponseStage` attribute space) without touching the two Q-X seams.
+>
+> Doc reconciliation rode along: ROADMAP Phase 1–3 status markers fixed, the
+> SHARED_FUNCTIONS_STRATEGY N7 numbering collision resolved (release → N10), CLAUDE.md
+> Phase-8/9 pointers corrected.
+
+## Phase 6.6 — Risk measures, diagnostics & sensitivity
+
+**Scope:** the v1.0 diagnostic surface never ported, plus the measure extensions scoped by the Phase 6.5 audit:
+
+- **Sensitivity/tornado port**: `SensitivityMeasure` enum (`PearsonCorrelation`, `SpearmanCorrelation`, `SensitivityIndex` — legacy names), typed `RiskAtHazardLevel` on the sampled component (the labeled input dictionary), and `RiskAnalysis.Sensitivity(componentIndex, hazardLevel, measure, riskType)` — content-seeded (no wall-clock PRNG), default 100 realizations. Porting source: the Dev-repo partial C# port (`Risk Analysis/RiskAnalysis.cs:4364`, `Support/Components/SampledComponent.cs:253`) first, the VB (`RiskAnalysis.vb:3625`, `SampledComponent.vb:214`) as cross-check.
+- **Q-T closure**: `ProfileHazardFunction` as a chain-position remap (the consequence-binding precedent) driving the risk profiles + the `HazardThreshold` companion selector.
+- **Ensemble uncertainty on scalar measures**: percentile CIs on Mean/VaR/CVaR/APF and the rest of the catalog from the already-stored `EnsembleResults` (curves carry bands today; scalars do not).
+- **Convergence diagnostics**: aggregated integrator standard-error/evaluation summaries, realization-adequacy indicators on the ensemble.
+- **Seed-stable perturbation mode** (arch doc §5.5.8) for sensitivity studies.
+- **Q-W shared-exposure declaration** (design; per-type marginals make it moot until cross-type joint statistics are wanted) + per-type `ConsequenceThresholds` (the Phase 6.5 primary-only interim).
+- Evaluate: exact-pair excess entry lists (`ComponentRiskOutput` interim), TRG-line comparison data (UI-leaning — may defer to the UI layer).
+
+**Exit criteria:** sensitivity family verified against a legacy-style oracle; remap round-trip + hash recipe pinned; scalar-CI family verified; diagnostics JSON append-only; Q-T/Q-W doc closures.
+
+## Phase 6.7 — Cascading response end states
+
+**Scope:** the ratified event-tree-in-the-diagram design (arch doc v0.16 — user decisions: typed output ports; exact partition with auto-remainder; EventTreeResponse survives as a compact node):
+
+- `ResponseElement.OutputCount` 1 → 2: **port 0 = Fail** (the default — every existing connection already targets it), **port 1 = Non-Fail**; polarity-aware path classification and validation (both-port fan-out legal; the response-free background path unchanged; consequence alignment per terminal unchanged).
+- `ResponseStage.BranchPolarity` (append-only serialized attribute, resolved-on-write per the `ConsequenceHazardPosition` precedent — a deliberate, documented hash/re-pin event); `FailureMode` SRP(h) becomes ∏ᵢ (polarityᵢ = Fail ? pᵢ(h) : 1 − pᵢ(h)); multi-stage acceptance replaces the two Q-X seams (`RiskAnalysis.Validate` gate + `SampledFailureMode` ctor throw; `SetupSamplers` already walks all stages).
+- End states ARE the projected failure modes (one per consequence terminal, carrying the full declared consequence-type axis); terminals sharing upstream response elements form a **mutually-exclusive state group** — within-group exact partition (no inclusion–exclusion), across groups the existing `FailureModeMethod`, remainder mass = 1 − Σ state weights → background (the engine's existing complement math). Shared response instances already share sampled draws, so branch probabilities stay coherent across sibling end states for free.
+- Partial failures with partial damage states: consequences wired to Non-Fail-port continuations (e.g., R1-Fail → R2 "progresses to breach": R2-Fail terminal = full-breach consequences, R2-Non-Fail terminal = partial-damage consequences).
+
+**Exit criteria:** hand-rolled two-stage cascade MC oracle family (including a partial-damage state); single-stage-equivalence checks (statistical — the polarity attribute moves hashes); graph round-trip + projection + polarity tests; arch-doc Q-X closure.
+
 ## Phase 7 — Remaining closed-form functions
 
 > **Pulled forward (2026-07-21):** **`ParametricConsequence`** landed pre-Phase-4 (renamed from `ParametricConsequenceFunction` for cluster consistency — arch doc v0.12) with unit tests and a function-level verification family ([docs/verification/parametric-consequence.md](verification/parametric-consequence.md)). This phase's remaining scope is the three types below.
@@ -260,9 +319,18 @@ with no store, no resolver, and no consuming layer in the call path.
 
 **Exit criteria:** composite family P/T/V.
 
-## Phase 10 — Event trees
+## Phase 10 — Event trees (reshaped 2026-07-23)
 
-**Scope:** `IEventNode`, `EventNodeBase`, `ChanceNode`, `InitiatingNode`, `RemainderNode`, `SecondaryHazardNode`, `WeightedHazardLevel`, `EventNodeExtensions`; `EventTreeResponse` with LHS-driven traversal (arch doc §5.8.6); post-order canonical hashing (Q-B resolution).
+> **Reshaped by the Phase 6.5 cascade ratification:** graph-level event-tree behavior — branch
+> semantics, partial end states, consequences on end states — is Phase 6.7's cascading
+> response design. This phase ports `EventTreeResponse` as the **compact single-node authoring
+> convenience** for chance-probability trees (per-node distributions, per-hazard-interval
+> tables, node references — the v1.0 `ChanceSource` surface), sharing the cascade's end-state
+> compute contract; per-leaf output ports (completing the dormant v1.0 `MultipleConsequences`
+> scaffold) let a tree's failure leaves feed distinct consequence terminals. Final scope call
+> happens here, informed by the landed cascade.
+
+**Scope:** `IEventNode`, `EventNodeBase`, `ChanceNode`, `InitiatingNode`, `RemainderNode`, `EventNodeExtensions`; `EventTreeResponse` with LHS-driven traversal (arch doc §5.8.6); post-order canonical hashing (Q-B resolution); per-leaf output ports riding the Phase 6.7 port machinery. (`SecondaryHazardNode`/`WeightedHazardLevel` were dead v1.0 scaffolding — port only if the bivariate phase resurrects the need.)
 
 **Verification:** port the legacy `Test_EventTree` serialization round-trip (the suite's only genuinely asserted legacy test) + its product oracle.
 
@@ -278,7 +346,7 @@ with no store, no resolver, and no consuming layer in the call path.
 
 ## Phase 12 — Hardening
 
-**Scope:** ≥90% line-coverage gate on `RMC.TotalRisk.dll` from the fast suite; one-off Linux `dotnet build` container check (proves no Windows-only dependency); `examples/` documentation (the two v1.0 `.tra` projects described + a headless model-lib code example); `docs/getting-started.md`; `docs/REMAINING-WORK.md`.
+**Scope:** ≥90% line-coverage gate on `RMC.TotalRisk.dll` from the fast suite; one-off Linux `dotnet build` container check (proves no Windows-only dependency); `examples/` documentation (the two v1.0 `.tra` projects described + a headless model-lib code example); `docs/getting-started.md`; `docs/REMAINING-WORK.md`; a BenchmarkDotNet micro-suite over the hot kernels (closed-form CVaR, `SystemConvolution`, the percentile merge-walk interpolator, the sampled compute kernels) as the standing perf-regression net — the Phase 6.5 macro harness (`scripts/perf/PerfHarness`) stays the whole-engine gate.
 
 **Exit criteria:** coverage + Linux gates green; docs live.
 

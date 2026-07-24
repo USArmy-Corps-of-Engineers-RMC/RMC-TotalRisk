@@ -96,6 +96,9 @@ RMC.TotalRisk.Verification    ← Monte Carlo verification vs legacy oracles (mi
 | Everything, Debug | `dotnet test` |
 | Doc/namespace validation | `.\scripts\validate-code-xml-docs.ps1 -Configuration Debug` |
 | Regenerate AGENTS.md after editing this file | `py scripts/sync-agents-md.py` |
+| Perf measurement (ONE fixture per invocation) | `dotnet run -c Release --project scripts/perf/PerfHarness -- F1` (fixtures F1/F2/F3; single rep default, `--reps 3` for committed table rows; byte-gate hashes + allocation counters in `scripts/perf/RESULTS.md`) |
+
+> **Long-run workflow rule (user directive, 2026-07-23):** run verification families and perf fixtures **isolated, one at a time** — `--filter "ClassName~<Family>"` per run, one harness fixture per command. Never launch the whole verification suite as one blocking run mid-session; at phase-close gates, run the families sequentially.
 
 > **⚠ .NET 10 `dotnet test` gotcha:** the SDK drives MSTest.Sdk projects through Microsoft.Testing.Platform. `dotnet test --filter "TestCategory!=Verification"` is **silently ignored** (the classic VSTest argument is not forwarded). Passing the filter after `--` works per-assembly but fails the run when an assembly matches zero tests. Therefore: **scope by configuration or by project path** as in the table above; do not rely on category filters at the CLI. The assembly-level `[TestCategory("Verification")]` remains useful for IDE/explorer filtering.
 
@@ -142,7 +145,9 @@ RMC-TotalRisk/                      ← repo root (github.com/USACE-RMC/RMC-Tota
 ├── examples/                       ← v1.0 example projects (.tra) + future headless examples
 ├── scripts/
 │   ├── validate-code-xml-docs.ps1  ← doc coverage + namespace/culture/dependency guards
-│   └── sync-agents-md.py           ← regenerates AGENTS.md from CLAUDE.md
+│   ├── sync-agents-md.py           ← regenerates AGENTS.md from CLAUDE.md
+│   └── perf/                       ← PerfHarness (Stopwatch console runner, NOT in the .sln)
+│       └── RESULTS.md              ← per-commit measurements + the byte-gate hashes
 └── src/
     ├── RMC.TotalRisk/              ← the model library
     │   ├── Core/                   ← kernel: bases, hashing, seeding, serialization helpers
@@ -313,5 +318,7 @@ Planned follow-on projects (RMC.TotalRisk.UI WPF layer, the RMC-TotalRisk deskto
 ## Unit Test API Gotchas (CRITICAL)
 
 - **`dotnet test` on .NET 10 (Microsoft.Testing.Platform):** `--filter` before `--` is silently ignored for MSTest.Sdk projects; scope by project path or configuration. A filter that matches zero tests in an assembly FAILS that assembly.
+- **`RiskAnalysisOptions.UseDefaults` defaults `true` and `RunAsync` re-applies `SetIntegrationDefaults` at run start** — in-test integration knobs (`Tolerance`, `EnsembleTolerance`, `EnsembleMinDepth`, VEGAS budgets) are silently overwritten unless the fixture sets `UseDefaults = false` first. Two legacy verification fixtures carried ineffective 1e-6 relaxations for this reason (found and pinned at Phase 6.5).
+- **Ensemble discipline split (Phase 6.5):** ensemble realizations integrate at `EnsembleTolerance`/`EnsembleMinDepth` (defaults 1e-4/0); the mean pass, probes, and mean-only runs use `Tolerance`/MinDepth-2 (1e-8). A test comparing per-realization values to exact quadrature (or across the two paths) must pin the ensemble discipline in-test with a documented rationale — never re-pin captured literals to relaxed-discipline values silently.
 - Verification tolerances are documented per test with their derivation (k·SE); never widen a tolerance to make a test pass without recording why in the test's XML docs.
 - MSTest method-level parallelization is on: no shared mutable statics, no order dependence, no `Thread.Sleep` timing assumptions.
