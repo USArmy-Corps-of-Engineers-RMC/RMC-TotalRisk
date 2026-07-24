@@ -277,6 +277,32 @@ namespace RMC.TotalRisk.Analyses
         /// </summary>
         private double[]? _runAdditionalThresholds;
 
+        /// <summary>
+        /// The effective sampler seed map the last run resolved (Phase 6.6, §5.5.8) — the
+        /// baseline a perturbation study pins onto its perturbed runs via
+        /// <see cref="PinnedSamplerSeeds"/>. Populated by every <see cref="RunAsync"/>; null
+        /// before the first run. Runtime-only — never serialized, never hashed.
+        /// </summary>
+        public SamplerSeedMap? CapturedSamplerSeeds { get; private set; }
+
+        /// <summary>
+        /// An optional pinned sampler seed map (Phase 6.6, §5.5.8 — the seed-stable
+        /// perturbation mode): when set, the next run replaces every content-derived sampler
+        /// seed — per walk ordinal, including the coupling positions and the joint VEGAS seed
+        /// base — with the captured value, so a small numeric perturbation cannot re-roll the
+        /// Monte Carlo streams and result deltas are pure parameter effects. The map must fit
+        /// the model's walk shape (validated loudly). Runtime-only — never serialized, never
+        /// hashed, never part of any identity surface; clear it to restore content-based
+        /// seeding.
+        /// </summary>
+        /// <remarks>
+        /// Workflow: run the baseline → read <see cref="CapturedSamplerSeeds"/> → perturb the
+        /// parameter under study → assign the captured map here → run → difference the
+        /// results. Documented residual: if the perturbation flips the canonical-hash order of
+        /// components, the additive convolution re-associates at the last bit.
+        /// </remarks>
+        public SamplerSeedMap? PinnedSamplerSeeds { get; set; }
+
         /// <summary>Backing field for <see cref="Options"/>.</summary>
         private RiskAnalysisOptions _options;
 
@@ -744,6 +770,11 @@ namespace RMC.TotalRisk.Analyses
             {
                 throw new InvalidOperationException(string.Join(Environment.NewLine, validationMessages));
             }
+            if (PinnedSamplerSeeds != null && PinnedSamplerSeeds.ComponentCount != _components.Count)
+            {
+                throw new InvalidOperationException(
+                    "The pinned sampler seed map was captured from a different component count. The seed-stable perturbation mode fits the model shape it was captured from — re-capture from a baseline run of the current structure.");
+            }
 
             var token = ResetCancellationToken(cancellationToken);
             IsEstimated = false;
@@ -767,12 +798,15 @@ namespace RMC.TotalRisk.Analyses
                     // disambiguate identical-content components, and each component's functions
                     // are seeded from (analysis seed, component hash, occurrence index).
                     SystemComponent.AssignOccurrenceIndices(_components);
+                    var pinned = PinnedSamplerSeeds;
+                    var capturedSeeds = new List<int[]>(_components.Count);
                     var contentHashes = new byte[_components.Count][];
                     for (int i = 0; i < _components.Count; i++)
                     {
                         contentHashes[i] = _components[i].CanonicalHash();
                         int componentSeed = SeedHelpers.HashCombine(_options.PRNGSeed, contentHashes[i], _components[i].OccurrenceIndex);
-                        _components[i].SetupSamplers(_options.Realizations, componentSeed, _options.SamplingScheme);
+                        var scribe = new SeedScribe(pinned?.ComponentSeeds[i]);
+                        capturedSeeds.Add(_components[i].SetupSamplers(_options.Realizations, componentSeed, _options.SamplingScheme, scribe));
                     }
 
                     // The canonical component order (hashes sorted): the additive convolution
@@ -789,7 +823,12 @@ namespace RMC.TotalRisk.Analyses
                     {
                         systemSeed = SeedHelpers.HashCombine(systemSeed, contentHashes[order[i]], _components[order[i]].OccurrenceIndex);
                     }
-                    _jointSeedBase = systemSeed;
+                    _jointSeedBase = pinned?.JointSeedBase ?? systemSeed;
+
+                    // Every run captures its effective seed map (§5.5.8) — the baseline a
+                    // perturbation study pins onto its perturbed runs. Capturing an applied map
+                    // reproduces it, so capture(apply(map)) is the map itself.
+                    CapturedSamplerSeeds = new SamplerSeedMap(capturedSeeds, _jointSeedBase);
 
                     // The declared per-type consequence thresholds (Phase 6.6): entry k applies
                     // to additional consequence type k at every measure site this run.

@@ -985,6 +985,23 @@ namespace RMC.TotalRisk.Systems.Components
         /// </remarks>
         public void SetupSamplers(int sampleSize, int componentSeed, SamplingScheme scheme)
         {
+            SetupSamplers(sampleSize, componentSeed, scheme, null);
+        }
+
+        /// <summary>
+        /// Sets up the component's samplers with a seed scribe threaded through the walk — the
+        /// engine's capture/apply entry for the §5.5.8 seed-stable perturbation mode (the
+        /// public overload passes no scribe).
+        /// </summary>
+        /// <param name="sampleSize">The realization count N.</param>
+        /// <param name="componentSeed">The component's content-derived seed.</param>
+        /// <param name="scheme">The knowledge-uncertainty sampling scheme.</param>
+        /// <param name="scribe">The seed scribe (capture, and optionally apply), or null.</param>
+        /// <returns>The captured effective seeds by walk ordinal (empty without a scribe).</returns>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown when the sample size is not positive.</exception>
+        /// <exception cref="InvalidOperationException">Thrown when a pinned scribe does not match the walk shape.</exception>
+        internal int[] SetupSamplers(int sampleSize, int componentSeed, SamplingScheme scheme, SeedScribe? scribe)
+        {
             if (sampleSize <= 0) throw new ArgumentOutOfRangeException(nameof(sampleSize), "The sample size must be positive.");
 
             // Materialize the effective failure-mode dependency matrix before any sampling: the
@@ -1012,13 +1029,15 @@ namespace RMC.TotalRisk.Systems.Components
             {
                 if (seededFunctions.Add(hazard))
                 {
-                    hazard.SetupSampler(sampleSize, SeedHelpers.HashCombine(componentSeed, hazard.CanonicalHash(), ordinal), scheme);
+                    int seed = SeedHelpers.HashCombine(componentSeed, hazard.CanonicalHash(), ordinal);
+                    if (scribe != null) seed = scribe.Resolve(ordinal, seed);
+                    hazard.SetupSampler(sampleSize, seed, scheme);
                 }
                 ordinal++;
             }
             for (int i = 0; i < modes.Count; i++)
             {
-                ordinal = modes[i].SetupSamplers(sampleSize, componentSeed, ordinal, scheme, seededFunctions);
+                ordinal = modes[i].SetupSamplers(sampleSize, componentSeed, ordinal, scheme, seededFunctions, scribe);
             }
 
             // Resolve the profile transform chain (Q-T) at the same freeze point. The chain's
@@ -1034,11 +1053,15 @@ namespace RMC.TotalRisk.Systems.Components
                     var transform = _profileTransformFunctions[i];
                     if (seededFunctions.Add(transform))
                     {
-                        transform.SetupSampler(sampleSize, SeedHelpers.HashCombine(componentSeed, transform.CanonicalHash(), ordinal), scheme);
+                        int seed = SeedHelpers.HashCombine(componentSeed, transform.CanonicalHash(), ordinal);
+                        if (scribe != null) seed = scribe.Resolve(ordinal, seed);
+                        transform.SetupSampler(sampleSize, seed, scheme);
                     }
                     ordinal++;
                 }
             }
+
+            return scribe != null ? scribe.Finish(ordinal) : Array.Empty<int>();
         }
 
         /// <summary>

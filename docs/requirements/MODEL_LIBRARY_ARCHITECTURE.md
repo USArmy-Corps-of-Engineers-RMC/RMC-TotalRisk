@@ -614,9 +614,21 @@ The component's canonical hash includes failure modes **in declared order** (per
 | Two failure modes with identical content within the same component | independent draws via existing `_prng.Next()` cascade |
 | Two transforms with identical content in the same `HazardToResponse[]` chain | independent draws via existing `prng.NextDouble()` cascade |
 
-#### 5.5.8 Trade-off acknowledged
+#### 5.5.8 Seed-stable perturbation mode (Phase 6.6 — implemented)
 
-Editing a single numeric parameter changes the canonical hash → changes the MC seed → changes the realization noise on top of the parameter sensitivity. At ≥10k realizations this is negligible vs. the parameter-driven signal. A future architectural extension (out of Phase 2 scope) could expose a "seed-stable" mode that pins the seed across small parameter perturbations for sensitivity studies.
+Editing a single numeric parameter changes the canonical hash → changes the MC seed → changes the realization noise on top of the parameter sensitivity. That is the **correct default**: reproducibility demands that different content produce a different, deterministic stream. But in a perturbation study (Δresult/Δparameter) the seed re-roll is noise on top of the signal, so the engine exposes the seed-stable mode this section originally deferred:
+
+- **`RiskAnalysis.CapturedSamplerSeeds`** (`SamplerSeedMap?`, runtime-only): every run captures the *effective* seed it resolved at each sampler walk ordinal — per component, per function position including the failure modes' consequence-coupling positions — plus the joint system's VEGAS seed base. `capture(apply(map)) = map`.
+- **`RiskAnalysis.PinnedSamplerSeeds`** (`SamplerSeedMap?`, runtime-only): when set, the next run substitutes each captured seed for the content-derived one, by walk ordinal, through a `SeedScribe` threaded down the same `SetupSamplers` walk that defines seeding order. Pinning is **per function ordinal**, not per component: the perturbed parameter moves *that function's* hash, so a component-level pin would still re-roll its percentile matrix.
+- **Workflow:** baseline run → read `CapturedSamplerSeeds` → perturb the parameter → assign the map to `PinnedSamplerSeeds` on the perturbed analysis → run → difference the results.
+- **Shape validation is loud:** a map only fits the walk shape it was captured from. Component-count mismatch throws synchronously from `RunAsync`; a walk-ordinal mismatch (a mode, function, or coupling position added or removed) faults the run through `AnalysisCompleted` — a perturbation that changes the walk shape is not a "small perturbation."
+- **Never persisted:** the map and the pin are runtime-only — never serialized, never hashed, never part of any identity surface. Clearing `PinnedSamplerSeeds` restores content-based seeding exactly.
+
+**Documented residuals** (deterministic parameter effects, not seed noise — the pin removes only the stream re-roll):
+
+1. *Adaptive refinement follows the integrand.* The 1D AGK mesh refines on the configured `RiskIntegrand`; a perturbation that moves the objective's values moves the mesh, shifting integrals within the integration tolerance. A consequence-blind objective (`TotalProbabilityOfFailure`) makes probability outputs bit-identical under consequence perturbations.
+2. *The joint VEGAS integrand is inherently consequence-bearing* (`expectedFailure + expectedNonFailure`), so a consequence perturbation re-adapts the importance grid deterministically even with the stream pinned. Hash-moving but integrand-inert edits (e.g., `HazardThreshold`) replay bit-identically — the unit-test witness.
+3. *Canonical-order flips*: a perturbation that reorders component canonical hashes re-associates the additive convolution at the last bit.
 
 #### 5.5.9 Verification
 

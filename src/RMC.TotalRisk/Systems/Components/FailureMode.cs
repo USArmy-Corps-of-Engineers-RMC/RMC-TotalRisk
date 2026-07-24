@@ -643,19 +643,23 @@ namespace RMC.TotalRisk.Systems.Components
         /// Two distinct instances with equal content get different ordinals and draw
         /// independently.
         /// </param>
+        /// <param name="scribe">The seed scribe (capture, and optionally apply), or null (Phase 6.6 §5.5.8).</param>
         /// <returns>The next unclaimed ordinal.</returns>
         /// <exception cref="ArgumentNullException">Thrown when the seeded-function set is null.</exception>
         /// <exception cref="ArgumentOutOfRangeException">Thrown when the sample size is not positive.</exception>
         /// <exception cref="NotSupportedException">Thrown when the sampling scheme is unrecognized.</exception>
         internal int SetupSamplers(int sampleSize, int componentSeed, int ordinal, SamplingScheme scheme,
-            ISet<IRiskFunction> seededFunctions)
+            ISet<IRiskFunction> seededFunctions, SeedScribe? scribe = null)
         {
             if (seededFunctions == null) throw new ArgumentNullException(nameof(seededFunctions));
             if (sampleSize <= 0) throw new ArgumentOutOfRangeException(nameof(sampleSize), "The sample size must be positive.");
 
             // The coupling matrix claims this mode's first ordinal so the pair-coupling stream is
-            // as content-stable as any function's.
-            int couplingSeed = SeedHelpers.ToPositiveSeed(SeedHelpers.HashCombine(componentSeed, CanonicalHash(), ordinal));
+            // as content-stable as any function's. The scribe sees the pre-fold seed — the fold
+            // is deterministic, so capture/apply stays a pure seed substitution.
+            int couplingBase = SeedHelpers.HashCombine(componentSeed, CanonicalHash(), ordinal);
+            if (scribe != null) couplingBase = scribe.Resolve(ordinal, couplingBase);
+            int couplingSeed = SeedHelpers.ToPositiveSeed(couplingBase);
             ordinal++;
             int columns = Math.Max(1, _consequenceFunctions.Count);
             _couplingPercentiles = scheme switch
@@ -672,13 +676,13 @@ namespace RMC.TotalRisk.Systems.Components
                 if (stage is null) continue;
                 for (int i = 0; i < stage.Transforms.Count; i++)
                 {
-                    ordinal = SetupFunction(stage.Transforms[i], sampleSize, componentSeed, ordinal, scheme, seededFunctions);
+                    ordinal = SetupFunction(stage.Transforms[i], sampleSize, componentSeed, ordinal, scheme, seededFunctions, scribe);
                 }
-                ordinal = SetupFunction(stage.Response, sampleSize, componentSeed, ordinal, scheme, seededFunctions);
+                ordinal = SetupFunction(stage.Response, sampleSize, componentSeed, ordinal, scheme, seededFunctions, scribe);
             }
             for (int i = 0; i < _responseToConsequence.Count; i++)
             {
-                ordinal = SetupFunction(_responseToConsequence[i], sampleSize, componentSeed, ordinal, scheme, seededFunctions);
+                ordinal = SetupFunction(_responseToConsequence[i], sampleSize, componentSeed, ordinal, scheme, seededFunctions, scribe);
             }
             return ordinal;
         }
@@ -786,14 +790,17 @@ namespace RMC.TotalRisk.Systems.Components
         /// <param name="ordinal">This walk position's ordinal.</param>
         /// <param name="scheme">The knowledge-uncertainty sampling scheme.</param>
         /// <param name="seededFunctions">The functions already seeded (reference identity).</param>
+        /// <param name="scribe">The seed scribe capturing (and, when pinned, overriding) the resolved seed at this ordinal, or null outside a scribed walk.</param>
         /// <returns>The next unclaimed ordinal.</returns>
         private static int SetupFunction(IRiskFunction? function, int sampleSize, int componentSeed, int ordinal,
-            SamplingScheme scheme, ISet<IRiskFunction> seededFunctions)
+            SamplingScheme scheme, ISet<IRiskFunction> seededFunctions, SeedScribe? scribe = null)
         {
             if (function is null) return ordinal;
             if (seededFunctions.Add(function))
             {
-                function.SetupSampler(sampleSize, SeedHelpers.HashCombine(componentSeed, function.CanonicalHash(), ordinal), scheme);
+                int seed = SeedHelpers.HashCombine(componentSeed, function.CanonicalHash(), ordinal);
+                if (scribe != null) seed = scribe.Resolve(ordinal, seed);
+                function.SetupSampler(sampleSize, seed, scheme);
             }
             return ordinal + 1;
         }
