@@ -485,8 +485,9 @@ public class RiskAnalysisTests
         Assert.IsTrue(multiStageAnalysis.Validate().IsValid,
             string.Join(" | ", multiStageAnalysis.Validate().ValidationMessages));
 
-        // Transitional cascade gates (removed with the state-group layer): a Non-Fail-final end
-        // state, and terminals sharing responses along divergent branch paths.
+        // The state-group layer accepts the cascade configurations the transitional Stage 2
+        // gate held back: a Non-Fail-final end state (a branch-scoped non-failure consequence)
+        // and both-port divergence now validate.
         var partialOnly = Component(Consequence("A", 300d));
         partialOnly.AddFailureMode(new FailureMode(
             new List<ResponseStage>
@@ -494,8 +495,7 @@ public class RiskAnalysisTests
                 new ResponseStage(new List<ITransformFunction>(), Fragility(), BranchPolarity.NonFail),
             },
             null, new List<IConsequenceFunction> { Consequence("Partial", 50d) }));
-        Assert.IsTrue(new RiskAnalysis(new[] { partialOnly }).Validate().ValidationMessages
-            .Any(m => m.StartsWith("Error:", StringComparison.Ordinal) && m.Contains("Non-Fail branch")));
+        Assert.IsTrue(new RiskAnalysis(new[] { partialOnly }).Validate().IsValid);
 
         var divergent = Component(Consequence("A", 300d));
         var response = divergent.Graph.GetElements<RMC.TotalRisk.Systems.Components.Graph.ResponseElement>().First();
@@ -505,8 +505,59 @@ public class RiskAnalysisTests
         };
         partialTerminal.Functions.Add(Consequence("Partial", 50d));
         divergent.Graph.AddElement(partialTerminal);
-        Assert.IsTrue(new RiskAnalysis(new[] { divergent }).Validate().ValidationMessages
-            .Any(m => m.StartsWith("Error:", StringComparison.Ordinal) && m.Contains("state-group layer")));
+        Assert.IsTrue(new RiskAnalysis(new[] { divergent }).Validate().IsValid);
+
+        // The §7.9 gates that stay: a second claiming state group, and competing over an
+        // else-chain failure state.
+        var doubleClaim = Component(Consequence("A", 300d));
+        var claimResponse = doubleClaim.Graph.GetElements<RMC.TotalRisk.Systems.Components.Graph.ResponseElement>().First();
+        var claimOne = new RMC.TotalRisk.Systems.Components.Graph.ConsequenceElement("Partial One")
+        {
+            Input = new RMC.TotalRisk.Systems.Components.Graph.RiskConnection(claimResponse, 1),
+        };
+        claimOne.Functions.Add(Consequence("Partial 1", 50d));
+        doubleClaim.Graph.AddElement(claimOne);
+        var secondResponse = new RMC.TotalRisk.Systems.Components.Graph.ResponseElement("Second Response")
+        {
+            Function = Fragility(),
+            Input = new RMC.TotalRisk.Systems.Components.Graph.RiskConnection(doubleClaim.Graph.GetElements<RMC.TotalRisk.Systems.Components.Graph.HazardElement>().First()),
+        };
+        var claimTwoFail = new RMC.TotalRisk.Systems.Components.Graph.ConsequenceElement("Second Failure")
+        {
+            Input = new RMC.TotalRisk.Systems.Components.Graph.RiskConnection(secondResponse),
+        };
+        claimTwoFail.Functions.Add(Consequence("Second Loss", 100d));
+        var claimTwo = new RMC.TotalRisk.Systems.Components.Graph.ConsequenceElement("Partial Two")
+        {
+            Input = new RMC.TotalRisk.Systems.Components.Graph.RiskConnection(secondResponse, 1),
+        };
+        claimTwo.Functions.Add(Consequence("Partial 2", 25d));
+        doubleClaim.Graph.AddElement(secondResponse);
+        doubleClaim.Graph.AddElement(claimTwoFail);
+        doubleClaim.Graph.AddElement(claimTwo);
+        Assert.IsTrue(new RiskAnalysis(new[] { doubleClaim }).Validate().ValidationMessages
+            .Any(m => m.StartsWith("Error:", StringComparison.Ordinal) && m.Contains("one state group")));
+
+        var elseChain = Component(Consequence("A", 300d));
+        var elseRoot = elseChain.Graph.GetElements<RMC.TotalRisk.Systems.Components.Graph.ResponseElement>().First();
+        var elseNext = new RMC.TotalRisk.Systems.Components.Graph.ResponseElement("Else Response")
+        {
+            Function = Fragility(),
+            Input = new RMC.TotalRisk.Systems.Components.Graph.RiskConnection(elseRoot, 1),
+        };
+        var elseTerminal = new RMC.TotalRisk.Systems.Components.Graph.ConsequenceElement("Else Failure")
+        {
+            Input = new RMC.TotalRisk.Systems.Components.Graph.RiskConnection(elseNext),
+        };
+        elseTerminal.Functions.Add(Consequence("Else Loss", 100d));
+        elseChain.Graph.AddElement(elseNext);
+        elseChain.Graph.AddElement(elseTerminal);
+        elseChain.FailureModeMethod = FailureModeMethod.CompetingFailures;
+        Assert.IsTrue(new RiskAnalysis(new[] { elseChain }).Validate().ValidationMessages
+            .Any(m => m.StartsWith("Error:", StringComparison.Ordinal) && m.Contains("weak-link")));
+        elseChain.FailureModeMethod = FailureModeMethod.JointFailures;
+        Assert.IsTrue(new RiskAnalysis(new[] { elseChain }).Validate().IsValid,
+            "The else-chain is legal outside the competing method.");
     }
 
     /// <summary>

@@ -284,6 +284,14 @@ namespace RMC.TotalRisk.Results
         public bool IsNonFailureMode { get; }
 
         /// <summary>
+        /// Suppresses this mode's own Fail/Excess recording inside <see cref="ComputeRisk"/> —
+        /// set by the sampled component on claimed non-failure states (arch doc §7.9.2): a
+        /// Non-Fail-final end state is not a failure, so its entries are recorded by the
+        /// component's complement decomposition (into the NonFail streams) rather than here.
+        /// </summary>
+        internal bool SuppressModeRecording { get; set; }
+
+        /// <summary>
         /// The number of weighted exposure branches the primary failure consequence carries.
         /// </summary>
         public int FailureBranchCount => _failureBranchesByType[0].Count;
@@ -293,6 +301,18 @@ namespace RMC.TotalRisk.Results
         /// consequence-free reliability mode).
         /// </summary>
         public int ConsequenceTypeCount => _failureBranchesByType.Length;
+
+        /// <summary>
+        /// The number of exposure branches this mode's consequence carries at one type position
+        /// (the last position's count when the index runs past the mode's axis — a defensive
+        /// clamp; validation aligns the counts).
+        /// </summary>
+        /// <param name="typeIndex">The consequence-type position.</param>
+        /// <returns>The branch count.</returns>
+        internal int BranchCount(int typeIndex)
+        {
+            return _failureBranchesByType[Math.Min(typeIndex, _failureBranchesByType.Length - 1)].Count;
+        }
 
         #endregion
 
@@ -489,7 +509,7 @@ namespace RMC.TotalRisk.Results
             if (realization == null) throw new ArgumentNullException(nameof(realization));
 
             double probabilityOfFailure = SRP(hazardLevel);
-            bool record = recordOutput && !IsNonFailureMode;
+            bool record = recordOutput && !IsNonFailureMode && !SuppressModeRecording;
             double recordedLevel = double.IsNaN(recordedHazard) ? hazardLevel : recordedHazard;
 
             // Secondary types ride along only when their results are consumed: the recorded

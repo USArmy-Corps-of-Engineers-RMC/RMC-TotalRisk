@@ -591,97 +591,12 @@ namespace RMC.TotalRisk.Analyses
                 {
                     messages.Add($"{message} [{component.Name}]");
                 }
-                ValidateCascadeReadiness(component, messages);
             }
 
             ValidateConsequenceTypeAxis(messages);
             ValidateHazardAxisConsistency(messages);
 
             return (messages.FindIndex(m => m.StartsWith("Error:", StringComparison.Ordinal)) < 0, messages);
-        }
-
-        /// <summary>
-        /// The transitional Phase 6.7 gate between multi-stage acceptance and the state-group
-        /// layer: single-terminal cascades, else-chains, and legacy same-branch fan-out compute
-        /// with the flat per-mode combination (each mode is its own unit — exactly the
-        /// across-group semantics for singleton groups), while configurations that need the
-        /// mutually-exclusive state-group layer error until it lands: Non-Fail-final end states
-        /// (branch-scoped non-failure consequences, arch doc §7.9.3) and terminals sharing
-        /// response elements along divergent branch paths (exclusive state groups, §7.9.1).
-        /// Removed when the state-group layer lands.
-        /// </summary>
-        /// <param name="component">The component to gate.</param>
-        /// <param name="messages">The message sink.</param>
-        private static void ValidateCascadeReadiness(SystemComponent component, List<string> messages)
-        {
-            var modes = component.FailureModes;
-            for (int m = 0; m < modes.Count; m++)
-            {
-                if (modes[m].IsNonFailureMode) continue;
-                var stages = modes[m].ResponseStages;
-                if (stages[stages.Count - 1].BranchPolarity == BranchPolarity.NonFail)
-                {
-                    messages.Add($"Error: An end state of system component '{component.Name}' exits its final response on the Non-Fail branch; branch-scoped non-failure end states compute when the cascade state-group layer lands.");
-                }
-            }
-
-            for (int a = 0; a < modes.Count; a++)
-            {
-                if (modes[a].IsNonFailureMode || modes[a].ProjectedResponseOrdinals == null) continue;
-                for (int b = a + 1; b < modes.Count; b++)
-                {
-                    if (modes[b].IsNonFailureMode || modes[b].ProjectedResponseOrdinals == null) continue;
-                    if (!SharesResponseOrdinal(modes[a], modes[b])) continue;
-                    if (!HasIdenticalSignature(modes[a], modes[b]))
-                    {
-                        messages.Add($"Error: Consequence terminals of system component '{component.Name}' share response elements along divergent branch paths; mutually-exclusive state groups compute when the cascade state-group layer lands.");
-                        return;
-                    }
-                }
-            }
-        }
-
-        /// <summary>
-        /// Determines whether two projected modes share any response-element occurrence ordinal
-        /// (the stamped projection topology).
-        /// </summary>
-        /// <param name="a">The first mode.</param>
-        /// <param name="b">The second mode.</param>
-        /// <returns>True when any ordinal appears in both modes.</returns>
-        private static bool SharesResponseOrdinal(FailureMode a, FailureMode b)
-        {
-            var ordinalsA = a.ProjectedResponseOrdinals!;
-            var ordinalsB = b.ProjectedResponseOrdinals!;
-            for (int i = 0; i < ordinalsA.Length; i++)
-            {
-                for (int j = 0; j < ordinalsB.Length; j++)
-                {
-                    if (ordinalsA[i] == ordinalsB[j]) return true;
-                }
-            }
-            return false;
-        }
-
-        /// <summary>
-        /// Determines whether two projected modes carry identical leaf signatures — the same
-        /// response-element ordinals and branch polarities, stage for stage (the legacy
-        /// same-branch fan-out shape, which keeps its flat combination semantics per the Q2
-        /// ruling).
-        /// </summary>
-        /// <param name="a">The first mode.</param>
-        /// <param name="b">The second mode.</param>
-        /// <returns>True when the signatures are identical.</returns>
-        private static bool HasIdenticalSignature(FailureMode a, FailureMode b)
-        {
-            var ordinalsA = a.ProjectedResponseOrdinals!;
-            var ordinalsB = b.ProjectedResponseOrdinals!;
-            if (ordinalsA.Length != ordinalsB.Length) return false;
-            for (int i = 0; i < ordinalsA.Length; i++)
-            {
-                if (ordinalsA[i] != ordinalsB[i]) return false;
-                if (a.ResponseStages[i].BranchPolarity != b.ResponseStages[i].BranchPolarity) return false;
-            }
-            return true;
         }
 
         /// <summary>

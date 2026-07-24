@@ -484,15 +484,17 @@ namespace RMC.TotalRisk.Systems.Components
         }
 
         /// <summary>
-        /// The failure on/off indicator combinations over the failure paths
-        /// (<c>Factorial.AllCombinations</c>), cached per failure-path count; null while the
-        /// component has no failure paths. Capture before a realization loop.
+        /// The failure on/off indicator combinations over the combination units
+        /// (<c>Factorial.AllCombinations</c>), cached per unit count; null while the component
+        /// has no failure paths. Capture before a realization loop. Units are the entities the
+        /// failure-mode combination method operates over (arch doc §7.9): exclusive state groups
+        /// plus standalone failure states — the failure-path count for every pre-6.7 layout.
         /// </summary>
         public int[,]? FailureModeIndicators
         {
             get
             {
-                int count = FailurePathCount();
+                int count = CombinationUnitCount();
                 if (count != _combosForCount)
                 {
                     _failureModeCombinations = count > 0 ? Factorial.AllCombinations(count) : null;
@@ -503,15 +505,15 @@ namespace RMC.TotalRisk.Systems.Components
         }
 
         /// <summary>
-        /// The binomial subset counts over the failure paths (how many combinations fail exactly
-        /// k modes), cached per failure-path count; null while the component has no failure
+        /// The binomial subset counts over the combination units (how many combinations fail
+        /// exactly k units), cached per unit count; null while the component has no failure
         /// paths. Capture before a realization loop.
         /// </summary>
         public int[]? FailureModeBinomialCombinations
         {
             get
             {
-                int count = FailurePathCount();
+                int count = CombinationUnitCount();
                 if (count != _binomialForCount)
                 {
                     if (count > 0)
@@ -546,7 +548,7 @@ namespace RMC.TotalRisk.Systems.Components
             get
             {
                 EnsureDependencyMatrixCurrent();
-                return _matrixValid && FailurePathCount() > 0 ? _mvn : null;
+                return _matrixValid && CombinationUnitCount() > 0 ? _mvn : null;
             }
         }
 
@@ -563,7 +565,7 @@ namespace RMC.TotalRisk.Systems.Components
         /// </summary>
         internal void EnsureDependencyMatrixCurrent()
         {
-            int count = FailurePathCount();
+            int count = CombinationUnitCount();
             if (_mvnStale || count != _mvnForCount)
             {
                 UpdateMultivariateNormal(count);
@@ -590,6 +592,13 @@ namespace RMC.TotalRisk.Systems.Components
         /// The snapshot's non-failure mode; null when the component has none.
         /// </summary>
         private FailureMode? _sampledNonFailureMode;
+
+        /// <summary>
+        /// The snapshot's end-state group layout (arch doc §7.9), frozen beside the projection
+        /// by <see cref="SetupSamplers"/> so every realization combines against one structure.
+        /// Runtime sampler state: never serialized, never hashed, never cloned.
+        /// </summary>
+        private EndStateGroupLayout? _sampledLayout;
 
         /// <summary>
         /// Raised when a component property changes. Passive contract — headless callers need
@@ -694,7 +703,7 @@ namespace RMC.TotalRisk.Systems.Components
         /// <returns>True when the matrix is usable.</returns>
         public bool IsCorrelationMatrixValid()
         {
-            ValidateCorrelationMatrix(FailurePathCount());
+            ValidateCorrelationMatrix(CombinationUnitCount());
             return _matrixValid;
         }
 
@@ -750,7 +759,7 @@ namespace RMC.TotalRisk.Systems.Components
 
             if (_failureModeDependency == DependencyType.CorrelationMatrix && !IsCorrelationMatrixValid())
             {
-                messages.Add($"Error: The failure mode correlation matrix is not positive definite or does not match the failure-path count for system component '{Name}'.");
+                messages.Add($"Error: The failure mode correlation matrix is not positive definite or does not match the combination dimension (the state-group count) for system component '{Name}'.");
             }
 
             // The profile hazard selection (Q-T): the id must resolve to a transform element in
@@ -798,18 +807,35 @@ namespace RMC.TotalRisk.Systems.Components
                 }
             }
 
+            // The cascade state-group rules (arch doc §7.9): claimed non-failure states are
+            // scoped to one state group per component (§7.9.5 — with two claiming groups the
+            // exact complement decomposition needs a cross-product enumeration that is
+            // deliberately deferred), and the competing method requires every failure state's
+            // weight to be monotone in the hazard — guaranteed by an all-Fail signature, broken
+            // by an else-chain (§7.9.6).
+            var layout = EndStateGroupLayout.Build(modes);
+            if (layout.ClaimingCascadeCount > 1)
+            {
+                messages.Add($"Error: System component '{Name}' wires Non-Fail branch consequences in {layout.ClaimingCascadeCount} state groups; branch-scoped non-failure consequences are supported for one state group per component — wire the other cascades' Non-Fail branches to the background path.");
+            }
+            if (_failureModeMethod == FailureModeMethod.CompetingFailures && layout.HasNonFailBranchFailureState)
+            {
+                messages.Add($"Error: The competing failure-mode method is undefined for system component '{Name}': a failure state rides a Non-Fail branch (an else-chain), so its probability is not monotone in the hazard and no weak-link ordering exists — use Joint, Common Cause, or Mutually Exclusive.");
+            }
+
             // The Q-W branch-explosion guardrail at the component level: joint failure pathways
-            // take the cross product of the failing modes' exposure branches within one
-            // consequence type (per-type marginal compute — types never cross), so the worst
-            // type's product across failure modes is bounded — warn above 64, error above 1024.
-            // The per-mode combination methods never cross modes, so the check applies to the
-            // joint method only.
+            // take the cross product of the participating combination units' exposure branches
+            // within one consequence type (per-type marginal compute — types never cross;
+            // within a unit the exclusive states' branches ADD, across units they MULTIPLY), so
+            // the worst type's product across units is bounded — warn above 64, error above
+            // 1024. The per-mode combination methods never cross modes, so the check applies to
+            // the joint method only.
             if (_failureModeMethod == FailureModeMethod.JointFailures)
             {
-                long pathwayBranches = WorstCasePathwayBranches(modes);
+                long pathwayBranches = WorstCasePathwayBranches(modes, layout);
                 if (pathwayBranches > 1024)
                 {
-                    messages.Add($"Error: The joint failure pathways' combined exposure branches exceed 1024 (the cross product of the failure modes' branch counts within the worst consequence type) for system component '{Name}'; reduce the mixture branch counts.");
+                    messages.Add($"Error: The joint failure pathways' combined exposure branches exceed 1024 (the cross product of the combination units' branch counts within the worst consequence type) for system component '{Name}'; reduce the mixture branch counts.");
                 }
                 else if (pathwayBranches > 64)
                 {
@@ -834,18 +860,31 @@ namespace RMC.TotalRisk.Systems.Components
         {
             const long cap = 1L << 40;
             var modes = ProjectFailureModes();
+            var layout = EndStateGroupLayout.Build(modes);
+            var stateModes = CollectStateModes(modes);
             int typeCount = ConsequenceTypeCount(modes);
             long estimate = 1;
             for (int k = 0; k < typeCount; k++)
             {
-                long jointBound = 1;
+                // Within a combination unit the exclusive states' branch entries ADD; across
+                // units they MULTIPLY (arch doc §7.9). Claimed non-failure states record
+                // complement entries, so they ride the additive bound. Both reduce to the
+                // pre-6.7 per-mode arithmetic under a trivial layout.
                 long perModeBound = 0;
-                for (int i = 0; i < modes.Count; i++)
+                for (int s = 0; s < stateModes.Count; s++)
                 {
-                    if (modes[i].IsNonFailureMode) continue;
-                    long branches = BranchCountAt(modes[i], k);
-                    perModeBound += branches;
-                    if (jointBound < cap) jointBound *= 1 + branches;
+                    perModeBound += BranchCountAt(stateModes[s], k);
+                }
+                long jointBound = 1;
+                for (int u = 0; u < layout.CombinationUnitCount && jointBound < cap; u++)
+                {
+                    long unitBranches = 0;
+                    var members = layout.CombinationUnitStates[u];
+                    for (int m = 0; m < members.Length; m++)
+                    {
+                        unitBranches += BranchCountAt(stateModes[members[m]], k);
+                    }
+                    jointBound *= 1 + unitBranches;
                 }
                 long typeEstimate = _failureModeMethod == FailureModeMethod.JointFailures ? jointBound - 1 : perModeBound;
                 estimate = Math.Max(estimate, typeEstimate);
@@ -854,23 +893,47 @@ namespace RMC.TotalRisk.Systems.Components
         }
 
         /// <summary>
-        /// The worst consequence type's joint-pathway branch cross product across the failure
-        /// modes (per-type marginal compute — types never cross), capped just past the error
-        /// guardrail so the product never overflows.
+        /// Collects the end states — the non-background projected modes in projection order,
+        /// the index space the end-state group layout uses.
+        /// </summary>
+        /// <param name="modes">The projected modes.</param>
+        /// <returns>The state modes.</returns>
+        private static List<FailureMode> CollectStateModes(IReadOnlyList<FailureMode> modes)
+        {
+            var stateModes = new List<FailureMode>(modes.Count);
+            for (int i = 0; i < modes.Count; i++)
+            {
+                if (!modes[i].IsNonFailureMode) stateModes.Add(modes[i]);
+            }
+            return stateModes;
+        }
+
+        /// <summary>
+        /// The worst consequence type's joint-pathway branch cross product across the
+        /// combination units (within a unit the exclusive states' branches add, across units
+        /// they multiply — per-type marginal compute, types never cross), capped just past the
+        /// error guardrail so the product never overflows.
         /// </summary>
         /// <param name="modes">The projected failure modes.</param>
+        /// <param name="layout">The end-state group layout over the modes.</param>
         /// <returns>The worst type's cross product, at least one.</returns>
-        private static long WorstCasePathwayBranches(IReadOnlyList<FailureMode> modes)
+        private static long WorstCasePathwayBranches(IReadOnlyList<FailureMode> modes, EndStateGroupLayout layout)
         {
+            var stateModes = CollectStateModes(modes);
             int typeCount = ConsequenceTypeCount(modes);
             long worst = 1;
             for (int k = 0; k < typeCount; k++)
             {
                 long pathwayBranches = 1;
-                for (int i = 0; i < modes.Count && pathwayBranches <= 1024; i++)
+                for (int u = 0; u < layout.CombinationUnitCount && pathwayBranches <= 1024; u++)
                 {
-                    if (modes[i].IsNonFailureMode) continue;
-                    pathwayBranches *= BranchCountAt(modes[i], k);
+                    long unitBranches = 0;
+                    var members = layout.CombinationUnitStates[u];
+                    for (int m = 0; m < members.Length; m++)
+                    {
+                        unitBranches += BranchCountAt(stateModes[members[m]], k);
+                    }
+                    pathwayBranches *= unitBranches;
                 }
                 worst = Math.Max(worst, pathwayBranches);
             }
@@ -1019,6 +1082,7 @@ namespace RMC.TotalRisk.Systems.Components
 
             var modes = ProjectFailureModes();
             _sampledModes = modes;
+            _sampledLayout = EndStateGroupLayout.Build(modes);
             _sampledNonFailureMode = null;
             for (int i = 0; i < modes.Count; i++)
             {
@@ -1083,11 +1147,11 @@ namespace RMC.TotalRisk.Systems.Components
         /// </exception>
         public SampledComponent Sample(int realizationIndex = -1)
         {
-            if (_sampledModes == null)
+            if (_sampledModes == null || _sampledLayout == null)
             {
                 throw new InvalidOperationException("SetupSamplers() must be called before sampling.");
             }
-            return new SampledComponent(this, _sampledModes, _sampledNonFailureMode, realizationIndex);
+            return new SampledComponent(this, _sampledModes, _sampledNonFailureMode, _sampledLayout, realizationIndex);
         }
 
         /// <summary>
@@ -1542,31 +1606,18 @@ namespace RMC.TotalRisk.Systems.Components
         }
 
         /// <summary>
-        /// Counts the failure paths: terminals whose root-first path contains a response element
-        /// (the v1.0 non-non-fail failure-mode count driving the combination caches and the
-        /// multivariate normal's dimension).
+        /// The failure-mode combination dimension: the number of combination units in the
+        /// current end-state layout (arch doc §7.9) — exclusive state groups plus standalone
+        /// failure states, driving the combination caches, the multivariate normal, and the
+        /// correlation-matrix dimension. Equals the v1.0 failure-path count for every pre-6.7
+        /// layout. Built fresh from the projection (the engine's per-realization reads hit the
+        /// count-keyed caches above, so the rebuild cost is a per-realization structural walk at
+        /// component scale — the projection's documented cost profile).
         /// </summary>
-        /// <returns>The failure-path count.</returns>
-        private int FailurePathCount()
+        /// <returns>The combination-unit count.</returns>
+        private int CombinationUnitCount()
         {
-            var root = RootHazardElement;
-            if (root == null) return 0;
-
-            int count = 0;
-            foreach (var terminal in _graph.GetElements<ConsequenceElement>())
-            {
-                var path = _graph.GetUpstreamPath(terminal);
-                if (path.Count == 0 || !ReferenceEquals(path[0], root)) continue;
-                for (int i = 1; i < path.Count - 1; i++)
-                {
-                    if (path[i] is ResponseElement)
-                    {
-                        count++;
-                        break;
-                    }
-                }
-            }
-            return count;
+            return EndStateGroupLayout.Build(ProjectFailureModes()).CombinationUnitCount;
         }
 
         /// <summary>
@@ -1576,7 +1627,7 @@ namespace RMC.TotalRisk.Systems.Components
         /// automatic modes the derived matrix is written back to the correlation-matrix field
         /// (v1.0 behavior); it never serializes from those modes.
         /// </summary>
-        /// <param name="dimension">The failure-path count D.</param>
+        /// <param name="dimension">The combination-unit count D (the failure-path count for pre-6.7 layouts).</param>
         private void UpdateMultivariateNormal(int dimension)
         {
             _mvnForCount = dimension;

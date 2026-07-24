@@ -98,6 +98,183 @@ public class SampledComponentTests
     }
 
     /// <summary>
+    /// Builds the partial-damage cascade via graph wiring (arch doc §7.9): the stage hazard
+    /// feeds an initiation fragility (10 → 20) whose Fail port continues to a progression
+    /// fragility (10 → 30); the progression's Fail port carries full-breach damages (600 at
+    /// full scale), its Non-Fail port partial damages (150), and a response-free background
+    /// path carries 60. At stage 15: p₁ = 0.5, p₂ = 0.25, values 300 / 75 / 30.
+    /// </summary>
+    private static SystemComponent CascadeComponent()
+    {
+        var component = new SystemComponent { Name = "Cascade" };
+        var hazard = new HazardElement("Hazard") { Function = StageFrequency() };
+        var initiation = new ResponseElement("Initiation")
+        {
+            Function = Fragility("Initiation", 10d, 20d),
+            Input = new RiskConnection(hazard),
+        };
+        var progression = new ResponseElement("Progression")
+        {
+            Function = Fragility("Progression", 10d, 30d),
+            Input = new RiskConnection(initiation),
+        };
+        var full = new ConsequenceElement("Full Breach") { Input = new RiskConnection(progression) };
+        full.Functions.Add(Consequence("Full Loss", 600d));
+        var partial = new ConsequenceElement("Partial Damage") { Input = new RiskConnection(progression, 1) };
+        partial.Functions.Add(Consequence("Partial Loss", 150d));
+        var background = new ConsequenceElement("Background") { Input = new RiskConnection(hazard) };
+        background.Functions.Add(Consequence("Background Loss", 60d));
+
+        component.Graph.AddElement(hazard);
+        component.Graph.AddElement(initiation);
+        component.Graph.AddElement(progression);
+        component.Graph.AddElement(full);
+        component.Graph.AddElement(partial);
+        component.Graph.AddElement(background);
+        return component;
+    }
+
+    /// <summary>
+    /// Verifies the partial-damage cascade at a known point (§7.9): APF is the breach product
+    /// only, the claimed state rides the complement conditionally, the full-breach excess pairs
+    /// against the partial sibling, and the recorded streams stay exhaustive.
+    /// </summary>
+    [TestMethod]
+    public void Test_StateGroup_PartialDamage_KnownPoint()
+    {
+        // Arrange — at stage 15: w_full = 0.5·0.25 = 0.125 (failure), w_partial = 0.5·0.75 =
+        // 0.375 (claimed), remainder 0.5; values C_full = 300, C_partial = 75, C_bg = 30.
+        var sampled = MeanSample(CascadeComponent());
+        var realization = new ComponentRealization(sampled.FailureModeCount);
+        var flags = new RiskComputeFlags();
+
+        // Act
+        var output = sampled.ComputeRisk(0.5d, 15d, flags, realization, recordOutput: true);
+
+        // Assert — the failure union is the full-breach product only (final polarity, §7.9.2).
+        Assert.AreEqual(0.125d, output.ProbabilityOfFailure, 1e-12);
+        Assert.AreEqual(0.875d, output.ProbabilityOfNonFailure, 1e-12);
+
+        // The conditional complement mean (§7.9.5): q = 0.375/0.875 = 3/7 of partial damages,
+        // 4/7 of background.
+        Assert.AreEqual(3d / 7d * 75d + 4d / 7d * 30d, output.NonFailureConsequences, 1e-12);
+
+        // The component-level joint excess pairs against the complement mixture (4/7 background
+        // at 30, 3/7 partial at 75): 4/7·270 + 3/7·225. The §7.9.4 sibling pairing is the MODE
+        // scope's excess, asserted below.
+        Assert.AreEqual(300d, output.MeanFailureConsequences, 1e-12);
+        Assert.AreEqual((4d * 270d + 3d * 225d) / 7d, output.MeanExcessConsequences, 1e-12);
+
+        // Recorded masses: Fail carries the breach mass; NonFail carries the complement split
+        // 0.375 (claimed, exactly the raw weight — single-group exactness) + 0.5 (remainder);
+        // Total is exhaustive.
+        var curves = realization.Curves;
+        Assert.AreEqual(0.125d, curves.Fail.RiskPoints[0].ResponseProbabilities.Sum(), 1e-12);
+        Assert.AreEqual(0.875d, curves.NonFail.RiskPoints[0].ResponseProbabilities.Sum(), 1e-12);
+        Assert.AreEqual(0.375d, curves.NonFail.RiskPoints[0].ResponseProbabilities[1], 1e-12,
+            "The claimed entry must carry PNF·q = 0.875 · 3/7 = 0.375 — the raw weight, exactly.");
+        Assert.AreEqual(75d, curves.NonFail.RiskPoints[0].Consequences[1], 1e-12);
+        Assert.AreEqual(1d, curves.Total.RiskPoints[0].ResponseProbabilities.Sum(), 1e-12,
+            "The Total stream stays exhaustive with claimed states.");
+
+        // Mode scope: the claimed state records into its own NonFail stream only, and the
+        // full-breach state's excess pairs against its flipped-final sibling (§7.9.4):
+        // 300 − 75 = 225 at the breach mass.
+        Assert.AreEqual(0, realization.FailureModes[1].Curves.Fail.RiskPoints.Count);
+        Assert.AreEqual(1, realization.FailureModes[1].Curves.NonFail.RiskPoints.Count);
+        Assert.AreEqual(0.375d, realization.FailureModes[1].Curves.NonFail.RiskPoints[0].ResponseProbabilities[0], 1e-12);
+        Assert.AreEqual(1, realization.FailureModes[0].Curves.Fail.RiskPoints.Count);
+        var modeExcess = realization.FailureModes[0].Curves.Excess.RiskPoints[0];
+        Assert.AreEqual(225d, modeExcess.Consequences[0], 1e-12,
+            "The mode-scope excess is sibling-paired: full breach minus partial damage.");
+        Assert.AreEqual(0.125d, modeExcess.ResponseProbabilities[0], 1e-12);
+        Assert.IsFalse(flags.Any);
+    }
+
+    /// <summary>
+    /// Verifies the across-unit combination at a known point: the cascade's exclusive unit and
+    /// a standalone mode combine under joint failures exactly as two events with masses
+    /// P_A = 0.125 and p₃ = 0.5, and the contribution split lands on the picked states with the
+    /// exact Σ-identity.
+    /// </summary>
+    [TestMethod]
+    public void Test_StateGroup_JointAcrossUnits_KnownPoint()
+    {
+        // Arrange — the cascade plus a standalone mode (fragility 10→20, consequence 900).
+        var component = CascadeComponent();
+        var standaloneResponse = new ResponseElement("Standalone")
+        {
+            Function = Fragility("Standalone Fragility", 10d, 20d),
+            Input = new RiskConnection(component.Graph.GetElement("Hazard")!),
+        };
+        var standaloneTerminal = new ConsequenceElement("Standalone Loss") { Input = new RiskConnection(standaloneResponse) };
+        standaloneTerminal.Functions.Add(Consequence("Standalone Damages", 900d));
+        component.Graph.AddElement(standaloneResponse);
+        component.Graph.AddElement(standaloneTerminal);
+        component.FailureModeMethod = FailureModeMethod.JointFailures;
+        component.JointConsequences = JointConsequenceType.Maximum;
+
+        var sampled = MeanSample(component);
+        var realization = new ComponentRealization(sampled.FailureModeCount);
+        var flags = new RiskComputeFlags();
+
+        // Act — at 15: P_A = 0.125 (full breach), p₃ = 0.5, C_A = 300, C₃ = 450.
+        var output = sampled.ComputeRisk(0.5d, 15d, flags, realization, recordOutput: true);
+
+        // Assert — the independent union over the units and the exclusive pathway entries
+        // (A-only, standalone-only, both — the Maximum rule combines the joint tuple).
+        Assert.AreEqual(0.5625d, output.ProbabilityOfFailure, 1e-12);
+        double expectedMean = (0.0625d * 300d + 0.4375d * 450d + 0.0625d * 450d) / 0.5625d;
+        Assert.AreEqual(expectedMean, output.MeanFailureConsequences, 1e-9);
+
+        var failPoint = realization.Curves.Fail.RiskPoints[0];
+        Assert.AreEqual(3, failPoint.ResponseProbabilities.Count);
+        Assert.AreEqual(0.0625d, failPoint.ResponseProbabilities[0], 1e-12);
+        Assert.AreEqual(300d, failPoint.Consequences[0], 1e-12);
+        Assert.AreEqual(0.4375d, failPoint.ResponseProbabilities[1], 1e-12);
+        Assert.AreEqual(450d, failPoint.Consequences[1], 1e-12);
+        Assert.AreEqual(0.0625d, failPoint.ResponseProbabilities[2], 1e-12);
+        Assert.AreEqual(450d, failPoint.Consequences[2], 1e-12, "The joint tuple takes the Maximum of 300 and 450.");
+    }
+
+    /// <summary>
+    /// Verifies the mutually-exclusive normalization operates over the units: at stage 25 the
+    /// cascade's failure mass (0.75) and a standalone mode (1.0) sum to 1.75, normalize by
+    /// 1/1.75, and the claimed state's complement vanishes (the union saturates).
+    /// </summary>
+    [TestMethod]
+    public void Test_StateGroup_MutuallyExclusiveAcrossUnits()
+    {
+        // Arrange
+        var component = CascadeComponent();
+        var standaloneResponse = new ResponseElement("Standalone")
+        {
+            Function = Fragility("Standalone Fragility", 10d, 20d),
+            Input = new RiskConnection(component.Graph.GetElement("Hazard")!),
+        };
+        var standaloneTerminal = new ConsequenceElement("Standalone Loss") { Input = new RiskConnection(standaloneResponse) };
+        standaloneTerminal.Functions.Add(Consequence("Standalone Damages", 900d));
+        component.Graph.AddElement(standaloneResponse);
+        component.Graph.AddElement(standaloneTerminal);
+        component.FailureModeMethod = FailureModeMethod.MutuallyExclusive;
+
+        var sampled = MeanSample(component);
+        var realization = new ComponentRealization(sampled.FailureModeCount);
+        var flags = new RiskComputeFlags();
+
+        // Act — at 25: p₁ = 1, p₂ = 0.75 → P_A = 0.75; p₃ = 1; Σ = 1.75 → normalization 4/7.
+        var output = sampled.ComputeRisk(0.1d, 25d, flags, realization, recordOutput: true);
+
+        // Assert
+        Assert.IsTrue(flags.HasProbabilityGreaterThanOne);
+        Assert.AreEqual(1d, output.ProbabilityOfFailure, 1e-12);
+        Assert.AreEqual(0d, output.ProbabilityOfNonFailure, 1e-12);
+        var failEntries = realization.Curves.Fail.RiskPoints[0].ResponseProbabilities;
+        Assert.AreEqual(0.75d / 1.75d, failEntries[0], 1e-12, "The cascade unit's normalized mass.");
+        Assert.AreEqual(1d / 1.75d, failEntries[1], 1e-12, "The standalone unit's normalized mass.");
+    }
+
+    /// <summary>
     /// Verifies the joint-failures pathways at a known point against hand-computed
     /// inclusion–exclusion: SRPs (0.5, 0.25) give pathways 0.375/0.125/0.125 and union 0.625,
     /// with the Maximum joint-consequence rule.
