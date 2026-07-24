@@ -328,6 +328,123 @@ public class SampledComponentTests
     }
 
     /// <summary>
+    /// Verifies the joint-failures % contribution attribution at two hand-computed evaluation
+    /// points under the Maximum rule: within each exclusive pathway the probability splits
+    /// equally (the Shapley value of the union game) and the combined consequence splits
+    /// proportionally to the participants' marginal consequences, then the trapezoid finalize
+    /// integrates with the same masses the recorded curves see.
+    /// </summary>
+    /// <remarks>
+    /// Hand computation. At h = 15 (p = 0.6): SRP (0.5, 0.25); c = (150, 300); nf = 30;
+    /// pathways A-only 0.375, B-only 0.125, AB 0.125 with Max consequence 300 split 1:2 —
+    /// P = (0.4375, 0.1875); fail = (68.75, 62.5); excess totals (45, 33.75, 33.75) split the
+    /// same way — (56.25, 56.25). At h = 12 (p = 0.4): SRP (0.2, 0.1); c = (120, 240);
+    /// nf = 24 — P = (0.19, 0.09); fail = (23.2, 22.4); excess = (18.72, 20.16). Trapezoid
+    /// masses over probabilities (0.4, 0.6) are (0.5, 0.5).
+    /// </remarks>
+    [TestMethod]
+    public void Test_Contribution_JointMaximum_HandComputedSplit()
+    {
+        // Arrange
+        var component = TwoModeComponent(FailureModeMethod.JointFailures, JointConsequenceType.Maximum);
+        var sampled = MeanSample(component);
+        var realization = new ComponentRealization(failureModes: 2);
+        var flags = new RiskComputeFlags();
+
+        // Act — two recording evaluations, then the trapezoid finalize.
+        sampled.ComputeRisk(0.4d, 12d, flags, realization, recordOutput: true);
+        sampled.ComputeRisk(0.6d, 15d, flags, realization, recordOutput: true);
+        realization.FinalizeContributions(trapezoidMasses: true);
+
+        // Assert — mode A.
+        var a = realization.FailureModes[0].Contribution!;
+        Assert.AreEqual(0.5d * 0.19d + 0.5d * 0.4375d, a.FailureProbability, 1e-12);
+        Assert.AreEqual(0.5d * 23.2d + 0.5d * 68.75d, a.FailureMean, 1e-9);
+        Assert.AreEqual(0.5d * 18.72d + 0.5d * 56.25d, a.ExcessMean, 1e-9);
+
+        // Mode B.
+        var b = realization.FailureModes[1].Contribution!;
+        Assert.AreEqual(0.5d * 0.09d + 0.5d * 0.1875d, b.FailureProbability, 1e-12);
+        Assert.AreEqual(0.5d * 22.4d + 0.5d * 62.5d, b.FailureMean, 1e-9);
+        Assert.AreEqual(0.5d * 20.16d + 0.5d * 56.25d, b.ExcessMean, 1e-9);
+    }
+
+    /// <summary>
+    /// Verifies the zero-consequence attribution convention: with every failure consequence
+    /// zero, the tuple value sums vanish and the consequence split falls back to the equal
+    /// split — the probability attribution is untouched (it never reads consequences), which
+    /// is what makes % of the annualized failure probability available in reliability mode.
+    /// </summary>
+    [TestMethod]
+    public void Test_Contribution_ZeroConsequences_EqualSplitFallback()
+    {
+        // Arrange — the same fragilities with zero-valued consequences.
+        var component = new SystemComponent { Name = "Zero" };
+        component.HazardFunction = StageFrequency();
+        component.AddFailureMode(new FailureMode(null, null, Fragility("Mode A", 10d, 20d), Consequence("A Loss", 0d)));
+        component.AddFailureMode(new FailureMode(null, null, Fragility("Mode B", 10d, 30d), Consequence("B Loss", 0d)));
+        component.AddFailureMode(new FailureMode(null, null, null, Consequence("Non-Failure Loss", 0d)));
+        component.FailureModeMethod = FailureModeMethod.JointFailures;
+        var sampled = MeanSample(component);
+        var realization = new ComponentRealization(failureModes: 2);
+        var flags = new RiskComputeFlags();
+
+        // Act
+        sampled.ComputeRisk(0.4d, 12d, flags, realization, recordOutput: true);
+        sampled.ComputeRisk(0.6d, 15d, flags, realization, recordOutput: true);
+        realization.FinalizeContributions(trapezoidMasses: true);
+
+        // Assert — the probability split is the Shapley attribution regardless of consequences.
+        var a = realization.FailureModes[0].Contribution!;
+        var b = realization.FailureModes[1].Contribution!;
+        Assert.AreEqual(0.5d * 0.19d + 0.5d * 0.4375d, a.FailureProbability, 1e-12);
+        Assert.AreEqual(0.5d * 0.09d + 0.5d * 0.1875d, b.FailureProbability, 1e-12);
+        Assert.AreEqual(0d, a.FailureMean, 0d);
+        Assert.AreEqual(0d, b.FailureMean, 0d);
+        Assert.AreEqual(0d, a.ExcessMean, 0d);
+    }
+
+    /// <summary>
+    /// Verifies the common-cause % contribution at hand-computed points: the adjusted marginal
+    /// is the exclusive event, so each mode's contribution is its adjusted probability and the
+    /// adjusted-scaled means — the decomposition other tools report.
+    /// </summary>
+    /// <remarks>
+    /// Hand computation. At h = 15: union = 0.625, Σp = 0.75, factor 5/6 — adjusted
+    /// (0.41666…, 0.208333…); c = (150, 300); paired excess vs nf 30 = (120, 270). At h = 12:
+    /// union = 0.28, Σp = 0.3, factor 14/15 — adjusted (0.186666…, 0.093333…); c = (120, 240);
+    /// excess = (96, 216). Trapezoid masses (0.5, 0.5).
+    /// </remarks>
+    [TestMethod]
+    public void Test_Contribution_CommonCause_AdjustedMarginals()
+    {
+        // Arrange
+        var component = TwoModeComponent(FailureModeMethod.CommonCauseFailures);
+        var sampled = MeanSample(component);
+        var realization = new ComponentRealization(failureModes: 2);
+        var flags = new RiskComputeFlags();
+
+        // Act
+        sampled.ComputeRisk(0.4d, 12d, flags, realization, recordOutput: true);
+        sampled.ComputeRisk(0.6d, 15d, flags, realization, recordOutput: true);
+        realization.FinalizeContributions(trapezoidMasses: true);
+
+        // Assert
+        double adjustedA12 = 0.2d * (0.28d / 0.3d);
+        double adjustedA15 = 0.5d * (0.625d / 0.75d);
+        double adjustedB12 = 0.1d * (0.28d / 0.3d);
+        double adjustedB15 = 0.25d * (0.625d / 0.75d);
+        var a = realization.FailureModes[0].Contribution!;
+        var b = realization.FailureModes[1].Contribution!;
+        Assert.AreEqual(0.5d * (adjustedA12 + adjustedA15), a.FailureProbability, 1e-12);
+        Assert.AreEqual(0.5d * (adjustedA12 * 120d + adjustedA15 * 150d), a.FailureMean, 1e-9);
+        Assert.AreEqual(0.5d * (adjustedA12 * 96d + adjustedA15 * 120d), a.ExcessMean, 1e-9);
+        Assert.AreEqual(0.5d * (adjustedB12 + adjustedB15), b.FailureProbability, 1e-12);
+        Assert.AreEqual(0.5d * (adjustedB12 * 240d + adjustedB15 * 300d), b.FailureMean, 1e-9);
+        Assert.AreEqual(0.5d * (adjustedB12 * 216d + adjustedB15 * 270d), b.ExcessMean, 1e-9);
+    }
+
+    /// <summary>
     /// Verifies the unset default records the raw driving hazard (bit-identical pre-6.6
     /// behavior) and that selecting the profile changes recorded coordinates only — every
     /// computed output is identical between the two runs.

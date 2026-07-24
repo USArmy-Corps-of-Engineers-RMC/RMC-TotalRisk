@@ -1028,6 +1028,7 @@ namespace RMC.TotalRisk.Analyses
                 token.ThrowIfCancellationRequested();
                 IntegrateComponent(sampledComponents[i], componentRealizations[i], realization, flags, realizationIndex);
                 componentRealizations[i].ProcessHazardProbabilities();
+                componentRealizations[i].FinalizeContributions(trapezoidMasses: true);
                 componentRealizations[i].CreateCurves(_options.LECOutputLength);
                 componentRealizations[i].CreateProfiles(includeFailureModes: realizationIndex < 0);
                 componentRealizations[i].ComputeRiskMeasures(_options.ConsequenceThreshold, _options.Alpha, _components[i].HazardThreshold, _runAdditionalThresholds);
@@ -1046,12 +1047,14 @@ namespace RMC.TotalRisk.Analyses
             if (_components.Count == 1)
             {
                 // Single-component system results are the component results (v1.0 behavior at
-                // the legacy clone site), cloned per consequence type.
+                // the legacy clone site), cloned per consequence type. The component's system
+                // contribution is its own totals — a 100% share (% contribution, Phase 6.6).
                 realization.Curves = componentRealizations[0].Curves.Clone();
                 for (int k = 0; k < componentRealizations[0].AdditionalCurves.Count; k++)
                 {
                     realization.AdditionalCurves[k] = componentRealizations[0].AdditionalCurves[k].Clone();
                 }
+                AssignOwnSystemContribution(componentRealizations[0]);
             }
             else
             {
@@ -1129,6 +1132,93 @@ namespace RMC.TotalRisk.Analyses
                 {
                     realization.AdditionalMaxN[k] = Math.Max(realization.AdditionalMaxN[k], realization.AdditionalCurves[k].Total.LECConsequences[0]);
                 }
+            }
+
+            // The per-component system contribution (% contribution, Phase 6.6): the failure
+            // union of strictly independent components splits exactly by the Shapley value
+            // φ_i = p_i · E[1/(1 + K_i)], with K_i the Poisson–binomial count of the OTHER
+            // components failing — the equal split of every exclusive failure combination,
+            // computed in closed form by the standard subset-distribution recursion instead of
+            // a 2^D enumeration. Σφ ≡ the independent union to floating-point association.
+            // The mean contributions are the component means themselves — means add exactly
+            // under the convolution. The recursion folds in the canonical-hash component order
+            // so declaration order cannot move the attribution even at the last bit (the 4b
+            // reorder contract).
+            var countDistribution = new double[componentRealizations.Count];
+            var nextDistribution = new double[componentRealizations.Count];
+            for (int i = 0; i < componentRealizations.Count; i++)
+            {
+                var component = componentRealizations[i];
+                Array.Clear(countDistribution, 0, countDistribution.Length);
+                countDistribution[0] = 1d;
+                int occupied = 1;
+                for (int j = 0; j < order.Length; j++)
+                {
+                    if (order[j] == i) continue;
+                    double p = componentRealizations[order[j]].Curves.Fail.TotalProbability;
+                    Array.Clear(nextDistribution, 0, occupied + 1);
+                    for (int c = 0; c < occupied; c++)
+                    {
+                        nextDistribution[c] += countDistribution[c] * (1d - p);
+                        nextDistribution[c + 1] += countDistribution[c] * p;
+                    }
+                    occupied++;
+                    Array.Copy(nextDistribution, countDistribution, occupied);
+                }
+                double expectedReciprocal = 0d;
+                for (int c = 0; c < occupied; c++)
+                {
+                    expectedReciprocal += countDistribution[c] / (c + 1);
+                }
+                double shapleyShare = component.Curves.Fail.TotalProbability * expectedReciprocal;
+
+                component.SystemContribution = new RiskContribution
+                {
+                    FailureProbability = shapleyShare,
+                    FailureMean = component.Curves.Fail.Mean,
+                    ExcessMean = component.Curves.Excess.Mean,
+                };
+                for (int k = 0; k < component.AdditionalCurves.Count; k++)
+                {
+                    while (component.AdditionalSystemContributions.Count <= k)
+                    {
+                        component.AdditionalSystemContributions.Add(null);
+                    }
+                    component.AdditionalSystemContributions[k] = new RiskContribution
+                    {
+                        FailureProbability = shapleyShare,
+                        FailureMean = component.AdditionalCurves[k].Fail.Mean,
+                        ExcessMean = component.AdditionalCurves[k].Excess.Mean,
+                    };
+                }
+            }
+        }
+
+        /// <summary>
+        /// Assigns a single-component system's contribution: the component's own totals — a
+        /// 100% share of the system it constitutes (% contribution, Phase 6.6).
+        /// </summary>
+        /// <param name="component">The finished component realization.</param>
+        private static void AssignOwnSystemContribution(ComponentRealization component)
+        {
+            component.SystemContribution = new RiskContribution
+            {
+                FailureProbability = component.Curves.Fail.TotalProbability,
+                FailureMean = component.Curves.Fail.Mean,
+                ExcessMean = component.Curves.Excess.Mean,
+            };
+            for (int k = 0; k < component.AdditionalCurves.Count; k++)
+            {
+                while (component.AdditionalSystemContributions.Count <= k)
+                {
+                    component.AdditionalSystemContributions.Add(null);
+                }
+                component.AdditionalSystemContributions[k] = new RiskContribution
+                {
+                    FailureProbability = component.Curves.Fail.TotalProbability,
+                    FailureMean = component.AdditionalCurves[k].Fail.Mean,
+                    ExcessMean = component.AdditionalCurves[k].Excess.Mean,
+                };
             }
         }
 
@@ -1742,6 +1832,21 @@ namespace RMC.TotalRisk.Analyses
             var zBuffer = new double[d];
             var latentBuffer = new double[d];
 
+            // The per-component system-contribution accumulators (% contribution, Phase 6.6),
+            // one row per consequence type, filled through the recording passes in weight terms
+            // and scaled by the self-normalization factor with the recorded masses.
+            var systemContributionProbability = new double[typeCount][];
+            var systemContributionFailure = new double[typeCount][];
+            var systemContributionExcess = new double[typeCount][];
+            for (int k = 0; k < typeCount; k++)
+            {
+                systemContributionProbability[k] = new double[d];
+                systemContributionFailure[k] = new double[d];
+                systemContributionExcess[k] = new double[d];
+            }
+            var tupleFailureValues = new double[d];
+            var tupleExcessValues = new double[d];
+
             bool recording = false;
             double recordedWeightSum = 0d;
 
@@ -1868,7 +1973,12 @@ namespace RMC.TotalRisk.Analyses
                     // type: the primary drives the VEGAS objective; secondary types record only.
                     AccumulateJointCombinationEntries(0, combinationProbability, complementNonFailure,
                         participating, branchPick, outputsByType, failureProbabilities, recording,
-                        failPoints[0], excessPoints[0], totalPoints[0], realization, ref expectedFailure);
+                        failPoints[0], excessPoints[0], totalPoints[0], realization, ref expectedFailure,
+                        weight,
+                        recording ? systemContributionProbability[0] : null,
+                        recording ? systemContributionFailure[0] : null,
+                        recording ? systemContributionExcess[0] : null,
+                        tupleFailureValues, tupleExcessValues);
                     if (recordSecondary)
                     {
                         for (int k = 1; k < typeCount; k++)
@@ -1876,7 +1986,9 @@ namespace RMC.TotalRisk.Analyses
                             double typeComplement = CombineComplement(nonFailureValuesByType[k], combination, _options.JointConsequences);
                             AccumulateJointCombinationEntries(k, combinationProbability, typeComplement,
                                 participating, branchPick, outputsByType, failureProbabilities, recording,
-                                failPoints[k], excessPoints[k], totalPoints[k], realization, ref secondaryDiscard);
+                                failPoints[k], excessPoints[k], totalPoints[k], realization, ref secondaryDiscard,
+                                weight, systemContributionProbability[k], systemContributionFailure[k], systemContributionExcess[k],
+                                tupleFailureValues, tupleExcessValues);
                         }
                     }
 
@@ -1948,6 +2060,33 @@ namespace RMC.TotalRisk.Analyses
                 {
                     componentRealizations[i].ScaleRecordedMass(scale);
                 }
+
+                // Finalize the % contribution attributions under the same self-normalization
+                // (Phase 6.6): the failure-mode accumulators carry weights directly, and the
+                // per-component system attributions scale with the recorded masses.
+                for (int i = 0; i < componentRealizations.Count; i++)
+                {
+                    componentRealizations[i].FinalizeContributions(trapezoidMasses: false, scale);
+                    componentRealizations[i].SystemContribution = new RiskContribution
+                    {
+                        FailureProbability = systemContributionProbability[0][i] * scale,
+                        FailureMean = systemContributionFailure[0][i] * scale,
+                        ExcessMean = systemContributionExcess[0][i] * scale,
+                    };
+                    for (int k = 1; k < typeCount; k++)
+                    {
+                        while (componentRealizations[i].AdditionalSystemContributions.Count < k)
+                        {
+                            componentRealizations[i].AdditionalSystemContributions.Add(null);
+                        }
+                        componentRealizations[i].AdditionalSystemContributions[k - 1] = new RiskContribution
+                        {
+                            FailureProbability = systemContributionProbability[k][i] * scale,
+                            FailureMean = systemContributionFailure[k][i] * scale,
+                            ExcessMean = systemContributionExcess[k][i] * scale,
+                        };
+                    }
+                }
             }
 
             // Build the component curves from the recorded masses (no mass re-derivation â€” the
@@ -1997,10 +2136,26 @@ namespace RMC.TotalRisk.Analyses
         /// <param name="totalPoint">This type's Total risk point (recording only).</param>
         /// <param name="realization">The system realization (extent tracking).</param>
         /// <param name="expectedFailure">The caller's running expected-failure accumulator (kept sequential for bit-identity).</param>
+        /// <param name="weight">The evaluation's VEGAS weight — the recorded mass the contribution shares carry.</param>
+        /// <param name="contributionProbability">The optional per-component attributed-probability sink (% contribution, Phase 6.6); null skips attribution.</param>
+        /// <param name="contributionFailure">The optional per-component attributed failure-value sink.</param>
+        /// <param name="contributionExcess">The optional per-component attributed excess-value sink.</param>
+        /// <param name="tupleFailureValues">The caller's per-participant failure-value scratch (attribution weights).</param>
+        /// <param name="tupleExcessValues">The caller's per-participant excess-value scratch (attribution weights).</param>
+        /// <remarks>
+        /// The attribution (user-ratified 2026-07-24): within each exclusive component
+        /// combination tuple, the probability splits equally (the Shapley value of the union
+        /// game) and the combined failure and excess values split proportionally to the
+        /// participants' own entry values (equal split when a value sum is zero). Attribution
+        /// runs in separate accumulation chains — the expected-failure chain and the recorded
+        /// entries are bit-untouched.
+        /// </remarks>
         private void AccumulateJointCombinationEntries(int typeIndex, double combinationProbability, double complementNonFailure,
             List<int> participating, int[] branchPick, ComponentRiskOutput[][] outputsByType, double[] failureProbabilities,
             bool recording, RiskPoint? failPoint, RiskPoint? excessPoint, RiskPoint? totalPoint,
-            SystemRealization realization, ref double expectedFailure)
+            SystemRealization realization, ref double expectedFailure,
+            double weight = 0d, double[]? contributionProbability = null, double[]? contributionFailure = null,
+            double[]? contributionExcess = null, double[]? tupleFailureValues = null, double[]? tupleExcessValues = null)
         {
             Array.Clear(branchPick, 0, participating.Count);
             while (true)
@@ -2008,6 +2163,8 @@ namespace RMC.TotalRisk.Analyses
                 double tupleWeight = 1d;
                 double combinedFailure = 0d;
                 double combinedExcess = 0d;
+                double tupleFailureSum = 0d;
+                double tupleExcessSum = 0d;
                 for (int p = 0; p < participating.Count; p++)
                 {
                     var output = outputsByType[participating[p]][typeIndex];
@@ -2018,6 +2175,13 @@ namespace RMC.TotalRisk.Analyses
                     tupleWeight *= entryWeight;
                     double failureValue = output.FailureConsequences[branchPick[p]];
                     double excessValue = output.ExcessConsequences[branchPick[p]];
+                    if (contributionProbability != null)
+                    {
+                        tupleFailureValues![p] = failureValue;
+                        tupleExcessValues![p] = excessValue;
+                        tupleFailureSum += failureValue;
+                        tupleExcessSum += excessValue;
+                    }
                     if (p == 0)
                     {
                         combinedFailure = failureValue;
@@ -2060,6 +2224,21 @@ namespace RMC.TotalRisk.Analyses
                         excessPoint!.Add(entryProbability, combinedExcess);
                         totalPoint!.Add(entryProbability, combinedFailure + complementNonFailure);
                         WidenSystemExtents(realization, typeIndex, complementNonFailure, Math.Max(combinedFailure, complementNonFailure));
+                    }
+
+                    if (contributionProbability != null)
+                    {
+                        double weightedEntry = weight * entryProbability;
+                        double equalShare = 1d / participating.Count;
+                        for (int p = 0; p < participating.Count; p++)
+                        {
+                            int componentIndex = participating[p];
+                            double failureShare = tupleFailureSum > 0d ? tupleFailureValues![p] / tupleFailureSum : equalShare;
+                            double excessShare = tupleExcessSum > 0d ? tupleExcessValues![p] / tupleExcessSum : equalShare;
+                            contributionProbability[componentIndex] += weightedEntry * equalShare;
+                            contributionFailure![componentIndex] += weightedEntry * combinedFailure * failureShare;
+                            contributionExcess![componentIndex] += weightedEntry * combinedExcess * excessShare;
+                        }
                     }
                 }
 

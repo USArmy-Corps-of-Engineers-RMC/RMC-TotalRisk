@@ -70,6 +70,20 @@ coordinate and the ascending pass under low-noise conditions). Mean-only wall is
 (0.093 committed vs 0.101 stage-2 at matched conditions — the mode-scope profiles cost one
 pass over recorded points).
 
+**Stage 4 (% contribution):** another append-only results-JSON extension (the
+`RiskContribution` members at mode/component scope), so the byte gate re-pins:
+
+- F1 `d98a11f9a5041a7cc4556e3dcc5eda92f4eab3ea33dd47d76d09c51758c00c4f` (single rep,
+  5.991 s / **4.09 GB** under the same noisy session regime).
+
+The deterministic signal is again the allocation: +0.16 GB over stage 2 for the
+per-(mode, type) contribution rows (~32 B per recording evaluation per mode, freed with the
+realization's memory dump) and the finalize lists. The kernels add one array store per mode
+per recording evaluation (per-mode methods reuse the products the expected-value chains
+already compute) and an O(|participants|) split per joint tuple, in accumulation chains kept
+separate from every pinned floating-point sequence — `EngineReproducibilityVerification` and
+`JointFailuresVerification` passed unchanged as the stage gates.
+
 Baseline byte-gate hashes:
 
 - F1 `7a88638cf38c5ee38a3091fabd933e747dd9dc43ea14d44b0addbb465c12f500`

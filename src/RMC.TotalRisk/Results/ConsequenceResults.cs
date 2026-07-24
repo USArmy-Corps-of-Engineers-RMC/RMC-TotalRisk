@@ -62,6 +62,15 @@ namespace RMC.TotalRisk.Results
         public string ConsequenceUnit { get; set; } = string.Empty;
 
         /// <summary>
+        /// This scope's attributed contribution to its parent for this consequence type
+        /// (% contribution, Phase 6.6 — see <see cref="RiskContribution"/>): at failure-mode
+        /// scope the mode's contribution to the component; at component scope the component's
+        /// contribution to the system. Null when not computed — the system root, older
+        /// payloads, and band realizations.
+        /// </summary>
+        public RiskContribution? Contribution { get; set; }
+
+        /// <summary>
         /// The incremental (excess) risk summary.
         /// </summary>
         public SummaryRiskResults Excess { get; set; }

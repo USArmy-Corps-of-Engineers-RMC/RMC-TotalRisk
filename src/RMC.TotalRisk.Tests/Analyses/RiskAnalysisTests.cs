@@ -1254,6 +1254,251 @@ public class RiskAnalysisTests
             "An undeclared per-type threshold must preserve the Phase 6.5 interim (NaN assurance).");
     }
 
+    /// <summary>Builds a two-mode component with a non-failure path under the given combination method.</summary>
+    private static SystemComponent TwoModeMethodComponent(FailureModeMethod method,
+        JointConsequenceType jointConsequences = JointConsequenceType.Maximum)
+    {
+        var component = new SystemComponent { Name = "Two Modes" };
+        component.HazardFunction = StageFrequency();
+        var fragilityB = new TabularResponse
+        {
+            Name = "Mode B",
+            SpecifiedHazard = "Stage",
+            HazardUnit = "ft",
+            UncertainOrderedPairedData = new UncertainOrderedPairedData(
+                new[] { new UncertainOrdinate(10d, new Deterministic(0d)), new UncertainOrdinate(30d, new Deterministic(1d)) },
+                true, SortOrder.Ascending, false, SortOrder.None, UnivariateDistributionType.Deterministic),
+        };
+        component.AddFailureMode(new FailureMode(null, null, Fragility(), Consequence("A Loss", 300d)));
+        component.AddFailureMode(new FailureMode(null, null, fragilityB, Consequence("B Loss", 600d)));
+        component.AddFailureMode(new FailureMode(null, null, null, Consequence("Non-Failure Loss", 60d)));
+        component.FailureModeMethod = method;
+        component.JointConsequences = jointConsequences;
+        return component;
+    }
+
+    /// <summary>
+    /// Verifies the % contribution additivity identities across all four combination methods on
+    /// the mean pass: Σ mode contributions ≡ the component's raw recorded totals — the Fail
+    /// mass balance, the Fail mean, and the Excess mean — to floating-point association, and
+    /// the compact summaries carry the same values.
+    /// </summary>
+    [TestMethod]
+    public async Task Test_Contribution_SumIdentities_AllMethods()
+    {
+        foreach (FailureModeMethod method in new[]
+        {
+            FailureModeMethod.JointFailures, FailureModeMethod.CommonCauseFailures,
+            FailureModeMethod.CompetingFailures, FailureModeMethod.MutuallyExclusive,
+        })
+        {
+            // Arrange / Act
+            var analysis = new RiskAnalysis(new[] { TwoModeMethodComponent(method) });
+            await analysis.RunAsync();
+
+            // Assert — Σ mode contributions ≡ the component's recorded totals.
+            var component = analysis.MeanRiskResults!.Components[0];
+            double sumProbability = 0d, sumFailure = 0d, sumExcess = 0d;
+            for (int j = 0; j < component.FailureModes.Count; j++)
+            {
+                var contribution = component.FailureModes[j].Contribution;
+                Assert.IsNotNull(contribution, $"Mode {j} must carry a contribution under {method}.");
+                sumProbability += contribution!.FailureProbability;
+                sumFailure += contribution.FailureMean;
+                sumExcess += contribution.ExcessMean;
+            }
+            Assert.AreEqual(component.Curves.Fail.MassBalance, sumProbability, 1e-12 * component.Curves.Fail.MassBalance,
+                $"Σ probability contributions must equal the Fail mass balance under {method}.");
+            Assert.AreEqual(component.Curves.Fail.Mean, sumFailure, 1e-12 * component.Curves.Fail.Mean,
+                $"Σ failure-mean contributions must equal the Fail mean under {method}.");
+            Assert.AreEqual(component.Curves.Excess.Mean, sumExcess, 1e-12 * component.Curves.Excess.Mean,
+                $"Σ excess-mean contributions must equal the Excess mean under {method}.");
+
+            // The compact summary copies the realization values.
+            var summary = analysis.RiskResults![0]!.ComponentResults[0];
+            Assert.AreEqual(component.FailureModes[0].Contribution!.FailureMean,
+                summary.FailureModeResults[0].Contribution!.FailureMean, 0d,
+                "The summary must copy the realization contribution.");
+        }
+    }
+
+    /// <summary>
+    /// Verifies the joint-Additive attribution identity: under the Sum rule the
+    /// consequence-proportional split credits each mode exactly its own consequence, so a
+    /// mode's attributed failure mean equals its marginal recorded Fail mean.
+    /// </summary>
+    [TestMethod]
+    public async Task Test_Contribution_JointAdditive_EqualsMarginalFailMean()
+    {
+        // Arrange / Act
+        var analysis = new RiskAnalysis(new[] { TwoModeMethodComponent(FailureModeMethod.JointFailures, JointConsequenceType.Additive) });
+        await analysis.RunAsync();
+
+        // Assert — attribution ≡ the marginal mode Fail mean, mode by mode.
+        var component = analysis.MeanRiskResults!.Components[0];
+        for (int j = 0; j < component.FailureModes.Count; j++)
+        {
+            double marginal = component.FailureModes[j].Curves.Fail.Mean;
+            double attributed = component.FailureModes[j].Contribution!.FailureMean;
+            Assert.AreEqual(marginal, attributed, 1e-12 * Math.Max(1d, marginal),
+                $"Under the Sum rule mode {j}'s attribution must equal its marginal Fail mean.");
+        }
+    }
+
+    /// <summary>
+    /// Verifies the additive system's per-component contribution: the Shapley split of the
+    /// independent failure union matches a brute-force enumeration of the 2^D exclusive
+    /// combinations with equal splits, Σ shares ≡ the folded union, and the mean contributions
+    /// are the component means (which sum to the convolved system mean).
+    /// </summary>
+    [TestMethod]
+    public async Task Test_Contribution_AdditiveSystem_ShapleyVsBruteForce()
+    {
+        // Arrange — three components with distinct consequences.
+        var analysis = new RiskAnalysis(new[]
+        {
+            Component(Consequence("A", 300d)),
+            Component(Consequence("B", 600d)),
+            Component(Consequence("C", 900d)),
+        });
+
+        // Act
+        await analysis.RunAsync();
+
+        // Assert — brute-force Shapley over the 2^3 exclusive combinations.
+        var components = analysis.MeanRiskResults!.Components;
+        var probabilities = new double[3];
+        for (int i = 0; i < 3; i++)
+        {
+            probabilities[i] = components[i].Curves.Fail.TotalProbability;
+        }
+        var expectedShares = new double[3];
+        for (int mask = 1; mask < 8; mask++)
+        {
+            double mass = 1d;
+            int participants = 0;
+            for (int i = 0; i < 3; i++)
+            {
+                bool fails = (mask & (1 << i)) != 0;
+                mass *= fails ? probabilities[i] : 1d - probabilities[i];
+                if (fails) participants++;
+            }
+            for (int i = 0; i < 3; i++)
+            {
+                if ((mask & (1 << i)) != 0) expectedShares[i] += mass / participants;
+            }
+        }
+
+        double sumShares = 0d;
+        double sumMeans = 0d;
+        for (int i = 0; i < 3; i++)
+        {
+            var contribution = components[i].SystemContribution;
+            Assert.IsNotNull(contribution, $"Component {i} must carry a system contribution.");
+            Assert.AreEqual(expectedShares[i], contribution!.FailureProbability, 1e-12,
+                $"Component {i}'s Shapley share must match the brute-force enumeration.");
+            Assert.AreEqual(components[i].Curves.Fail.Mean, contribution.FailureMean, 0d,
+                "The mean contribution is the component's own Fail mean (means add exactly).");
+            sumShares += contribution.FailureProbability;
+            sumMeans += contribution.FailureMean;
+        }
+        var system = analysis.MeanRiskResults.Curves;
+        Assert.AreEqual(system.Fail.TotalProbability, sumShares, 1e-12,
+            "Σ Shapley shares must equal the folded independent union.");
+        Assert.AreEqual(system.Fail.Mean, sumMeans, 1e-9 * system.Fail.Mean,
+            "Σ mean contributions must equal the convolved system Fail mean.");
+
+        // The compact summary copies the component contribution.
+        Assert.AreEqual(expectedShares[0],
+            analysis.RiskResults![0]!.ComponentResults[0].SystemContribution!.FailureProbability, 1e-12);
+    }
+
+    /// <summary>
+    /// Verifies the joint system's per-component contribution identities within one run: Σ
+    /// attributed probabilities ≡ the recorded system Fail mass balance and Σ attributed means
+    /// ≡ the recorded system Fail mean (the attribution splits the same recorded entries), on
+    /// a reduced VEGAS budget.
+    /// </summary>
+    [TestMethod]
+    public async Task Test_Contribution_JointSystem_SumIdentities()
+    {
+        // Arrange — two components on the joint path at a lean budget.
+        var analysis = new RiskAnalysis(new[]
+        {
+            Component(Consequence("A", 300d)),
+            Component(Consequence("B", 600d)),
+        });
+        analysis.Options.SystemRiskMethod = SystemRiskType.JointRiskMethod;
+        analysis.Options.UseDefaults = false;
+        analysis.Options.WarmupEvaluations = 1000;
+        analysis.Options.WarmupCycles = 2;
+        analysis.Options.FinalEvaluations = 2000;
+
+        // Act
+        await analysis.RunAsync();
+
+        // Assert
+        var components = analysis.MeanRiskResults!.Components;
+        double sumProbability = 0d, sumFailure = 0d, sumExcess = 0d;
+        for (int i = 0; i < components.Count; i++)
+        {
+            var contribution = components[i].SystemContribution;
+            Assert.IsNotNull(contribution, $"Component {i} must carry a system contribution on the joint path.");
+            sumProbability += contribution!.FailureProbability;
+            sumFailure += contribution.FailureMean;
+            sumExcess += contribution.ExcessMean;
+        }
+        var system = analysis.MeanRiskResults.Curves;
+        Assert.AreEqual(system.Fail.MassBalance, sumProbability, 1e-12 * system.Fail.MassBalance,
+            "Σ probability contributions must equal the recorded system Fail mass balance.");
+        Assert.AreEqual(system.Fail.Mean, sumFailure, 1e-12 * system.Fail.Mean,
+            "Σ failure-mean contributions must equal the recorded system Fail mean.");
+        Assert.AreEqual(system.Excess.Mean, sumExcess, 1e-12 * Math.Max(1d, system.Excess.Mean),
+            "Σ excess-mean contributions must equal the recorded system Excess mean.");
+
+        // The failure modes carry contributions through the VEGAS mass regime too.
+        Assert.IsNotNull(components[0].FailureModes[0].Contribution,
+            "Mode-level contributions must finalize under the joint path's weight masses.");
+    }
+
+    /// <summary>
+    /// Verifies contribution availability semantics: full-uncertainty ensemble summaries carry
+    /// per-realization contributions, the assembled percentile band trees carry none (they are
+    /// grid assemblies, not computed realizations), and a pre-6.6 summary payload without the
+    /// members loads forward as null.
+    /// </summary>
+    [TestMethod]
+    public async Task Test_Contribution_EnsembleAndBands_AndForwardLoad()
+    {
+        // Arrange / Act — a small full-uncertainty run.
+        var analysis = new RiskAnalysis(new[] { Component(Consequence("Failure Loss", 300d), UncertainFragility()) });
+        analysis.Options.EstimateMeanRiskOnly = false;
+        analysis.Options.Realizations = 100;
+        await analysis.RunAsync();
+
+        // Assert — every ensemble summary carries contributions; the band trees carry none.
+        for (int i = 0; i < analysis.RiskResults!.Count; i++)
+        {
+            Assert.IsNotNull(analysis.RiskResults[i]!.ComponentResults[0].FailureModeResults[0].Contribution,
+                $"Realization {i}'s summary must carry the mode contribution.");
+            Assert.IsNotNull(analysis.RiskResults[i]!.ComponentResults[0].SystemContribution,
+                $"Realization {i}'s summary must carry the component's system contribution.");
+        }
+        Assert.IsNull(analysis.MeanRiskResults!.Components[0].FailureModes[0].Contribution,
+            "The assembled band trees must carry no contributions (not computed).");
+
+        // A pre-6.6 summary payload (members absent) loads forward as null.
+        string json = analysis.RiskResults.ToJson();
+        Assert.IsTrue(json.Contains("\"Contribution\""), "The new members must serialize.");
+        string legacyJson = System.Text.RegularExpressions.Regex.Replace(json,
+            "\"(Contribution|SystemContribution)\":(\\{[^}]*\\}|null),?", string.Empty)
+            .Replace(",}", "}").Replace(",]", "]");
+        var legacy = EnsembleResults.FromJson(legacyJson);
+        Assert.IsNotNull(legacy);
+        Assert.IsNull(legacy!.Realizations[0]!.ComponentResults[0].FailureModeResults[0].Contribution,
+            "A payload without the members must load forward as null.");
+    }
+
     /// <summary>Builds the profile-remap engine fixture: flow hazard → rating (T(h) = h/2) → uncertain stage fragility → stage consequences.</summary>
     private static SystemComponent RemapEngineComponent()
     {

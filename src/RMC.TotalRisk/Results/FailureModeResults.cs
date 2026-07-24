@@ -37,10 +37,16 @@ namespace RMC.TotalRisk.Results
             if (failureModeRealization == null) throw new ArgumentNullException(nameof(failureModeRealization));
             Excess = new SummaryRiskResults(failureModeRealization.Curves.Excess);
             Fail = new SummaryRiskResults(failureModeRealization.Curves.Fail);
+            Contribution = RiskContribution.Copy(failureModeRealization.Contribution);
             AdditionalConsequences = new List<ConsequenceResults>(failureModeRealization.AdditionalCurves.Count);
             for (int k = 0; k < failureModeRealization.AdditionalCurves.Count; k++)
             {
-                AdditionalConsequences.Add(new ConsequenceResults(failureModeRealization.AdditionalCurves[k]));
+                AdditionalConsequences.Add(new ConsequenceResults(failureModeRealization.AdditionalCurves[k])
+                {
+                    Contribution = RiskContribution.Copy(k < failureModeRealization.AdditionalContributions.Count
+                        ? failureModeRealization.AdditionalContributions[k]
+                        : null),
+                });
             }
         }
 
@@ -61,5 +67,14 @@ namespace RMC.TotalRisk.Results
         /// empty). Empty on a single-type analysis.
         /// </summary>
         public List<ConsequenceResults> AdditionalConsequences { get; set; }
+
+        /// <summary>
+        /// This mode's attributed contribution to the component's risk on the primary
+        /// consequence type (% contribution, Phase 6.6 — see <see cref="RiskContribution"/>);
+        /// null when not computed (older payloads, band realizations). Per-type contributions
+        /// ride <see cref="ConsequenceResults.Contribution"/> on
+        /// <see cref="AdditionalConsequences"/>.
+        /// </summary>
+        public RiskContribution? Contribution { get; set; }
     }
 }

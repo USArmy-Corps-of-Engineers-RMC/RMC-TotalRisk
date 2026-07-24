@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text.Json.Serialization;
 
 namespace RMC.TotalRisk.Results
 {
@@ -48,6 +49,78 @@ namespace RMC.TotalRisk.Results
         /// (entry k − 1 is type k). Empty on a single-type analysis.
         /// </summary>
         public List<Curves> AdditionalCurves { get; set; }
+
+        /// <summary>
+        /// This mode's attributed contribution to the component's risk on the primary
+        /// consequence type (Phase 6.6 — the % contribution diagnostic; see
+        /// <see cref="RiskContribution"/> for the attribution scheme). Null until finalized —
+        /// the "not computed" state older payloads and band realizations carry.
+        /// </summary>
+        public RiskContribution? Contribution { get; set; }
+
+        /// <summary>
+        /// The attributed contributions for the additional consequence types, in declared order
+        /// (entry k − 1 is type k; entries may be null when not computed). Empty on a
+        /// single-type analysis.
+        /// </summary>
+        public List<RiskContribution?> AdditionalContributions { get; set; } = new List<RiskContribution?>();
+
+        /// <summary>
+        /// The runtime per-type contribution accumulators (entry 0 = the primary type), created
+        /// lazily by the first recorded sample. Never serialized; cleared by
+        /// <see cref="DumpMemory"/>.
+        /// </summary>
+        [JsonIgnore]
+        internal ContributionAccumulator?[]? ContributionAccumulators { get; private set; }
+
+        /// <summary>
+        /// Appends one recording evaluation's attributed contribution sample for a consequence
+        /// type (the sampled-component kernels' sink).
+        /// </summary>
+        /// <param name="typeIndex">The consequence-type position (0 is the primary).</param>
+        /// <param name="probability">The evaluation's probability coordinate (non-exceedance on the 1D path; the VEGAS weight on the joint path).</param>
+        /// <param name="probabilityShare">The attributed probability.</param>
+        /// <param name="failureShare">The attributed probability × failure consequence.</param>
+        /// <param name="excessShare">The attributed probability × excess consequence.</param>
+        internal void AddContributionSample(int typeIndex, double probability, double probabilityShare, double failureShare, double excessShare)
+        {
+            var accumulators = ContributionAccumulators ??= new ContributionAccumulator?[1 + AdditionalCurves.Count];
+            (accumulators[typeIndex] ??= new ContributionAccumulator()).Add(probability, probabilityShare, failureShare, excessShare);
+        }
+
+        /// <summary>
+        /// Finalizes the accumulated contribution samples into the stored per-type
+        /// contributions under the caller's mass regime. No-ops when nothing was accumulated.
+        /// </summary>
+        /// <param name="trapezoidMasses">
+        /// True for the one-dimensional path (masses re-derived by the midpoint-trapezoid
+        /// partition); false for the VEGAS path (the probability coordinates are weights,
+        /// scaled by <paramref name="scale"/>).
+        /// </param>
+        /// <param name="scale">The VEGAS self-normalization scale (ignored under trapezoid masses).</param>
+        public void FinalizeContributions(bool trapezoidMasses, double scale = 1d)
+        {
+            var accumulators = ContributionAccumulators;
+            if (accumulators == null) return;
+            for (int k = 0; k < accumulators.Length; k++)
+            {
+                var accumulator = accumulators[k];
+                if (accumulator == null) continue;
+                var contribution = trapezoidMasses ? accumulator.FinalizeTrapezoid() : accumulator.FinalizeDirect(scale);
+                if (k == 0)
+                {
+                    Contribution = contribution;
+                }
+                else
+                {
+                    while (AdditionalContributions.Count < k)
+                    {
+                        AdditionalContributions.Add(null);
+                    }
+                    AdditionalContributions[k - 1] = contribution;
+                }
+            }
+        }
 
         /// <summary>
         /// Ensures the additional consequence-type slots exist (one curve set per type beyond
@@ -132,8 +205,8 @@ namespace RMC.TotalRisk.Results
         }
 
         /// <summary>
-        /// Clears the recorded risk points on every consequence type — call only after
-        /// post-processing.
+        /// Clears the recorded risk points and the contribution accumulators on every
+        /// consequence type — call only after post-processing.
         /// </summary>
         public void DumpMemory()
         {
@@ -141,6 +214,15 @@ namespace RMC.TotalRisk.Results
             for (int k = 0; k < AdditionalCurves.Count; k++)
             {
                 AdditionalCurves[k].DumpMemory();
+            }
+            var accumulators = ContributionAccumulators;
+            if (accumulators != null)
+            {
+                for (int k = 0; k < accumulators.Length; k++)
+                {
+                    accumulators[k]?.Clear();
+                }
+                ContributionAccumulators = null;
             }
         }
 

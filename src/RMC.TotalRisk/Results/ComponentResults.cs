@@ -43,10 +43,16 @@ namespace RMC.TotalRisk.Results
             Total = new SummaryRiskResults(componentRealization.Curves.Total);
             Fail = new SummaryRiskResults(componentRealization.Curves.Fail);
             NonFail = new SummaryRiskResults(componentRealization.Curves.NonFail);
+            SystemContribution = RiskContribution.Copy(componentRealization.SystemContribution);
             AdditionalConsequences = new List<ConsequenceResults>(componentRealization.AdditionalCurves.Count);
             for (int k = 0; k < componentRealization.AdditionalCurves.Count; k++)
             {
-                AdditionalConsequences.Add(new ConsequenceResults(componentRealization.AdditionalCurves[k]));
+                AdditionalConsequences.Add(new ConsequenceResults(componentRealization.AdditionalCurves[k])
+                {
+                    Contribution = RiskContribution.Copy(k < componentRealization.AdditionalSystemContributions.Count
+                        ? componentRealization.AdditionalSystemContributions[k]
+                        : null),
+                });
             }
 
             FailureModeResults = new List<FailureModeResults>(componentRealization.FailureModes.Count);
@@ -66,6 +72,15 @@ namespace RMC.TotalRisk.Results
         /// k). Empty on a single-type analysis.
         /// </summary>
         public List<ConsequenceResults> AdditionalConsequences { get; set; }
+
+        /// <summary>
+        /// This component's attributed contribution to the system's risk on the primary
+        /// consequence type (% contribution, Phase 6.6 — see <see cref="RiskContribution"/>);
+        /// null when not computed (older payloads, band realizations). Per-type contributions
+        /// ride <see cref="ConsequenceResults.Contribution"/> on
+        /// <see cref="AdditionalConsequences"/>.
+        /// </summary>
+        public RiskContribution? SystemContribution { get; set; }
 
         /// <summary>
         /// The incremental (excess) risk summary.

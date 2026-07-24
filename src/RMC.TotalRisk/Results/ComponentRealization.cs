@@ -79,6 +79,25 @@ namespace RMC.TotalRisk.Results
         public List<Curves> AdditionalCurves { get; set; }
 
         /// <summary>
+        /// This component's attributed contribution to the system's risk on the primary
+        /// consequence type (Phase 6.6 — the % contribution diagnostic; see
+        /// <see cref="RiskContribution"/>): under the additive method the exact Shapley split of
+        /// the independent failure union with the component's own means (means add exactly under
+        /// the convolution); under the joint method the per-combination attribution accumulated
+        /// through the VEGAS passes; on a single-component system the component's own totals
+        /// (a 100% share). Null until finalized — the "not computed" state older payloads and
+        /// band realizations carry.
+        /// </summary>
+        public RiskContribution? SystemContribution { get; set; }
+
+        /// <summary>
+        /// The attributed system contributions for the additional consequence types, in declared
+        /// order (entry k − 1 is type k; entries may be null when not computed). Empty on a
+        /// single-type analysis.
+        /// </summary>
+        public List<RiskContribution?> AdditionalSystemContributions { get; set; } = new List<RiskContribution?>();
+
+        /// <summary>
         /// The smallest consequence observed for this component in this realization (primary
         /// consequence type).
         /// </summary>
@@ -222,6 +241,23 @@ namespace RMC.TotalRisk.Results
             for (int i = 0; i < FailureModes.Count; i++)
             {
                 FailureModes[i].ComputeRiskMeasures(consequenceThreshold, alpha, additionalThresholds: additionalThresholds);
+            }
+        }
+
+        /// <summary>
+        /// Finalizes every failure mode's accumulated contribution samples into their stored
+        /// per-type contributions (Phase 6.6). No-ops for modes that accumulated nothing.
+        /// </summary>
+        /// <param name="trapezoidMasses">
+        /// True for the one-dimensional path (masses re-derived by the midpoint-trapezoid
+        /// partition); false for the VEGAS path (weights scaled by <paramref name="scale"/>).
+        /// </param>
+        /// <param name="scale">The VEGAS self-normalization scale (ignored under trapezoid masses).</param>
+        public void FinalizeContributions(bool trapezoidMasses, double scale = 1d)
+        {
+            for (int i = 0; i < FailureModes.Count; i++)
+            {
+                FailureModes[i].FinalizeContributions(trapezoidMasses, scale);
             }
         }
 

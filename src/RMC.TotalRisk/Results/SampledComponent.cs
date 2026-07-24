@@ -150,6 +150,10 @@ namespace RMC.TotalRisk.Results
             _scratchAdjustedProbabilities = new double[_fModes.Count];
             _scratchParticipating = new List<int>(_fModes.Count);
             _scratchBranchPick = new int[_fModes.Count];
+            _scratchContributionProbability = new double[_fModes.Count];
+            _scratchContributionFailure = new double[_fModes.Count];
+            _scratchContributionExcess = new double[_fModes.Count];
+            _scratchTupleValues = new double[_fModes.Count];
 
             // Weak-link competing failures: pre-process the cumulative incidence functions over
             // 200 stratified hazard levels (v1.0 constants). A single mode short-circuits to its
@@ -342,6 +346,28 @@ namespace RMC.TotalRisk.Results
         /// The reusable branch odometer of the joint kernel.
         /// </summary>
         private readonly int[] _scratchBranchPick;
+
+        /// <summary>
+        /// The reusable per-mode attributed-probability sums of one recording evaluation (the
+        /// % contribution diagnostic, Phase 6.6).
+        /// </summary>
+        private readonly double[] _scratchContributionProbability;
+
+        /// <summary>
+        /// The reusable per-mode attributed probability × failure-consequence sums.
+        /// </summary>
+        private readonly double[] _scratchContributionFailure;
+
+        /// <summary>
+        /// The reusable per-mode attributed probability × excess-consequence sums.
+        /// </summary>
+        private readonly double[] _scratchContributionExcess;
+
+        /// <summary>
+        /// The reusable per-participant branch consequence values of one joint tuple (the
+        /// consequence-proportional split's weights).
+        /// </summary>
+        private readonly double[] _scratchTupleValues;
 
         /// <summary>
         /// The component's display name.
@@ -556,6 +582,14 @@ namespace RMC.TotalRisk.Results
                 double minN = k == 0 ? realization.MinN : realization.AdditionalMinN[k - 1];
                 double maxN = k == 0 ? realization.MaxN : realization.AdditionalMaxN[k - 1];
 
+                bool accumulateContribution = recordOutput && _fModes.Count > 0;
+                if (accumulateContribution)
+                {
+                    Array.Clear(_scratchContributionProbability, 0, _fModes.Count);
+                    Array.Clear(_scratchContributionFailure, 0, _fModes.Count);
+                    Array.Clear(_scratchContributionExcess, 0, _fModes.Count);
+                }
+
                 if (_fModes.Count > 0)
                 {
                     var typeModeOutputs = k == 0 ? modeOutputs : FillTypeColumn(k);
@@ -564,7 +598,10 @@ namespace RMC.TotalRisk.Results
                         ComputeJointPathwayEntries(responseProbabilities, typeModeOutputs, pathwayProbabilities!, pathwayIndicators!,
                             nonFailWeights, nonFailValues,
                             failEntryProbabilities, failEntryValues, excessEntryProbabilities, excessEntryValues,
-                            ref expectedFailureConsequences, ref expectedExcessConsequences, ref minN, ref maxN);
+                            ref expectedFailureConsequences, ref expectedExcessConsequences, ref minN, ref maxN,
+                            accumulateContribution ? _scratchContributionProbability : null,
+                            accumulateContribution ? _scratchContributionFailure : null,
+                            accumulateContribution ? _scratchContributionExcess : null);
                     }
                     else
                     {
@@ -575,7 +612,27 @@ namespace RMC.TotalRisk.Results
 
                             expectedFailureConsequences += adjustedProbabilities[j] * typeModeOutputs[j].MeanFailureConsequences;
                             expectedExcessConsequences += adjustedProbabilities[j] * typeModeOutputs[j].MeanExcessConsequences;
+
+                            // The per-mode methods ARE the exclusive decomposition (one mode per
+                            // event): the mode's attributed contribution is its adjusted
+                            // probability and the adjusted-scaled means — the same products the
+                            // expected-value chains above consume (% contribution, Phase 6.6).
+                            if (accumulateContribution)
+                            {
+                                _scratchContributionProbability[j] = adjustedProbabilities[j];
+                                _scratchContributionFailure[j] = adjustedProbabilities[j] * typeModeOutputs[j].MeanFailureConsequences;
+                                _scratchContributionExcess[j] = adjustedProbabilities[j] * typeModeOutputs[j].MeanExcessConsequences;
+                            }
                         }
+                    }
+                }
+
+                if (accumulateContribution)
+                {
+                    for (int j = 0; j < _fModes.Count; j++)
+                    {
+                        realization.FailureModes[j].AddContributionSample(k, probability,
+                            _scratchContributionProbability[j], _scratchContributionFailure[j], _scratchContributionExcess[j]);
                     }
                 }
 
@@ -810,15 +867,28 @@ namespace RMC.TotalRisk.Results
         /// <param name="expectedExcessConsequences">Accumulates Σ excess entry probability × excess.</param>
         /// <param name="minN">The type's running minimum consequence extent.</param>
         /// <param name="maxN">The type's running maximum consequence extent.</param>
+        /// <param name="contributionProbability">The optional per-mode attributed-probability sink (% contribution, Phase 6.6); null skips attribution.</param>
+        /// <param name="contributionFailure">The optional per-mode attributed failure-value sink, parallel to the probability sink.</param>
+        /// <param name="contributionExcess">The optional per-mode attributed excess-value sink, parallel to the probability sink.</param>
+        /// <remarks>
+        /// The attribution (user-ratified 2026-07-24): within each exclusive pathway tuple the
+        /// entry probability splits equally among the participating modes (the Shapley value of
+        /// the union game), and the tuple's combined failure and excess values split
+        /// proportionally to the participants' branch failure consequences (equal split when
+        /// they sum to zero). The attribution runs in separate accumulation chains — the
+        /// expected-value chains and recorded entries above are bit-untouched.
+        /// </remarks>
         private void ComputeJointPathwayEntries(List<double> responseProbabilities, ComponentRiskOutput[] modeOutputs,
             List<double> pathwayProbabilities, List<int[]> pathwayIndicators,
             double[] nonFailWeights, double[] nonFailValues,
             List<double> failEntryProbabilities, List<double> failEntryValues,
             List<double> excessEntryProbabilities, List<double> excessEntryValues,
-            ref double expectedFailureConsequences, ref double expectedExcessConsequences, ref double minN, ref double maxN)
+            ref double expectedFailureConsequences, ref double expectedExcessConsequences, ref double minN, ref double maxN,
+            double[]? contributionProbability = null, double[]? contributionFailure = null, double[]? contributionExcess = null)
         {
             var participating = _scratchParticipating;
             var branchPick = _scratchBranchPick;
+            var tupleValues = _scratchTupleValues;
             for (int j = 0; j < pathwayProbabilities.Count; j++)
             {
                 double pathwayProbability = pathwayProbabilities[j];
@@ -838,6 +908,7 @@ namespace RMC.TotalRisk.Results
                 {
                     double tupleWeight = 1d;
                     double combined = 0d;
+                    double tupleValueSum = 0d;
                     for (int p = 0; p < participating.Count; p++)
                     {
                         var modeOutput = modeOutputs[participating[p]];
@@ -847,6 +918,11 @@ namespace RMC.TotalRisk.Results
                             : (branchPick[p] == 0 ? 1d : 0d);
                         tupleWeight *= weight;
                         double value = modeOutput.FailureConsequences[branchPick[p]];
+                        if (contributionProbability != null)
+                        {
+                            tupleValues[p] = value;
+                            tupleValueSum += value;
+                        }
                         combined = p == 0
                             ? value
                             : _jointConsequences switch
@@ -871,7 +947,10 @@ namespace RMC.TotalRisk.Results
                         expectedFailureConsequences += entryProbability * combined;
                         maxN = Math.Max(maxN, combined);
 
-                        // Exact excess pairs against the non-failure branches.
+                        // Exact excess pairs against the non-failure branches. The attribution's
+                        // tuple-excess total accumulates in its own chain so the expected-value
+                        // chain stays bit-identical.
+                        double tupleExcess = 0d;
                         for (int q = 0; q < nonFailWeights.Length; q++)
                         {
                             double excess = Math.Max(0d, combined - nonFailValues[q]);
@@ -880,6 +959,24 @@ namespace RMC.TotalRisk.Results
                             excessEntryValues.Add(excess);
                             expectedExcessConsequences += excessProbability * excess;
                             minN = Math.Min(minN, excess);
+                            if (contributionProbability != null)
+                            {
+                                tupleExcess += excessProbability * excess;
+                            }
+                        }
+
+                        if (contributionProbability != null)
+                        {
+                            double equalShare = 1d / participating.Count;
+                            double tupleFailure = entryProbability * combined;
+                            for (int p = 0; p < participating.Count; p++)
+                            {
+                                int mode = participating[p];
+                                double share = tupleValueSum > 0d ? tupleValues[p] / tupleValueSum : equalShare;
+                                contributionProbability[mode] += entryProbability * equalShare;
+                                contributionFailure![mode] += tupleFailure * share;
+                                contributionExcess![mode] += tupleExcess * share;
+                            }
                         }
                     }
 
