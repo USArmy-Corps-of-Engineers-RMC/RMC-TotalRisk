@@ -1209,4 +1209,100 @@ public class RiskAnalysisTests
         Assert.IsTrue(messages.Any(m => m.StartsWith("Warning:", StringComparison.Ordinal) && m.Contains("share the driving hazard axis")),
             string.Join("; ", messages));
     }
+
+    /// <summary>Builds the profile-remap engine fixture: flow hazard → rating (T(h) = h/2) → uncertain stage fragility → stage consequences.</summary>
+    private static SystemComponent RemapEngineComponent()
+    {
+        var hazard = new TabularHazard
+        {
+            Name = "Flow Frequency",
+            SpecifiedHazard = "Flow",
+            HazardUnit = "cfs",
+            NoUncertaintyFunction = new UncertainOrderedPairedData(
+                new[]
+                {
+                    new UncertainOrdinate(0.999d, new Deterministic(0d)),
+                    new UncertainOrdinate(0.5d, new Deterministic(50d)),
+                    new UncertainOrdinate(0.001d, new Deterministic(100d)),
+                },
+                true, SortOrder.Descending, true, SortOrder.Ascending, UnivariateDistributionType.Deterministic),
+        };
+        var rating = new RMC.TotalRisk.RiskFunctions.Transforms.TabularTransform
+        {
+            Name = "Rating",
+            SpecifiedHazard = "Flow",
+            HazardUnit = "cfs",
+            TransformedHazard = "Stage",
+            TransformedHazardUnit = "ft",
+            UncertainOrderedPairedData = new UncertainOrderedPairedData(
+                new[] { new UncertainOrdinate(0d, new Deterministic(0d)), new UncertainOrdinate(100d, new Deterministic(50d)) },
+                true, SortOrder.Ascending, false, SortOrder.None, UnivariateDistributionType.Deterministic),
+        };
+        var fragility = UncertainFragility();
+        var component = new SystemComponent { Name = "Dam" };
+        component.HazardFunction = hazard;
+        component.AddFailureMode(new FailureMode(new List<ITransformFunction> { rating }, null, fragility, Consequence("Failure Loss", 300d)));
+        component.AddFailureMode(new FailureMode(null, null, null, Consequence("Non-Failure Loss", 60d)));
+        component.HazardThreshold = 40d;
+        return component;
+    }
+
+    /// <summary>
+    /// Verifies the ratified Q-T seed-inertness contract end to end: selecting a profile hazard
+    /// element leaves every Monte Carlo stream and every non-profile output bit-identical — the
+    /// LECs and the scalar measures match to the last bit across the full-uncertainty ensemble —
+    /// while the profile surfaces (hazard-frequency axis, hazard-threshold probability, hazard
+    /// extents) move to the selected axis.
+    /// </summary>
+    [TestMethod]
+    public async Task Test_ProfileRemap_SeedInert_OnlyProfileSurfacesMove()
+    {
+        // Arrange — the same model twice; only B selects the rating element as the profile axis.
+        var componentA = RemapEngineComponent();
+        var componentB = RemapEngineComponent();
+        componentB.SetProfileHazardElement(componentB.Graph.GetElements<RMC.TotalRisk.Systems.Components.Graph.TransformElement>().Single());
+        CollectionAssert.AreEqual(componentA.CanonicalHash(), componentB.CanonicalHash(),
+            "The profile selection must be seed-inert at the component-hash level.");
+
+        var analysisA = new RiskAnalysis(new[] { componentA });
+        var analysisB = new RiskAnalysis(new[] { componentB });
+        analysisA.Options.EstimateMeanRiskOnly = false;
+        analysisA.Options.Realizations = 100;
+        analysisB.Options.EstimateMeanRiskOnly = false;
+        analysisB.Options.Realizations = 100;
+
+        // Act
+        await analysisA.RunAsync();
+        await analysisB.RunAsync();
+
+        // Assert — every non-profile output is bit-identical across the ensemble.
+        var meanA = analysisA.MeanRiskResults!;
+        var meanB = analysisB.MeanRiskResults!;
+        CollectionAssert.AreEqual(meanA.Curves.Total.LECConsequences, meanB.Curves.Total.LECConsequences,
+            "The Total LEC must be bit-identical — the remap labels recorded points only.");
+        CollectionAssert.AreEqual(meanA.Curves.Fail.LECProbabilities, meanB.Curves.Fail.LECProbabilities);
+        for (int i = 0; i < analysisA.RiskResults!.Count; i++)
+        {
+            var a = analysisA.RiskResults[i]!;
+            var b = analysisB.RiskResults![i]!;
+            Assert.AreEqual(a.Fail.TotalProbability, b.Fail.TotalProbability, 0d, $"APF must be bit-identical (realization {i}).");
+            Assert.AreEqual(a.Total.Mean, b.Total.Mean, 0d, $"The mean must be bit-identical (realization {i}).");
+            Assert.AreEqual(a.Total.StandardDeviation, b.Total.StandardDeviation, 0d);
+            Assert.AreEqual(a.Total.ValueAtRisk, b.Total.ValueAtRisk, 0d);
+            Assert.AreEqual(a.Total.ConditionalValueAtRisk, b.Total.ConditionalValueAtRisk, 0d);
+        }
+
+        // The profile surfaces move: B's hazard-frequency axis is the stage signal (half the
+        // flow axis under the deterministic rating), and the threshold probability re-reads on
+        // that axis (threshold 40 sits beyond B's stage domain but inside A's flow domain).
+        var profileA = meanA.Components[0].Curves.Total.HazardFrequencyHazards;
+        var profileB = meanB.Components[0].Curves.Total.HazardFrequencyHazards;
+        Assert.AreEqual(profileA.Length, profileB.Length, "Same evaluations, different axis.");
+        Assert.AreEqual(profileA[0] / 2d, profileB[0], 1e-9 * Math.Abs(profileA[0]),
+            "B's profile axis must be the rating pushforward of A's.");
+        Assert.AreNotEqual(
+            analysisA.RiskResults[0]!.ComponentResults[0].Fail.HazardThresholdProbability,
+            analysisB.RiskResults![0]!.ComponentResults[0].Fail.HazardThresholdProbability,
+            "The hazard-threshold probability must re-read on the profile axis.");
+    }
 }

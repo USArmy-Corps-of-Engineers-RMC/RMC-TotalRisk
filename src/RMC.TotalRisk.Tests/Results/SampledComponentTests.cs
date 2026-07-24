@@ -1,14 +1,19 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Numerics.Data;
 using Numerics.Data.Statistics;
 using Numerics.Distributions;
 using RMC.TotalRisk.Core.Enums;
+using RMC.TotalRisk.Core.Interfaces;
 using RMC.TotalRisk.Results;
 using RMC.TotalRisk.RiskFunctions.Consequences;
 using RMC.TotalRisk.RiskFunctions.Hazards;
 using RMC.TotalRisk.RiskFunctions.Responses;
+using RMC.TotalRisk.RiskFunctions.Transforms;
 using RMC.TotalRisk.Systems.Components;
+using RMC.TotalRisk.Systems.Components.Graph;
 
 namespace RMC.TotalRisk.Tests.Results;
 
@@ -240,5 +245,120 @@ public class SampledComponentTests
         var sampled = MeanSample(component);
         Assert.ThrowsException<ArgumentNullException>(
             () => sampled.ComputeRisk(0.5d, 15d, null!, new ComponentRealization(2)));
+    }
+
+    /// <summary>Builds the flow-frequency hazard for the profile-remap fixtures (0.999 → 0 cfs up to 0.001 → 100 cfs).</summary>
+    private static TabularHazard FlowFrequency()
+    {
+        return new TabularHazard
+        {
+            Name = "Flow Frequency",
+            SpecifiedHazard = "Flow",
+            HazardUnit = "cfs",
+            NoUncertaintyFunction = new UncertainOrderedPairedData(
+                new[]
+                {
+                    new UncertainOrdinate(0.999d, new Deterministic(0d)),
+                    new UncertainOrdinate(0.5d, new Deterministic(50d)),
+                    new UncertainOrdinate(0.001d, new Deterministic(100d)),
+                },
+                true, SortOrder.Descending, true, SortOrder.Ascending, UnivariateDistributionType.Deterministic),
+        };
+    }
+
+    /// <summary>Builds the deterministic Flow→Stage rating T(h) = h / 2 for the profile-remap fixtures.</summary>
+    private static TabularTransform FlowToStage()
+    {
+        return new TabularTransform
+        {
+            Name = "Rating",
+            SpecifiedHazard = "Flow",
+            HazardUnit = "cfs",
+            TransformedHazard = "Stage",
+            TransformedHazardUnit = "ft",
+            UncertainOrderedPairedData = new UncertainOrderedPairedData(
+                new[] { new UncertainOrdinate(0d, new Deterministic(0d)), new UncertainOrdinate(100d, new Deterministic(50d)) },
+                true, SortOrder.Ascending, false, SortOrder.None, UnivariateDistributionType.Deterministic),
+        };
+    }
+
+    /// <summary>
+    /// Builds the profile-remap component: flow hazard → rating (T(h) = h/2) → stage fragility
+    /// and stage consequences, plus a transform-free non-failure path.
+    /// </summary>
+    private static SystemComponent RemapComponent()
+    {
+        var component = new SystemComponent { Name = "Remap" };
+        component.HazardFunction = FlowFrequency();
+        component.AddFailureMode(new FailureMode(new List<ITransformFunction> { FlowToStage() }, null,
+            Fragility("Mode A", 10d, 20d), Consequence("A Loss", 300d)));
+        component.AddFailureMode(new FailureMode(null, null, null, Consequence("Non-Failure Loss", 60d)));
+        return component;
+    }
+
+    /// <summary>
+    /// Verifies the profile-axis remap (Q-T): with the rating element selected, every recorded
+    /// risk point — component and mode scope — and the hazard extents carry the composed profile
+    /// signal T(h) = h/2, while the evaluation itself (the SRP through the mode chain) is
+    /// untouched.
+    /// </summary>
+    [TestMethod]
+    public void Test_ComputeRisk_ProfileRemap_RecordsProfileAxis()
+    {
+        // Arrange — profile = the rating element; flow 30 maps to stage 15 on the profile axis.
+        var component = RemapComponent();
+        component.SetProfileHazardElement(component.Graph.GetElements<TransformElement>().Single());
+        var sampled = MeanSample(component);
+        var realization = new ComponentRealization(failureModes: 1);
+        var flags = new RiskComputeFlags();
+
+        // Act
+        var output = sampled.ComputeRisk(0.6d, 30d, flags, realization, recordOutput: true);
+
+        // Assert — recorded coordinates carry the profile signal at component and mode scope.
+        Assert.AreEqual(15d, realization.Curves.Total.RiskPoints[0].HazardLevel, 1e-12);
+        Assert.AreEqual(15d, realization.Curves.Fail.RiskPoints[0].HazardLevel, 1e-12);
+        Assert.AreEqual(15d, realization.FailureModes[0].Curves.Fail.RiskPoints[0].HazardLevel, 1e-12);
+        Assert.AreEqual(15d, realization.MinH, 1e-12);
+        Assert.AreEqual(15d, realization.MaxH, 1e-12);
+
+        // The evaluation is unchanged: the fragility still sees the mode chain's stage signal,
+        // SRP(stage 15) = 0.5.
+        Assert.AreEqual(0.5d, output.ProbabilityOfFailure, 1e-12);
+    }
+
+    /// <summary>
+    /// Verifies the unset default records the raw driving hazard (bit-identical pre-6.6
+    /// behavior) and that selecting the profile changes recorded coordinates only — every
+    /// computed output is identical between the two runs.
+    /// </summary>
+    [TestMethod]
+    public void Test_ComputeRisk_NoProfile_RawAxis_OutputsMatchProfileRun()
+    {
+        // Arrange — the same model twice; only B selects the profile element.
+        var componentA = RemapComponent();
+        var componentB = RemapComponent();
+        componentB.SetProfileHazardElement(componentB.Graph.GetElements<TransformElement>().Single());
+        var sampledA = MeanSample(componentA);
+        var sampledB = MeanSample(componentB);
+        var realizationA = new ComponentRealization(failureModes: 1);
+        var realizationB = new ComponentRealization(failureModes: 1);
+        var flags = new RiskComputeFlags();
+
+        // Act
+        var outputA = sampledA.ComputeRisk(0.6d, 30d, flags, realizationA, recordOutput: true);
+        var outputB = sampledB.ComputeRisk(0.6d, 30d, flags, realizationB, recordOutput: true);
+
+        // Assert — A records the raw flow coordinate; B the profile stage coordinate.
+        Assert.AreEqual(30d, realizationA.Curves.Total.RiskPoints[0].HazardLevel, 0d);
+        Assert.AreEqual(30d, realizationA.FailureModes[0].Curves.Fail.RiskPoints[0].HazardLevel, 0d);
+        Assert.AreEqual(15d, realizationB.Curves.Total.RiskPoints[0].HazardLevel, 1e-12);
+
+        // Every computed output is bit-identical — the remap labels recorded points only.
+        Assert.AreEqual(outputA.ProbabilityOfFailure, outputB.ProbabilityOfFailure, 0d);
+        Assert.AreEqual(outputA.ProbabilityOfNonFailure, outputB.ProbabilityOfNonFailure, 0d);
+        Assert.AreEqual(outputA.MeanFailureConsequences, outputB.MeanFailureConsequences, 0d);
+        Assert.AreEqual(outputA.MeanExcessConsequences, outputB.MeanExcessConsequences, 0d);
+        Assert.AreEqual(outputA.NonFailureConsequences, outputB.NonFailureConsequences, 0d);
     }
 }

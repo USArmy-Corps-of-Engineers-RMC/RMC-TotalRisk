@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Numerics.Data;
 using Numerics.Data.Statistics;
 using Numerics.Distributions;
+using Numerics.Functions;
 using Numerics.Sampling;
 using RMC.TotalRisk.Core.Enums;
 using RMC.TotalRisk.Systems.Components;
@@ -27,9 +28,11 @@ namespace RMC.TotalRisk.Results
     /// <c>ExclusivePCM</c> over the component's cached indicator combinations), weak-link
     /// competing failures through cumulative incidence functions pre-processed over 200
     /// stratified hazard levels, the common-cause adjustment, and the mutually-exclusive
-    /// normalization (with its probability-above-one warning). The optional profile-axis remap
-    /// (<c>ProfileHazardFunction</c>) is deferred with open question Q-T — recorded hazard levels
-    /// are the raw driving hazard.
+    /// normalization (with its probability-above-one warning). The profile-axis remap (Q-T
+    /// closure, Phase 6.6): when the component selects a profile hazard element, the sampled
+    /// profile transform chain remaps every recorded hazard level — component and mode scope —
+    /// onto the profile axis for this realization; unset, recorded hazard levels are the raw
+    /// driving hazard, bit-identical to the pre-6.6 engine.
     /// </para>
     /// <para>
     /// The ratified Q-V generalization: consequences are weighted exposure branches, so recorded
@@ -85,6 +88,22 @@ namespace RMC.TotalRisk.Results
             _binomialCombinations = component.FailureModeBinomialCombinations;
 
             Hazard = realizationIndex < 0 ? hazardFunction.SampleFunction() : hazardFunction.SampleFunction(realizationIndex);
+
+            // The profile-axis remap (Q-T closure): sample the component's resolved profile
+            // transform chain for this realization. The chain functions are the same seeded
+            // instances the failure-mode chains draw from, so a shared transform samples the
+            // identical curve here and in the modes — dedup coherence for free. Null when the
+            // primary hazard is the profile axis (the default), making the remap a single null
+            // check per evaluation.
+            var profileChain = component.ProfileTransformFunctions;
+            if (profileChain != null)
+            {
+                _profileTransforms = new IUnivariateFunction[profileChain.Length];
+                for (int i = 0; i < profileChain.Length; i++)
+                {
+                    _profileTransforms[i] = realizationIndex < 0 ? profileChain[i].SampleFunction() : profileChain[i].SampleFunction(realizationIndex);
+                }
+            }
 
             _failureModes = new List<SampledFailureMode>(projectedModes.Count);
             _fModes = new List<SampledFailureMode>(projectedModes.Count);
@@ -266,6 +285,12 @@ namespace RMC.TotalRisk.Results
         private readonly List<EmpiricalDistribution>? _cumulativeIncidenceFunctions;
 
         /// <summary>
+        /// The sampled profile transform chain mapping the driving hazard onto the selected
+        /// profile axis for this realization (Q-T); null when the primary hazard is the axis.
+        /// </summary>
+        private readonly IUnivariateFunction[]? _profileTransforms;
+
+        /// <summary>
         /// The reusable per-mode primary-output view (Phase 6.5 allocation elimination — every
         /// scratch buffer below is realization-owned and reused per evaluation).
         /// </summary>
@@ -382,9 +407,19 @@ namespace RMC.TotalRisk.Results
             if (flags == null) throw new ArgumentNullException(nameof(flags));
             if (realization == null) throw new ArgumentNullException(nameof(realization));
 
-            // The profile-axis remap (ProfileHazardFunction) is deferred with Q-T: recorded
-            // hazard levels are the raw driving hazard.
+            // The profile-axis remap (Q-T closure): recorded hazard levels are the raw driving
+            // hazard unless a profile transform chain is selected, in which case every recorded
+            // point — component and mode scope alike — carries the composed profile signal for
+            // this realization. A single null check when unset keeps the default bit-identical.
             double recordedHazard = hazardLevel;
+            var profile = _profileTransforms;
+            if (profile != null)
+            {
+                for (int i = 0; i < profile.Length; i++)
+                {
+                    recordedHazard = profile[i].Function(recordedHazard);
+                }
+            }
 
             // Secondary types ride along only when their results are consumed (recording, or the
             // caller's per-type sink); probes and warm-up evaluations stay single-type.
@@ -401,12 +436,12 @@ namespace RMC.TotalRisk.Results
             {
                 if (wantSecondary)
                 {
-                    _fModes[j].ComputeRisk(probability, hazardLevel, _nfMode, flags, realization.FailureModes[j], recordOutput, modeTypeOutputs[j]);
+                    _fModes[j].ComputeRisk(probability, hazardLevel, _nfMode, flags, realization.FailureModes[j], recordOutput, modeTypeOutputs[j], recordedHazard);
                     modeOutputs[j] = modeTypeOutputs[j][0];
                 }
                 else
                 {
-                    modeOutputs[j] = _fModes[j].ComputeRisk(probability, hazardLevel, _nfMode, flags, realization.FailureModes[j], recordOutput);
+                    modeOutputs[j] = _fModes[j].ComputeRisk(probability, hazardLevel, _nfMode, flags, realization.FailureModes[j], recordOutput, null, recordedHazard);
                 }
                 responseProbabilities.Add(modeOutputs[j].ProbabilityOfFailure);
             }

@@ -956,4 +956,176 @@ public class SystemComponentTests
         Assert.IsTrue(errorMessages.Any(m => m.StartsWith("Error:", StringComparison.Ordinal) && m.Contains("1024")),
             string.Join("; ", errorMessages));
     }
+
+    /// <summary>
+    /// Verifies the profile hazard selection (Q-T) round-trips through both serialization modes
+    /// and that a pre-6.6 payload without the attribute loads forward as the primary-hazard
+    /// default.
+    /// </summary>
+    [TestMethod]
+    public void Test_ProfileHazardElementId_RoundTrip_And_ForwardLoad()
+    {
+        // Arrange
+        var component = LeveeComponent();
+        var rating = component.Graph.GetElements<TransformElement>().Single();
+        component.SetProfileHazardElement(rating);
+
+        // Act — self-contained round-trip.
+        var restored = new SystemComponent(component.ToXElement());
+
+        // Assert — the id survives and resolves to the restored graph's rating element.
+        Assert.AreEqual(rating.Id, restored.ProfileHazardElementId);
+        Assert.IsInstanceOfType(restored.Graph.GetElementById(restored.ProfileHazardElementId!.Value), typeof(TransformElement));
+
+        // Act / Assert — by-reference round-trip preserves the id too.
+        var functions = component.GetReferencedFunctions().ToList();
+        var resolver = new RMC.TotalRisk.RiskFunctions.RiskFunctionResolver(
+            id => functions.FirstOrDefault(f => f.Id == id),
+            name => functions.FirstOrDefault(f => f.Name == name));
+        var byReference = new SystemComponent(component.ToXElement(RiskSerializationMode.ByReference), resolver);
+        Assert.AreEqual(rating.Id, byReference.ProfileHazardElementId);
+
+        // Act / Assert — a payload with the attribute removed (the pre-6.6 shape) loads null.
+        var legacy = component.ToXElement();
+        legacy.Attribute(nameof(SystemComponent.ProfileHazardElementId))!.Remove();
+        var forward = new SystemComponent(legacy);
+        Assert.IsNull(forward.ProfileHazardElementId);
+    }
+
+    /// <summary>
+    /// Verifies the profile hazard selection is seed-inert (the ratified Q-T classification):
+    /// selecting, changing, or clearing the profile element never moves the canonical hash.
+    /// </summary>
+    [TestMethod]
+    public void Test_ProfileHazardElementId_HashInert()
+    {
+        // Arrange
+        var component = LeveeComponent();
+        byte[] baseline = component.CanonicalHash();
+        var rating = component.Graph.GetElements<TransformElement>().Single();
+
+        // Act / Assert — select, re-identify, and clear: the hash never moves.
+        component.SetProfileHazardElement(rating);
+        CollectionAssert.AreEqual(baseline, component.CanonicalHash(),
+            "Selecting a profile hazard element must never change the canonical hash (seed-inert).");
+        component.ProfileHazardElementId = Guid.NewGuid();
+        CollectionAssert.AreEqual(baseline, component.CanonicalHash(),
+            "An arbitrary (even unresolvable) profile id must never change the canonical hash.");
+        component.ProfileHazardElementId = null;
+        CollectionAssert.AreEqual(baseline, component.CanonicalHash(),
+            "Clearing the profile selection must never change the canonical hash.");
+    }
+
+    /// <summary>
+    /// Verifies the typed selector contract: assignment by element, clearing with null, and the
+    /// argument guards for non-transform and foreign elements.
+    /// </summary>
+    [TestMethod]
+    public void Test_SetProfileHazardElement_Contract()
+    {
+        // Arrange
+        var component = LeveeComponent();
+        var rating = component.Graph.GetElements<TransformElement>().Single();
+        var response = component.Graph.GetElements<ResponseElement>().Single();
+
+        // Act / Assert — assign and clear.
+        component.SetProfileHazardElement(rating);
+        Assert.AreEqual(rating.Id, component.ProfileHazardElementId);
+        component.SetProfileHazardElement(null);
+        Assert.IsNull(component.ProfileHazardElementId);
+
+        // A response element is not a valid profile axis.
+        Assert.ThrowsException<ArgumentException>(() => component.SetProfileHazardElement(response));
+
+        // A transform element of another component's graph is foreign.
+        var other = LeveeComponent();
+        var foreignRating = other.Graph.GetElements<TransformElement>().Single();
+        Assert.ThrowsException<ArgumentException>(() => component.SetProfileHazardElement(foreignRating));
+    }
+
+    /// <summary>
+    /// Verifies the profile-selection validation matrix: unresolvable ids, non-transform
+    /// targets, unassigned functions, and hazard-disconnected transforms are errors; a valid
+    /// selection with a non-zero hazard threshold raises the profile-axis advisory warning.
+    /// </summary>
+    [TestMethod]
+    public void Test_Validate_ProfileHazard_Matrix()
+    {
+        // Unresolvable id.
+        var component = LeveeComponent();
+        component.ProfileHazardElementId = Guid.NewGuid();
+        var (unresolvedValid, unresolvedMessages) = component.Validate();
+        Assert.IsFalse(unresolvedValid);
+        Assert.IsTrue(unresolvedMessages.Any(m => m.StartsWith("Error:", StringComparison.Ordinal) && m.Contains("does not resolve")),
+            string.Join("; ", unresolvedMessages));
+
+        // Non-transform target.
+        component = LeveeComponent();
+        component.ProfileHazardElementId = component.Graph.GetElements<ResponseElement>().Single().Id;
+        var (nonTransformValid, nonTransformMessages) = component.Validate();
+        Assert.IsFalse(nonTransformValid);
+        Assert.IsTrue(nonTransformMessages.Any(m => m.StartsWith("Error:", StringComparison.Ordinal) && m.Contains("not a transform element")),
+            string.Join("; ", nonTransformMessages));
+
+        // A transform with no assigned function.
+        component = LeveeComponent();
+        var bare = new TransformElement("Bare")
+        {
+            Input = new RiskConnection(component.Graph.GetElements<HazardElement>().Single()),
+        };
+        component.Graph.AddElement(bare);
+        component.ProfileHazardElementId = bare.Id;
+        var (bareValid, bareMessages) = component.Validate();
+        Assert.IsFalse(bareValid);
+        Assert.IsTrue(bareMessages.Any(m => m.StartsWith("Error:", StringComparison.Ordinal) && m.Contains("no transform function")),
+            string.Join("; ", bareMessages));
+
+        // A transform disconnected from the hazard root.
+        component = LeveeComponent();
+        var dangling = new TransformElement("Dangling") { Function = Rating("Stage", "ft", "Elevation", "ft") };
+        component.Graph.AddElement(dangling);
+        component.ProfileHazardElementId = dangling.Id;
+        var (danglingValid, danglingMessages) = component.Validate();
+        Assert.IsFalse(danglingValid);
+        Assert.IsTrue(danglingMessages.Any(m => m.StartsWith("Error:", StringComparison.Ordinal) && m.Contains("not connected upstream")),
+            string.Join("; ", danglingMessages));
+
+        // A valid selection with a non-zero threshold: valid, with the axis advisory warning.
+        component = LeveeComponent();
+        component.SetProfileHazardElement(component.Graph.GetElements<TransformElement>().Single());
+        component.HazardThreshold = 25d;
+        var (advisoryValid, advisoryMessages) = component.Validate();
+        Assert.IsTrue(advisoryValid, string.Join("; ", advisoryMessages));
+        Assert.IsTrue(advisoryMessages.Any(m => m.StartsWith("Warning:", StringComparison.Ordinal) && m.Contains("profile hazard axis")),
+            string.Join("; ", advisoryMessages));
+
+        // The same selection with the default zero threshold: no advisory.
+        component.HazardThreshold = 0d;
+        var (quietValid, quietMessages) = component.Validate();
+        Assert.IsTrue(quietValid, string.Join("; ", quietMessages));
+        Assert.IsFalse(quietMessages.Any(m => m.Contains("profile hazard axis")), string.Join("; ", quietMessages));
+    }
+
+    /// <summary>
+    /// Verifies <see cref="SystemComponent.Clone"/> carries the profile hazard selection: the
+    /// clone's id resolves to the clone's own rating element (element ids persist through the
+    /// serialization round-trip).
+    /// </summary>
+    [TestMethod]
+    public void Test_Clone_CarriesProfileHazardSelection()
+    {
+        // Arrange
+        var component = LeveeComponent();
+        var rating = component.Graph.GetElements<TransformElement>().Single();
+        component.SetProfileHazardElement(rating);
+
+        // Act
+        var clone = component.Clone();
+
+        // Assert
+        Assert.AreEqual(rating.Id, clone.ProfileHazardElementId);
+        var resolved = clone.Graph.GetElementById(clone.ProfileHazardElementId!.Value);
+        Assert.IsInstanceOfType(resolved, typeof(TransformElement));
+        Assert.AreSame(clone.Graph.GetElements<TransformElement>().Single(), resolved);
+    }
 }

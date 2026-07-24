@@ -59,9 +59,13 @@ namespace RMC.TotalRisk.Systems.Components
     /// dependency modes v1.0 lazily overwrote the field with the derived matrix, which would make
     /// the hash depend on whether the multivariate normal had been accessed); and the v1.0
     /// response-function-uniqueness error is dropped as obsolete under inline ownership and
-    /// occurrence indexing. <c>ProfileHazardFunction</c> is deferred to the results design
-    /// (open question Q-T), and the sampling machinery (<c>SetupSamplers</c>/<c>Sample</c>)
-    /// lands with the risk engine.
+    /// occurrence indexing. The v1.0 <c>ProfileHazardFunction</c> (a name-matched
+    /// <c>IElement</c> reference) is ported as the structural
+    /// <see cref="ProfileHazardElementId"/> element reference (Q-T closure, Phase 6.6):
+    /// resolved at the <see cref="SetupSamplers"/> freeze point into the transform chain that
+    /// remaps every recorded hazard level onto the selected axis, serialized append-only, and
+    /// deliberately excluded from the identity form so a reporting-axis flip can never re-roll
+    /// Monte Carlo seeds.
     /// </para>
     /// </remarks>
     public class SystemComponent : INotifyPropertyChanged
@@ -129,6 +133,11 @@ namespace RMC.TotalRisk.Systems.Components
             _hazardThreshold = SerializationUtilities.ReadDouble(xElement, nameof(HazardThreshold));
             _correlationMatrix = ParseMatrix(SerializationUtilities.ReadString(xElement, nameof(CorrelationMatrix)));
 
+            // Appended in Phase 6.6 (Q-T closure); absent on earlier payloads, which load
+            // forward as the primary-hazard default.
+            string profileId = SerializationUtilities.ReadString(xElement, nameof(ProfileHazardElementId));
+            _profileHazardElementId = Guid.TryParse(profileId, out Guid parsedProfileId) ? parsedProfileId : null;
+
             var graphElement = xElement.Element(nameof(ComponentGraph));
             _graph = graphElement != null ? new ComponentGraph(graphElement, resolver) : new ComponentGraph();
             SubscribeGraph();
@@ -174,6 +183,18 @@ namespace RMC.TotalRisk.Systems.Components
         /// Backing field for <see cref="HazardThreshold"/>.
         /// </summary>
         private double _hazardThreshold;
+
+        /// <summary>
+        /// Backing field for <see cref="ProfileHazardElementId"/>.
+        /// </summary>
+        private Guid? _profileHazardElementId;
+
+        /// <summary>
+        /// The resolved profile transform chain — the run-time product of
+        /// <see cref="SetupSamplers"/>, never serialized, hashed, or cloned. Null when no
+        /// profile element is selected or the selection does not resolve.
+        /// </summary>
+        private ITransformFunction[]? _profileTransformFunctions;
 
         /// <summary>
         /// The failure-path count the combination caches were computed for; −1 forces a rebuild.
@@ -370,6 +391,77 @@ namespace RMC.TotalRisk.Systems.Components
                     RaisePropertyChange(nameof(HazardThreshold));
                 }
             }
+        }
+
+        /// <summary>
+        /// The graph element whose output defines the profile hazard axis — the risk profiles
+        /// (hazard frequency, conditional mean consequence, and the cumulative profiles) and the
+        /// <see cref="HazardThreshold"/> are expressed in that element's output signal. Null (the
+        /// default) selects the primary driving hazard. The referenced element must be a
+        /// <see cref="TransformElement"/> in this component's own graph whose upstream path
+        /// reaches the hazard root (validated by <see cref="Validate()"/>).
+        /// </summary>
+        /// <remarks>
+        /// A reporting-axis binding, deliberately <b>seed-inert</b> (Q-T closure): the id is
+        /// serialized append-only on the persistence surface but excluded from the identity form
+        /// behind <see cref="CanonicalHash"/>, so selecting or changing the profile axis can
+        /// never re-roll Monte Carlo seeds — only the profile surfaces (and the hazard-threshold
+        /// probability read from them) move. This is the same hashed-but-seed-inert posture the
+        /// analysis options carry (§5.5.3: the options hash never feeds seeds); the asymmetry
+        /// with <see cref="HazardThreshold"/>, which predates the closure inside the identity
+        /// form, is documented in the architecture doc's Q-T resolution.
+        /// </remarks>
+        public Guid? ProfileHazardElementId
+        {
+            get { return _profileHazardElementId; }
+            set
+            {
+                if (_profileHazardElementId != value)
+                {
+                    _profileHazardElementId = value;
+                    RaisePropertyChange(nameof(ProfileHazardElementId));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Selects the profile hazard element by reference — the typed convenience over
+        /// <see cref="ProfileHazardElementId"/> for graph editors.
+        /// </summary>
+        /// <param name="element">
+        /// The transform element in this component's graph whose output defines the profile
+        /// axis, or null to restore the primary driving hazard.
+        /// </param>
+        /// <exception cref="ArgumentException">
+        /// Thrown when the element is not a <see cref="TransformElement"/> or is not an element
+        /// of this component's graph.
+        /// </exception>
+        public void SetProfileHazardElement(IRiskElement? element)
+        {
+            if (element == null)
+            {
+                ProfileHazardElementId = null;
+                return;
+            }
+            if (element is not TransformElement)
+            {
+                throw new ArgumentException("The profile hazard element must be a transform element (the primary hazard is selected by clearing the id).", nameof(element));
+            }
+            if (!ReferenceEquals(_graph.GetElementById(element.Id), element))
+            {
+                throw new ArgumentException("The profile hazard element must belong to this component's graph.", nameof(element));
+            }
+            ProfileHazardElementId = element.Id;
+        }
+
+        /// <summary>
+        /// The resolved profile transform chain (root-first) whose composition maps the driving
+        /// hazard onto the selected profile axis, refreshed by <see cref="SetupSamplers"/>; null
+        /// when no profile element is selected. Run-time state — never serialized or hashed.
+        /// </summary>
+        internal ITransformFunction[]? ProfileTransformFunctions
+        {
+            get { return _profileTransformFunctions; }
         }
 
         /// <summary>
@@ -654,6 +746,39 @@ namespace RMC.TotalRisk.Systems.Components
                 messages.Add($"Error: The failure mode correlation matrix is not positive definite or does not match the failure-path count for system component '{Name}'.");
             }
 
+            // The profile hazard selection (Q-T): the id must resolve to a transform element in
+            // this graph, carrying a function, whose upstream path reaches the hazard root. The
+            // threshold advisory reminds the analyst that a selected profile re-expresses the
+            // hazard threshold on the profile axis.
+            if (_profileHazardElementId.HasValue)
+            {
+                var profileElement = _graph.GetElementById(_profileHazardElementId.Value);
+                if (profileElement == null)
+                {
+                    messages.Add($"Error: The profile hazard element id does not resolve to an element of system component '{Name}'.");
+                }
+                else if (profileElement is not TransformElement profileTransform)
+                {
+                    messages.Add($"Error: The profile hazard element '{profileElement.Name}' of system component '{Name}' is not a transform element; select a transform, or clear the selection for the primary hazard.");
+                }
+                else
+                {
+                    if (profileTransform.Function == null)
+                    {
+                        messages.Add($"Error: The profile hazard element '{profileTransform.Name}' of system component '{Name}' has no transform function assigned.");
+                    }
+                    var path = _graph.GetUpstreamPath(profileTransform);
+                    if (path.Count == 0 || path[0] is not HazardElement)
+                    {
+                        messages.Add($"Error: The profile hazard element '{profileTransform.Name}' of system component '{Name}' is not connected upstream to the hazard element.");
+                    }
+                    else if (_hazardThreshold != 0d)
+                    {
+                        messages.Add($"Warning: The hazard threshold ({SerializationUtilities.FormatDouble(_hazardThreshold)}) of system component '{Name}' is interpreted on the selected profile hazard axis ('{profileTransform.Name}').");
+                    }
+                }
+            }
+
             var modes = ProjectFailureModes();
             for (int i = 0; i < modes.Count; i++)
             {
@@ -895,6 +1020,25 @@ namespace RMC.TotalRisk.Systems.Components
             {
                 ordinal = modes[i].SetupSamplers(sampleSize, componentSeed, ordinal, scheme, seededFunctions);
             }
+
+            // Resolve the profile transform chain (Q-T) at the same freeze point. The chain's
+            // functions are normally the failure modes' own transforms and are already seeded
+            // above (the dedup set makes this a no-op); a transform on a reporting-only branch
+            // is seeded here at the walk positions AFTER every mode, so the mode streams are a
+            // stable prefix and the profile selection can never perturb them.
+            _profileTransformFunctions = ResolveProfileTransforms();
+            if (_profileTransformFunctions != null)
+            {
+                for (int i = 0; i < _profileTransformFunctions.Length; i++)
+                {
+                    var transform = _profileTransformFunctions[i];
+                    if (seededFunctions.Add(transform))
+                    {
+                        transform.SetupSampler(sampleSize, SeedHelpers.HashCombine(componentSeed, transform.CanonicalHash(), ordinal), scheme);
+                    }
+                    ordinal++;
+                }
+            }
         }
 
         /// <summary>
@@ -963,6 +1107,10 @@ namespace RMC.TotalRisk.Systems.Components
             element.SetAttributeValue(nameof(HazardThreshold), SerializationUtilities.FormatDouble(_hazardThreshold));
             element.SetAttributeValue(nameof(CorrelationMatrix),
                 _failureModeDependency == DependencyType.CorrelationMatrix ? FormatMatrix(_correlationMatrix) : string.Empty);
+            // Appended Phase 6.6 (Q-T): persistence only — deliberately absent from the
+            // identity form, so the profile selection can never re-roll seeds.
+            element.SetAttributeValue(nameof(ProfileHazardElementId),
+                _profileHazardElementId.HasValue ? _profileHazardElementId.Value.ToString("D") : string.Empty);
             element.Add(_graph.ToXElement(mode));
             return element;
         }
@@ -998,10 +1146,41 @@ namespace RMC.TotalRisk.Systems.Components
         }
 
         /// <summary>
+        /// Resolves the selected profile hazard element into the ordered transform chain that
+        /// maps the driving hazard onto the profile axis. Null when nothing is selected or the
+        /// selection does not resolve (validation reports why; the engine's validation gate
+        /// keeps unresolved selections off the run path). Response elements along the path pass
+        /// the hazard signal through unchanged — they consume it to produce a probability — so
+        /// only the transform functions compose.
+        /// </summary>
+        /// <returns>The root-first transform chain, or null.</returns>
+        private ITransformFunction[]? ResolveProfileTransforms()
+        {
+            if (!_profileHazardElementId.HasValue) return null;
+            if (_graph.GetElementById(_profileHazardElementId.Value) is not TransformElement profileTransform) return null;
+
+            var path = _graph.GetUpstreamPath(profileTransform);
+            if (path.Count == 0 || path[0] is not HazardElement) return null;
+
+            var chain = new List<ITransformFunction>(path.Count - 1);
+            for (int i = 1; i < path.Count; i++)
+            {
+                if (path[i] is TransformElement transform)
+                {
+                    if (transform.Function == null) return null;
+                    chain.Add(transform.Function);
+                }
+            }
+            return chain.Count > 0 ? chain.ToArray() : null;
+        }
+
+        /// <summary>
         /// Builds the canonical identity form realizing the §5.5.3 recipe: the option attributes,
         /// the hazard content inline, and the projected failure modes in path order. Identity
         /// metadata inside (names, labels) is stripped by the hasher; element ids, positions, and
-        /// link attributes never appear at all.
+        /// link attributes never appear at all. The profile hazard selection
+        /// (<see cref="ProfileHazardElementId"/>) is deliberately excluded — a reporting-axis
+        /// binding must never re-roll seeds (Q-T closure).
         /// </summary>
         /// <returns>The identity form.</returns>
         private XElement BuildIdentityXElement()

@@ -402,6 +402,12 @@ namespace RMC.TotalRisk.Results
         /// are computed only when recording or when this sink is supplied — probe evaluations
         /// pay the single-type cost.
         /// </param>
+        /// <param name="recordedHazard">
+        /// The hazard coordinate recorded risk points carry — the component's profile-axis
+        /// signal when a profile hazard element is selected (Q-T closure); NaN (the default)
+        /// records the raw <paramref name="hazardLevel"/>. Evaluation always uses the raw level;
+        /// this parameter labels the recorded points only.
+        /// </param>
         /// <returns>
         /// The mode's primary-type risk output at the evaluation point. The returned output
         /// (and every sink entry) is workspace-backed scratch, valid until the next evaluation
@@ -423,13 +429,14 @@ namespace RMC.TotalRisk.Results
         /// </remarks>
         public ComponentRiskOutput ComputeRisk(double probability, double hazardLevel, SampledFailureMode? nonFailureMode,
             RiskComputeFlags flags, FailureModeRealization realization, bool recordOutput = false,
-            ComponentRiskOutput[]? typeOutputs = null)
+            ComponentRiskOutput[]? typeOutputs = null, double recordedHazard = double.NaN)
         {
             if (flags == null) throw new ArgumentNullException(nameof(flags));
             if (realization == null) throw new ArgumentNullException(nameof(realization));
 
             double probabilityOfFailure = SRP(hazardLevel);
             bool record = recordOutput && !IsNonFailureMode;
+            double recordedLevel = double.IsNaN(recordedHazard) ? hazardLevel : recordedHazard;
 
             // Secondary types ride along only when their results are consumed: the recorded
             // curves or the caller's per-type sink. Probes and warm-up evaluations stay
@@ -445,7 +452,7 @@ namespace RMC.TotalRisk.Results
             ComponentRiskOutput primary = null!;
             for (int k = 0; k < computedTypes; k++)
             {
-                var output = ComputeTypeRisk(k, probability, hazardLevel, probabilityOfFailure,
+                var output = ComputeTypeRisk(k, probability, recordedLevel, probabilityOfFailure,
                     consequenceSignal, nonFailSignal, hasPairedNonFailure, flags, realization, record);
                 if (k == 0) primary = output;
                 if (typeOutputs != null) typeOutputs[k] = output;
@@ -461,7 +468,7 @@ namespace RMC.TotalRisk.Results
         /// </summary>
         /// <param name="typeIndex">The consequence-type position (0 is the primary).</param>
         /// <param name="probability">The hazard non-exceedance probability at the evaluation point.</param>
-        /// <param name="hazardLevel">The hazard level.</param>
+        /// <param name="recordedLevel">The hazard coordinate recorded risk points carry (the profile-axis signal when a profile is selected — Q-T; evaluation signals arrive precomputed).</param>
         /// <param name="probabilityOfFailure">The mode's response probability at the hazard level (type-independent).</param>
         /// <param name="consequenceSignal">This mode's consequence input signal (type-independent).</param>
         /// <param name="nonFailSignal">The paired non-failure mode's consequence input signal.</param>
@@ -470,7 +477,7 @@ namespace RMC.TotalRisk.Results
         /// <param name="realization">The failure mode's realization sink.</param>
         /// <param name="record">True to record risk-point entries on the type's curves.</param>
         /// <returns>The type's risk output at the evaluation point.</returns>
-        private ComponentRiskOutput ComputeTypeRisk(int typeIndex, double probability, double hazardLevel,
+        private ComponentRiskOutput ComputeTypeRisk(int typeIndex, double probability, double recordedLevel,
             double probabilityOfFailure, double consequenceSignal, double nonFailSignal, bool hasPairedNonFailure,
             RiskComputeFlags flags, FailureModeRealization realization, bool record)
         {
@@ -557,8 +564,8 @@ namespace RMC.TotalRisk.Results
                     failProbabilities.Add(output.ResponseProbabilities[i]);
                     failValues.Add(output.FailureConsequences[i]);
                 }
-                target.Fail.AddRiskPoint(hazardLevel, probability, failProbabilities, failValues);
-                target.Excess.AddRiskPoint(hazardLevel, probability, excessProbabilities!, excessValues!);
+                target.Fail.AddRiskPoint(recordedLevel, probability, failProbabilities, failValues);
+                target.Excess.AddRiskPoint(recordedLevel, probability, excessProbabilities!, excessValues!);
             }
 
             output.ProbabilityOfFailure = probabilityOfFailure;
