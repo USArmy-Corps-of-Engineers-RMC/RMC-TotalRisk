@@ -39,15 +39,22 @@ namespace RMC.TotalRisk.Analyses
         /// </summary>
         /// <param name="specifiedConsequence">The consequence type label (e.g., "Damages"). Null coerces to empty.</param>
         /// <param name="consequenceUnit">The consequence unit label (e.g., "$"). Null coerces to empty.</param>
-        public ConsequenceTypeDescriptor(string? specifiedConsequence, string? consequenceUnit)
+        /// <param name="consequenceThreshold">
+        /// The consequence threshold for this type's assurance measure, in the type's own units
+        /// (Phase 6.6 — the per-type companion of the analysis option, which is declared in the
+        /// primary type's units). NaN (the default) skips the assurance lookup for this type.
+        /// </param>
+        public ConsequenceTypeDescriptor(string? specifiedConsequence, string? consequenceUnit,
+            double consequenceThreshold = double.NaN)
         {
             SpecifiedConsequence = specifiedConsequence ?? string.Empty;
             ConsequenceUnit = consequenceUnit ?? string.Empty;
+            ConsequenceThreshold = consequenceThreshold;
         }
 
         /// <summary>
         /// Restores a declared consequence type from its serialized form. Missing attributes
-        /// fall back to empty labels, so older forms load forward.
+        /// fall back to empty labels and a NaN threshold, so older forms load forward.
         /// </summary>
         /// <param name="xElement">The serialized form produced by <see cref="ToXElement"/>.</param>
         /// <exception cref="ArgumentNullException">Thrown when the element is null.</exception>
@@ -56,6 +63,7 @@ namespace RMC.TotalRisk.Analyses
             if (xElement == null) throw new ArgumentNullException(nameof(xElement));
             SpecifiedConsequence = SerializationUtilities.ReadString(xElement, nameof(SpecifiedConsequence));
             ConsequenceUnit = SerializationUtilities.ReadString(xElement, nameof(ConsequenceUnit));
+            ConsequenceThreshold = SerializationUtilities.ReadDouble(xElement, nameof(ConsequenceThreshold), double.NaN);
         }
 
         #endregion
@@ -74,6 +82,17 @@ namespace RMC.TotalRisk.Analyses
         /// </summary>
         public string ConsequenceUnit { get; }
 
+        /// <summary>
+        /// The consequence threshold for this type's assurance measure
+        /// (<c>ConsequenceThresholdProbability</c>), expressed in this type's units. NaN — the
+        /// default, and what pre-6.6 payloads load as — skips the lookup, reproducing the Phase
+        /// 6.5 primary-only interim exactly. Unlike the label attributes this is a measure
+        /// input, not display metadata; it still never reaches a hash surface, because the
+        /// analysis element is persistence-only (seeds derive from the options seed and the
+        /// component identity forms alone).
+        /// </summary>
+        public double ConsequenceThreshold { get; }
+
         #endregion
 
         #region Serialization
@@ -88,6 +107,9 @@ namespace RMC.TotalRisk.Analyses
             var element = new XElement(nameof(ConsequenceTypeDescriptor));
             element.SetAttributeValue(nameof(SpecifiedConsequence), SpecifiedConsequence);
             element.SetAttributeValue(nameof(ConsequenceUnit), ConsequenceUnit);
+            // Appended Phase 6.6 (per-type thresholds); absent on earlier payloads, which load
+            // forward as NaN — the primary-only interim.
+            element.SetAttributeValue(nameof(ConsequenceThreshold), SerializationUtilities.FormatDouble(ConsequenceThreshold));
             return element;
         }
 

@@ -1210,6 +1210,50 @@ public class RiskAnalysisTests
             string.Join("; ", messages));
     }
 
+    /// <summary>
+    /// Verifies the per-type consequence thresholds (Phase 6.6): a declared secondary threshold
+    /// computes the secondary assurance measure at every scope — and on an exactly scaled
+    /// secondary axis, the scaled threshold reads the same probability as the primary — while
+    /// an undeclared secondary threshold preserves the Phase 6.5 primary-only interim (NaN).
+    /// </summary>
+    [TestMethod]
+    public async Task Test_PerTypeConsequenceThresholds_ComputedAndInterimPreserved()
+    {
+        // Arrange — damages are exactly 1000 × lives, and the declared damages threshold is
+        // exactly 1000 × the primary threshold, so both assurance reads must agree.
+        const double scale = 1000d;
+        const double primaryThreshold = 50d;
+        var declared = new RiskAnalysis(new[] { TwoTypeComponent(null, 300d * scale, 60d * scale) })
+        {
+            SpecifiedConsequence = "Life Loss",
+            ConsequenceUnit = "lives",
+        };
+        declared.AdditionalConsequenceTypes.Add(new ConsequenceTypeDescriptor("Damages", "$", primaryThreshold * scale));
+        declared.Options.ConsequenceThreshold = primaryThreshold;
+
+        // Act
+        await declared.RunAsync();
+
+        // Assert — the secondary assurance measure computes at system, component, and mode scope.
+        var summary = declared.RiskResults![0]!;
+        double primaryProbability = summary.Total.ConsequenceThresholdProbability;
+        double secondaryProbability = summary.AdditionalConsequences[0].Total.ConsequenceThresholdProbability;
+        Assert.IsTrue(primaryProbability > 0d && primaryProbability < 1d, "The primary threshold must read an interior probability.");
+        Assert.AreEqual(primaryProbability, secondaryProbability, 1e-9 * primaryProbability,
+            "The scaled threshold on the exactly scaled axis must read the same probability.");
+        Assert.AreEqual(primaryProbability,
+            summary.ComponentResults[0].AdditionalConsequences[0].Total.ConsequenceThresholdProbability,
+            1e-9 * primaryProbability, "The component scope must carry the per-type threshold too.");
+
+        // The undeclared shape preserves the primary-only interim: secondary assurance NaN.
+        var interim = TwoTypeAnalysis(TwoTypeComponent(null, 300d * scale, 60d * scale));
+        interim.Options.ConsequenceThreshold = primaryThreshold;
+        await interim.RunAsync();
+        Assert.IsFalse(double.IsNaN(interim.RiskResults![0]!.Total.ConsequenceThresholdProbability));
+        Assert.IsTrue(double.IsNaN(interim.RiskResults[0]!.AdditionalConsequences[0].Total.ConsequenceThresholdProbability),
+            "An undeclared per-type threshold must preserve the Phase 6.5 interim (NaN assurance).");
+    }
+
     /// <summary>Builds the profile-remap engine fixture: flow hazard → rating (T(h) = h/2) → uncertain stage fragility → stage consequences.</summary>
     private static SystemComponent RemapEngineComponent()
     {

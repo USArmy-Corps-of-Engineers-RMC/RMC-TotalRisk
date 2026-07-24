@@ -109,20 +109,25 @@ namespace RMC.TotalRisk.Results
         }
 
         /// <summary>
-        /// Computes the risk-measure catalog on every consequence type. The consequence
-        /// threshold applies to the primary type only — it is declared in the primary type's
-        /// units, so the additional types compute with a NaN threshold (assurance NaN; per-type
-        /// thresholds land with the risk-measures phase).
+        /// Computes the risk-measure catalog on every consequence type. The primary consequence
+        /// threshold is declared in the primary type's units; each additional type reads its own
+        /// declared threshold (Phase 6.6) or NaN when none was declared.
         /// </summary>
         /// <param name="consequenceThreshold">The consequence threshold for the primary type's assurance measure.</param>
         /// <param name="alpha">The exceedance level for value-at-risk and conditional value-at-risk.</param>
         /// <param name="hazardThreshold">The hazard threshold, or NaN when none applies.</param>
-        public void ComputeRiskMeasures(double consequenceThreshold, double alpha, double hazardThreshold = double.NaN)
+        /// <param name="additionalThresholds">
+        /// The declared per-type thresholds for the additional consequence types (entry k for
+        /// <see cref="AdditionalCurves"/> position k), or null for NaN throughout.
+        /// </param>
+        public void ComputeRiskMeasures(double consequenceThreshold, double alpha, double hazardThreshold = double.NaN,
+            IReadOnlyList<double>? additionalThresholds = null)
         {
             Curves.ComputeRiskMeasures(consequenceThreshold, alpha, hazardThreshold);
             for (int k = 0; k < AdditionalCurves.Count; k++)
             {
-                AdditionalCurves[k].ComputeRiskMeasures(double.NaN, alpha, hazardThreshold);
+                double typeThreshold = additionalThresholds != null && k < additionalThresholds.Count ? additionalThresholds[k] : double.NaN;
+                AdditionalCurves[k].ComputeRiskMeasures(typeThreshold, alpha, hazardThreshold);
             }
         }
 
