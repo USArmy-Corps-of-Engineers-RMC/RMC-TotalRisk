@@ -12,5 +12,6 @@ Pages (mirroring the model-library namespaces; phase numbers per [../ROADMAP.md]
 | [consequence-functions.md](consequence-functions.md) | Consequence (damage) functions: tabular, incremental-consequence coupling | Phase 2 (landed 2026-07-20); parametric (7), composites (9), LifeSim (11) |
 | [risk-integration.md](risk-integration.md) | The risk engine's numerical integration: Adaptive Gauss–Kronrod (1D), the `RiskIntegrand` refinement-objective enum, VEGAS with power-transform tail focus | Phase 4 / 4b (spec landed 2026-07-21) |
 | [loss-exceedance-curves.md](loss-exceedance-curves.md) | LEC / F-N construction, probability-mass derivation, stable weighted moments, the full risk-measure catalog (VaR/CVaR/assurance), FFT system convolution | Phase 4 / 4b (spec landed 2026-07-21) |
+| [risk-contribution.md](risk-contribution.md) | % contribution to risk: the Shapley probability split + consequence-proportional risk split over the exclusive failure events of all four combination methods, the additive-system Poisson-binomial closed form, exact sum identities, two percentage bases | Phase 6.6 (landed 2026-07-24) |
 | support/ | Canonical hashing + content-based seeding, sampling schemes | planned (Phase 3–4 write-up alongside the components/engine) |
 | risk-analysis/ | Components, occurrence-index seeding, engine integration methods | Phases 3–6 |

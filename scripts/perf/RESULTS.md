@@ -84,6 +84,22 @@ already compute) and an O(|participants|) split per joint tuple, in accumulation
 separate from every pinned floating-point sequence — `EngineReproducibilityVerification` and
 `JointFailuresVerification` passed unchanged as the stage gates.
 
+**Phase close (stages 5–7, commits `7e26c3e`…`767bf95`):** one more append-only
+results-JSON extension — stage 5 serializes `EnsembleResults.Summary` (the scalar-CI +
+convergence block) — so the byte gate re-pins once more:
+
+- F1 `d1faad62cc114ede085ce4578cc04699e883f41e3d7ff47ef8efa75f9bab5824` (single rep,
+  6.797 s / **4.09 GB**, 2026-07-24 phase-close run).
+
+Allocations are byte-identical to stage 4 (the Summary reduction is grid-scale work at
+ensemble end, not per-realization) and wall stayed inside the session's noisy regime. The
+stage-6 sensitivity engine and the stage-7 seed maps are run-path- and JSON-inert by
+construction (unpersisted API objects / runtime-only state) — this run is their perf gate:
+had either leaked into the run path, the hash or the allocation counter would have moved
+beyond the Summary block. Existing-field byte equality across the re-pin is carried by the
+append-only load tests (pre-6.6 payloads deserialize with null blocks) and by the zero moved
+pins across the regression families.
+
 Baseline byte-gate hashes:
 
 - F1 `7a88638cf38c5ee38a3091fabd933e747dd9dc43ea14d44b0addbb465c12f500`

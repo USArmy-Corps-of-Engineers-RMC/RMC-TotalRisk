@@ -268,7 +268,42 @@ with no store, no resolver, and no consuming layer in the call path.
 > SHARED_FUNCTIONS_STRATEGY N7 numbering collision resolved (release → N10), CLAUDE.md
 > Phase-8/9 pointers corrected.
 
-## Phase 6.6 — Risk measures, diagnostics & sensitivity
+## Phase 6.6 — Risk measures, diagnostics & sensitivity — **COMPLETE (2026-07-24)**
+
+> Landed in eight staged commits (plan ratified with nine user decisions recorded in PROGRESS;
+> arch doc → v0.17). What shipped, against the scope below:
+>
+> 1. **Q-T closure** — `SystemComponent.ProfileHazardElementId` (seed-inert element reference;
+>    every recorded hazard coordinate remaps through the realization's own sampled profile
+>    chain) + the expanded profile catalog (`CumulativeFailureProbabilities` with terminal ≡
+>    Fail `MassBalance`, per-type `CumulativeExpectedConsequences`, the SRP profile on the
+>    **AEP axis**) + restoration of the v1.0 five-stream banding parity
+>    ([verification/risk-profiles.md](verification/risk-profiles.md)).
+> 2. **% contribution to risk (new diagnostic)** — Shapley probability split +
+>    consequence-proportional risk split over each method's exclusive failure events; exact
+>    Σ-identities to `MassBalance`/`Mean`; the additive-system union APF via the exact O(D²)
+>    Poisson-binomial DP; two bases (% of APF — full in reliability mode — and % of mean loss);
+>    math in [technical-reference/risk-contribution.md](technical-reference/risk-contribution.md),
+>    evidence in [verification/contribution.md](verification/contribution.md).
+> 3. **Scalar CIs + convergence diagnostics** — `EnsembleSummary` (Mean/Median/Lower/Upper
+>    trees reduced measure-wise from the stored ensemble, recomputable on load) +
+>    `ConvergenceDiagnostics` ([verification/scalar-uncertainty.md](verification/scalar-uncertainty.md)).
+> 4. **The unified sensitivity engine** (ratified scope amendment: no legacy Dictionary-shaped
+>    port, no public `RiskAtHazardLevel`) — `MeasureSensitivity`/`MeasureSensitivityMatrix`
+>    (any stored scalar measure, zero re-simulation) + `HazardLevelSensitivity` (profile-axis
+>    native, no-record evaluation); system/component/failure-mode scope selector; inputs from
+>    the one shared sampler walk ([verification/sensitivity.md](verification/sensitivity.md)).
+> 5. **Per-type `ConsequenceThreshold`** (the 6.5 primary-only interim closes) and the
+>    **§5.5.8 seed-stable perturbation mode** (`CapturedSamplerSeeds`/`PinnedSamplerSeeds`,
+>    per-walk-ordinal pinning + the joint VEGAS seed base, loud shape validation).
+>
+> **Deferred to the UI layer (ratified):** exact-pair excess entry lists (the
+> `ComponentRiskOutput` interim stays — the recorded per-mode curves carry what the engine
+> owes) and TRG-line comparison data (chart furniture, not compute). **Future-performance note
+> (Phase 8/12 candidate, NOT to be attempted without a ratified re-verification pass):** the
+> joint path's independence-only polynomial identities — Sum-rule mean by linearity, Max-rule
+> product CDF, Average-rule Poisson-binomial recursion, Sum-rule per-evaluation lattice
+> convolution — could replace the 2ⁿ − 1 exclusive enumeration when hazard dependence is off.
 
 **Scope:** the v1.0 diagnostic surface never ported, plus the measure extensions scoped by the Phase 6.5 audit:
 
