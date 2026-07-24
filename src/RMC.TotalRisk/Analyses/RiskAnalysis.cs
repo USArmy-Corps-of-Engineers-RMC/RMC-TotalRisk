@@ -2373,45 +2373,74 @@ namespace RMC.TotalRisk.Analyses
             Func<SystemRealization, Curves> source, Func<int, Curves> target,
             double[] consequenceGrid, double tail, CancellationToken token)
         {
-            AssemblePercentileCurve(realizations, r => source(r).Excess.LEC, consequenceGrid, tail, token,
+            AssemblePercentileCurve(realizations, r => { var c = source(r).Excess; return (c.LECConsequences, c.LECProbabilities); }, consequenceGrid, tail, token,
                 (slot, x, y) => { target(slot).Excess.LECConsequences = x; target(slot).Excess.LECProbabilities = y; });
-            AssemblePercentileCurve(realizations, r => source(r).Background.LEC, consequenceGrid, tail, token,
+            AssemblePercentileCurve(realizations, r => { var c = source(r).Background; return (c.LECConsequences, c.LECProbabilities); }, consequenceGrid, tail, token,
                 (slot, x, y) => { target(slot).Background.LECConsequences = x; target(slot).Background.LECProbabilities = y; });
-            AssemblePercentileCurve(realizations, r => source(r).Total.LEC, consequenceGrid, tail, token,
+            AssemblePercentileCurve(realizations, r => { var c = source(r).Total; return (c.LECConsequences, c.LECProbabilities); }, consequenceGrid, tail, token,
                 (slot, x, y) => { target(slot).Total.LECConsequences = x; target(slot).Total.LECProbabilities = y; });
-            AssemblePercentileCurve(realizations, r => source(r).Fail.LEC, consequenceGrid, tail, token,
+            AssemblePercentileCurve(realizations, r => { var c = source(r).Fail; return (c.LECConsequences, c.LECProbabilities); }, consequenceGrid, tail, token,
                 (slot, x, y) => { target(slot).Fail.LECConsequences = x; target(slot).Fail.LECProbabilities = y; });
-            AssemblePercentileCurve(realizations, r => source(r).NonFail.LEC, consequenceGrid, tail, token,
+            AssemblePercentileCurve(realizations, r => { var c = source(r).NonFail; return (c.LECConsequences, c.LECProbabilities); }, consequenceGrid, tail, token,
                 (slot, x, y) => { target(slot).NonFail.LECConsequences = x; target(slot).NonFail.LECProbabilities = y; });
         }
 
         /// <summary>
-        /// Assembles one percentile curve family: per grid ordinate (parallel, index-owned), the
-        /// realizations' interpolated values are sorted for the lower/upper/median levels and
-        /// summed sequentially for the mean; realizations whose source curve is empty are
-        /// skipped, and an all-empty family leaves the targets empty.
+        /// Assembles one percentile curve family: each realization merge-walks the shared
+        /// descending grid once with the monotone-cursor log-log interpolator
+        /// (<see cref="Curve.InterpolateLogLogDescending"/> — bit-identical to the per-query
+        /// Numerics interpolation it replaces, O(n + m) per realization instead of a binary
+        /// search per ordinate, in parallel over realizations); then per grid ordinate
+        /// (parallel, index-owned) the values are compacted in realization order, summed
+        /// sequentially for the mean, and sorted for the lower/upper/median levels.
+        /// Realizations whose source curve is empty are skipped, and an all-empty family leaves
+        /// the targets empty.
         /// </summary>
         /// <param name="realizations">The realization ensemble.</param>
-        /// <param name="curve">Selects the source curve view from a realization.</param>
+        /// <param name="curve">Selects the source curve's serialized arrays from a realization (X descending).</param>
         /// <param name="grid">The descending X grid.</param>
         /// <param name="tail">The percentile tail level.</param>
         /// <param name="token">The run cancellation token.</param>
         /// <param name="assign">Assigns the assembled arrays per percentile slot (0 lower, 1 upper, 2 median, 3 mean).</param>
         private static void AssemblePercentileCurve(SystemRealization[] realizations,
-            Func<SystemRealization, OrderedPairedData> curve, double[] grid, double tail, CancellationToken token,
+            Func<SystemRealization, (double[] Xs, double[] Ys)> curve, double[] grid, double tail, CancellationToken token,
             Action<int, double[], double[]> assign)
         {
             int realizationCount = realizations.Length;
             bool anySource = false;
             for (int i = 0; i < realizationCount; i++)
             {
-                if (curve(realizations[i]).Count > 1)
+                if (curve(realizations[i]).Xs.Length > 1)
                 {
                     anySource = true;
                     break;
                 }
             }
             if (!anySource) return;
+
+            // Transposed fill: values[ordinate][realization], NaN marking skipped realizations.
+            var values = new double[grid.Length][];
+            for (int g = 0; g < grid.Length; g++)
+            {
+                values[g] = new double[realizationCount];
+            }
+            Parallel.For(0, realizationCount, new ParallelOptions { CancellationToken = token }, r =>
+            {
+                var (xs, ys) = curve(realizations[r]);
+                if (xs.Length < 2)
+                {
+                    for (int g = 0; g < grid.Length; g++)
+                    {
+                        values[g][r] = double.NaN;
+                    }
+                    return;
+                }
+                int cursor = 1;
+                for (int g = 0; g < grid.Length; g++)
+                {
+                    values[g][r] = Curve.InterpolateLogLogDescending(xs, ys, grid[g], ref cursor);
+                }
+            });
 
             var lowerValues = new double[grid.Length];
             var upperValues = new double[grid.Length];
@@ -2420,26 +2449,25 @@ namespace RMC.TotalRisk.Analyses
 
             Parallel.For(0, grid.Length, new ParallelOptions { CancellationToken = token }, g =>
             {
-                var values = new double[realizationCount];
+                var row = values[g];
+                var window = new double[realizationCount];
                 double sum = 0d;
                 int used = 0;
-                for (int i = 0; i < realizationCount; i++)
+                for (int r = 0; r < realizationCount; r++)
                 {
-                    var source = curve(realizations[i]);
-                    if (source.Count < 2) continue;
-                    double value = source.GetYFromX(grid[g], Transform.Logarithmic, Transform.Logarithmic);
+                    double value = row[r];
                     if (double.IsNaN(value)) continue;
-                    values[used] = value;
+                    window[used] = value;
                     sum += value;
                     used++;
                 }
                 if (used == 0) return;
-                Array.Sort(values, 0, used);
-                var window = new double[used];
-                Array.Copy(values, window, used);
-                lowerValues[g] = Statistics.Percentile(window, tail, true);
-                upperValues[g] = Statistics.Percentile(window, 1d - tail, true);
-                medianValues[g] = Statistics.Percentile(window, 0.5d, true);
+                Array.Sort(window, 0, used);
+                var trimmed = new double[used];
+                Array.Copy(window, trimmed, used);
+                lowerValues[g] = Statistics.Percentile(trimmed, tail, true);
+                upperValues[g] = Statistics.Percentile(trimmed, 1d - tail, true);
+                medianValues[g] = Statistics.Percentile(trimmed, 0.5d, true);
                 meanValues[g] = sum / used;
             });
 
@@ -2466,14 +2494,14 @@ namespace RMC.TotalRisk.Analyses
             CancellationToken token)
         {
             AssemblePercentileCurve(realizations,
-                r => scope(r.Components[componentIndex]).Total.HazardFrequency, hazardGrid, tail, token,
+                r => { var c = scope(r.Components[componentIndex]).Total; return (c.HazardFrequencyHazards, c.HazardFrequencyProbabilities); }, hazardGrid, tail, token,
                 (slot, x, y) =>
                 {
                     scope(targets[slot].Components[componentIndex]).Total.HazardFrequencyHazards = x;
                     scope(targets[slot].Components[componentIndex]).Total.HazardFrequencyProbabilities = y;
                 });
             AssemblePercentileCurve(realizations,
-                r => scope(r.Components[componentIndex]).Total.HazardvsCEN, hazardGrid, tail, token,
+                r => { var c = scope(r.Components[componentIndex]).Total; return (c.HazardVsCenHazards, c.HazardVsCenConsequences); }, hazardGrid, tail, token,
                 (slot, x, y) =>
                 {
                     scope(targets[slot].Components[componentIndex]).Total.HazardVsCenHazards = x;

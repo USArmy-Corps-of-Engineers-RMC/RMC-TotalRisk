@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
+using Numerics;
 using Numerics.Data;
 using Numerics.Mathematics;
 using Numerics.Mathematics.Integration;
@@ -640,7 +641,28 @@ namespace RMC.TotalRisk.Results
         {
             if (RiskPoints.Count < 2) return;
 
-            RiskPoints.Sort((x, y) => -x.HazardLevel.CompareTo(y.HazardLevel));
+            // On the one-dimensional path the points arrive probability-sorted, and hazard is
+            // monotone in probability — when the hazard levels are strictly ascending the
+            // descending order is an O(n) reverse (identical to the sort's result, since strict
+            // order has one descending arrangement), skipping the comparator-driven sort. Any
+            // tie or disorder (the VEGAS path's random levels) falls back to the sort.
+            bool strictlyAscending = true;
+            for (int i = 1; i < RiskPoints.Count; i++)
+            {
+                if (!(RiskPoints[i].HazardLevel > RiskPoints[i - 1].HazardLevel))
+                {
+                    strictlyAscending = false;
+                    break;
+                }
+            }
+            if (strictlyAscending)
+            {
+                RiskPoints.Reverse();
+            }
+            else
+            {
+                RiskPoints.Sort((x, y) => -x.HazardLevel.CompareTo(y.HazardLevel));
+            }
 
             double sumExceedance = 0d;
             double sumExpectedConsequence = 0d;
@@ -666,6 +688,51 @@ namespace RMC.TotalRisk.Results
             _hazardVsCenConsequences = conditionalMeans.ToArray();
             _hazardFrequencyView = null;
             _hazardVsCenView = null;
+        }
+
+        /// <summary>
+        /// Interpolates one value from a descending-X curve in log-log space with a monotone
+        /// resume cursor — the percentile post-processing kernel. Replicates
+        /// <c>OrderedPairedData.GetYFromX(x, Logarithmic, Logarithmic)</c> bit-for-bit: the raw
+        /// end clamps, the bracketing segment whose upper index is the first ordinate at or
+        /// below the query, the 1e-16-floored base-10 transforms, the identical interpolation
+        /// expression, and the flat-segment (equal transformed X) rule — verified by a
+        /// zero-ulp unit test. The cursor lets a caller sweeping a descending query grid walk
+        /// the curve once, O(n + m), instead of a binary search per query.
+        /// </summary>
+        /// <param name="xValues">The curve X ordinates, strictly descending (the serialized LEC/profile orientation).</param>
+        /// <param name="yValues">The curve Y ordinates, parallel to <paramref name="xValues"/>.</param>
+        /// <param name="x">The query X value.</param>
+        /// <param name="cursor">
+        /// The resume index (the candidate upper segment index, at least one). Pass 1 for the
+        /// first query and reuse the reference for subsequent non-increasing queries.
+        /// </param>
+        /// <returns>The interpolated Y value; NaN for an empty curve.</returns>
+        public static double InterpolateLogLogDescending(double[] xValues, double[] yValues, double x, ref int cursor)
+        {
+            int count = xValues.Length;
+            if (count == 0) return double.NaN;
+            if (count == 1) return yValues[0];
+            if (x >= xValues[0]) return yValues[0];
+            if (x <= xValues[count - 1]) return yValues[count - 1];
+
+            // Advance to the first index at or below the query — monotone in a descending
+            // query sweep, so the cursor never rewinds.
+            int upper = cursor < 1 ? 1 : cursor;
+            while (x < xValues[upper])
+            {
+                upper++;
+            }
+            cursor = upper;
+            int lower = upper - 1;
+
+            double xt = Tools.Log10(x);
+            double x1 = Tools.Log10(xValues[lower]);
+            double x2 = Tools.Log10(xValues[upper]);
+            double y1 = Tools.Log10(yValues[lower]);
+            double y2 = Tools.Log10(yValues[upper]);
+            double y = (x2 - x1) == 0 ? y1 : y1 + (xt - x1) / (x2 - x1) * (y2 - y1);
+            return Math.Pow(10d, y);
         }
 
         #endregion
