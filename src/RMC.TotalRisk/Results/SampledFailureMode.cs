@@ -146,6 +146,32 @@ namespace RMC.TotalRisk.Results
                     }
                 }
             }
+
+            // Compute-workspace scratch (Phase 6.5): branch counts are fixed for the life of the
+            // sampled mode, so every per-evaluation buffer is sized exactly once here and reused
+            // for the realization's thousands of integrand evaluations — a sampled mode is
+            // realization-owned, never shared across threads.
+            _scratchOutputs = new ComponentRiskOutput[typeCount];
+            _scratchOwnWeights = new double[typeCount][];
+            _scratchOwnValues = new double[typeCount][];
+            for (int k = 0; k < typeCount; k++)
+            {
+                _scratchOutputs[k] = new ComponentRiskOutput();
+                int ownCount = _failureBranchesByType[k].Count;
+                _scratchOwnWeights[k] = new double[ownCount];
+                _scratchOwnValues[k] = new double[ownCount];
+            }
+            if (_nonFailureBranchesByType != null)
+            {
+                _scratchNonFailWeights = new double[typeCount][];
+                _scratchNonFailValues = new double[typeCount][];
+                for (int k = 0; k < typeCount; k++)
+                {
+                    int pairedCount = _nonFailureBranchesByType[k].Count;
+                    _scratchNonFailWeights[k] = new double[pairedCount];
+                    _scratchNonFailValues[k] = new double[pairedCount];
+                }
+            }
         }
 
         #endregion
@@ -192,6 +218,34 @@ namespace RMC.TotalRisk.Results
         /// the k-th stage transform.
         /// </summary>
         private readonly int _consequencePosition;
+
+        /// <summary>
+        /// The reusable per-type output scratch — handed out by <see cref="ComputeRisk"/> and
+        /// valid until the next evaluation on this mode (Phase 6.5 allocation elimination).
+        /// </summary>
+        private readonly ComponentRiskOutput[] _scratchOutputs;
+
+        /// <summary>
+        /// The reusable per-type weight buffers behind <see cref="EvaluateConsequenceBranches(double, int, RiskComputeFlags, out double[], out double[])"/>.
+        /// </summary>
+        private readonly double[][] _scratchOwnWeights;
+
+        /// <summary>
+        /// The reusable per-type value buffers behind <see cref="EvaluateConsequenceBranches(double, int, RiskComputeFlags, out double[], out double[])"/>.
+        /// </summary>
+        private readonly double[][] _scratchOwnValues;
+
+        /// <summary>
+        /// The reusable per-type paired non-failure weight buffers; null when no non-failure
+        /// mode pairs.
+        /// </summary>
+        private readonly double[][]? _scratchNonFailWeights;
+
+        /// <summary>
+        /// The reusable per-type paired non-failure value buffers; null when no non-failure
+        /// mode pairs.
+        /// </summary>
+        private readonly double[][]? _scratchNonFailValues;
 
         /// <summary>
         /// The failure mode's display name (the response function's name — v1.0 behavior).
@@ -296,8 +350,8 @@ namespace RMC.TotalRisk.Results
         /// <param name="hazardLevel">The raw hazard level.</param>
         /// <param name="typeIndex">The consequence-type position (0 is the primary).</param>
         /// <param name="flags">The realization's computational-warning flags (negative values clamp with the matching flag).</param>
-        /// <param name="weights">Receives the branch weights.</param>
-        /// <param name="values">Receives the branch consequence values, clamped at zero.</param>
+        /// <param name="weights">Receives the branch weights — a reused per-type buffer, valid until the next evaluation at this type on this mode (never retain it).</param>
+        /// <param name="values">Receives the branch consequence values, clamped at zero — the same reuse contract.</param>
         /// <exception cref="ArgumentNullException">Thrown when the flags sink is null.</exception>
         public void EvaluateConsequenceBranches(double hazardLevel, int typeIndex, RiskComputeFlags flags, out double[] weights, out double[] values)
         {
@@ -306,8 +360,8 @@ namespace RMC.TotalRisk.Results
             double signal = ConsequenceInput(hazardLevel);
             var branches = _failureBranchesByType[typeIndex];
             int count = branches.Count;
-            weights = new double[count];
-            values = new double[count];
+            weights = _scratchOwnWeights[typeIndex];
+            values = _scratchOwnValues[typeIndex];
             for (int i = 0; i < count; i++)
             {
                 weights[i] = branches[i].Weight;
@@ -348,7 +402,12 @@ namespace RMC.TotalRisk.Results
         /// are computed only when recording or when this sink is supplied — probe evaluations
         /// pay the single-type cost.
         /// </param>
-        /// <returns>The mode's primary-type risk output at the evaluation point.</returns>
+        /// <returns>
+        /// The mode's primary-type risk output at the evaluation point. The returned output
+        /// (and every sink entry) is workspace-backed scratch, valid until the next evaluation
+        /// on this mode — consume or copy it before evaluating again (Phase 6.5 allocation
+        /// elimination; the engine's call sites consume within the evaluation).
+        /// </returns>
         /// <exception cref="ArgumentNullException">Thrown when the flags or realization sink is null.</exception>
         /// <remarks>
         /// The v1.0 clamping rules are preserved: negative consequences clamp to zero with the
@@ -415,7 +474,8 @@ namespace RMC.TotalRisk.Results
             double probabilityOfFailure, double consequenceSignal, double nonFailSignal, bool hasPairedNonFailure,
             RiskComputeFlags flags, FailureModeRealization realization, bool record)
         {
-            var output = new ComponentRiskOutput();
+            var output = _scratchOutputs[typeIndex];
+            output.Reset();
             var failureBranches = _failureBranchesByType[typeIndex];
 
             // Paired non-failure consequence branches, evaluated at the NON-FAILURE mode's own
@@ -429,8 +489,8 @@ namespace RMC.TotalRisk.Results
             {
                 var nonFailureBranches = _nonFailureBranchesByType![typeIndex];
                 nonFailCount = nonFailureBranches.Count;
-                nonFailWeights = new double[nonFailCount];
-                nonFailValues = new double[nonFailCount];
+                nonFailWeights = _scratchNonFailWeights![typeIndex];
+                nonFailValues = _scratchNonFailValues![typeIndex];
                 for (int j = 0; j < nonFailCount; j++)
                 {
                     nonFailWeights[j] = nonFailureBranches[j].Weight;

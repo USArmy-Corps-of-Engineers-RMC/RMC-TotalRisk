@@ -105,6 +105,33 @@ namespace RMC.TotalRisk.Results
             }
             ConsequenceTypeCount = consequenceTypeCount;
 
+            // Compute-workspace scratch (Phase 6.5): mode and type counts are fixed for the life
+            // of the sampled component, so every per-evaluation buffer is sized exactly once
+            // here and reused across the realization's thousands of integrand evaluations — a
+            // sampled component is realization-owned, never shared across threads. Recording
+            // sites still allocate fresh lists where a RiskPoint adopts them.
+            _scratchModeOutputs = new ComponentRiskOutput[_fModes.Count];
+            _scratchModeTypeOutputs = new ComponentRiskOutput[_fModes.Count][];
+            for (int j = 0; j < _fModes.Count; j++)
+            {
+                _scratchModeTypeOutputs[j] = new ComponentRiskOutput[consequenceTypeCount];
+            }
+            _scratchTypeColumns = new ComponentRiskOutput[consequenceTypeCount][];
+            _scratchTypeOutputs = new ComponentRiskOutput[consequenceTypeCount];
+            _scratchExcessProbabilities = new List<double>[consequenceTypeCount];
+            _scratchExcessValues = new List<double>[consequenceTypeCount];
+            for (int k = 0; k < consequenceTypeCount; k++)
+            {
+                _scratchTypeColumns[k] = new ComponentRiskOutput[_fModes.Count];
+                _scratchTypeOutputs[k] = new ComponentRiskOutput();
+                _scratchExcessProbabilities[k] = new List<double>();
+                _scratchExcessValues[k] = new List<double>();
+            }
+            _scratchResponseProbabilities = new List<double>(_fModes.Count);
+            _scratchAdjustedProbabilities = new double[_fModes.Count];
+            _scratchParticipating = new List<int>(_fModes.Count);
+            _scratchBranchPick = new int[_fModes.Count];
+
             // Weak-link competing failures: pre-process the cumulative incidence functions over
             // 200 stratified hazard levels (v1.0 constants). A single mode short-circuits to its
             // own response probability, so the pre-processing is skipped then.
@@ -239,6 +266,59 @@ namespace RMC.TotalRisk.Results
         private readonly List<EmpiricalDistribution>? _cumulativeIncidenceFunctions;
 
         /// <summary>
+        /// The reusable per-mode primary-output view (Phase 6.5 allocation elimination — every
+        /// scratch buffer below is realization-owned and reused per evaluation).
+        /// </summary>
+        private readonly ComponentRiskOutput[] _scratchModeOutputs;
+
+        /// <summary>
+        /// The reusable per-mode, per-type output sinks the modes fill.
+        /// </summary>
+        private readonly ComponentRiskOutput[][] _scratchModeTypeOutputs;
+
+        /// <summary>
+        /// The reusable per-type column views over the per-mode outputs.
+        /// </summary>
+        private readonly ComponentRiskOutput[][] _scratchTypeColumns;
+
+        /// <summary>
+        /// The reusable per-type component outputs — handed out by <see cref="ComputeRisk"/> and
+        /// valid until the next evaluation on this component.
+        /// </summary>
+        private readonly ComponentRiskOutput[] _scratchTypeOutputs;
+
+        /// <summary>
+        /// The reusable per-type excess entry-probability accumulators for non-recording
+        /// evaluations (recording evaluations allocate fresh lists — a risk point adopts them).
+        /// </summary>
+        private readonly List<double>[] _scratchExcessProbabilities;
+
+        /// <summary>
+        /// The reusable per-type excess entry-value accumulators for non-recording evaluations.
+        /// </summary>
+        private readonly List<double>[] _scratchExcessValues;
+
+        /// <summary>
+        /// The reusable per-mode response-probability list.
+        /// </summary>
+        private readonly List<double> _scratchResponseProbabilities;
+
+        /// <summary>
+        /// The reusable per-mode combination-adjusted probabilities.
+        /// </summary>
+        private readonly double[] _scratchAdjustedProbabilities;
+
+        /// <summary>
+        /// The reusable participating-mode index list of the joint kernel.
+        /// </summary>
+        private readonly List<int> _scratchParticipating;
+
+        /// <summary>
+        /// The reusable branch odometer of the joint kernel.
+        /// </summary>
+        private readonly int[] _scratchBranchPick;
+
+        /// <summary>
         /// The component's display name.
         /// </summary>
         public string Name { get; }
@@ -289,7 +369,12 @@ namespace RMC.TotalRisk.Results
         /// (entry k receives type k's output; entry 0 is the returned primary). Secondary types
         /// are computed only when recording or when this sink is supplied.
         /// </param>
-        /// <returns>The component's primary-type risk output at the evaluation point.</returns>
+        /// <returns>
+        /// The component's primary-type risk output at the evaluation point. The returned output
+        /// (and every sink entry) is workspace-backed scratch, valid until the next evaluation
+        /// on this component — consume or copy it before evaluating again (Phase 6.5 allocation
+        /// elimination; the engine's call sites consume within the evaluation).
+        /// </returns>
         /// <exception cref="ArgumentNullException">Thrown when the flags or realization sink is null.</exception>
         public ComponentRiskOutput ComputeRisk(double probability, double hazardLevel, RiskComputeFlags flags,
             ComponentRealization realization, bool recordOutput = false, ComponentRiskOutput[]? typeOutputs = null)
@@ -307,15 +392,15 @@ namespace RMC.TotalRisk.Results
             int componentTypes = wantSecondary ? ConsequenceTypeCount : 1;
 
             // Per-mode risk at this hazard level — every computed consequence type in one pass
-            // per mode.
-            var modeOutputs = new ComponentRiskOutput[_fModes.Count];
-            ComponentRiskOutput[][]? modeTypeOutputs = wantSecondary ? new ComponentRiskOutput[_fModes.Count][] : null;
-            var responseProbabilities = new List<double>(_fModes.Count);
+            // per mode, into the reused per-mode sinks.
+            var modeOutputs = _scratchModeOutputs;
+            var modeTypeOutputs = _scratchModeTypeOutputs;
+            var responseProbabilities = _scratchResponseProbabilities;
+            responseProbabilities.Clear();
             for (int j = 0; j < _fModes.Count; j++)
             {
                 if (wantSecondary)
                 {
-                    modeTypeOutputs![j] = new ComponentRiskOutput[componentTypes];
                     _fModes[j].ComputeRisk(probability, hazardLevel, _nfMode, flags, realization.FailureModes[j], recordOutput, modeTypeOutputs[j]);
                     modeOutputs[j] = modeTypeOutputs[j][0];
                 }
@@ -345,7 +430,7 @@ namespace RMC.TotalRisk.Results
                 }
                 else
                 {
-                    adjustedProbabilities = new double[_fModes.Count];
+                    adjustedProbabilities = _scratchAdjustedProbabilities;
                     double commonCauseFactor = _failureModeMethod == FailureModeMethod.CommonCauseFailures
                         ? CommonCauseFactor(responseProbabilities)
                         : 0d;
@@ -386,7 +471,8 @@ namespace RMC.TotalRisk.Results
             ComponentRiskOutput primary = null!;
             for (int k = 0; k < componentTypes; k++)
             {
-                var typeOutput = new ComponentRiskOutput();
+                var typeOutput = _scratchTypeOutputs[k];
+                typeOutput.Reset();
                 if (k == 0) primary = typeOutput;
 
                 double[] nonFailWeights = _unitWeight;
@@ -403,8 +489,23 @@ namespace RMC.TotalRisk.Results
 
                 var failEntryValues = typeOutput.FailureConsequences;
                 var failEntryProbabilities = typeOutput.ResponseProbabilities;
-                var excessEntryProbabilities = new List<double>();
-                var excessEntryValues = new List<double>();
+
+                // A risk point adopts the excess lists when recording, so those stay freshly
+                // allocated; non-recording evaluations reuse the per-type scratch.
+                List<double> excessEntryProbabilities;
+                List<double> excessEntryValues;
+                if (recordOutput)
+                {
+                    excessEntryProbabilities = new List<double>();
+                    excessEntryValues = new List<double>();
+                }
+                else
+                {
+                    excessEntryProbabilities = _scratchExcessProbabilities[k];
+                    excessEntryValues = _scratchExcessValues[k];
+                    excessEntryProbabilities.Clear();
+                    excessEntryValues.Clear();
+                }
 
                 double expectedFailureConsequences = 0d;
                 double expectedExcessConsequences = 0d;
@@ -413,7 +514,7 @@ namespace RMC.TotalRisk.Results
 
                 if (_fModes.Count > 0)
                 {
-                    var typeModeOutputs = k == 0 ? modeOutputs : ExtractTypeColumn(modeTypeOutputs!, k);
+                    var typeModeOutputs = k == 0 ? modeOutputs : FillTypeColumn(k);
                     if (_failureModeMethod == FailureModeMethod.JointFailures)
                     {
                         ComputeJointPathwayEntries(responseProbabilities, typeModeOutputs, pathwayProbabilities!, pathwayIndicators!,
@@ -513,17 +614,17 @@ namespace RMC.TotalRisk.Results
         }
 
         /// <summary>
-        /// Extracts one consequence type's column from the per-mode, per-type outputs.
+        /// Fills and returns the reused column view of one consequence type over the per-mode
+        /// outputs.
         /// </summary>
-        /// <param name="modeTypeOutputs">The per-mode arrays of per-type outputs.</param>
         /// <param name="typeIndex">The consequence-type position.</param>
-        /// <returns>The per-mode outputs at the given type.</returns>
-        private static ComponentRiskOutput[] ExtractTypeColumn(ComponentRiskOutput[][] modeTypeOutputs, int typeIndex)
+        /// <returns>The per-mode outputs at the given type (the reused column buffer).</returns>
+        private ComponentRiskOutput[] FillTypeColumn(int typeIndex)
         {
-            var column = new ComponentRiskOutput[modeTypeOutputs.Length];
-            for (int j = 0; j < modeTypeOutputs.Length; j++)
+            var column = _scratchTypeColumns[typeIndex];
+            for (int j = 0; j < column.Length; j++)
             {
-                column[j] = modeTypeOutputs[j][typeIndex];
+                column[j] = _scratchModeTypeOutputs[j][typeIndex];
             }
             return column;
         }
@@ -672,8 +773,8 @@ namespace RMC.TotalRisk.Results
             List<double> excessEntryProbabilities, List<double> excessEntryValues,
             ref double expectedFailureConsequences, ref double expectedExcessConsequences, ref double minN, ref double maxN)
         {
-            var participating = new List<int>(_fModes.Count);
-            var branchPick = new int[_fModes.Count];
+            var participating = _scratchParticipating;
+            var branchPick = _scratchBranchPick;
             for (int j = 0; j < pathwayProbabilities.Count; j++)
             {
                 double pathwayProbability = pathwayProbabilities[j];

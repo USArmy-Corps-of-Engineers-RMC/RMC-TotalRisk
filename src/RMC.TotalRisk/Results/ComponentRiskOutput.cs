@@ -78,5 +78,23 @@ namespace RMC.TotalRisk.Results
         /// consequence, parallel to <see cref="ResponseProbabilities"/>.
         /// </summary>
         public List<double> ExcessConsequences { get; }
+
+        /// <summary>
+        /// Clears the output for reuse as compute-workspace scratch (Phase 6.5): the entry lists
+        /// empty in place (capacity retained — the allocation-elimination point) and the scalars
+        /// zero. The sampled compute paths hand out reused instances that stay valid until the
+        /// next evaluation on the owning sampled object.
+        /// </summary>
+        internal void Reset()
+        {
+            ResponseProbabilities.Clear();
+            FailureConsequences.Clear();
+            ExcessConsequences.Clear();
+            ProbabilityOfFailure = 0d;
+            ProbabilityOfNonFailure = 0d;
+            MeanFailureConsequences = 0d;
+            MeanExcessConsequences = 0d;
+            NonFailureConsequences = 0d;
+        }
     }
 }
