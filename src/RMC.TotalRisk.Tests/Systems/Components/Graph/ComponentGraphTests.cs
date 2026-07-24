@@ -312,6 +312,14 @@ public class ComponentGraphTests
         fail3.HazardSource = new RiskConnection(hazard3, 1);
         Assert.IsTrue(graph3.Validate().ValidationMessages.Any(
             m => m.Contains("hazard-source binding") && m.Contains("output port 1")));
+
+        // A response's Non-Fail port (1) is legal since Phase 6.7; port 2 is out of range.
+        var (graph4, _, _, response4, fail4, _) = LeveeGraph();
+        fail4.Input = new RiskConnection(response4, 1);
+        Assert.IsFalse(graph4.Validate().ValidationMessages.Any(m => m.Contains("output port")),
+            "The Non-Fail port must pass the port-bounds check.");
+        fail4.Input = new RiskConnection(response4, 2);
+        Assert.IsTrue(graph4.Validate().ValidationMessages.Any(m => m.Contains("output port 2")));
     }
 
     /// <summary>Verifies cycle, unreachable-element, and non-consequence-leaf errors.</summary>
@@ -362,6 +370,69 @@ public class ComponentGraphTests
         // Assert
         Assert.IsFalse(isValid);
         Assert.IsTrue(messages.Any(m => m.Contains("At most one non-failure path")));
+    }
+
+    /// <summary>
+    /// Verifies the polarity-aware branch-claim advisories (arch doc §7.9, Q2 ruling): duplicate
+    /// leaf signatures and prefix-nested claims warn inside cascade-active graphs but stay legal,
+    /// legacy same-port fan-out stays silent, and an unwired Fail port warns.
+    /// </summary>
+    [TestMethod]
+    public void Test_Validate_BranchClaims_Advisories()
+    {
+        // Legacy same-port fan-out with no cascade machinery: silent (backward compatible).
+        var (legacy, _, _, legacyResponse, _, _) = LeveeGraph();
+        var legacySecond = new ConsequenceElement("Life Loss") { Input = new RiskConnection(legacyResponse) };
+        legacySecond.Functions.Add(Damages("Stage", "ft"));
+        legacy.AddElement(legacySecond);
+        var (legacyValid, legacyMessages) = legacy.Validate();
+        Assert.IsTrue(legacyValid);
+        Assert.IsFalse(legacyMessages.Any(m => m.Contains("same response branch") || m.Contains("Fail port")),
+            "A pre-6.7 shape must produce no branch-claim advisories.");
+
+        // Cascade-active (a Non-Fail terminal exists) + duplicate Fail-port terminals: warns, legal.
+        var (dup, _, _, dupResponse, _, _) = LeveeGraph();
+        var dupPartial = new ConsequenceElement("Partial Damages") { Input = new RiskConnection(dupResponse, 1) };
+        dupPartial.Functions.Add(Damages("Stage", "ft"));
+        var dupSecond = new ConsequenceElement("Life Loss") { Input = new RiskConnection(dupResponse) };
+        dupSecond.Functions.Add(Damages("Stage", "ft"));
+        dup.AddElement(dupPartial);
+        dup.AddElement(dupSecond);
+        var (dupValid, dupMessages) = dup.Validate();
+        Assert.IsTrue(dupValid, string.Join(" | ", dupMessages));
+        Assert.IsTrue(dupMessages.Any(m => m.StartsWith("Warning:", StringComparison.Ordinal)
+            && m.Contains("same response branch") && m.Contains("'Failure Damages'") && m.Contains("'Life Loss'")));
+
+        // A terminal on the branch a continuation also claims: prefix-nested warning, legal.
+        var (nested, _, _, nestedResponse, _, _) = LeveeGraph();
+        var progression = new ResponseElement("Progression")
+        {
+            Function = Fragility("Stage", "ft"),
+            Input = new RiskConnection(nestedResponse),
+        };
+        var breachTerminal = new ConsequenceElement("Breach Damages") { Input = new RiskConnection(progression) };
+        breachTerminal.Functions.Add(Damages("Stage", "ft"));
+        nested.AddElement(progression);
+        nested.AddElement(breachTerminal);
+        var (nestedValid, nestedMessages) = nested.Validate();
+        Assert.IsTrue(nestedValid, string.Join(" | ", nestedMessages));
+        Assert.IsTrue(nestedMessages.Any(m => m.StartsWith("Warning:", StringComparison.Ordinal)
+            && m.Contains("also continues") && m.Contains("'Failure Damages'") && m.Contains("'Breach Damages'")));
+
+        // A response consumed only through its Non-Fail port (an else-chain head whose Fail
+        // branch is unwired): the Fail branch mass silently flows to background — warned.
+        var (unwired, _, unwiredRating, unwiredResponse, _, _) = LeveeGraph();
+        var elseHead = new ResponseElement("Else Head")
+        {
+            Function = Fragility("Stage", "ft"),
+            Input = new RiskConnection(unwiredRating),
+        };
+        unwiredResponse.Input = new RiskConnection(elseHead, 1);
+        unwired.AddElement(elseHead);
+        var (unwiredValid, unwiredMessages) = unwired.Validate();
+        Assert.IsTrue(unwiredValid, string.Join(" | ", unwiredMessages));
+        Assert.IsTrue(unwiredMessages.Any(m => m.StartsWith("Warning:", StringComparison.Ordinal)
+            && m.Contains("Fail port") && m.Contains("'Else Head'")));
     }
 
     /// <summary>Verifies binding placement: on-path targets only, at or before the last response's input.</summary>

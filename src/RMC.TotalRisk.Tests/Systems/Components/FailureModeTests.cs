@@ -478,6 +478,11 @@ public class FailureModeTests
         HashInvariance.AssertComputeSensitive(fm6.CanonicalHash,
             () => fm6.ConsequenceFunctions.Add(Consequence("Stage", "ft", "Life Loss", "lives")));
 
+        // Flipping a stage's branch polarity swaps p(h) for 1 − p(h) — a compute edit (Phase 6.7).
+        var fm8 = ChainMode();
+        HashInvariance.AssertComputeSensitive(fm8.CanonicalHash,
+            () => fm8.ResponseStages[0].BranchPolarity = BranchPolarity.NonFail);
+
         // Reordering the consequence list is a compute edit (positional pairing) — provided the
         // entries differ in compute content. Two consequences differing only in their labels
         // (stripped metadata) are hash-fungible by design.

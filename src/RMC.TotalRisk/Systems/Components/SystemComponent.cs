@@ -630,6 +630,10 @@ namespace RMC.TotalRisk.Systems.Components
             }
 
             IRiskElement upstream = root;
+            // The port the next connection consumes from the current upstream: a response's
+            // branch port after each stage (the stage's polarity — arch doc §7.9), 0 otherwise,
+            // so projecting the expansion reproduces the chain's polarities bit-identically.
+            int upstreamPort = 0;
             var stageTransformElements = new List<TransformElement>();
             bool isNonFail = failureMode.IsNonFailureMode;
             for (int s = 0; s < failureMode.ResponseStages.Count; s++)
@@ -638,28 +642,31 @@ namespace RMC.TotalRisk.Systems.Components
                 if (stage is null) continue;
                 for (int t = 0; t < stage.Transforms.Count; t++)
                 {
-                    upstream = AddTransformElement(stage.Transforms[t], upstream, stageTransformElements);
+                    upstream = AddTransformElement(stage.Transforms[t], upstream, stageTransformElements, upstreamPort);
+                    upstreamPort = 0;
                 }
                 if (!isNonFail)
                 {
                     var responseElement = new ResponseElement(_graph.GetUniqueName(ElementName(stage.Response?.Name, "Response")))
                     {
                         Function = stage.Response,
-                        Input = new RiskConnection(upstream),
+                        Input = new RiskConnection(upstream, upstreamPort),
                     };
                     _graph.AddElement(responseElement);
                     upstream = responseElement;
+                    upstreamPort = (int)stage.BranchPolarity;
                 }
             }
             for (int t = 0; t < failureMode.ResponseToConsequence.Count; t++)
             {
-                upstream = AddTransformElement(failureMode.ResponseToConsequence[t], upstream, null);
+                upstream = AddTransformElement(failureMode.ResponseToConsequence[t], upstream, null, upstreamPort);
+                upstreamPort = 0;
             }
 
             var primary = failureMode.ConsequenceFunctions.Count > 0 ? failureMode.ConsequenceFunctions[0] : null;
             var terminal = new ConsequenceElement(_graph.GetUniqueName(ElementName(primary?.Name, "Consequence")))
             {
-                Input = new RiskConnection(upstream),
+                Input = new RiskConnection(upstream, upstreamPort),
                 Functions = new ObservableCollection<IConsequenceFunction>(failureMode.ConsequenceFunctions),
             };
 
@@ -1327,9 +1334,14 @@ namespace RMC.TotalRisk.Systems.Components
 
         /// <summary>
         /// Builds the canonical identity form realizing the §5.5.3 recipe: the option attributes,
-        /// the hazard content inline, and the projected failure modes in path order. Identity
-        /// metadata inside (names, labels) is stripped by the hasher; element ids, positions, and
-        /// link attributes never appear at all. The profile hazard selection
+        /// the hazard content inline, and the projected failure modes in path order — each
+        /// annotated with its <c>ResponseNodes</c> occurrence-ordinal sequence (arch doc §7.9), so
+        /// two terminals sharing one response element and two terminals on equal-content duplicate
+        /// elements hash differently (shared elements share draws and form exclusive state groups;
+        /// duplicates draw independently and combine as separate events). The annotation exists in
+        /// the identity form only — <see cref="FailureMode.ToXElement"/> persistence never carries
+        /// it. Identity metadata inside (names, labels) is stripped by the hasher; element ids,
+        /// positions, and link attributes never appear at all. The profile hazard selection
         /// (<see cref="ProfileHazardElementId"/>) is deliberately excluded — a reporting-axis
         /// binding must never re-roll seeds (Q-T closure).
         /// </summary>
@@ -1354,7 +1366,11 @@ namespace RMC.TotalRisk.Systems.Components
             var projected = ProjectFailureModes();
             for (int i = 0; i < projected.Count; i++)
             {
-                modes.Add(projected[i].ToXElement());
+                var modeXml = projected[i].ToXElement();
+                var ordinals = projected[i].ProjectedResponseOrdinals;
+                modeXml.SetAttributeValue("ResponseNodes",
+                    ordinals == null ? string.Empty : string.Join(",", ordinals));
+                modes.Add(modeXml);
             }
             element.Add(modes);
             return element;
@@ -1377,31 +1393,44 @@ namespace RMC.TotalRisk.Systems.Components
             if (hazardCount != 1) return modes;
             if (!_graph.TopologicalSort()) return modes;
 
+            // Response-element occurrence ordinals in first-appearance order over the projected
+            // mode list (reference identity): sibling end states sharing a response element share
+            // its ordinal, equal-content duplicates get distinct ordinals. Feeds the end-state
+            // group layout and the identity form's topology encoding (arch doc §7.9).
+            var responseOrdinals = new Dictionary<ResponseElement, int>();
             foreach (var terminal in _graph.GetElements<ConsequenceElement>())
             {
                 var path = _graph.GetUpstreamPath(terminal);
                 if (path.Count == 0 || !ReferenceEquals(path[0], root)) continue;
-                modes.Add(BuildFailureMode(terminal, path));
+                modes.Add(BuildFailureMode(terminal, path, responseOrdinals));
             }
             return modes;
         }
 
         /// <summary>
         /// Builds one failure mode from a terminal's root-first path: transforms accumulate into
-        /// the pending chain, each response element closes a stage, transforms after the last
-        /// response become the trailing chain, and the terminal's functions become the ordered
-        /// consequence list. The terminal's hazard-source binding projects to a chain position
-        /// and dimension; the multiple-consequences flag derives from the last response's
-        /// fan-out.
+        /// the pending chain, each response element closes a stage whose branch polarity is read
+        /// from the exit port the path uses (port 0 = Fail, port 1 = Non-Fail), transforms after
+        /// the last response become the trailing chain, and the terminal's functions become the
+        /// ordered consequence list. The terminal's hazard-source binding projects to a chain
+        /// position and dimension; the multiple-consequences flag derives from the last
+        /// response's fan-out on the mode's own exit port (arch doc §7.9).
         /// </summary>
         /// <param name="terminal">The path's consequence element.</param>
         /// <param name="path">The root-first path ending with the terminal.</param>
+        /// <param name="responseOrdinals">
+        /// The shared response-element occurrence ordinal assignment, extended on first
+        /// appearance.
+        /// </param>
         /// <returns>The projected failure mode, parent-wired.</returns>
-        private FailureMode BuildFailureMode(ConsequenceElement terminal, IReadOnlyList<IRiskElement> path)
+        private FailureMode BuildFailureMode(ConsequenceElement terminal, IReadOnlyList<IRiskElement> path,
+            Dictionary<ResponseElement, int> responseOrdinals)
         {
             var stages = new List<ResponseStage>();
+            var stageOrdinals = new List<int>();
             var pending = new List<ITransformFunction>();
             ResponseElement? lastResponseElement = null;
+            int lastExitPort = 0;
             for (int i = 1; i < path.Count - 1; i++)
             {
                 if (path[i] is TransformElement transformElement)
@@ -1410,9 +1439,18 @@ namespace RMC.TotalRisk.Systems.Components
                 }
                 else if (path[i] is ResponseElement responseElement)
                 {
-                    stages.Add(new ResponseStage(pending, responseElement.Function));
+                    int exitPort = ExitPort(path[i + 1], responseElement);
+                    var polarity = exitPort == (int)BranchPolarity.NonFail ? BranchPolarity.NonFail : BranchPolarity.Fail;
+                    stages.Add(new ResponseStage(pending, responseElement.Function, polarity));
+                    if (!responseOrdinals.TryGetValue(responseElement, out int ordinal))
+                    {
+                        ordinal = responseOrdinals.Count;
+                        responseOrdinals.Add(responseElement, ordinal);
+                    }
+                    stageOrdinals.Add(ordinal);
                     pending = new List<ITransformFunction>();
                     lastResponseElement = responseElement;
+                    lastExitPort = exitPort;
                 }
             }
 
@@ -1434,6 +1472,8 @@ namespace RMC.TotalRisk.Systems.Components
             var mode = new FailureMode(finalStages, trailing, new List<IConsequenceFunction>(terminal.Functions))
             {
                 Parent = this,
+                ProjectedResponseOrdinals = lastResponseElement != null ? stageOrdinals.ToArray() : null,
+                ProjectedTerminalName = terminal.Name,
             };
 
             if (terminal.HazardSource != null)
@@ -1470,11 +1510,35 @@ namespace RMC.TotalRisk.Systems.Components
 
             if (lastResponseElement != null)
             {
+                // Same-port fan-out only (arch doc §7.9): a Fail terminal and a Non-Fail
+                // continuation are distinct end states, not "multiple consequences" of one
+                // branch. Pre-6.7 graphs wire port 0 exclusively, so the derived value is
+                // unchanged for every legacy shape.
                 int fanOut = 0;
-                foreach (var _ in _graph.GetDownstreamElements(lastResponseElement)) fanOut++;
+                foreach (var consumer in _graph.GetDownstreamElements(lastResponseElement))
+                {
+                    if (ExitPort(consumer, lastResponseElement) == lastExitPort) fanOut++;
+                }
                 mode.MultipleConsequences = fanOut >= 2;
             }
             return mode;
+        }
+
+        /// <summary>
+        /// Reads the output port a consumer's structural connection takes from a source element:
+        /// the first input connection referencing the source (the same first-connection rule the
+        /// upstream path walk uses), defaulting to port 0 when none is found.
+        /// </summary>
+        /// <param name="consumer">The downstream element.</param>
+        /// <param name="source">The upstream element whose exit port is wanted.</param>
+        /// <returns>The connection's source port, or 0.</returns>
+        private static int ExitPort(IRiskElement consumer, IRiskElement source)
+        {
+            foreach (var connection in consumer.GetInputConnections())
+            {
+                if (ReferenceEquals(connection.Source, source)) return connection.SourcePort;
+            }
+            return 0;
         }
 
         /// <summary>
@@ -1616,13 +1680,14 @@ namespace RMC.TotalRisk.Systems.Components
         /// <param name="function">The transform function to wrap; null entries are carried (validation reports them).</param>
         /// <param name="upstream">The element the new transform consumes.</param>
         /// <param name="stageRegistry">When non-null, collects the created element for binding-position mapping (stage transforms only).</param>
+        /// <param name="upstreamPort">The upstream output port to consume — a response's branch port when the upstream element closed a stage (arch doc §7.9); 0 otherwise.</param>
         /// <returns>The created element (the new upstream).</returns>
-        private TransformElement AddTransformElement(ITransformFunction? function, IRiskElement upstream, List<TransformElement>? stageRegistry)
+        private TransformElement AddTransformElement(ITransformFunction? function, IRiskElement upstream, List<TransformElement>? stageRegistry, int upstreamPort = 0)
         {
             var element = new TransformElement(_graph.GetUniqueName(ElementName(function?.Name, "Transform")))
             {
                 Function = function,
-                Input = new RiskConnection(upstream),
+                Input = new RiskConnection(upstream, upstreamPort),
             };
             _graph.AddElement(element);
             stageRegistry?.Add(element);

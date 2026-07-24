@@ -98,6 +98,42 @@ public class SystemComponentTests
         return component;
     }
 
+    /// <summary>
+    /// Builds the partial-damage cascade by wiring both response ports (arch doc §7.9): the flow
+    /// hazard feeds an initiation response; its Fail port continues to a progression response
+    /// whose Fail port carries full-breach damages and whose Non-Fail port carries partial
+    /// damages; a response-free background path completes the component.
+    /// </summary>
+    private static SystemComponent CascadeComponent()
+    {
+        var component = new SystemComponent { Name = "Dam" };
+        var hazard = new HazardElement("Hazard") { Function = FlowFrequency() };
+        var initiation = new ResponseElement("Initiation")
+        {
+            Function = Fragility("Flow", "cfs", "Initiation Fragility"),
+            Input = new RiskConnection(hazard),
+        };
+        var progression = new ResponseElement("Progression")
+        {
+            Function = Fragility("Flow", "cfs", "Progression Fragility"),
+            Input = new RiskConnection(initiation),
+        };
+        var full = new ConsequenceElement("Full Breach Damages") { Input = new RiskConnection(progression) };
+        full.Functions.Add(Damages("Flow", "cfs"));
+        var partial = new ConsequenceElement("Partial Damages") { Input = new RiskConnection(progression, 1) };
+        partial.Functions.Add(Damages("Flow", "cfs"));
+        var background = new ConsequenceElement("Background Damages") { Input = new RiskConnection(hazard) };
+        background.Functions.Add(Damages("Flow", "cfs"));
+
+        component.Graph.AddElement(hazard);
+        component.Graph.AddElement(initiation);
+        component.Graph.AddElement(progression);
+        component.Graph.AddElement(full);
+        component.Graph.AddElement(partial);
+        component.Graph.AddElement(background);
+        return component;
+    }
+
     /// <summary>Verifies the v1.0 default construction state.</summary>
     [TestMethod]
     public void Test_Defaults_MatchV10()
@@ -279,6 +315,115 @@ public class SystemComponentTests
         Assert.AreEqual("Breach Fragility", mode.ResponseStages[1].Response.Name);
         Assert.AreEqual(1, mode.TotalStageTransformCount);
         Assert.IsFalse(mode.IsNonFailureMode);
+    }
+
+    /// <summary>
+    /// Verifies the cascade projection (arch doc §7.9): exit ports become stage polarities,
+    /// sibling end states share response occurrence ordinals, and terminal names are stamped.
+    /// </summary>
+    [TestMethod]
+    public void Test_Projection_PortPolarity_Cascade()
+    {
+        // Act
+        var modes = CascadeComponent().FailureModes;
+
+        // Assert — declared terminal order: full breach, partial damages, background.
+        Assert.AreEqual(3, modes.Count);
+
+        var full = modes[0];
+        Assert.AreEqual(2, full.ResponseStages.Count);
+        Assert.AreEqual(BranchPolarity.Fail, full.ResponseStages[0].BranchPolarity);
+        Assert.AreEqual(BranchPolarity.Fail, full.ResponseStages[1].BranchPolarity);
+        CollectionAssert.AreEqual(new[] { 0, 1 }, full.ProjectedResponseOrdinals);
+        Assert.AreEqual("Full Breach Damages", full.ProjectedTerminalName);
+        Assert.IsFalse(full.MultipleConsequences);
+
+        var partial = modes[1];
+        Assert.AreEqual(2, partial.ResponseStages.Count);
+        Assert.AreEqual(BranchPolarity.Fail, partial.ResponseStages[0].BranchPolarity);
+        Assert.AreEqual(BranchPolarity.NonFail, partial.ResponseStages[1].BranchPolarity);
+        CollectionAssert.AreEqual(new[] { 0, 1 }, partial.ProjectedResponseOrdinals,
+            "Sibling end states share their response elements' occurrence ordinals.");
+        Assert.AreEqual("Partial Damages", partial.ProjectedTerminalName);
+        Assert.IsFalse(partial.MultipleConsequences);
+
+        var background = modes[2];
+        Assert.IsTrue(background.IsNonFailureMode);
+        Assert.IsNull(background.ProjectedResponseOrdinals);
+        Assert.AreEqual("Background Damages", background.ProjectedTerminalName);
+
+        // Sibling stages reuse the same shared response function instances (draw coherence).
+        Assert.AreSame(full.ResponseStages[0].Response, partial.ResponseStages[0].Response);
+        Assert.AreSame(full.ResponseStages[1].Response, partial.ResponseStages[1].Response);
+    }
+
+    /// <summary>
+    /// Verifies the multiple-consequences flag is port-aware (arch doc §7.9): a Fail terminal
+    /// and a Non-Fail terminal are distinct end states, not fan-out of one branch; two terminals
+    /// on the same port still flag.
+    /// </summary>
+    [TestMethod]
+    public void Test_Projection_BothPortFanOut_FlagPortAware()
+    {
+        // Arrange — the levee response gains a Non-Fail-port terminal.
+        var component = LeveeComponent();
+        var response = component.Graph.GetElements<ResponseElement>().Single();
+        var partial = new ConsequenceElement("Partial Damages") { Input = new RiskConnection(response, 1) };
+        partial.Functions.Add(Damages("Stage", "ft"));
+        component.Graph.AddElement(partial);
+
+        // Assert — one consumer per port: no mode is flagged.
+        var modes = component.FailureModes;
+        Assert.AreEqual(3, modes.Count);
+        Assert.IsFalse(modes[0].MultipleConsequences, "A lone Fail-port terminal must not flag.");
+        Assert.IsFalse(modes[2].MultipleConsequences, "A lone Non-Fail-port terminal must not flag.");
+        Assert.AreEqual(BranchPolarity.NonFail, modes[2].ResponseStages[0].BranchPolarity);
+
+        // Act — a second Fail-port terminal restores the same-port fan-out flag there only.
+        var second = new ConsequenceElement("Life Loss") { Input = new RiskConnection(response) };
+        second.Functions.Add(Damages("Stage", "ft", "Life Loss", "lives"));
+        component.Graph.AddElement(second);
+        modes = component.FailureModes;
+
+        // Assert
+        Assert.IsTrue(modes[0].MultipleConsequences);
+        Assert.IsTrue(modes[3].MultipleConsequences);
+        Assert.IsFalse(modes[2].MultipleConsequences, "The Non-Fail port still has a single consumer.");
+    }
+
+    /// <summary>
+    /// Verifies chain expansion wires each post-response connection at the stage's polarity port,
+    /// so a Non-Fail-polarity chain round-trips through the graph bit-identically.
+    /// </summary>
+    [TestMethod]
+    public void Test_AddFailureMode_PolarityRoundTrip()
+    {
+        // Arrange — initiation (Fail) then progression (Non-Fail): a partial-damage chain.
+        FailureMode BuildMode() => new FailureMode(
+            new List<ResponseStage>
+            {
+                new ResponseStage(new List<ITransformFunction>(), Fragility("Flow", "cfs", "Initiation Fragility")),
+                new ResponseStage(new List<ITransformFunction> { Rating("Flow", "cfs", "Stage", "ft") },
+                    Fragility("Stage", "ft", "Progression Fragility"), BranchPolarity.NonFail),
+            },
+            null,
+            new List<IConsequenceFunction> { Damages("Stage", "ft") });
+
+        var component = new SystemComponent(FlowFrequency());
+
+        // Act
+        component.AddFailureMode(BuildMode());
+        var projected = component.FailureModes.Single();
+
+        // Assert — polarities survive the expansion and the hash is bit-identical.
+        Assert.AreEqual(BranchPolarity.Fail, projected.ResponseStages[0].BranchPolarity);
+        Assert.AreEqual(BranchPolarity.NonFail, projected.ResponseStages[1].BranchPolarity);
+        CollectionAssert.AreEqual(BuildMode().CanonicalHash(), projected.CanonicalHash(),
+            "Expanding a polarity-carrying chain and projecting it back must preserve the canonical hash.");
+
+        // The terminal consumes the progression response's Non-Fail port.
+        var terminal = component.Graph.GetElements<ConsequenceElement>().Single();
+        Assert.AreEqual(1, terminal.Input!.SourcePort);
     }
 
     /// <summary>Verifies each FailureModes access returns a fresh, equal-content snapshot.</summary>
@@ -530,32 +675,37 @@ public class SystemComponentTests
     [TestMethod]
     public void Test_CanonicalHash_ElementIdentityInert()
     {
-        // Arrange
-        var component = LeveeComponent();
-        byte[] baseline = component.CanonicalHash();
+        static void AssertIdentityInert(SystemComponent component)
+        {
+            byte[] baseline = component.CanonicalHash();
 
-        // Act — every identity/display edit the UI layer can make.
-        foreach (var element in component.Graph.Elements.ToList())
-        {
-            component.Graph.TryRenameElement(element, element.Name + " (renamed)");
-            element.Description = "Edited description.";
-            element.LeftPosition += 250d;
-            element.TopPosition -= 125d;
-            element.AssignNewId();
-        }
-        component.Name = "Renamed component";
-        foreach (var element in component.Graph.Elements)
-        {
-            foreach (var function in element.GetFunctions())
+            // Every identity/display edit the UI layer can make.
+            foreach (var element in component.Graph.Elements.ToList())
             {
-                function.Name += " (renamed)";
-                function.Description = "Edited.";
+                component.Graph.TryRenameElement(element, element.Name + " (renamed)");
+                element.Description = "Edited description.";
+                element.LeftPosition += 250d;
+                element.TopPosition -= 125d;
+                element.AssignNewId();
             }
+            component.Name = "Renamed component";
+            foreach (var element in component.Graph.Elements)
+            {
+                foreach (var function in element.GetFunctions())
+                {
+                    function.Name += " (renamed)";
+                    function.Description = "Edited.";
+                }
+            }
+
+            CollectionAssert.AreEqual(baseline, component.CanonicalHash(),
+                "Element identity, canvas position, and metadata edits must never change the canonical hash.");
         }
 
-        // Assert
-        CollectionAssert.AreEqual(baseline, component.CanonicalHash(),
-            "Element identity, canvas position, and metadata edits must never change the canonical hash.");
+        // The single-stage levee and the both-port cascade (the §7.9 topology annotation derives
+        // from structure, so identity edits stay inert on cascades too).
+        AssertIdentityInert(LeveeComponent());
+        AssertIdentityInert(CascadeComponent());
     }
 
     /// <summary>Verifies two independently built equal-content components hash identically.</summary>
@@ -566,9 +716,74 @@ public class SystemComponentTests
         var a = LeveeComponent();
         var b = LeveeComponent();
 
-        // Assert
+        // Assert — including the cascade topology (ordinals derive from structure, not identity).
         CollectionAssert.AreEqual(a.CanonicalHash(), b.CanonicalHash(),
             "Identical-content components must hash identically regardless of element identity.");
+        CollectionAssert.AreEqual(CascadeComponent().CanonicalHash(), CascadeComponent().CanonicalHash(),
+            "Identical-content cascades must hash identically regardless of element identity.");
+    }
+
+    /// <summary>
+    /// Verifies the identity form distinguishes response-sharing topology (arch doc §7.9): two
+    /// terminals fed by ONE response element (shared draws, one chance node) and two terminals
+    /// fed by equal-content DUPLICATE elements (independent draws, separate events) carry
+    /// identical mode XML but must hash differently — the topology changes the exclusivity
+    /// algebra and the sampled streams, so it is compute content.
+    /// </summary>
+    [TestMethod]
+    public void Test_CanonicalHash_SharedVsDuplicatedResponse_Distinct()
+    {
+        // Arrange — shared: ONE response element carries both branch terminals (a genuine
+        // exclusive pair: Fail port → failure damages, Non-Fail port → partial damages).
+        var shared = LeveeComponent();
+        var sharedResponse = shared.Graph.GetElements<ResponseElement>().Single();
+        var sharedPartial = new ConsequenceElement("Partial Damages") { Input = new RiskConnection(sharedResponse, 1) };
+        sharedPartial.Functions.Add(Damages("Stage", "ft"));
+        shared.Graph.AddElement(sharedPartial);
+
+        // Duplicated: an equal-content parallel response element carries the Non-Fail terminal —
+        // two independent chance nodes, not one.
+        var duplicated = LeveeComponent();
+        var rating = duplicated.Graph.GetElements<TransformElement>().Single();
+        var duplicateResponse = new ResponseElement("Breach Copy")
+        {
+            Function = Fragility("Stage", "ft"),
+            Input = new RiskConnection(rating),
+        };
+        var duplicatedPartial = new ConsequenceElement("Partial Damages") { Input = new RiskConnection(duplicateResponse, 1) };
+        duplicatedPartial.Functions.Add(Damages("Stage", "ft"));
+        duplicated.Graph.AddElement(duplicateResponse);
+        duplicated.Graph.AddElement(duplicatedPartial);
+
+        // Assert — mode-for-mode the projected XMLs are equal content (same stage content and
+        // polarities, no fan-out flags), but the identity hashes differ: one chance node with an
+        // exclusive branch pair versus two independent chance nodes is a compute distinction.
+        for (int i = 0; i < 3; i++)
+        {
+            CollectionAssert.AreEqual(
+                shared.FailureModes[i].CanonicalHash(),
+                duplicated.FailureModes[i].CanonicalHash(),
+                $"Projected mode {i} must be equal-content by construction.");
+        }
+        CollectionAssert.AreNotEqual(shared.CanonicalHash(), duplicated.CanonicalHash(),
+            "Shared and duplicated response topologies compute differently and must hash differently.");
+    }
+
+    /// <summary>
+    /// Verifies the topology annotation lives in the identity form only: neither the component's
+    /// persisted graph nor a projected mode's XML carries the ResponseNodes attribute.
+    /// </summary>
+    [TestMethod]
+    public void Test_Serialization_ResponseNodesIdentityOnly()
+    {
+        // Arrange
+        var component = CascadeComponent();
+
+        // Assert
+        Assert.IsFalse(component.ToXElement().ToString().Contains("ResponseNodes", StringComparison.Ordinal),
+            "The persisted graph must not carry the identity-form topology annotation.");
+        Assert.IsFalse(component.FailureModes[0].ToXElement().ToString().Contains("ResponseNodes", StringComparison.Ordinal),
+            "A projected mode's persistence XML must not carry the identity-form topology annotation.");
     }
 
     /// <summary>Verifies every compute-relevant edit moves the hash.</summary>

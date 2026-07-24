@@ -177,7 +177,15 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         public override int InputCount => 1;
 
         /// <inheritdoc/>
-        public override int OutputCount => 1;
+        /// <remarks>
+        /// Two since Phase 6.7 (arch doc §7.9): output port 0 is the <b>Fail</b> branch — the
+        /// implied v1.0 port every pre-6.7 connection already targets — and output port 1 is the
+        /// <b>Non-Fail</b> branch. A downstream path exiting port 0 contributes the fragility
+        /// <c>p(h)</c> to its failure mode's polarity product; port 1 contributes <c>1 − p(h)</c>.
+        /// Both ports carry the same pass-through hazard signal (responses are signal-transparent);
+        /// they differ only in the probability algebra of the paths that use them.
+        /// </remarks>
+        public override int OutputCount => 2;
 
         #endregion
 

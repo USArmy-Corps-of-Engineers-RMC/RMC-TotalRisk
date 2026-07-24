@@ -223,6 +223,27 @@ namespace RMC.TotalRisk.Systems.Components
         }
 
         /// <summary>
+        /// The response-element occurrence ordinals along the projected path, parallel to
+        /// <see cref="ResponseStages"/> — stamped by the component projection in first-appearance
+        /// order over the projected mode list, so sibling end states sharing a response element
+        /// share its ordinal while equal-content duplicates get distinct ordinals. Consumed by
+        /// the end-state group layout and the component identity form's topology encoding (arch
+        /// doc §7.9); null for chain-authored modes and the projected non-failure path (both
+        /// behave as singleton groups). Runtime projection state (the <see cref="Parent"/>
+        /// precedent): never serialized, never hashed at mode level, never copied by
+        /// <see cref="Clone"/>.
+        /// </summary>
+        public int[]? ProjectedResponseOrdinals { get; set; }
+
+        /// <summary>
+        /// The consequence terminal's element name, stamped by the component projection — the
+        /// preferred end-state display label (terminal names are unique within a graph). Null for
+        /// chain-authored modes. Runtime projection state (the <see cref="Parent"/> precedent):
+        /// never serialized, never hashed, never copied by <see cref="Clone"/>.
+        /// </summary>
+        public string? ProjectedTerminalName { get; set; }
+
+        /// <summary>
         /// The ordered response stages of the chain — always at least one. A single stage whose
         /// response is the <see cref="NonFailResponse"/> sentinel is the non-failure mode.
         /// </summary>

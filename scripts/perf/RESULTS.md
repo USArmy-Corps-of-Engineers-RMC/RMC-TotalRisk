@@ -100,7 +100,26 @@ beyond the Summary block. Existing-field byte equality across the re-pin is carr
 append-only load tests (pre-6.6 payloads deserialize with null blocks) and by the zero moved
 pins across the regression families.
 
-Baseline byte-gate hashes:
+**Phase 6.7 Stage 1 (the BranchPolarity/ResponseNodes hash event, 2026-07-24):** every
+`ResponseStage` now serializes its resolved `BranchPolarity` and the component identity form
+annotates each projected mode's response-element topology (`ResponseNodes`), so every
+component canonical hash — and therefore every content-derived Monte Carlo seed — moves
+once, deliberately. No engine file changed in this stage (projection, serialization, and
+graph validation only), so for the sampled fixtures the hash movement is pure seed
+relocation; the deterministic bit-pin (`Test_Deterministic_BitPin_CascadePhases`, seed-free
+by construction) and the relational `EngineReproducibilityVerification` +
+`SingleComponentUncertaintyVerification` families passed without any re-capture. Wall/alloc
+figures below are single-rep on a loaded session machine — non-comparative; this entry
+exists to re-pin the byte gates, which are the Stage 2/3 bit-identity baselines (the
+state-group rework must reproduce them exactly).
+
+Baseline byte-gate hashes (re-pinned at the 6.7 Stage 1 hash event):
+
+- F1 `193189449835d8ab34d877cc8aedb28be309313d03c17ee31d45b9f3088ca93a` (reps 1: full-MC 7.535 s / 4.09 GB)
+- F2 `d59c57713eb0cd037488b2076df79622917878b96fa0f2062ccd61aab99e79f6` (reps 1: full-MC 37.028 s / 17.93 GB)
+- F3 `8c97caf0e6fa4f431e295e8839ab4da49484d7868ea3c92e765cdb8add3bee26` (reps 1: full-MC 15.767 s / 7.84 GB)
+
+Prior baselines (post-6.6, superseded by the 6.7 hash event):
 
 - F1 `7a88638cf38c5ee38a3091fabd933e747dd9dc43ea14d44b0addbb465c12f500`
 - F2 `dbc8dd66faf06c8de4ee434bf9bb04d321b812e5d26b3db1ae899ee72e34ec80`

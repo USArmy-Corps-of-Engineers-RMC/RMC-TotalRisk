@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
 using System.Xml.Linq;
+using RMC.TotalRisk.Core;
+using RMC.TotalRisk.Core.Enums;
 using RMC.TotalRisk.Core.Interfaces;
 using RMC.TotalRisk.RiskFunctions;
 using RMC.TotalRisk.RiskFunctions.Responses;
@@ -30,6 +32,15 @@ namespace RMC.TotalRisk.Systems.Components
     /// <see cref="NonFailResponse"/>, preserving the v1.0 defaulting behavior. The serialized
     /// child order (<c>Transforms</c> then <c>Response</c>) is append-only contract — the stage
     /// XML participates in the failure mode's canonical-hash identity surface.
+    /// </para>
+    /// <para>
+    /// New in Phase 6.7 (arch doc §7.9): <see cref="BranchPolarity"/> records which branch of the
+    /// stage's response chance node the failure mode's path follows — <c>Fail</c> contributes
+    /// <c>p(h)</c> and <c>NonFail</c> contributes <c>1 − p(h)</c> to the mode's polarity-product
+    /// system response probability. The attribute is always written resolved (the
+    /// <c>ConsequenceHazardPosition</c> precedent), a deliberate, documented hash/re-pin event:
+    /// every pre-6.7 stage hash moves once, and a missing attribute loads forward as
+    /// <c>Fail</c> — the v1.0-implied branch.
     /// </para>
     /// </remarks>
     public sealed class ResponseStage : INotifyPropertyChanged
@@ -65,6 +76,27 @@ namespace RMC.TotalRisk.Systems.Components
         }
 
         /// <summary>
+        /// Initializes a response stage from a transform chain, a response, and a branch polarity.
+        /// </summary>
+        /// <param name="transforms">
+        /// The ordered transforms applied to the incoming hazard before the response; copied into
+        /// the stage.
+        /// </param>
+        /// <param name="response">
+        /// The response function; null coerces to a fresh <see cref="NonFailResponse"/> (v1.0
+        /// defaulting).
+        /// </param>
+        /// <param name="branchPolarity">
+        /// The branch of the response chance node this stage follows (arch doc §7.9).
+        /// </param>
+        /// <exception cref="ArgumentNullException">Thrown when the transform list is null.</exception>
+        public ResponseStage(IList<ITransformFunction> transforms, IResponseFunction? response, BranchPolarity branchPolarity)
+            : this(transforms, response)
+        {
+            _branchPolarity = branchPolarity;
+        }
+
+        /// <summary>
         /// Restores a response stage from its serialized form.
         /// </summary>
         /// <param name="xElement">The serialized form produced by <see cref="ToXElement"/>.</param>
@@ -77,6 +109,9 @@ namespace RMC.TotalRisk.Systems.Components
         public ResponseStage(XElement xElement)
         {
             if (xElement == null) throw new ArgumentNullException(nameof(xElement));
+
+            // A missing attribute loads a pre-6.7 payload forward as the v1.0-implied Fail branch.
+            _branchPolarity = SerializationUtilities.ReadEnum(xElement, nameof(BranchPolarity), BranchPolarity.Fail);
 
             var transformsElement = xElement.Element(nameof(Transforms));
             if (transformsElement != null)
@@ -119,6 +154,11 @@ namespace RMC.TotalRisk.Systems.Components
         private IResponseFunction _response = new NonFailResponse();
 
         /// <summary>
+        /// Backing field for <see cref="BranchPolarity"/> — the v1.0-implied Fail branch.
+        /// </summary>
+        private BranchPolarity _branchPolarity = BranchPolarity.Fail;
+
+        /// <summary>
         /// The ordered transform functions applied to the incoming hazard before the response.
         /// Assigning null coerces to an empty list; the stage takes ownership of an assigned list.
         /// </summary>
@@ -149,6 +189,27 @@ namespace RMC.TotalRisk.Systems.Components
                 {
                     _response = coerced;
                     RaisePropertyChange(nameof(Response));
+                }
+            }
+        }
+
+        /// <summary>
+        /// The branch of the stage's response chance node this failure mode's path follows:
+        /// <see cref="BranchPolarity.Fail"/> (output port 0 — the v1.0-implied default)
+        /// contributes <c>p(h)</c> to the mode's polarity product,
+        /// <see cref="BranchPolarity.NonFail"/> (output port 1) contributes <c>1 − p(h)</c>.
+        /// Serialized always (resolved-on-write) and part of the canonical-hash identity surface —
+        /// flipping the polarity is a compute edit that moves seeds (arch doc §7.9).
+        /// </summary>
+        public BranchPolarity BranchPolarity
+        {
+            get { return _branchPolarity; }
+            set
+            {
+                if (_branchPolarity != value)
+                {
+                    _branchPolarity = value;
+                    RaisePropertyChange(nameof(BranchPolarity));
                 }
             }
         }
@@ -222,15 +283,18 @@ namespace RMC.TotalRisk.Systems.Components
         #region Serialization
 
         /// <summary>
-        /// Serializes the stage to an XElement: the transform chain in order under
-        /// <c>Transforms</c>, then the response under <c>Response</c>. Child order is append-only
-        /// contract (the stage XML feeds the failure mode's canonical hash). Null transform
-        /// entries are skipped (validation reports them).
+        /// Serializes the stage to an XElement: the <c>BranchPolarity</c> attribute (always
+        /// written resolved — the Phase 6.7 hash event; a pre-6.7 payload without it loads
+        /// forward as <c>Fail</c>), then the transform chain in order under <c>Transforms</c>,
+        /// then the response under <c>Response</c>. Attribute names and child order are
+        /// append-only contract (the stage XML feeds the failure mode's canonical hash). Null
+        /// transform entries are skipped (validation reports them).
         /// </summary>
         /// <returns>The serialized form.</returns>
         public XElement ToXElement()
         {
             var element = new XElement(nameof(ResponseStage));
+            element.SetAttributeValue(nameof(BranchPolarity), _branchPolarity.ToString());
 
             var transforms = new XElement(nameof(Transforms));
             for (int i = 0; i < _transforms.Count; i++)

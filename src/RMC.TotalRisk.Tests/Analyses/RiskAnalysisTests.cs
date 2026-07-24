@@ -96,6 +96,42 @@ public class RiskAnalysisTests
     }
 
     /// <summary>
+    /// Bit-pins a fully deterministic scenario across the Phase 6.7 landing stages: a
+    /// deterministic model draws nothing from the seeded samplers, so these exact bit patterns
+    /// must survive the BranchPolarity/ResponseNodes hash event (which moves only seeds) and the
+    /// state-group engine rework (whose all-singleton path must reduce to today's arithmetic).
+    /// Captured 2026-07-24 at the Stage 1 landing; any drift means math moved, not seeds.
+    /// Re-capture ONLY for a documented math change, never for a seed event.
+    /// </summary>
+    [TestMethod]
+    public async Task Test_Deterministic_BitPin_CascadePhases()
+    {
+        // Arrange — the standard deterministic scenario, mean-only.
+        var meanOnly = new RiskAnalysis(new[] { Component(Consequence("Failure Loss", 300d)) });
+
+        // Act
+        await meanOnly.RunAsync();
+
+        // Assert — exact bit patterns of the headline scalars.
+        var summary = meanOnly.RiskResults![0]!;
+        Assert.AreEqual(4633156764016115401L, BitConverter.DoubleToInt64Bits(summary.Total.Mean), "Total.Mean moved.");
+        Assert.AreEqual(4631174406377053994L, BitConverter.DoubleToInt64Bits(summary.Fail.Mean), "Fail.Mean moved.");
+        Assert.AreEqual(4629978888563543066L, BitConverter.DoubleToInt64Bits(summary.Excess.Mean), "Excess.Mean moved.");
+        Assert.AreEqual(4627048968587273581L, BitConverter.DoubleToInt64Bits(summary.Background.Mean), "Background.Mean moved.");
+        Assert.AreEqual(4597854407371364657L, BitConverter.DoubleToInt64Bits(summary.Fail.TotalProbability), "Fail.TotalProbability moved.");
+
+        // A deterministic full-uncertainty run pins the ensemble path too (every realization is
+        // identical by construction; the value differs from the mean pass only by the documented
+        // ensemble integration discipline).
+        var full = new RiskAnalysis(new[] { Component(Consequence("Failure Loss", 300d)) });
+        full.Options.EstimateMeanRiskOnly = false;
+        full.Options.Realizations = 100;
+        await full.RunAsync();
+        Assert.AreEqual(4633156864729413265L, BitConverter.DoubleToInt64Bits(full.RiskResults![50]!.Total.Mean),
+            "Mid-ensemble realization Total.Mean moved.");
+    }
+
+    /// <summary>
     /// Verifies the mean-only smoke: a single-entry ensemble, the risk-type decomposition
     /// identities E[C_T] = E[C_F] + E[C_NF] = E[C_Δ] + E[C_B] (exact here — the failure
     /// consequence dominates the non-failure everywhere, so the excess clamp never binds), and

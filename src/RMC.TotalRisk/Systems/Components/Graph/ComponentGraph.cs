@@ -776,6 +776,8 @@ namespace RMC.TotalRisk.Systems.Components.Graph
 
             int responseFreePaths = 0;
             ConsequenceElement? nonFailTerminal = null;
+            var responseOrdinals = new Dictionary<ResponseElement, int>();
+            var signatures = new List<(ConsequenceElement Terminal, List<(int Node, int Port)> Signature)>();
             for (int i = 0; i < terminals.Count; i++)
             {
                 var path = GetUpstreamPath(terminals[i]);
@@ -784,19 +786,30 @@ namespace RMC.TotalRisk.Systems.Components.Graph
                 int transformCount = 0;
                 int lastResponseInput = -1;
                 bool hasResponse = false;
+                var signature = new List<(int Node, int Port)>();
                 for (int p = 0; p < path.Count; p++)
                 {
                     if (path[p] is TransformElement) transformCount++;
-                    else if (path[p] is ResponseElement)
+                    else if (path[p] is ResponseElement response)
                     {
                         hasResponse = true;
                         lastResponseInput = transformCount;
+                        if (!responseOrdinals.TryGetValue(response, out int ordinal))
+                        {
+                            ordinal = responseOrdinals.Count;
+                            responseOrdinals.Add(response, ordinal);
+                        }
+                        signature.Add((ordinal, p + 1 < path.Count ? ConnectionPort(path[p + 1], response) : 0));
                     }
                 }
                 if (!hasResponse)
                 {
                     responseFreePaths++;
                     nonFailTerminal ??= terminals[i];
+                }
+                else
+                {
+                    signatures.Add((terminals[i], signature));
                 }
 
                 ValidateBinding(terminals[i], path, hasResponse, lastResponseInput, messages);
@@ -806,12 +819,106 @@ namespace RMC.TotalRisk.Systems.Components.Graph
                 messages.Add($"Error: At most one non-failure path (a path with no response element) is allowed per component; found {responseFreePaths}.");
             }
 
+            ValidateBranchClaims(signatures, messages);
+
             // Positional excess pairing has no meaning in reliability mode — no consequence is
             // ever computed, so mismatched counts cannot corrupt anything.
             if (nonFailTerminal != null && mode == RiskAnalysisMode.Risk)
             {
                 ValidateConsequenceAlignment(terminals, nonFailTerminal, messages);
             }
+        }
+
+        /// <summary>
+        /// Polarity-aware branch-claim checks (arch doc §7.9, advisory per the Phase 6.7 Q2
+        /// ruling): within a cascade-active component — any multi-response path or any Non-Fail
+        /// port usage — terminals with identical leaf signatures double-count their branch under
+        /// the failure-mode combination, and a terminal whose signature is a strict prefix of
+        /// another's claims a branch that also continues, overlapping the deeper end states. Both
+        /// stay legal (they combine as separate events, today's fan-out semantics) and warn. A
+        /// response element whose Fail port has no downstream consumer routes its failure-branch
+        /// mass to the background remainder — warned, because it is almost always a modeling
+        /// surprise (the unwired Non-Fail port is the v1.0 default and stays silent). Components
+        /// with no cascade machinery in use — every pre-6.7 shape — produce no messages here.
+        /// </summary>
+        /// <param name="signatures">Each failure terminal's leaf signature: the ordered (response ordinal, exit port) pairs along its path.</param>
+        /// <param name="messages">The message sink.</param>
+        private void ValidateBranchClaims(List<(ConsequenceElement Terminal, List<(int Node, int Port)> Signature)> signatures, List<string> messages)
+        {
+            bool cascadeActive = false;
+            for (int i = 0; i < signatures.Count && !cascadeActive; i++)
+            {
+                if (signatures[i].Signature.Count > 1) cascadeActive = true;
+                for (int k = 0; k < signatures[i].Signature.Count && !cascadeActive; k++)
+                {
+                    if (signatures[i].Signature[k].Port != 0) cascadeActive = true;
+                }
+            }
+            if (!cascadeActive) return;
+
+            for (int i = 0; i < signatures.Count; i++)
+            {
+                for (int j = i + 1; j < signatures.Count; j++)
+                {
+                    var a = signatures[i].Signature;
+                    var b = signatures[j].Signature;
+                    int shared = Math.Min(a.Count, b.Count);
+                    bool prefixEqual = true;
+                    for (int k = 0; k < shared; k++)
+                    {
+                        if (a[k].Node != b[k].Node || a[k].Port != b[k].Port)
+                        {
+                            prefixEqual = false;
+                            break;
+                        }
+                    }
+                    if (!prefixEqual) continue;
+
+                    if (a.Count == b.Count)
+                    {
+                        messages.Add($"Warning: The consequence elements '{signatures[i].Terminal.Name}' and '{signatures[j].Terminal.Name}' occupy the same response branch (identical port path); their end states double-count that branch under the failure-mode combination — attach multiple consequence types to one terminal, or wire distinct ports.");
+                    }
+                    else
+                    {
+                        var (shorter, longer) = a.Count < b.Count ? (signatures[i].Terminal, signatures[j].Terminal) : (signatures[j].Terminal, signatures[i].Terminal);
+                        messages.Add($"Warning: The consequence element '{shorter.Name}' terminates a response branch that also continues toward '{longer.Name}'; the terminal's end state overlaps the continuation's states — wire the terminal to the complementary port to make the states exclusive.");
+                    }
+                }
+            }
+
+            foreach (var element in GetElements<ResponseElement>())
+            {
+                bool failPortWired = false;
+                foreach (var consumer in GetDownstreamElements(element))
+                {
+                    if (ConnectionPort(consumer, element) == 0)
+                    {
+                        failPortWired = true;
+                        break;
+                    }
+                }
+                if (!failPortWired)
+                {
+                    messages.Add($"Warning: The Fail port of response element '{element.Name}' has no downstream connection; its failure-branch mass flows to the component's background path.");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Reads the output port a consumer's structural connection takes from a source element:
+        /// the first input connection referencing the source (the same first-connection rule the
+        /// upstream path walk uses), defaulting to port 0 when none is found.
+        /// </summary>
+        /// <param name="consumer">The downstream element.</param>
+        /// <param name="source">The upstream element whose exit port is wanted.</param>
+        /// <returns>The connection's source port, or 0.</returns>
+        private static int ConnectionPort(IRiskElement consumer, IRiskElement source)
+        {
+            foreach (var connection in consumer.GetInputConnections())
+            {
+                if (ReferenceEquals(connection.Source, source)) return connection.SourcePort;
+            }
+            return 0;
         }
 
         /// <summary>

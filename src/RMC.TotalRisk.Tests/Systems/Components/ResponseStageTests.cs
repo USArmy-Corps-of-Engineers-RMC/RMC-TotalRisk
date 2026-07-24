@@ -5,6 +5,7 @@ using System.Xml.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Numerics.Data;
 using Numerics.Distributions;
+using RMC.TotalRisk.Core.Enums;
 using RMC.TotalRisk.Core.Interfaces;
 using RMC.TotalRisk.RiskFunctions.Responses;
 using RMC.TotalRisk.RiskFunctions.Transforms;
@@ -63,10 +64,77 @@ public class ResponseStageTests
         // Act
         var stage = new ResponseStage();
 
-        // Assert
+        // Assert — the polarity default is the v1.0-implied Fail branch.
         Assert.AreEqual(0, stage.Transforms.Count);
         Assert.IsInstanceOfType(stage.Response, typeof(NonFailResponse));
         Assert.IsTrue(stage.IsDeterministic);
+        Assert.AreEqual(BranchPolarity.Fail, stage.BranchPolarity);
+    }
+
+    /// <summary>Verifies the polarity constructor and property change notification.</summary>
+    [TestMethod]
+    public void Test_BranchPolarity_ConstructorAndNotification()
+    {
+        // Arrange — the polarity ctor overload.
+        var stage = new ResponseStage(new List<ITransformFunction>(), StageResponse(), BranchPolarity.NonFail);
+        Assert.AreEqual(BranchPolarity.NonFail, stage.BranchPolarity);
+
+        var raised = new List<string>();
+        stage.PropertyChanged += (_, e) => raised.Add(e.PropertyName ?? string.Empty);
+
+        // Act — a real change notifies; re-assigning the same value does not.
+        stage.BranchPolarity = BranchPolarity.Fail;
+        stage.BranchPolarity = BranchPolarity.Fail;
+
+        // Assert
+        CollectionAssert.AreEqual(new[] { nameof(ResponseStage.BranchPolarity) }, raised);
+    }
+
+    /// <summary>
+    /// Pins the serialized attribute contract (append-only; the stage XML feeds the failure-mode
+    /// canonical hash): the polarity attribute is always written resolved, and the child order is
+    /// Transforms then Response.
+    /// </summary>
+    [TestMethod]
+    public void Test_Serialization_AttributeContract()
+    {
+        // Act — a default stage still writes the resolved polarity (the
+        // ConsequenceHazardPosition resolved-on-write precedent; the Phase 6.7 hash event).
+        var xml = new ResponseStage().ToXElement();
+
+        // Assert — attributes.
+        CollectionAssert.AreEqual(
+            new[] { nameof(ResponseStage.BranchPolarity) },
+            xml.Attributes().Select(a => a.Name.LocalName).ToArray());
+        Assert.AreEqual("Fail", xml.Attribute(nameof(ResponseStage.BranchPolarity))!.Value);
+
+        // Children, in append-only order.
+        CollectionAssert.AreEqual(
+            new[] { nameof(ResponseStage.Transforms), nameof(ResponseStage.Response) },
+            xml.Elements().Select(e => e.Name.LocalName).ToArray());
+    }
+
+    /// <summary>
+    /// Verifies polarity round-trips, and that a pre-6.7 payload (no polarity attribute) loads
+    /// forward as the v1.0-implied Fail branch.
+    /// </summary>
+    [TestMethod]
+    public void Test_Serialization_PolarityRoundTripAndLoadForward()
+    {
+        // Arrange
+        var original = new ResponseStage(new List<ITransformFunction> { RatingTransform() }, StageResponse(), BranchPolarity.NonFail);
+
+        // Act
+        var restored = new ResponseStage(original.ToXElement());
+
+        // Assert
+        Assert.AreEqual(BranchPolarity.NonFail, restored.BranchPolarity);
+        Assert.AreEqual(original.ToXElement().ToString(), restored.ToXElement().ToString());
+
+        // A pre-6.7 payload without the attribute loads forward as Fail.
+        var legacy = original.ToXElement();
+        legacy.Attribute(nameof(ResponseStage.BranchPolarity))!.Remove();
+        Assert.AreEqual(BranchPolarity.Fail, new ResponseStage(legacy).BranchPolarity);
     }
 
     /// <summary>Verifies the list constructor copies the caller's list.</summary>

@@ -1542,6 +1542,134 @@ five risk types by FFT:
   consequence distribution instead of convolving per-component conditional means. Fix the
   double-increment of `tPF` (legacy `RiskAnalysis.vb:3117` and `:3129`).
 
+### 7.9 Cascading end states — classification and non-failure branch semantics (Phase 6.7)
+
+> **Status: RATIFIED 2026-07-24 (Phase 6.7 Stage 0 — three user decisions: final-polarity
+> classification §7.9.2, flipped-final-sibling excess pairing §7.9.4, single-claiming-group scope
+> §7.9.5; Q2 duplicate-leaf ruling recorded in §7.9.1).** The port/polarity/state-group encoding
+> below restates the v0.16 ratified cascade design; what this section *adds* is the end-state
+> classification and the non-failure-branch consequence semantics that v0.16 left open, prompted by
+> the session question: *"v1.0's single response implied Fail on its out port and the hidden
+> non-fail case got the single background non-failure consequence — under cascades, will we allow
+> users to link non-failure consequences directly now?"* (Answer: yes — §7.9.3.) Summarized in the
+> v0.18 status block when Phase 6.7 lands.
+
+#### 7.9.1 Leaf algebra (v0.16 restated)
+
+Each consequence terminal projects one failure mode = one **end state** `s` with stages
+`i = 1..n_s`, per-stage sampled fragility `p_i(h_i)` (evaluated at stage *i*'s transformed signal)
+and polarity `π_i ∈ {Fail, NonFail}` read from the exit port the path used. The state weight is the
+polarity product `w_s(h) = ∏_i (π_i = Fail ? p_i : 1 − p_i)`. The **leaf signature**
+`σ_s` = the ordered `(response-element occurrence ordinal, polarity)` pairs. Distinct-signature
+terminals sharing their first response element form one **mutually-exclusive state group**
+(within-group exact partition — signatures diverge at a shared response via opposite ports, so the
+events are disjoint by construction and `Σ_s w_s ≤ 1`). Per the Phase 6.7 Q2 ruling
+(user decision 2026-07-24): terminals with **identical** signatures or **prefix-nested** signatures
+(a terminal and a continuation claiming the same branch) stay *legal*, leave the partition, and
+combine as standalone units under the ambient `FailureModeMethod` (today's fan-out semantics) with
+an advisory warning — the mass-balance witness surfaces the double-count honestly.
+
+#### 7.9.2 Classification = final polarity
+
+An end state is a **failure state** iff its *final* stage polarity is Fail; a NonFail-final
+terminal is a **non-failure damage state**. Rationale: exact v1.0 parity generalized — the single
+response's out-port was implicitly Fail and the hidden complement fell to the background mode; under
+cascades the Fail-final leaves are the modeled adverse outcomes. Consequences: the component failure
+union `U(h)` (APF, Fail stream, f-N, contribution) sums **failure states only**, so the breach
+convention is preserved — wiring a partial-damage terminal (`R1-Fail → R2-NonFail`) never changes
+APF (`U = p₁p₂` in the progression example, not `p₁`).
+
+#### 7.9.3 Non-failure branch consequences — YES, directly wireable
+
+A NonFail-port terminal is the direct wiring of non-failure consequences: it **claims its branch's
+complement mass with its own consequence functions** (count/order matching the declared
+consequence-type axis, like every terminal). Unwired NonFail mass falls back to the component's
+background non-failure mode exactly as v1.0 implied. The response-free background path is unchanged
+and remains the fallback; a component whose cascade claims its whole complement simply leaves the
+background with zero residual mass.
+
+#### 7.9.4 Excess pairing — the flipped-final-sibling counterfactual
+
+A failure state's excess partner is the terminal whose signature equals its own **with the final
+polarity flipped** (the exact "same scenario, but the last response held" counterfactual), when
+wired: `R2-Fail` excess = `C_full − C_partial`. Otherwise (sibling unwired, or the NonFail branch
+continues into further responses) the partner falls back to the background mode — v1.0 parity. The
+partner's functions are sampled at the failure state's coupling percentile through the existing Q-N
+machinery (`SampledFailureMode` already accepts any pairing mode); resolution happens once at the
+`SetupSamplers` freeze. Non-failure damage states record no excess entries (excess is
+failure-incremental by definition), and when neither sibling nor background exists the failure
+state pairs against a zero baseline as today.
+
+#### 7.9.5 Complement decomposition — single-claiming-group scope
+
+At hazard `h`: `U(h)` = the across-group combined failure union (existing math);
+`C(h) = 1 − U(h)` = the complement. A claimed non-failure state `s′` in group `g` records the
+conditional mass
+
+`m_{s′}(h) = C(h) · w_{s′}(h) / (1 − P_g(h))`,   `P_g = Σ_{s ∈ g, failure} w_s`
+
+— exact under independent groups, adopted as the documented convention under ME/CCA/dependency.
+With a single group this collapses to `m ≡ w` exactly. Failure pathways carry failure consequences
+only (v1.0 parity — claimed non-failure damages record against the no-failure complement, never
+inside another group's failure event). The remainder `C − Σ m ≥ 0` carries the background
+consequences (zero-consequence when no background path exists, as today), keeping the Total stream
+exhaustive at 1. **Scope restriction (deliberate):** claimed non-failure states are allowed in at
+most **one** group per component — with two claiming groups the conditional masses require a
+cross-product of per-group complement states plus a non-failure consequence-combination rule, and
+the additive shortcut can drive the remainder negative. Validation errors on a second claiming
+group; the cross-product generalization is the documented lift.
+
+#### 7.9.6 Across-group combination and the narrow Competing gate
+
+The `FailureModeMethod` operates on the group failure-mass vector `{P_g}` (v0.16): Joint pathway
+decomposition (dependency/`ExclusivePCM`/MVN and the correlation matrix at **group** dimension), ME
+normalization, CCA factor — a participating group distributes its failure states conditionally
+(`w_s / P_g`), so joint entries are cross products of state entries and all Σ-identities
+(contribution, mass balance) stay exact. **Competing** is legal iff every failure state in every
+multi-state group has an all-Fail signature: a product of non-decreasing fragilities is
+non-decreasing, so the group CIF curves construct (the same monotone-transform assumption
+single-stage Competing already makes). A failure state riding a NonFail branch (else-chain,
+`(1 − p₁)p₂` — rises then falls) makes the group mass non-monotone and errors under Competing; the
+telescoping-union relaxation (claimed leaf sets whose union is an increasing event, e.g.
+`{R1F} ∪ {R1NF, R2F} = 1 − (1−p₁)(1−p₂)`) is documented, not implemented.
+
+#### 7.9.7 Validation rules (polarity-aware)
+
+Continuations are legal on **either** port (progression chains and else-chains). Errors: a response
+element with no downstream consumer at all (today's leaf rule); a second claiming group (§7.9.5);
+Competing with a NonFail-branch failure state (§7.9.6); correlation-matrix dimension ≠ group count.
+Warnings: duplicate/prefix-nested leaf signatures (Q2); a response element whose **Fail** port has
+no downstream path to any terminal (its failure mass silently joins the background remainder — 
+almost always a modeling surprise; the unwired **NonFail** port stays silent, being the v1.0
+default); shared response element across distinct groups (draw-sharing advisory). Reliability mode:
+NonFail-final terminals are inert (consequence-free) and stay silent.
+
+#### 7.9.8 Worked examples
+
+**Progression / partial damage** (`H → R1 → R2`; `R2-Fail → C_full`, `R2-NonFail → C_partial`;
+background path `C_bg`). At `h` with `p₁ = 0.10`, `p₂ = 0.60`: failure state `w_full = 0.06`;
+claimed state `w_partial = 0.04`; `U = 0.06`, `C = 0.94`; `m_partial = 0.94 · 0.04 / 0.94 = 0.04`
+(single-group exactness); remainder `= 0.90 = 1 − p₁` → `C_bg`. Excess of the full-breach state
+= `C_full − C_partial` (flipped-final sibling); APF integrand `= p₁p₂ = 0.06`. Wiring `C_partial`
+changed no failure measure — it moved `0.04` of complement mass from background to partial-damage
+consequences and sharpened the counterfactual.
+
+**Else-chain** (`R1-Fail → C₁`; `R1-NonFail → R2`; `R2-Fail → C₂`; `R2-NonFail` unwired). Same
+numbers: failure states `w₁ = 0.10`, `w₂ = 0.90 · 0.60 = 0.54`; `U = 0.64`; remainder
+`C = 0.36 = (1−p₁)(1−p₂)` → background. Both states pair against background (no flipped-final
+siblings wired). Joint/ME/CCA legal; Competing errors (`w₂` is non-monotone).
+
+**v1-style explicit non-failure wiring** (`R1-Fail → C_f`, `R1-NonFail → C_nf`, no background
+path): `U = p₁`, claimed `m = 1 − p₁`, remainder 0 — the background path becomes optional; excess
+= `C_f − C_nf` branch-paired.
+
+#### 7.9.9 Deliberately deferred
+
+Multi-group claimed non-failure states (cross-product complement + a non-failure combination rule);
+Competing over else-chain failure states (telescoping-union monotonicity analysis); state-level
+cross-group `ExclusivePCM` coupling (the Gaussian copula couples group failure indicators only);
+numeric `InverseSRP` for cascades (no engine consumer exists).
+
 ## 8. Layer boundaries & consumer contract
 
 **v0.11 (2026-07-20).** Normative for every consumer of `RMC.TotalRisk.dll`: the future

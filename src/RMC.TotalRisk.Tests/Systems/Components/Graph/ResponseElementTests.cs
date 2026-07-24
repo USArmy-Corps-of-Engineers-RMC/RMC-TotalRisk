@@ -31,16 +31,16 @@ public class ResponseElementTests
             name => list.Find(e => string.Equals(e.Name, name, StringComparison.Ordinal)));
     }
 
-    /// <summary>Verifies the univariate shape: one input, one output, reserved secondary.</summary>
+    /// <summary>Verifies the shape: one input, the two branch ports, reserved secondary.</summary>
     [TestMethod]
     public void Test_Defaults_UnivariateShape()
     {
         // Act
         var element = new ResponseElement("Breach");
 
-        // Assert
+        // Assert — port 0 = Fail, port 1 = Non-Fail (arch doc §7.9, Phase 6.7).
         Assert.AreEqual(1, element.InputCount);
-        Assert.AreEqual(1, element.OutputCount);
+        Assert.AreEqual(2, element.OutputCount);
         Assert.IsNull(element.Function);
         Assert.IsNull(element.Input);
         Assert.IsNull(element.SecondaryInput);
