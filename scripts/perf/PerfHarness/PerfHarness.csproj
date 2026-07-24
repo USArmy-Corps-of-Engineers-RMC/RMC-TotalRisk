@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <!-- The harness is a measurement tool outside the solution: it is never part of the fast
+         gate or the Release build, and it carries no test framework - Stopwatch only. -->
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\src\RMC.TotalRisk\RMC.TotalRisk.csproj" />
+    <!-- The library's interim sibling-repo Numerics reference is a plain <Reference> and does
+         not flow transitively through the ProjectReference - mirror it here until the
+         RMC.Numerics PackageReference switch (roadmap Phase 8). -->
+    <Reference Include="Numerics">
+      <HintPath>..\..\..\..\numerics\Numerics\bin\Debug\net10.0\Numerics.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+</Project>

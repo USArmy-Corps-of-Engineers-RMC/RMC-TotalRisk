@@ -1,0 +1,265 @@
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
+using Numerics.Data;
+using Numerics.Distributions;
+using RMC.TotalRisk.Analyses;
+using RMC.TotalRisk.Core.Enums;
+using RMC.TotalRisk.RiskFunctions.Consequences;
+using RMC.TotalRisk.RiskFunctions.Hazards;
+using RMC.TotalRisk.RiskFunctions.Responses;
+using RMC.TotalRisk.Systems.Components;
+
+namespace RMC.TotalRisk.PerfHarness
+{
+    /// <summary>
+    /// The Phase 6.5 performance harness: Stopwatch medians and a results-JSON SHA-256 over the
+    /// three reference fixtures, so bit-inert optimizations are byte-verified and value-moving
+    /// ones are measured. Not part of the solution — run with
+    /// <c>dotnet run -c Release --project scripts/perf/PerfHarness</c>; results are recorded in
+    /// <c>scripts/perf/RESULTS.md</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    ///     <b>Authors:</b>
+    ///     Haden Smith, USACE Risk Management Center, cole.h.smith@usace.army.mil
+    /// </para>
+    /// <para>
+    /// Fixtures: <b>F1</b> — the PROGRESS-recorded trivial 1D fixture (uncertain triangular
+    /// fragility) at N = 1000 full uncertainty (the ≈54 s pre-optimization reference); <b>F2</b>
+    /// — a two-component joint system at N = 200; <b>F3</b> — F1 with a second consequence type
+    /// (the Phase 6.5 axis). Each fixture reports the mean-only and full-uncertainty medians of
+    /// three runs plus the SHA-256 of the concatenated results JSON (mean, lower, upper, median
+    /// realizations and the summary ensemble).
+    /// </para>
+    /// </remarks>
+    public static class Program
+    {
+        /// <summary>The measurement repetitions per fixture (median reported). One by default —
+        /// results are deterministic, so the hash gate needs a single run and the timing signal
+        /// at the fixture scale (tens of seconds) resolves the targeted multiples; pass
+        /// <c>--reps 3</c> for the committed baseline/final table rows.</summary>
+        private static int _reps = 1;
+
+        /// <summary>Runs the requested fixtures (args: optional <c>--reps N</c> plus fixture names among F1 F2 F3; default all).</summary>
+        /// <param name="args">Optional repetition count and fixture filter.</param>
+        /// <returns>Zero on success.</returns>
+        public static int Main(string[] args)
+        {
+            var wanted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            for (int i = 0; i < args.Length; i++)
+            {
+                if (string.Equals(args[i], "--reps", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
+                {
+                    _reps = Math.Max(1, int.Parse(args[++i], CultureInfo.InvariantCulture));
+                }
+                else
+                {
+                    wanted.Add(args[i]);
+                }
+            }
+            bool All(string name) => wanted.Count == 0 || wanted.Contains(name);
+
+            Console.WriteLine($"RMC.TotalRisk performance harness — median of {_reps}, Release recommended.");
+            Console.WriteLine($"Machine: {Environment.MachineName}, {Environment.ProcessorCount} logical processors.");
+            Console.WriteLine();
+
+            if (All("F1")) Measure("F1 1D single-component, N=1000", () => BuildF1());
+            if (All("F2")) Measure("F2 joint two-component, N=200 (reduced VEGAS budget)", () => BuildF2());
+            if (All("F3")) Measure("F3 = F1 + second consequence type", () => BuildF3());
+            return 0;
+        }
+
+        /// <summary>Measures one fixture: mean-only and full-uncertainty medians plus the results hash.</summary>
+        /// <param name="label">The fixture label.</param>
+        /// <param name="factory">Builds a fresh analysis per run.</param>
+        private static void Measure(string label, Func<RiskAnalysis> factory)
+        {
+            // Warm-up run (JIT) — timing discarded; its results feed the hash.
+            var warm = factory();
+            warm.RunAsync().GetAwaiter().GetResult();
+
+            double meanOnlyMedian = Median(() =>
+            {
+                var analysis = factory();
+                return Time(() => analysis.RunAsync().GetAwaiter().GetResult());
+            });
+
+            string hash = string.Empty;
+            long allocatedBytes = 0;
+            int gen0 = 0, gen1 = 0, gen2 = 0;
+            double fullMedian = Median(() =>
+            {
+                var analysis = factory();
+                analysis.Options.EstimateMeanRiskOnly = false;
+                long allocatedBefore = GC.GetTotalAllocatedBytes(precise: true);
+                int gen0Before = GC.CollectionCount(0);
+                int gen1Before = GC.CollectionCount(1);
+                int gen2Before = GC.CollectionCount(2);
+                double elapsed = Time(() => analysis.RunAsync().GetAwaiter().GetResult());
+                allocatedBytes = GC.GetTotalAllocatedBytes(precise: true) - allocatedBefore;
+                gen0 = GC.CollectionCount(0) - gen0Before;
+                gen1 = GC.CollectionCount(1) - gen1Before;
+                gen2 = GC.CollectionCount(2) - gen2Before;
+                hash = ResultsHash(analysis);
+                return elapsed;
+            });
+
+            Console.WriteLine($"{label}");
+            Console.WriteLine($"  mean-only median: {meanOnlyMedian,10:F3} s");
+            Console.WriteLine($"  full-MC   median: {fullMedian,10:F3} s");
+            Console.WriteLine($"  full-MC allocated: {allocatedBytes / (1024d * 1024d * 1024d),8:F2} GB (GC gen0/1/2: {gen0}/{gen1}/{gen2})");
+            Console.WriteLine($"  results SHA-256:  {hash}");
+            Console.WriteLine();
+        }
+
+        /// <summary>The median of the configured number of samples of a timed action.</summary>
+        /// <param name="sample">Produces one elapsed-seconds sample.</param>
+        /// <returns>The median seconds.</returns>
+        private static double Median(Func<double> sample)
+        {
+            var samples = new double[_reps];
+            for (int i = 0; i < _reps; i++)
+            {
+                samples[i] = sample();
+            }
+            Array.Sort(samples);
+            return samples[_reps / 2];
+        }
+
+        /// <summary>Times one action in seconds.</summary>
+        /// <param name="action">The action to time.</param>
+        /// <returns>The elapsed seconds.</returns>
+        private static double Time(Action action)
+        {
+            var stopwatch = Stopwatch.StartNew();
+            action();
+            stopwatch.Stop();
+            return stopwatch.Elapsed.TotalSeconds;
+        }
+
+        /// <summary>
+        /// The SHA-256 of the run's concatenated results JSON — the byte gate for bit-inert
+        /// refactors (mean, lower, upper, median realizations and the summary ensemble).
+        /// </summary>
+        /// <param name="analysis">The finished analysis.</param>
+        /// <returns>The lowercase hex digest.</returns>
+        private static string ResultsHash(RiskAnalysis analysis)
+        {
+            var builder = new StringBuilder();
+            builder.Append(analysis.MeanRiskResults?.ToJson() ?? string.Empty).Append('|');
+            builder.Append(analysis.LowerRiskResults?.ToJson() ?? string.Empty).Append('|');
+            builder.Append(analysis.UpperRiskResults?.ToJson() ?? string.Empty).Append('|');
+            builder.Append(analysis.MedianRiskResults?.ToJson() ?? string.Empty).Append('|');
+            builder.Append(analysis.RiskResults?.ToJson() ?? string.Empty);
+            byte[] digest = SHA256.HashData(Encoding.UTF8.GetBytes(builder.ToString()));
+            return Convert.ToHexString(digest).ToLowerInvariant();
+        }
+
+        /// <summary>Builds the F1 trivial 1D fixture at N = 1000 (uncertain fragility).</summary>
+        private static RiskAnalysis BuildF1()
+        {
+            var analysis = new RiskAnalysis(new[] { Component(twoTypes: false) })
+            {
+                SpecifiedConsequence = "Life Loss",
+                ConsequenceUnit = "lives",
+            };
+            analysis.Options.Realizations = 1000;
+            return analysis;
+        }
+
+        /// <summary>
+        /// Builds the F2 two-component joint fixture at N = 200 with a reduced VEGAS budget
+        /// (warm-up 1000 × 2 cycles, 2000 final evaluations × 5 recording passes per
+        /// realization). The default budget runs ~110k evaluations per realization — far too
+        /// heavy for an iteration-speed fixture — and optimization deltas are relative, so the
+        /// reduced budget exercises the identical code paths at ~1/9 the cost.
+        /// </summary>
+        private static RiskAnalysis BuildF2()
+        {
+            var analysis = new RiskAnalysis(new[] { Component(twoTypes: false), Component(twoTypes: false) })
+            {
+                SpecifiedConsequence = "Life Loss",
+                ConsequenceUnit = "lives",
+            };
+            analysis.Options.SystemRiskMethod = SystemRiskType.JointRiskMethod;
+            analysis.Options.Realizations = 200;
+            analysis.Options.UseDefaults = false;
+            analysis.Options.WarmupEvaluations = 1000;
+            analysis.Options.WarmupCycles = 2;
+            analysis.Options.FinalEvaluations = 2000;
+            return analysis;
+        }
+
+        /// <summary>Builds the F3 fixture: F1 with a second consequence type declared and carried.</summary>
+        private static RiskAnalysis BuildF3()
+        {
+            var analysis = new RiskAnalysis(new[] { Component(twoTypes: true) })
+            {
+                SpecifiedConsequence = "Life Loss",
+                ConsequenceUnit = "lives",
+            };
+            analysis.AdditionalConsequenceTypes.Add(new ConsequenceTypeDescriptor("Damages", "$"));
+            analysis.Options.Realizations = 1000;
+            return analysis;
+        }
+
+        /// <summary>Builds the trivial component (stage frequency, uncertain fragility, linear consequences).</summary>
+        /// <param name="twoTypes">True to carry the [Life Loss, Damages] axis on both paths.</param>
+        private static SystemComponent Component(bool twoTypes)
+        {
+            var hazard = new TabularHazard
+            {
+                Name = "Stage Frequency",
+                SpecifiedHazard = "Stage",
+                HazardUnit = "ft",
+                NoUncertaintyFunction = new UncertainOrderedPairedData(
+                    new[]
+                    {
+                        new UncertainOrdinate(0.999d, new Deterministic(0d)),
+                        new UncertainOrdinate(0.5d, new Deterministic(10d)),
+                        new UncertainOrdinate(0.001d, new Deterministic(30d)),
+                    },
+                    true, SortOrder.Descending, true, SortOrder.Ascending, UnivariateDistributionType.Deterministic),
+            };
+            var fragility = new TabularResponse
+            {
+                Name = "Fragility",
+                SpecifiedHazard = "Stage",
+                HazardUnit = "ft",
+                UncertainOrderedPairedData = new UncertainOrderedPairedData(
+                    new[] { new UncertainOrdinate(10d, new Triangular(0d, 0.05d, 0.1d)), new UncertainOrdinate(20d, new Triangular(0.7d, 0.9d, 1d)) },
+                    true, SortOrder.Ascending, false, SortOrder.None, UnivariateDistributionType.Triangular),
+            };
+
+            var component = new SystemComponent { Name = "Dam" };
+            component.HazardFunction = hazard;
+            var failure = new FailureMode(null, null, fragility, Consequence("Failure Loss", "Life Loss", "lives", 300d));
+            if (twoTypes) failure.ConsequenceFunctions.Add(Consequence("Failure Damages", "Damages", "$", 900_000d));
+            component.AddFailureMode(failure);
+            var nonFailure = new FailureMode(null, null, null, Consequence("Non-Failure Loss", "Life Loss", "lives", 60d));
+            if (twoTypes) nonFailure.ConsequenceFunctions.Add(Consequence("Non-Failure Damages", "Damages", "$", 250_000d));
+            component.AddFailureMode(nonFailure);
+            return component;
+        }
+
+        /// <summary>Builds a clamped linear tabular consequence over (0, 30) ft.</summary>
+        private static TabularConsequence Consequence(string name, string type, string unit, double valueAtThirty)
+        {
+            return new TabularConsequence
+            {
+                Name = name,
+                SpecifiedHazard = "Stage",
+                HazardUnit = "ft",
+                SpecifiedConsequence = type,
+                ConsequenceUnit = unit,
+                UncertainOrderedPairedData = new UncertainOrderedPairedData(
+                    new[] { new UncertainOrdinate(0d, new Deterministic(0d)), new UncertainOrdinate(30d, new Deterministic(valueAtThirty)) },
+                    true, SortOrder.Ascending, false, SortOrder.None, UnivariateDistributionType.Deterministic),
+            };
+        }
+    }
+}
