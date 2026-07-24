@@ -1,4 +1,5 @@
 using System;
+using RMC.TotalRisk.Core.Enums;
 
 namespace RMC.TotalRisk.Results
 {
@@ -58,6 +59,26 @@ namespace RMC.TotalRisk.Results
         /// The non-failure risk curve. Defective.
         /// </summary>
         public Curve NonFail { get; set; }
+
+        /// <summary>
+        /// Gets the stream curve for a risk type — the enum-driven accessor over the five named
+        /// streams for callers that iterate the decomposition.
+        /// </summary>
+        /// <param name="riskType">The risk-type stream.</param>
+        /// <returns>The stream's curve.</returns>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown for an undefined risk type.</exception>
+        public Curve GetCurve(RiskType riskType)
+        {
+            switch (riskType)
+            {
+                case RiskType.Excess: return Excess;
+                case RiskType.Background: return Background;
+                case RiskType.Total: return Total;
+                case RiskType.Fail: return Fail;
+                case RiskType.NonFail: return NonFail;
+                default: throw new ArgumentOutOfRangeException(nameof(riskType), riskType, "The risk type is not a defined stream.");
+            }
+        }
 
         /// <summary>
         /// Post-processes the recorded hazard probabilities into masses on every stream

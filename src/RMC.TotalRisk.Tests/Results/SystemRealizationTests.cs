@@ -89,6 +89,43 @@ public class SystemRealizationTests
         Assert.ThrowsException<ArgumentNullException>(() => SystemRealization.FromCompressedBytes(null!));
     }
 
+    /// <summary>
+    /// Verifies the multi-consequence surface (Phase 6.5): EnsureAdditionalCurves cascades the
+    /// slots through the tree with fresh extent slots, and the additional curves, extents, and
+    /// declared labels survive the JSON round trip bit-faithfully.
+    /// </summary>
+    [TestMethod]
+    public void Test_AdditionalCurves_EnsureAndJsonRoundTrip()
+    {
+        // Arrange
+        var realization = Build();
+        realization.EnsureAdditionalCurves(2);
+        realization.ConsequenceLabels.AddRange(new[] { "Life Loss", "Damages", "Environmental" });
+        realization.ConsequenceUnits.AddRange(new[] { "lives", "$", "acres" });
+        realization.AdditionalCurves[0].Total.CreateCurve(new List<(double Mass, double Consequence)> { (0.4d, 1000d), (0.6d, 10d) }, 200);
+        realization.AdditionalMinN[0] = 10d;
+        realization.AdditionalMaxN[0] = 1000d;
+
+        // Assert — the cascade created the slots everywhere.
+        Assert.AreEqual(2, realization.AdditionalCurves.Count);
+        Assert.AreEqual(2, realization.Components[0].AdditionalCurves.Count);
+        Assert.AreEqual(2, realization.Components[0].AdditionalMinN.Count);
+        Assert.AreEqual(2, realization.Components[0].FailureModes[0].AdditionalCurves.Count);
+        Assert.AreEqual(double.MaxValue, realization.Components[0].AdditionalMinN[1]);
+
+        // Act — JSON round trip.
+        var restored = SystemRealization.FromJson(realization.ToJson());
+
+        // Assert
+        Assert.AreEqual(2, restored.AdditionalCurves.Count);
+        CollectionAssert.AreEqual(realization.AdditionalCurves[0].Total.LECConsequences, restored.AdditionalCurves[0].Total.LECConsequences);
+        Assert.AreEqual(10d, restored.AdditionalMinN[0], 0d);
+        Assert.AreEqual(1000d, restored.AdditionalMaxN[0], 0d);
+        CollectionAssert.AreEqual(realization.ConsequenceLabels, restored.ConsequenceLabels);
+        CollectionAssert.AreEqual(realization.ConsequenceUnits, restored.ConsequenceUnits);
+        Assert.AreEqual(2, restored.Components[0].FailureModes[0].AdditionalCurves.Count);
+    }
+
     /// <summary>Verifies DumpMemory clears every recorded risk point across the tree.</summary>
     [TestMethod]
     public void Test_DumpMemory_ClearsTree()

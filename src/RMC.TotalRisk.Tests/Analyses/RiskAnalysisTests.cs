@@ -936,6 +936,17 @@ public class RiskAnalysisTests
         // Secondary assurance is NaN (the threshold is declared in the primary type's units).
         Assert.IsTrue(double.IsNaN(secondary.Total.ConsequenceThresholdProbability));
         Assert.IsFalse(double.IsNaN(primary.Total.ConsequenceThresholdProbability));
+
+        // The summary tree carries the secondary axis with the declared labels (Phase 6.5).
+        var summary = twoType.RiskResults![0]!;
+        Assert.AreEqual(1, summary.AdditionalConsequences.Count);
+        Assert.AreEqual("Damages", summary.AdditionalConsequences[0].SpecifiedConsequence);
+        Assert.AreEqual("$", summary.AdditionalConsequences[0].ConsequenceUnit);
+        Assert.AreEqual(secondary.Total.Mean, summary.AdditionalConsequences[0].Total.Mean, 0d);
+        CollectionAssert.AreEqual(new[] { "Life Loss", "Damages" }, summary.ConsequenceLabels);
+        CollectionAssert.AreEqual(new[] { "lives", "$" }, summary.ConsequenceUnits);
+        Assert.AreEqual(1, summary.ComponentResults[0].AdditionalConsequences.Count);
+        Assert.AreEqual(1, summary.ComponentResults[0].FailureModeResults[0].AdditionalConsequences.Count);
     }
 
     /// <summary>

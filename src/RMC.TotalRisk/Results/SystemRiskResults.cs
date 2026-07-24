@@ -26,10 +26,14 @@ namespace RMC.TotalRisk.Results
             Total = new SummaryRiskResults();
             Fail = new SummaryRiskResults();
             NonFail = new SummaryRiskResults();
+            AdditionalConsequences = new List<ConsequenceResults>();
+            ConsequenceLabels = new List<string>();
+            ConsequenceUnits = new List<string>();
         }
 
         /// <summary>
-        /// Captures the summary of a finished system realization.
+        /// Captures the summary of a finished system realization, including every additional
+        /// consequence type and the declared axis labels the realization carries.
         /// </summary>
         /// <param name="systemRealization">The realization to summarize.</param>
         /// <exception cref="ArgumentNullException">Thrown when the realization is null.</exception>
@@ -41,6 +45,17 @@ namespace RMC.TotalRisk.Results
             Total = new SummaryRiskResults(systemRealization.Curves.Total);
             Fail = new SummaryRiskResults(systemRealization.Curves.Fail);
             NonFail = new SummaryRiskResults(systemRealization.Curves.NonFail);
+            ConsequenceLabels = new List<string>(systemRealization.ConsequenceLabels);
+            ConsequenceUnits = new List<string>(systemRealization.ConsequenceUnits);
+            AdditionalConsequences = new List<ConsequenceResults>(systemRealization.AdditionalCurves.Count);
+            for (int k = 0; k < systemRealization.AdditionalCurves.Count; k++)
+            {
+                AdditionalConsequences.Add(new ConsequenceResults(systemRealization.AdditionalCurves[k])
+                {
+                    SpecifiedConsequence = k + 1 < ConsequenceLabels.Count ? ConsequenceLabels[k + 1] : string.Empty,
+                    ConsequenceUnit = k + 1 < ConsequenceUnits.Count ? ConsequenceUnits[k + 1] : string.Empty,
+                });
+            }
 
             ComponentResults = new List<ComponentResults>(systemRealization.Components.Count);
             for (int i = 0; i < systemRealization.Components.Count; i++)
@@ -57,6 +72,22 @@ namespace RMC.TotalRisk.Results
         /// The per-component summaries, in analysis component order.
         /// </summary>
         public List<ComponentResults> ComponentResults { get; set; }
+
+        /// <summary>
+        /// The additional consequence types' summaries, in declared order (entry k − 1 is type
+        /// k, with its declared labels). Empty on a single-type analysis.
+        /// </summary>
+        public List<ConsequenceResults> AdditionalConsequences { get; set; }
+
+        /// <summary>
+        /// The declared consequence type labels, one per type including the primary (entry 0).
+        /// </summary>
+        public List<string> ConsequenceLabels { get; set; }
+
+        /// <summary>
+        /// The declared consequence unit labels, parallel to <see cref="ConsequenceLabels"/>.
+        /// </summary>
+        public List<string> ConsequenceUnits { get; set; }
 
         /// <summary>
         /// The system incremental (excess) risk summary.

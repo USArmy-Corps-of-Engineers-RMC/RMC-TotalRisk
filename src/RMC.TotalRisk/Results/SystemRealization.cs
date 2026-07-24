@@ -110,6 +110,17 @@ namespace RMC.TotalRisk.Results
         public List<double> AdditionalMaxN { get; set; }
 
         /// <summary>
+        /// The declared consequence type labels, one per type including the primary (entry 0) —
+        /// display metadata the engine stamps from the analysis declaration.
+        /// </summary>
+        public List<string> ConsequenceLabels { get; set; } = new List<string>();
+
+        /// <summary>
+        /// The declared consequence unit labels, parallel to <see cref="ConsequenceLabels"/>.
+        /// </summary>
+        public List<string> ConsequenceUnits { get; set; } = new List<string>();
+
+        /// <summary>
         /// The smallest hazard level observed per component, parallel to <see cref="Components"/>.
         /// </summary>
         public List<double> MinH { get; set; }

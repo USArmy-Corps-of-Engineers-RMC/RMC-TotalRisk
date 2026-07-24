@@ -1,12 +1,14 @@
+using System;
 using System.Collections.Generic;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using RMC.TotalRisk.Core.Enums;
 using RMC.TotalRisk.Results;
 
 namespace RMC.TotalRisk.Tests.Results;
 
 /// <summary>
 /// Unit tests for <see cref="Curves"/> — the five risk-type streams with their v1.0
-/// exhaustiveness assignments and the fan-out pipeline.
+/// exhaustiveness assignments, the enum-driven stream accessor, and the fan-out pipeline.
 /// </summary>
 [TestClass]
 public class CurvesTests
@@ -24,6 +26,25 @@ public class CurvesTests
         Assert.IsFalse(curves.NonFail.IsExhaustive);
         Assert.IsTrue(curves.Background.IsExhaustive);
         Assert.IsTrue(curves.Total.IsExhaustive);
+    }
+
+    /// <summary>
+    /// Verifies the enum-driven stream accessor maps every <see cref="RiskType"/> member to its
+    /// named stream and rejects undefined members.
+    /// </summary>
+    [TestMethod]
+    public void Test_GetCurve_MapsEveryStream()
+    {
+        // Arrange
+        var curves = new Curves();
+
+        // Act / Assert
+        Assert.AreSame(curves.Excess, curves.GetCurve(RiskType.Excess));
+        Assert.AreSame(curves.Background, curves.GetCurve(RiskType.Background));
+        Assert.AreSame(curves.Total, curves.GetCurve(RiskType.Total));
+        Assert.AreSame(curves.Fail, curves.GetCurve(RiskType.Fail));
+        Assert.AreSame(curves.NonFail, curves.GetCurve(RiskType.NonFail));
+        Assert.ThrowsException<ArgumentOutOfRangeException>(() => curves.GetCurve((RiskType)99));
     }
 
     /// <summary>Verifies the fan-out pipeline builds every stream and the clone is deep.</summary>

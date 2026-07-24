@@ -26,10 +26,12 @@ namespace RMC.TotalRisk.Results
             Total = new SummaryRiskResults();
             Fail = new SummaryRiskResults();
             NonFail = new SummaryRiskResults();
+            AdditionalConsequences = new List<ConsequenceResults>();
         }
 
         /// <summary>
-        /// Captures the summary of a finished component realization.
+        /// Captures the summary of a finished component realization, including every additional
+        /// consequence type.
         /// </summary>
         /// <param name="componentRealization">The realization to summarize.</param>
         /// <exception cref="ArgumentNullException">Thrown when the realization is null.</exception>
@@ -41,6 +43,11 @@ namespace RMC.TotalRisk.Results
             Total = new SummaryRiskResults(componentRealization.Curves.Total);
             Fail = new SummaryRiskResults(componentRealization.Curves.Fail);
             NonFail = new SummaryRiskResults(componentRealization.Curves.NonFail);
+            AdditionalConsequences = new List<ConsequenceResults>(componentRealization.AdditionalCurves.Count);
+            for (int k = 0; k < componentRealization.AdditionalCurves.Count; k++)
+            {
+                AdditionalConsequences.Add(new ConsequenceResults(componentRealization.AdditionalCurves[k]));
+            }
 
             FailureModeResults = new List<FailureModeResults>(componentRealization.FailureModes.Count);
             for (int i = 0; i < componentRealization.FailureModes.Count; i++)
@@ -53,6 +60,12 @@ namespace RMC.TotalRisk.Results
         /// The per-failure-mode summaries, in the component's projected failure-mode order.
         /// </summary>
         public List<FailureModeResults> FailureModeResults { get; set; }
+
+        /// <summary>
+        /// The additional consequence types' summaries, in declared order (entry k − 1 is type
+        /// k). Empty on a single-type analysis.
+        /// </summary>
+        public List<ConsequenceResults> AdditionalConsequences { get; set; }
 
         /// <summary>
         /// The incremental (excess) risk summary.

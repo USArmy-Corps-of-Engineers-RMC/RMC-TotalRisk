@@ -990,6 +990,7 @@ namespace RMC.TotalRisk.Analyses
             }
             var realization = new SystemRealization(componentRealizations);
             realization.EnsureAdditionalCurves(additionalTypes);
+            StampConsequenceLabels(realization);
 
             if (_components.Count > 1 && _options.SystemRiskMethod == SystemRiskType.JointRiskMethod)
             {
@@ -2250,7 +2251,39 @@ namespace RMC.TotalRisk.Analyses
             }
             var realization = new SystemRealization(components) { Name = name };
             realization.EnsureAdditionalCurves(additionalTypes);
+            StampConsequenceLabels(realization);
             return realization;
+        }
+
+        /// <summary>
+        /// Stamps the declared consequence-type labels onto a realization — one entry per
+        /// computed type including the primary (display metadata; positions past the declaration
+        /// stamp blank).
+        /// </summary>
+        /// <param name="realization">The realization to stamp.</param>
+        private void StampConsequenceLabels(SystemRealization realization)
+        {
+            realization.ConsequenceLabels.Clear();
+            realization.ConsequenceUnits.Clear();
+            int typeCount = 1 + realization.AdditionalCurves.Count;
+            for (int k = 0; k < typeCount; k++)
+            {
+                if (k == 0)
+                {
+                    realization.ConsequenceLabels.Add(_specifiedConsequence);
+                    realization.ConsequenceUnits.Add(_consequenceUnit);
+                }
+                else if (k - 1 < _additionalConsequenceTypes.Count)
+                {
+                    realization.ConsequenceLabels.Add(_additionalConsequenceTypes[k - 1].SpecifiedConsequence);
+                    realization.ConsequenceUnits.Add(_additionalConsequenceTypes[k - 1].ConsequenceUnit);
+                }
+                else
+                {
+                    realization.ConsequenceLabels.Add(string.Empty);
+                    realization.ConsequenceUnits.Add(string.Empty);
+                }
+            }
         }
 
         /// <summary>
