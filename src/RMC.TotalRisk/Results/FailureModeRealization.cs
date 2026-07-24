@@ -93,11 +93,15 @@ namespace RMC.TotalRisk.Results
         }
 
         /// <summary>
-        /// Builds the hazard profiles on every consequence type.
+        /// Builds the risk profiles on every consequence type. The failure-stream profiles build
+        /// on the primary type's Fail stream only; at mode scope they carry the mode's raw
+        /// sampled response probability — the marginal semantics the mode-level results already
+        /// use, NOT the combination-adjusted share (the % contribution diagnostic covers
+        /// adjusted attribution at scalar level).
         /// </summary>
         public void CreateProfiles()
         {
-            Curves.CreateProfiles();
+            Curves.CreateProfiles(primaryType: true);
             for (int k = 0; k < AdditionalCurves.Count; k++)
             {
                 AdditionalCurves[k].CreateProfiles();

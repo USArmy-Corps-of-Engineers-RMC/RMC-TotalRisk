@@ -421,6 +421,15 @@ namespace RMC.TotalRisk.Results
                 }
             }
 
+            // The driving hazard's exceedance probability at this evaluation — the system
+            // response profile's X coordinate (Phase 6.6). Computed from the sampled hazard so
+            // it is correct on both integration paths (the 1D path's probability argument is
+            // the non-exceedance coordinate, but the VEGAS path passes its weight), and only
+            // when the coordinate will be recorded.
+            double hazardExceedance = recordOutput
+                ? Math.Min(1d, Math.Max(0d, 1d - Hazard.CDF(hazardLevel)))
+                : double.NaN;
+
             // Secondary types ride along only when their results are consumed (recording, or the
             // caller's per-type sink); probes and warm-up evaluations stay single-type.
             bool wantSecondary = ConsequenceTypeCount > 1 && (recordOutput || typeOutputs != null);
@@ -436,12 +445,12 @@ namespace RMC.TotalRisk.Results
             {
                 if (wantSecondary)
                 {
-                    _fModes[j].ComputeRisk(probability, hazardLevel, _nfMode, flags, realization.FailureModes[j], recordOutput, modeTypeOutputs[j], recordedHazard);
+                    _fModes[j].ComputeRisk(probability, hazardLevel, _nfMode, flags, realization.FailureModes[j], recordOutput, modeTypeOutputs[j], recordedHazard, hazardExceedance);
                     modeOutputs[j] = modeTypeOutputs[j][0];
                 }
                 else
                 {
-                    modeOutputs[j] = _fModes[j].ComputeRisk(probability, hazardLevel, _nfMode, flags, realization.FailureModes[j], recordOutput, null, recordedHazard);
+                    modeOutputs[j] = _fModes[j].ComputeRisk(probability, hazardLevel, _nfMode, flags, realization.FailureModes[j], recordOutput, null, recordedHazard, hazardExceedance);
                 }
                 responseProbabilities.Add(modeOutputs[j].ProbabilityOfFailure);
             }
@@ -588,7 +597,7 @@ namespace RMC.TotalRisk.Results
                     if (_fModes.Count > 0)
                     {
                         target.Fail.AddRiskPoint(recordedHazard, probability,
-                            new List<double>(failEntryProbabilities), new List<double>(failEntryValues));
+                            new List<double>(failEntryProbabilities), new List<double>(failEntryValues), hazardExceedance);
                         target.Excess.AddRiskPoint(recordedHazard, probability, excessEntryProbabilities, excessEntryValues);
                     }
 

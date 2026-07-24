@@ -1014,7 +1014,7 @@ namespace RMC.TotalRisk.Analyses
                 IntegrateComponent(sampledComponents[i], componentRealizations[i], realization, flags, realizationIndex);
                 componentRealizations[i].ProcessHazardProbabilities();
                 componentRealizations[i].CreateCurves(_options.LECOutputLength);
-                componentRealizations[i].CreateProfiles();
+                componentRealizations[i].CreateProfiles(includeFailureModes: realizationIndex < 0);
                 componentRealizations[i].ComputeRiskMeasures(_options.ConsequenceThreshold, _options.Alpha, _components[i].HazardThreshold);
 
                 realization.MinN = Math.Min(realization.MinN, componentRealizations[i].MinN);
@@ -1942,7 +1942,7 @@ namespace RMC.TotalRisk.Analyses
             {
                 token.ThrowIfCancellationRequested();
                 componentRealizations[i].CreateCurves(_options.LECOutputLength);
-                componentRealizations[i].CreateProfiles();
+                componentRealizations[i].CreateProfiles(includeFailureModes: realizationIndex < 0);
                 componentRealizations[i].ComputeRiskMeasures(_options.ConsequenceThreshold, _options.Alpha, _components[i].HazardThreshold);
                 realization.MinN = Math.Min(realization.MinN, componentRealizations[i].MinN);
                 realization.MaxN = Math.Max(realization.MaxN, componentRealizations[i].MaxN);
@@ -2245,11 +2245,13 @@ namespace RMC.TotalRisk.Analyses
                 if (maxH[d] > minH[d])
                 {
                     var hazardGrid = BuildDescendingGrid(minH[d], maxH[d], _options.LECOutputLength);
-                    AssembleProfilePercentiles(realizations, componentIndex, c => c.Curves, hazardGrid, tail, targets, token);
+                    AssembleProfilePercentiles(realizations, componentIndex, c => c.Curves, hazardGrid, tail, targets,
+                        primaryType: true, _options.LECOutputLength, token);
                     for (int k = 0; k < additionalTypes; k++)
                     {
                         int typeIndex = k;
-                        AssembleProfilePercentiles(realizations, componentIndex, c => c.AdditionalCurves[typeIndex], hazardGrid, tail, targets, token);
+                        AssembleProfilePercentiles(realizations, componentIndex, c => c.AdditionalCurves[typeIndex], hazardGrid, tail, targets,
+                            primaryType: false, _options.LECOutputLength, token);
                     }
                 }
             }
@@ -2487,9 +2489,13 @@ namespace RMC.TotalRisk.Analyses
         }
 
         /// <summary>
-        /// Assembles the hazard-frequency and conditional-consequence profile percentiles for
-        /// one component and one consequence type onto the four percentile realizations' Total
-        /// streams (the reporting profiles — v1.0 scope).
+        /// Assembles the risk-profile percentiles for one component and one consequence type
+        /// onto the four percentile realizations: the hazard-frequency, conditional-consequence,
+        /// and cumulative-expected-consequence profiles on all five risk-type streams (v1.0
+        /// banded all five — the Total-only interim was a parity gap, restored Phase 6.6), plus
+        /// — for the primary consequence type — the Fail stream's cumulative failure probability
+        /// on the hazard grid and the system response profile on its own log-spaced
+        /// exceedance-probability grid.
         /// </summary>
         /// <param name="realizations">The realization ensemble.</param>
         /// <param name="componentIndex">The component index.</param>
@@ -2497,25 +2503,86 @@ namespace RMC.TotalRisk.Analyses
         /// <param name="hazardGrid">The component's descending hazard grid.</param>
         /// <param name="tail">The percentile tail level.</param>
         /// <param name="targets">The percentile realizations (0 lower, 1 upper, 2 median, 3 mean).</param>
+        /// <param name="primaryType">True when the scope selects the primary consequence type (enables the failure-stream profiles).</param>
+        /// <param name="outputLength">The banded profile resolution (the LEC output length).</param>
         /// <param name="token">The run cancellation token.</param>
         private static void AssembleProfilePercentiles(SystemRealization[] realizations, int componentIndex,
             Func<ComponentRealization, Curves> scope, double[] hazardGrid, double tail, SystemRealization[] targets,
-            CancellationToken token)
+            bool primaryType, int outputLength, CancellationToken token)
         {
+            Span<RiskType> streams = stackalloc RiskType[]
+            {
+                RiskType.Excess, RiskType.Background, RiskType.Total, RiskType.Fail, RiskType.NonFail,
+            };
+            foreach (RiskType stream in streams)
+            {
+                RiskType riskType = stream;
+                AssemblePercentileCurve(realizations,
+                    r => { var c = scope(r.Components[componentIndex]).GetCurve(riskType); return (c.HazardFrequencyHazards, c.HazardFrequencyProbabilities); }, hazardGrid, tail, token,
+                    (slot, x, y) =>
+                    {
+                        var target = scope(targets[slot].Components[componentIndex]).GetCurve(riskType);
+                        target.HazardFrequencyHazards = x;
+                        target.HazardFrequencyProbabilities = y;
+                    });
+                AssemblePercentileCurve(realizations,
+                    r => { var c = scope(r.Components[componentIndex]).GetCurve(riskType); return (c.HazardVsCenHazards, c.HazardVsCenConsequences); }, hazardGrid, tail, token,
+                    (slot, x, y) =>
+                    {
+                        var target = scope(targets[slot].Components[componentIndex]).GetCurve(riskType);
+                        target.HazardVsCenHazards = x;
+                        target.HazardVsCenConsequences = y;
+                    });
+                AssemblePercentileCurve(realizations,
+                    r => { var c = scope(r.Components[componentIndex]).GetCurve(riskType); return (c.HazardFrequencyHazards, c.CumulativeExpectedConsequences); }, hazardGrid, tail, token,
+                    (slot, x, y) =>
+                    {
+                        // Y-only: the banded X axis is the hazard grid the frequency assembly
+                        // already stamped on the target's HazardFrequencyHazards.
+                        scope(targets[slot].Components[componentIndex]).GetCurve(riskType).CumulativeExpectedConsequences = y;
+                    });
+            }
+
+            if (!primaryType) return;
+
+            // The failure-stream profiles (primary type only): the cumulative failure
+            // probability rides the hazard grid; the system response profile bands on its own
+            // log-spaced exceedance grid spanning the engine's recorded probability domain.
             AssemblePercentileCurve(realizations,
-                r => { var c = scope(r.Components[componentIndex]).Total; return (c.HazardFrequencyHazards, c.HazardFrequencyProbabilities); }, hazardGrid, tail, token,
+                r => { var c = scope(r.Components[componentIndex]).Fail; return (c.HazardFrequencyHazards, c.CumulativeFailureProbabilities); }, hazardGrid, tail, token,
                 (slot, x, y) =>
                 {
-                    scope(targets[slot].Components[componentIndex]).Total.HazardFrequencyHazards = x;
-                    scope(targets[slot].Components[componentIndex]).Total.HazardFrequencyProbabilities = y;
+                    scope(targets[slot].Components[componentIndex]).Fail.CumulativeFailureProbabilities = y;
                 });
+            var exceedanceGrid = BuildLogDescendingGrid(ProbabilityFloor, 1d - ProbabilityFloor, outputLength);
             AssemblePercentileCurve(realizations,
-                r => { var c = scope(r.Components[componentIndex]).Total; return (c.HazardVsCenHazards, c.HazardVsCenConsequences); }, hazardGrid, tail, token,
+                r => { var c = scope(r.Components[componentIndex]).Fail; return (c.SystemResponseExceedanceProbabilities, c.SystemResponseProbabilities); }, exceedanceGrid, tail, token,
                 (slot, x, y) =>
                 {
-                    scope(targets[slot].Components[componentIndex]).Total.HazardVsCenHazards = x;
-                    scope(targets[slot].Components[componentIndex]).Total.HazardVsCenConsequences = y;
+                    var target = scope(targets[slot].Components[componentIndex]).Fail;
+                    target.SystemResponseExceedanceProbabilities = x;
+                    target.SystemResponseProbabilities = y;
                 });
+        }
+
+        /// <summary>
+        /// Builds a descending log-spaced grid over [minimum, maximum] with the given ordinate
+        /// count — the system response profile's exceedance-probability ladder.
+        /// </summary>
+        /// <param name="minimum">The positive grid minimum.</param>
+        /// <param name="maximum">The grid maximum (greater than the minimum).</param>
+        /// <param name="count">The ordinate count (at least two).</param>
+        /// <returns>The descending grid.</returns>
+        private static double[] BuildLogDescendingGrid(double minimum, double maximum, int count)
+        {
+            var grid = new double[count];
+            double logMaximum = Math.Log(maximum);
+            double logStep = Math.Log(maximum / minimum) / (count - 1);
+            for (int i = 0; i < count; i++)
+            {
+                grid[i] = Math.Exp(logMaximum - i * logStep);
+            }
+            return grid;
         }
 
         #endregion

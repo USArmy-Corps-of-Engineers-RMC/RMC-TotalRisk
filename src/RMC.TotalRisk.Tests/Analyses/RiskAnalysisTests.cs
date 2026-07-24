@@ -1305,4 +1305,111 @@ public class RiskAnalysisTests
             analysisB.RiskResults![0]!.ComponentResults[0].Fail.HazardThresholdProbability,
             "The hazard-threshold probability must re-read on the profile axis.");
     }
+
+    /// <summary>
+    /// Verifies the Phase 6.6 profile catalog on the mean pass: the cumulative failure
+    /// probability (terminal ≡ the Fail mass balance) and system response profile on the
+    /// primary Fail stream only, the cumulative expected consequence on every stream (terminal
+    /// ≡ the stream mean), the 1D exceedance axis ≡ 1 − p, and the failure-mode profiles built
+    /// on the mean tree.
+    /// </summary>
+    [TestMethod]
+    public async Task Test_ProfileCatalog_MeanPass_CatalogAndModeProfiles()
+    {
+        // Arrange
+        var analysis = new RiskAnalysis(new[] { Component(Consequence("Failure Loss", 300d)) });
+
+        // Act
+        await analysis.RunAsync();
+
+        // Assert — component scope, primary type.
+        var component = analysis.MeanRiskResults!.Components[0];
+        var fail = component.Curves.Fail;
+        Assert.IsTrue(fail.CumulativeFailureProbabilities.Length > 2, "The cumulative failure probability must build on the Fail stream.");
+        Assert.AreEqual(fail.MassBalance, fail.CumulativeFailureProbabilities[0], 1e-12 * fail.MassBalance,
+            "The terminal ordinate must equal the annualized failure probability (the recorded mass balance).");
+        Assert.AreEqual(fail.Mean, fail.CumulativeExpectedConsequences[0], 1e-12 * fail.Mean,
+            "The Fail stream's cumulative expected consequence terminal must equal its mean.");
+        var total = component.Curves.Total;
+        Assert.IsTrue(total.CumulativeExpectedConsequences.Length > 2, "The cumulative expected consequence must build on every stream.");
+        Assert.AreEqual(total.Mean, total.CumulativeExpectedConsequences[0], 1e-12 * total.Mean);
+        Assert.AreEqual(0, total.CumulativeFailureProbabilities.Length, "The failure profiles are Fail-stream-only.");
+        Assert.AreEqual(0, component.Curves.Excess.SystemResponseProbabilities.Length, "The response profile is Fail-stream-only.");
+
+        // The system response profile: X strictly descending in (0, 1); on the 1D path the
+        // exceedance coordinate is exactly 1 − p, so Y rises toward rare hazards and every
+        // value stays a probability.
+        var srpX = fail.SystemResponseExceedanceProbabilities;
+        var srpY = fail.SystemResponseProbabilities;
+        Assert.IsTrue(srpX.Length > 2, "The system response profile must build on the Fail stream.");
+        Assert.AreEqual(srpX.Length, srpY.Length);
+        for (int i = 0; i < srpX.Length; i++)
+        {
+            Assert.IsTrue(srpX[i] > 0d && srpX[i] < 1d, "Exceedance coordinates must be probabilities.");
+            if (i > 0) Assert.IsTrue(srpX[i] < srpX[i - 1], "The exceedance axis must be strictly descending.");
+            Assert.IsTrue(srpY[i] >= 0d && srpY[i] <= 1d, "Response ordinates must be probabilities.");
+        }
+        Assert.IsTrue(srpY[srpX.Length - 1] > srpY[0],
+            "The combined response must rise toward rare (small-exceedance) hazards for a monotone fragility.");
+
+        // Failure-mode profiles are built on the mean tree (Phase 6.6 — mean pass only).
+        var mode = component.FailureModes[0].Curves.Fail;
+        Assert.IsTrue(mode.HazardFrequencyHazards.Length > 2, "Mode-scope profiles must build on the mean pass.");
+        Assert.IsTrue(mode.CumulativeFailureProbabilities.Length > 2);
+        Assert.IsTrue(mode.SystemResponseProbabilities.Length > 2);
+        Assert.AreEqual(mode.MassBalance, mode.CumulativeFailureProbabilities[0], 1e-12 * mode.MassBalance,
+            "The mode's cumulative terminal carries its raw marginal mass (documented semantics).");
+    }
+
+    /// <summary>
+    /// Verifies the Phase 6.6 five-stream banding parity restoration and the banded catalog on a
+    /// full-uncertainty run: every stream's hazard-frequency band assembles (v1.0 banded all
+    /// five; the Total-only interim was a parity gap), the banded cumulative failure
+    /// probability's terminal equals the ensemble mean of the per-realization mass balances,
+    /// and the banded response profile rides its own exceedance grid. Mode-scope profiles are
+    /// deliberately absent from the band trees (mean-pass only — documented boundary).
+    /// </summary>
+    [TestMethod]
+    public async Task Test_ProfileCatalog_FullUncertainty_FiveStreamBandsAndCatalog()
+    {
+        // Arrange
+        var analysis = new RiskAnalysis(new[] { Component(Consequence("Failure Loss", 300d), UncertainFragility()) });
+        analysis.Options.EstimateMeanRiskOnly = false;
+        analysis.Options.Realizations = 100;
+
+        // Act
+        await analysis.RunAsync();
+
+        // Assert — five-stream banded hazard-frequency profiles (the parity restoration).
+        var meanBand = analysis.MeanRiskResults!.Components[0].Curves;
+        Assert.IsTrue(meanBand.Total.HazardFrequencyHazards.Length > 2);
+        Assert.IsTrue(meanBand.Fail.HazardFrequencyHazards.Length > 2, "v1.0 banded the Fail stream's profiles too.");
+        Assert.IsTrue(meanBand.Excess.HazardFrequencyHazards.Length > 2);
+        Assert.IsTrue(meanBand.Background.HazardFrequencyHazards.Length > 2);
+        Assert.IsTrue(meanBand.NonFail.HazardFrequencyHazards.Length > 2);
+        Assert.IsTrue(analysis.LowerRiskResults!.Components[0].Curves.Fail.HazardFrequencyHazards.Length > 2,
+            "The lower band must carry the five-stream profiles as well.");
+
+        // The banded cumulative failure probability: terminal ordinate (the largest grid
+        // hazard) equals the sequential ensemble mean of the per-realization terminals — each
+        // realization clamps to its own terminal there.
+        Assert.IsTrue(meanBand.Fail.CumulativeFailureProbabilities.Length > 2);
+        double meanApf = 0d;
+        for (int i = 0; i < analysis.RiskResults!.Count; i++)
+        {
+            meanApf += analysis.RiskResults[i]!.ComponentResults[0].Fail.TotalProbability;
+        }
+        meanApf /= analysis.RiskResults.Count;
+        Assert.AreEqual(meanApf, meanBand.Fail.CumulativeFailureProbabilities[0], 1e-9 * meanApf,
+            "The mean band's terminal must equal the ensemble-mean annualized failure probability.");
+
+        // The banded response profile rides its own log exceedance grid at the output length.
+        Assert.AreEqual(analysis.Options.LECOutputLength, meanBand.Fail.SystemResponseExceedanceProbabilities.Length);
+        Assert.IsTrue(meanBand.Fail.SystemResponseProbabilities.Length == analysis.Options.LECOutputLength);
+
+        // Cumulative expected consequence bands on every stream; mode profiles stay mean-pass-only.
+        Assert.IsTrue(meanBand.Total.CumulativeExpectedConsequences.Length > 2);
+        Assert.AreEqual(0, analysis.MeanRiskResults.Components[0].FailureModes[0].Curves.Fail.HazardFrequencyHazards.Length,
+            "Band trees do not carry mode-scope profiles (mean-pass only — documented).");
+    }
 }

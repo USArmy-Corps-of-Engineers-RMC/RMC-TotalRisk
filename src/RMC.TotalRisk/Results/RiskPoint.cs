@@ -57,6 +57,16 @@ namespace RMC.TotalRisk.Results
         public double HazardProbability { get; set; }
 
         /// <summary>
+        /// The driving hazard's annual exceedance probability at the evaluation, P[X > x] from
+        /// the realization's sampled hazard distribution — the X coordinate of the system
+        /// response probability profile (Phase 6.6). NaN when the recording path does not supply
+        /// it (the profile is then skipped). Unlike <see cref="HazardLevel"/>, this coordinate is
+        /// never remapped by the profile-axis selection: exceedance probability is the
+        /// normalized, transform-independent axis.
+        /// </summary>
+        public double HazardExceedanceProbability { get; set; } = double.NaN;
+
+        /// <summary>
         /// The hazard probability mass, dF(x) — the quadrature weight this point carries. Recorded
         /// directly on the VEGAS path; re-derived from the sorted non-exceedance probabilities by
         /// <c>Curve.ProcessHazardProbabilities()</c> on the one-dimensional path (the Numerics N7

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text.Json;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using RMC.TotalRisk.Results;
 
@@ -285,5 +286,153 @@ public class CurveTests
         Assert.ThrowsException<ArgumentNullException>(() => curve.CreateCurve(null!, 200));
         Assert.ThrowsException<ArgumentOutOfRangeException>(
             () => curve.CreateCurve(new List<(double Mass, double Consequence)> { (0.5d, 1d) }, 1));
+    }
+
+    /// <summary>Builds the Phase 6.6 profile-catalog fixture: three final-mass points with entry lists and exceedance coordinates.</summary>
+    private static Curve CatalogFixture(bool withExceedance = true)
+    {
+        var curve = new Curve { IsExhaustive = false };
+        curve.AddRiskPoint(1d, 0.5d, new List<double> { 0.1d }, new List<double> { 10d }, withExceedance ? 0.9d : double.NaN);
+        curve.AddRiskPoint(2d, 0.3d, new List<double> { 0.2d }, new List<double> { 20d }, withExceedance ? 0.4d : double.NaN);
+        curve.AddRiskPoint(3d, 0.2d, new List<double> { 0.5d }, new List<double> { 30d }, withExceedance ? 0.1d : double.NaN);
+        return curve;
+    }
+
+    /// <summary>
+    /// Verifies the Phase 6.6 profile catalog at hand-computed points: the ascending cumulative
+    /// failure probability and expected consequence (stored descending), their terminal
+    /// identities against the exact curve's mass balance and mean, the system response profile
+    /// on the exceedance axis, monotonicity, and the self-normalizing fraction views.
+    /// </summary>
+    [TestMethod]
+    public void Test_CreateProfiles_CumulativeCatalog_KnownPoints()
+    {
+        // Arrange — masses (0.5, 0.3, 0.2) × responses (0.1, 0.2, 0.5) × consequences (10, 20, 30).
+        var curve = CatalogFixture();
+        curve.CreateCurve(200);
+
+        // Act
+        curve.CreateProfiles(includeFailureProfiles: true);
+
+        // Assert — ascending cumulates stored descending in hazard:
+        // A(1) = 0.05, A(2) = 0.11, A(3) = 0.21; B(1) = 0.5, B(2) = 1.7, B(3) = 4.7.
+        CollectionAssert.AreEqual(new[] { 3d, 2d, 1d }, curve.HazardFrequencyHazards);
+        Assert.AreEqual(0.21d, curve.CumulativeFailureProbabilities[0], 1e-15);
+        Assert.AreEqual(0.11d, curve.CumulativeFailureProbabilities[1], 1e-15);
+        Assert.AreEqual(0.05d, curve.CumulativeFailureProbabilities[2], 1e-15);
+        Assert.AreEqual(4.7d, curve.CumulativeExpectedConsequences[0], 1e-12);
+        Assert.AreEqual(1.7d, curve.CumulativeExpectedConsequences[1], 1e-12);
+        Assert.AreEqual(0.5d, curve.CumulativeExpectedConsequences[2], 1e-12);
+
+        // Terminal identities: A-terminal ≡ MassBalance, B-terminal ≡ Mean (1e-12 relative).
+        Assert.AreEqual(curve.MassBalance, curve.CumulativeFailureProbabilities[0], 1e-12 * curve.MassBalance,
+            "The cumulative failure probability's terminal ordinate must equal the recorded mass balance.");
+        Assert.AreEqual(curve.Mean, curve.CumulativeExpectedConsequences[0], 1e-12 * curve.Mean,
+            "The cumulative expected consequence's terminal ordinate must equal the stream mean.");
+
+        // Monotonicity along descending hazard: cumulates descend.
+        for (int i = 1; i < curve.CumulativeFailureProbabilities.Length; i++)
+        {
+            Assert.IsTrue(curve.CumulativeFailureProbabilities[i] <= curve.CumulativeFailureProbabilities[i - 1]);
+            Assert.IsTrue(curve.CumulativeExpectedConsequences[i] <= curve.CumulativeExpectedConsequences[i - 1]);
+        }
+
+        // The system response profile: X = exceedance descending, Y = the per-level combined
+        // response probability, in [0, 1].
+        CollectionAssert.AreEqual(new[] { 0.9d, 0.4d, 0.1d }, curve.SystemResponseExceedanceProbabilities);
+        CollectionAssert.AreEqual(new[] { 0.1d, 0.2d, 0.5d }, curve.SystemResponseProbabilities);
+        Assert.AreEqual(3, curve.SystemResponseProfile.Count);
+
+        // The fraction views self-normalize by their own terminal.
+        var fraction = curve.FractionOfFailureProbabilityByHazard;
+        Assert.AreEqual(1d, fraction[0].Y, 1e-15);
+        Assert.AreEqual(0.11d / 0.21d, fraction[1].Y, 1e-15);
+        Assert.AreEqual(0.05d / 0.21d, fraction[2].Y, 1e-15);
+        Assert.AreEqual(1d, curve.FractionOfExpectedConsequenceByHazard[0].Y, 1e-15);
+    }
+
+    /// <summary>
+    /// Verifies the catalog gating: without the failure-profile flag only the cumulative
+    /// expected consequence builds, and with the flag but missing exceedance coordinates the
+    /// response profile is skipped while the cumulative failure probability still builds.
+    /// </summary>
+    [TestMethod]
+    public void Test_CreateProfiles_FlagGating_AndMissingExceedance()
+    {
+        // Without the flag: B only.
+        var plain = CatalogFixture();
+        plain.CreateProfiles();
+        Assert.AreEqual(0, plain.CumulativeFailureProbabilities.Length);
+        Assert.AreEqual(0, plain.SystemResponseProbabilities.Length);
+        Assert.AreEqual(3, plain.CumulativeExpectedConsequences.Length);
+
+        // With the flag but no exceedance coordinates: A builds, the response profile skips.
+        var missing = CatalogFixture(withExceedance: false);
+        missing.CreateProfiles(includeFailureProfiles: true);
+        Assert.AreEqual(3, missing.CumulativeFailureProbabilities.Length);
+        Assert.AreEqual(0, missing.SystemResponseExceedanceProbabilities.Length);
+        Assert.AreEqual(0, missing.SystemResponseProbabilities.Length);
+        Assert.AreEqual(0, missing.SystemResponseProfile.Count, "The missing-coordinate view must be empty, not throw.");
+    }
+
+    /// <summary>
+    /// Verifies the profile-catalog arrays round-trip through JSON and that a pre-6.6 payload
+    /// without them loads forward with empty arrays ("not computed").
+    /// </summary>
+    [TestMethod]
+    public void Test_Serialization_ProfileCatalog_RoundTripAndForwardLoad()
+    {
+        // Arrange
+        var curve = CatalogFixture();
+        curve.CreateCurve(200);
+        curve.CreateProfiles(includeFailureProfiles: true);
+
+        // Act — round-trip (named float literals per the shared results-JSON convention: the
+        // unset measures are NaN).
+        var jsonOptions = new JsonSerializerOptions
+        {
+            NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals,
+        };
+        var restored = JsonSerializer.Deserialize<Curve>(JsonSerializer.Serialize(curve, jsonOptions), jsonOptions)!;
+
+        // Assert
+        CollectionAssert.AreEqual(curve.CumulativeFailureProbabilities, restored.CumulativeFailureProbabilities);
+        CollectionAssert.AreEqual(curve.CumulativeExpectedConsequences, restored.CumulativeExpectedConsequences);
+        CollectionAssert.AreEqual(curve.SystemResponseExceedanceProbabilities, restored.SystemResponseExceedanceProbabilities);
+        CollectionAssert.AreEqual(curve.SystemResponseProbabilities, restored.SystemResponseProbabilities);
+
+        // Act / Assert — the pre-6.6 shape (no catalog members) loads forward with empty arrays.
+        const string legacyJson = "{\"IsExhaustive\":false,\"TotalProbability\":0.2,\"Mean\":1.5," +
+            "\"LECConsequences\":[10,5],\"LECProbabilities\":[0.1,0.2]," +
+            "\"HazardFrequencyHazards\":[3,1],\"HazardFrequencyProbabilities\":[0.1,0.2]}";
+        var legacy = JsonSerializer.Deserialize<Curve>(legacyJson)!;
+        Assert.AreEqual(0, legacy.CumulativeFailureProbabilities.Length);
+        Assert.AreEqual(0, legacy.CumulativeExpectedConsequences.Length);
+        Assert.AreEqual(0, legacy.SystemResponseExceedanceProbabilities.Length);
+        Assert.AreEqual(0, legacy.SystemResponseProbabilities.Length);
+        Assert.AreEqual(2, legacy.LECConsequences.Length, "The legacy members must still load.");
+    }
+
+    /// <summary>
+    /// Verifies <see cref="Curve.Clone"/> copies the profile-catalog arrays deeply.
+    /// </summary>
+    [TestMethod]
+    public void Test_Clone_CopiesProfileCatalogArrays()
+    {
+        // Arrange
+        var curve = CatalogFixture();
+        curve.CreateCurve(200);
+        curve.CreateProfiles(includeFailureProfiles: true);
+
+        // Act
+        var clone = curve.Clone();
+        clone.CumulativeFailureProbabilities[0] = -1d;
+        clone.SystemResponseProbabilities[0] = -1d;
+
+        // Assert — deep copies, not shared references.
+        Assert.AreEqual(0.21d, curve.CumulativeFailureProbabilities[0], 1e-15);
+        Assert.AreEqual(0.1d, curve.SystemResponseProbabilities[0], 1e-15);
+        CollectionAssert.AreEqual(curve.CumulativeExpectedConsequences, clone.CumulativeExpectedConsequences);
+        CollectionAssert.AreEqual(curve.SystemResponseExceedanceProbabilities, clone.SystemResponseExceedanceProbabilities);
     }
 }

@@ -109,14 +109,21 @@ namespace RMC.TotalRisk.Results
         }
 
         /// <summary>
-        /// Builds the hazard profiles on every stream.
+        /// Builds the risk profiles on every stream. The failure-stream profiles (the cumulative
+        /// failure probability by hazard and the system response profile) build on the Fail
+        /// stream only, and only for the primary consequence type — probabilities are
+        /// type-independent, so per-type copies would duplicate byte-identical data.
         /// </summary>
-        public void CreateProfiles()
+        /// <param name="primaryType">
+        /// True when this curve set is the primary consequence type's (enables the Fail stream's
+        /// failure profiles — Phase 6.6 catalog).
+        /// </param>
+        public void CreateProfiles(bool primaryType = false)
         {
             Excess.CreateProfiles();
             Background.CreateProfiles();
             Total.CreateProfiles();
-            Fail.CreateProfiles();
+            Fail.CreateProfiles(primaryType);
             NonFail.CreateProfiles();
         }
 

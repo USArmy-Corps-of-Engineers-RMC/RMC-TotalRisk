@@ -46,6 +46,30 @@ Post-C8 byte-gate hashes (the re-pinned baseline for any further bit-inert work)
 - F2 `c50f427116123f8016c4da2512ec9d860dec84e5f7575709da20d8813a7c6a51`
 - F3 `16de774a4fdafc506a0c631cd00c6d5309482b1cc8d1fafc8badde1944c9251c`
 
+## Phase 6.6 measurements
+
+**Stage 1 (Q-T profile remap, commit `c115f79`):** bit-inert by construction with no profile
+selected — F1 reproduced the post-C8 hash `b88a49f3…` exactly (verified in-session 2026-07-24).
+
+**Stage 2 (profile catalog + five-stream banding parity):** a deliberate value-moving batch —
+the results JSON gains the catalog arrays (`CumulativeFailureProbabilities`,
+`CumulativeExpectedConsequences`, `SystemResponseExceedanceProbabilities`/`Probabilities`) and
+the banding restores the v1.0 five-stream scope, so the byte gate re-pins:
+
+- F1 `6cbe160902cb804e7bab710f2faeddfa6ae0683b58a0ba31d9c42d8c254717fd` (stable across
+  single-rep and median-of-3 runs — determinism held).
+
+Wall-clock on the 2026-07-24 session machine drifted well above the 6.5-session regime
+(the committed 6.5-identical state measured 5.0–6.9 s across the session vs the recorded
+3.898 s), so the honest comparison is the same-conditions matched pair at `--reps 3`:
+committed reference 6.907 s / 3.67 GB vs stage 2 6.595 s / **3.93 GB** — wall delta inside
+session noise; the deterministic signal is the **+0.26 GB (+7%) allocation** for the
+per-realization catalog arrays plus the 15 additional banded profile families (a bisect
+attributed ≈ 0.35 s to the extra banding assemblies, ≈ 0.1 s each to the exceedance
+coordinate and the ascending pass under low-noise conditions). Mean-only wall is unchanged
+(0.093 committed vs 0.101 stage-2 at matched conditions — the mode-scope profiles cost one
+pass over recorded points).
+
 Baseline byte-gate hashes:
 
 - F1 `7a88638cf38c5ee38a3091fabd933e747dd9dc43ea14d44b0addbb465c12f500`

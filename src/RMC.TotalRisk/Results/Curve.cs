@@ -9,8 +9,9 @@ namespace RMC.TotalRisk.Results
 {
     /// <summary>
     /// A loss exceedance curve (LEC) and its risk measures for one risk type: the exact exceedance
-    /// curve built from recorded risk points, stable central moments, the hazard-frequency and
-    /// hazard-versus-conditional-consequence profiles, and the risk-measure catalog.
+    /// curve built from recorded risk points, stable central moments, the risk-profile catalog
+    /// (hazard frequency, conditional consequence, the ascending cumulative profiles, and the
+    /// system response probability against exceedance probability), and the risk-measure catalog.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -109,6 +110,26 @@ namespace RMC.TotalRisk.Results
         private double[] _hazardVsCenConsequences = Array.Empty<double>();
 
         /// <summary>
+        /// Backing field for <see cref="CumulativeFailureProbabilities"/>.
+        /// </summary>
+        private double[] _cumulativeFailureProbabilities = Array.Empty<double>();
+
+        /// <summary>
+        /// Backing field for <see cref="CumulativeExpectedConsequences"/>.
+        /// </summary>
+        private double[] _cumulativeExpectedConsequences = Array.Empty<double>();
+
+        /// <summary>
+        /// Backing field for <see cref="SystemResponseExceedanceProbabilities"/>.
+        /// </summary>
+        private double[] _systemResponseExceedanceProbabilities = Array.Empty<double>();
+
+        /// <summary>
+        /// Backing field for <see cref="SystemResponseProbabilities"/>.
+        /// </summary>
+        private double[] _systemResponseProbabilities = Array.Empty<double>();
+
+        /// <summary>
         /// The cached <see cref="LEC"/> view; null until requested, invalidated when the arrays change.
         /// </summary>
         private OrderedPairedData? _lecView;
@@ -122,6 +143,24 @@ namespace RMC.TotalRisk.Results
         /// The cached <see cref="HazardvsCEN"/> view; null until requested, invalidated when the arrays change.
         /// </summary>
         private OrderedPairedData? _hazardVsCenView;
+
+        /// <summary>
+        /// The cached <see cref="CumulativeFailureProbability"/> view; null until requested,
+        /// invalidated when the arrays change.
+        /// </summary>
+        private OrderedPairedData? _cumulativeFailureView;
+
+        /// <summary>
+        /// The cached <see cref="CumulativeExpectedConsequence"/> view; null until requested,
+        /// invalidated when the arrays change.
+        /// </summary>
+        private OrderedPairedData? _cumulativeConsequenceView;
+
+        /// <summary>
+        /// The cached <see cref="SystemResponseProfile"/> view; null until requested, invalidated
+        /// when the arrays change.
+        /// </summary>
+        private OrderedPairedData? _systemResponseView;
 
         /// <summary>
         /// Whether the curve's probability budget is collectively exhaustive (Background, Total) or
@@ -276,6 +315,74 @@ namespace RMC.TotalRisk.Results
         }
 
         /// <summary>
+        /// The cumulative failure probability by hazard — the ascending cumulate of the recorded
+        /// probability mass, Σ<sub>h′ ≤ h</sub> w·P, stored parallel to
+        /// <see cref="HazardFrequencyHazards"/> (hazard descending; empty = not computed — built
+        /// on the Fail stream of the primary consequence type only, where probabilities live).
+        /// </summary>
+        /// <remarks>
+        /// The terminal ordinate (the largest hazard) is the annualized failure probability;
+        /// interior ordinates are cumulative partial sums — this curve is the distribution of
+        /// the failure-causing hazard measure, NOT the failure probability at a hazard level.
+        /// Never label it "Annual Probability of Failure by Hazard", "APF vs. Hazard", or
+        /// "Cumulative APF": the correct display name is "Cumulative Failure Probability by
+        /// Hazard", with <see cref="FractionOfFailureProbabilityByHazard"/> as the normalized
+        /// companion ("the fraction of the failure probability contributed by hazards at or
+        /// below h"). A curve still visibly rising at its largest hazard is a tail-truncation
+        /// witness. Phase 6.6 (the risk-profile catalog).
+        /// </remarks>
+        public double[] CumulativeFailureProbabilities
+        {
+            get { return _cumulativeFailureProbabilities; }
+            set { _cumulativeFailureProbabilities = value ?? Array.Empty<double>(); _cumulativeFailureView = null; }
+        }
+
+        /// <summary>
+        /// The cumulative expected annual consequence by hazard — the ascending cumulate of the
+        /// recorded expected consequence, Σ<sub>h′ ≤ h</sub> w·E, stored parallel to
+        /// <see cref="HazardFrequencyHazards"/> (hazard descending; empty = not computed). The
+        /// terminal ordinate is the stream's <see cref="Mean"/> — the profile decomposes the
+        /// expected annual consequence by the hazard range that drives it. Phase 6.6.
+        /// </summary>
+        public double[] CumulativeExpectedConsequences
+        {
+            get { return _cumulativeExpectedConsequences; }
+            set { _cumulativeExpectedConsequences = value ?? Array.Empty<double>(); _cumulativeConsequenceView = null; }
+        }
+
+        /// <summary>
+        /// The system response probability profile's X axis: the driving hazard's annual
+        /// exceedance probability per distinct evaluation, descending (empty = not computed —
+        /// built on the Fail stream of the primary consequence type only).
+        /// </summary>
+        /// <remarks>
+        /// Exceedance probability is deliberately the axis (Phase 6.6, user-ratified): a
+        /// hazard-axis response profile is ill-posed when failure modes respond to different
+        /// transformed signals, while the exceedance scale is normalized, universal across
+        /// transform choices, comparable across components, and independent of the profile-axis
+        /// selection (this profile is never remapped).
+        /// </remarks>
+        public double[] SystemResponseExceedanceProbabilities
+        {
+            get { return _systemResponseExceedanceProbabilities; }
+            set { _systemResponseExceedanceProbabilities = value ?? Array.Empty<double>(); _systemResponseView = null; }
+        }
+
+        /// <summary>
+        /// The combined (post-combination) system response probability per distinct evaluation,
+        /// parallel to <see cref="SystemResponseExceedanceProbabilities"/> — at component scope
+        /// the effective failure probability after the failure-mode combination method (where
+        /// mutual-exclusivity normalization, common-cause factors, or competing incidence
+        /// functions bend the marginal responses); at failure-mode scope the mode's raw sampled
+        /// response probability. Empty = not computed. Phase 6.6.
+        /// </summary>
+        public double[] SystemResponseProbabilities
+        {
+            get { return _systemResponseProbabilities; }
+            set { _systemResponseProbabilities = value ?? Array.Empty<double>(); _systemResponseView = null; }
+        }
+
+        /// <summary>
         /// The loss exceedance curve view (X = consequence descending, Y = exceedance probability
         /// ascending, non-strict — the exact construction can anchor equal probabilities at zero
         /// consequence). Rebuilt from the serialized arrays on demand; empty arrays yield an empty
@@ -315,6 +422,76 @@ namespace RMC.TotalRisk.Results
                 _hazardVsCenView ??= BuildView(_hazardVsCenHazards, _hazardVsCenConsequences, yStrict: false, yOrder: SortOrder.None);
                 return _hazardVsCenView;
             }
+        }
+
+        /// <summary>
+        /// The cumulative-failure-probability-by-hazard profile view (X = hazard descending,
+        /// Y descending non-strict — the cumulate falls as hazard falls). See the naming rules
+        /// on <see cref="CumulativeFailureProbabilities"/>.
+        /// </summary>
+        [JsonIgnore]
+        public OrderedPairedData CumulativeFailureProbability
+        {
+            get
+            {
+                _cumulativeFailureView ??= BuildView(_hazardFrequencyHazards, _cumulativeFailureProbabilities, yStrict: false, yOrder: SortOrder.Descending);
+                return _cumulativeFailureView;
+            }
+        }
+
+        /// <summary>
+        /// The cumulative-expected-consequence-by-hazard profile view (X = hazard descending,
+        /// Y descending non-strict).
+        /// </summary>
+        [JsonIgnore]
+        public OrderedPairedData CumulativeExpectedConsequence
+        {
+            get
+            {
+                _cumulativeConsequenceView ??= BuildView(_hazardFrequencyHazards, _cumulativeExpectedConsequences, yStrict: false, yOrder: SortOrder.Descending);
+                return _cumulativeConsequenceView;
+            }
+        }
+
+        /// <summary>
+        /// The system-response-probability profile view (X = annual exceedance probability
+        /// descending, Y unordered — combination adjustments can bend the response
+        /// non-monotonically).
+        /// </summary>
+        [JsonIgnore]
+        public OrderedPairedData SystemResponseProfile
+        {
+            get
+            {
+                _systemResponseView ??= BuildView(_systemResponseExceedanceProbabilities, _systemResponseProbabilities, yStrict: false, yOrder: SortOrder.None);
+                return _systemResponseView;
+            }
+        }
+
+        /// <summary>
+        /// The normalized companion of <see cref="CumulativeFailureProbability"/>: the fraction
+        /// of the failure probability contributed by hazards at or below each level —
+        /// P(H ≤ h | Failure) — dividing by the profile's own terminal ordinate. Built on
+        /// demand; empty when the raw profile is absent or its terminal is not positive. On a
+        /// banded curve this is the self-normalized band, which is not the band of normalized
+        /// realizations (documented semantics).
+        /// </summary>
+        [JsonIgnore]
+        public OrderedPairedData FractionOfFailureProbabilityByHazard
+        {
+            get { return BuildNormalizedView(_hazardFrequencyHazards, _cumulativeFailureProbabilities); }
+        }
+
+        /// <summary>
+        /// The normalized companion of <see cref="CumulativeExpectedConsequence"/>: the fraction
+        /// of the expected annual consequence contributed by hazards at or below each level,
+        /// dividing by the profile's own terminal ordinate. Built on demand; empty when the raw
+        /// profile is absent or its terminal is not positive.
+        /// </summary>
+        [JsonIgnore]
+        public OrderedPairedData FractionOfExpectedConsequenceByHazard
+        {
+            get { return BuildNormalizedView(_hazardFrequencyHazards, _cumulativeExpectedConsequences); }
         }
 
         /// <summary>
@@ -374,8 +551,13 @@ namespace RMC.TotalRisk.Results
         /// <param name="hazardProbability">The hazard non-exceedance probability, P[X ≤ x].</param>
         /// <param name="responseProbabilities">The entry response probabilities, P[F|x].</param>
         /// <param name="consequences">The entry consequences, parallel to the probabilities.</param>
+        /// <param name="hazardExceedanceProbability">
+        /// The driving hazard's annual exceedance probability at the evaluation — the system
+        /// response profile's X coordinate (Phase 6.6). NaN (the default) skips that profile.
+        /// </param>
         /// <exception cref="ArgumentNullException">Thrown when either list is null.</exception>
-        public void AddRiskPoint(double hazardLevel, double hazardProbability, List<double> responseProbabilities, List<double> consequences)
+        public void AddRiskPoint(double hazardLevel, double hazardProbability, List<double> responseProbabilities, List<double> consequences,
+            double hazardExceedanceProbability = double.NaN)
         {
             if (responseProbabilities == null) throw new ArgumentNullException(nameof(responseProbabilities));
             if (consequences == null) throw new ArgumentNullException(nameof(consequences));
@@ -384,6 +566,7 @@ namespace RMC.TotalRisk.Results
                 HazardLevel = hazardLevel,
                 HazardProbability = hazardProbability,
                 HazardProbabilityMass = hazardProbability,
+                HazardExceedanceProbability = hazardExceedanceProbability,
                 ResponseProbabilities = responseProbabilities,
                 Consequences = consequences,
             });
@@ -633,11 +816,26 @@ namespace RMC.TotalRisk.Results
         }
 
         /// <summary>
-        /// Builds the hazard-frequency and hazard-versus-conditional-consequence profiles from the
-        /// recorded risk points on the driving hazard axis (v1.0 port; the optional profile-axis
-        /// remap is deferred with open question Q-T to the risk-diagnostics sessions).
+        /// Builds the risk profiles from the recorded risk points on the recorded hazard axis
+        /// (the driving hazard, or the component's selected profile axis — Q-T): the descending
+        /// hazard-frequency and conditional-consequence profiles (v1.0 port), the ascending
+        /// cumulative-expected-consequence profile, and — when requested — the failure-stream
+        /// profiles: the cumulative failure probability by hazard and the system response
+        /// probability against annual exceedance probability (Phase 6.6 catalog).
         /// </summary>
-        public void CreateProfiles()
+        /// <param name="includeFailureProfiles">
+        /// True to also build the failure-stream profiles (<see cref="CumulativeFailureProbabilities"/>
+        /// and the system response profile) — the Fail stream of the primary consequence type
+        /// only, where the probability structure lives (probabilities are type-independent, so
+        /// per-type copies would duplicate byte-identical data).
+        /// </param>
+        /// <remarks>
+        /// The ascending cumulates are exact forward summations over the same sorted points —
+        /// never complemented from the descending frequency profile, whose ordinates carry
+        /// clamps. The system response profile is skipped when any recorded point lacks its
+        /// exceedance-probability coordinate.
+        /// </remarks>
+        public void CreateProfiles(bool includeFailureProfiles = false)
         {
             if (RiskPoints.Count < 2) return;
 
@@ -688,6 +886,93 @@ namespace RMC.TotalRisk.Results
             _hazardVsCenConsequences = conditionalMeans.ToArray();
             _hazardFrequencyView = null;
             _hazardVsCenView = null;
+
+            // The ascending pass (Phase 6.6): reverse-iterate the descending-sorted points,
+            // accumulating the cumulative profiles by exact forward summation; an ordinate
+            // completes when its distinct hazard is fully accumulated, so tie mass (VEGAS path
+            // only) lands on its own ordinate. Stored descending in hazard (the container
+            // convention shared with the banding kernel); the system response profile stores its
+            // own descending exceedance-probability axis.
+            int distinctCount = hazards.Count;
+            var cumulativeProbabilities = includeFailureProfiles ? new double[distinctCount] : null;
+            var cumulativeConsequences = new double[distinctCount];
+            var responseExceedances = includeFailureProfiles ? new List<double>(distinctCount) : null;
+            var responseProbabilities = includeFailureProfiles ? new List<double>(distinctCount) : null;
+            bool exceedanceAvailable = includeFailureProfiles;
+            double ascendingProbability = 0d;
+            double ascendingConsequence = 0d;
+            double levelProbability = 0d;
+            double levelMass = 0d;
+            double levelExceedance = double.NaN;
+            double previousLevelMass = 0d;
+            int ordinate = distinctCount - 1;
+            for (int i = RiskPoints.Count - 1; i >= 0; i--)
+            {
+                var point = RiskPoints[i];
+                point.SummaryStatistics(out double probability, out double consequence);
+                ascendingProbability += probability;
+                ascendingConsequence += consequence;
+                levelProbability += probability;
+                levelMass += point.HazardProbabilityMass;
+                if (double.IsNaN(levelExceedance)) levelExceedance = point.HazardExceedanceProbability;
+
+                if (i == 0 || RiskPoints[i - 1].HazardLevel != point.HazardLevel)
+                {
+                    cumulativeConsequences[ordinate] = ascendingConsequence;
+                    if (includeFailureProfiles)
+                    {
+                        cumulativeProbabilities![ordinate] = Math.Max(ProbabilityFloor, ascendingProbability);
+                        if (double.IsNaN(levelExceedance))
+                        {
+                            exceedanceAvailable = false;
+                        }
+                        else if (responseExceedances!.Count > 0 && responseExceedances[responseExceedances.Count - 1] == levelExceedance)
+                        {
+                            // Distinct hazards sharing an exceedance probability (a flat CDF
+                            // segment) merge mass-weighted so the profile's exceedance axis
+                            // stays strictly descending.
+                            int last = responseProbabilities!.Count - 1;
+                            double mergedMass = previousLevelMass + levelMass;
+                            responseProbabilities[last] = mergedMass > 0d
+                                ? (responseProbabilities[last] * previousLevelMass + levelProbability) / mergedMass
+                                : 0d;
+                            previousLevelMass = mergedMass;
+                        }
+                        else
+                        {
+                            responseExceedances!.Add(levelExceedance);
+                            responseProbabilities!.Add(levelMass > 0d ? levelProbability / levelMass : 0d);
+                            previousLevelMass = levelMass;
+                        }
+                    }
+                    levelProbability = 0d;
+                    levelMass = 0d;
+                    levelExceedance = double.NaN;
+                    ordinate--;
+                }
+            }
+
+            _cumulativeExpectedConsequences = cumulativeConsequences;
+            _cumulativeConsequenceView = null;
+            if (includeFailureProfiles)
+            {
+                _cumulativeFailureProbabilities = cumulativeProbabilities!;
+                _cumulativeFailureView = null;
+                if (exceedanceAvailable)
+                {
+                    // The ascending-hazard completion order IS descending exceedance order (the
+                    // smallest hazard carries the largest exceedance probability) — the stored
+                    // convention directly.
+                    _systemResponseExceedanceProbabilities = responseExceedances!.ToArray();
+                    _systemResponseProbabilities = responseProbabilities!.ToArray();
+                }
+                else
+                {
+                    _systemResponseExceedanceProbabilities = Array.Empty<double>();
+                    _systemResponseProbabilities = Array.Empty<double>();
+                }
+                _systemResponseView = null;
+            }
         }
 
         /// <summary>
@@ -926,6 +1211,10 @@ namespace RMC.TotalRisk.Results
                 HazardFrequencyProbabilities = (double[])_hazardFrequencyProbabilities.Clone(),
                 HazardVsCenHazards = (double[])_hazardVsCenHazards.Clone(),
                 HazardVsCenConsequences = (double[])_hazardVsCenConsequences.Clone(),
+                CumulativeFailureProbabilities = (double[])_cumulativeFailureProbabilities.Clone(),
+                CumulativeExpectedConsequences = (double[])_cumulativeExpectedConsequences.Clone(),
+                SystemResponseExceedanceProbabilities = (double[])_systemResponseExceedanceProbabilities.Clone(),
+                SystemResponseProbabilities = (double[])_systemResponseProbabilities.Clone(),
             };
         }
 
@@ -941,6 +1230,28 @@ namespace RMC.TotalRisk.Results
         #endregion
 
         #region Private Helpers
+
+        /// <summary>
+        /// Builds a self-normalized profile view: each ordinate divided by the profile's own
+        /// terminal (index 0 — the largest hazard in the descending storage). Empty when the
+        /// arrays are absent or the terminal is not positive.
+        /// </summary>
+        /// <param name="xValues">The hazard ordinates (descending).</param>
+        /// <param name="yValues">The cumulative ordinates, parallel to the hazards.</param>
+        /// <returns>The normalized view.</returns>
+        private static OrderedPairedData BuildNormalizedView(double[] xValues, double[] yValues)
+        {
+            if (xValues.Length == 0 || xValues.Length != yValues.Length || !(yValues[0] > 0d))
+            {
+                return new OrderedPairedData(true, SortOrder.Descending, false, SortOrder.Descending);
+            }
+            var normalized = new double[yValues.Length];
+            for (int i = 0; i < yValues.Length; i++)
+            {
+                normalized[i] = yValues[i] / yValues[0];
+            }
+            return BuildView(xValues, normalized, yStrict: false, yOrder: SortOrder.Descending);
+        }
 
         /// <summary>
         /// Builds an <see cref="OrderedPairedData"/> view over parallel arrays; mismatched or

@@ -408,6 +408,10 @@ namespace RMC.TotalRisk.Results
         /// records the raw <paramref name="hazardLevel"/>. Evaluation always uses the raw level;
         /// this parameter labels the recorded points only.
         /// </param>
+        /// <param name="hazardExceedanceProbability">
+        /// The driving hazard's annual exceedance probability at the evaluation — the system
+        /// response profile's X coordinate (Phase 6.6); NaN (the default) skips that profile.
+        /// </param>
         /// <returns>
         /// The mode's primary-type risk output at the evaluation point. The returned output
         /// (and every sink entry) is workspace-backed scratch, valid until the next evaluation
@@ -429,7 +433,8 @@ namespace RMC.TotalRisk.Results
         /// </remarks>
         public ComponentRiskOutput ComputeRisk(double probability, double hazardLevel, SampledFailureMode? nonFailureMode,
             RiskComputeFlags flags, FailureModeRealization realization, bool recordOutput = false,
-            ComponentRiskOutput[]? typeOutputs = null, double recordedHazard = double.NaN)
+            ComponentRiskOutput[]? typeOutputs = null, double recordedHazard = double.NaN,
+            double hazardExceedanceProbability = double.NaN)
         {
             if (flags == null) throw new ArgumentNullException(nameof(flags));
             if (realization == null) throw new ArgumentNullException(nameof(realization));
@@ -453,7 +458,7 @@ namespace RMC.TotalRisk.Results
             for (int k = 0; k < computedTypes; k++)
             {
                 var output = ComputeTypeRisk(k, probability, recordedLevel, probabilityOfFailure,
-                    consequenceSignal, nonFailSignal, hasPairedNonFailure, flags, realization, record);
+                    consequenceSignal, nonFailSignal, hasPairedNonFailure, flags, realization, record, hazardExceedanceProbability);
                 if (k == 0) primary = output;
                 if (typeOutputs != null) typeOutputs[k] = output;
             }
@@ -476,10 +481,12 @@ namespace RMC.TotalRisk.Results
         /// <param name="flags">The realization's computational-warning flags.</param>
         /// <param name="realization">The failure mode's realization sink.</param>
         /// <param name="record">True to record risk-point entries on the type's curves.</param>
+        /// <param name="hazardExceedanceProbability">The driving hazard's exceedance probability (the system response profile's X coordinate; NaN skips it).</param>
         /// <returns>The type's risk output at the evaluation point.</returns>
         private ComponentRiskOutput ComputeTypeRisk(int typeIndex, double probability, double recordedLevel,
             double probabilityOfFailure, double consequenceSignal, double nonFailSignal, bool hasPairedNonFailure,
-            RiskComputeFlags flags, FailureModeRealization realization, bool record)
+            RiskComputeFlags flags, FailureModeRealization realization, bool record,
+            double hazardExceedanceProbability = double.NaN)
         {
             var output = _scratchOutputs[typeIndex];
             output.Reset();
@@ -564,7 +571,7 @@ namespace RMC.TotalRisk.Results
                     failProbabilities.Add(output.ResponseProbabilities[i]);
                     failValues.Add(output.FailureConsequences[i]);
                 }
-                target.Fail.AddRiskPoint(recordedLevel, probability, failProbabilities, failValues);
+                target.Fail.AddRiskPoint(recordedLevel, probability, failProbabilities, failValues, hazardExceedanceProbability);
                 target.Excess.AddRiskPoint(recordedLevel, probability, excessProbabilities!, excessValues!);
             }
 

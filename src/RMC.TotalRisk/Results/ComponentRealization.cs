@@ -171,16 +171,28 @@ namespace RMC.TotalRisk.Results
         }
 
         /// <summary>
-        /// Builds the component-level hazard profiles across every consequence type.
-        /// Failure-mode profiles are not built (v1.0 behavior — the component profiles carry the
-        /// reporting surface).
+        /// Builds the component-level risk profiles across every consequence type, and — when
+        /// requested — the failure-mode profiles. Ensemble realizations skip the mode profiles
+        /// (v1.0 banded component profiles only); the engine builds mode profiles on the mean
+        /// pass, where they cost one pass over already-recorded points.
         /// </summary>
-        public void CreateProfiles()
+        /// <param name="includeFailureModes">
+        /// True to also build every failure mode's profiles (the engine's mean-pass behavior —
+        /// Phase 6.6).
+        /// </param>
+        public void CreateProfiles(bool includeFailureModes = false)
         {
-            Curves.CreateProfiles();
+            Curves.CreateProfiles(primaryType: true);
             for (int k = 0; k < AdditionalCurves.Count; k++)
             {
                 AdditionalCurves[k].CreateProfiles();
+            }
+            if (includeFailureModes)
+            {
+                for (int i = 0; i < FailureModes.Count; i++)
+                {
+                    FailureModes[i].CreateProfiles();
+                }
             }
         }
 
