@@ -35,6 +35,8 @@ namespace RMC.TotalRisk.Results
         public FailureModeResults(FailureModeRealization failureModeRealization)
         {
             if (failureModeRealization == null) throw new ArgumentNullException(nameof(failureModeRealization));
+            Name = failureModeRealization.Name;
+            PathLabel = failureModeRealization.PathLabel;
             Excess = new SummaryRiskResults(failureModeRealization.Curves.Excess);
             Fail = new SummaryRiskResults(failureModeRealization.Curves.Fail);
             Contribution = RiskContribution.Copy(failureModeRealization.Contribution);
@@ -49,6 +51,18 @@ namespace RMC.TotalRisk.Results
                 });
             }
         }
+
+        /// <summary>
+        /// The failure mode's display name, copied from the realization (the consequence
+        /// terminal's element name when the mode came from a graph — Phase 6.7 Q3).
+        /// </summary>
+        public string Name { get; set; } = "Failure Mode Risk";
+
+        /// <summary>
+        /// The end state's branch path descriptor (Phase 6.7 Q3, append-only; null on pre-6.7
+        /// payloads).
+        /// </summary>
+        public string? PathLabel { get; set; }
 
         /// <summary>
         /// The incremental (excess) risk summary (primary consequence type).

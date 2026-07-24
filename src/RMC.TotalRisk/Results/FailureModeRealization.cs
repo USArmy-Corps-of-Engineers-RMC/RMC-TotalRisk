@@ -35,9 +35,18 @@ namespace RMC.TotalRisk.Results
         }
 
         /// <summary>
-        /// The failure mode's display name, carried for results labeling.
+        /// The failure mode's display name, carried for results labeling. Stamped by the engine
+        /// from the projected end state (the consequence terminal's element name when the mode
+        /// came from a graph — Phase 6.7 Q3, user-ratified).
         /// </summary>
         public string Name { get; set; } = "Failure Mode Risk";
+
+        /// <summary>
+        /// The end state's branch path descriptor — each stage's response name with its branch
+        /// polarity, e.g. <c>"Initiation[Fail] → Progression[NonFail]"</c> (Phase 6.7 Q3,
+        /// append-only; null on pre-6.7 payloads and unstamped realizations).
+        /// </summary>
+        public string? PathLabel { get; set; }
 
         /// <summary>
         /// The five loss exceedance curve streams of the primary consequence type.

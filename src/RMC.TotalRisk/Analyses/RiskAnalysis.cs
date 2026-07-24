@@ -1470,6 +1470,7 @@ namespace RMC.TotalRisk.Analyses
             var realization = new SystemRealization(componentRealizations);
             realization.EnsureAdditionalCurves(additionalTypes);
             StampConsequenceLabels(realization);
+            StampModeLabels(realization);
 
             if (_components.Count > 1 && _options.SystemRiskMethod == SystemRiskType.JointRiskMethod)
             {
@@ -2957,10 +2958,16 @@ namespace RMC.TotalRisk.Analyses
             var components = new List<ComponentRealization>(componentCount);
             for (int d = 0; d < componentCount; d++)
             {
-                components.Add(new ComponentRealization(template.Components[d].FailureModes.Count)
+                var componentRealization = new ComponentRealization(template.Components[d].FailureModes.Count)
                 {
                     Name = template.Components[d].Name,
-                });
+                };
+                for (int m = 0; m < componentRealization.FailureModes.Count; m++)
+                {
+                    componentRealization.FailureModes[m].Name = template.Components[d].FailureModes[m].Name;
+                    componentRealization.FailureModes[m].PathLabel = template.Components[d].FailureModes[m].PathLabel;
+                }
+                components.Add(componentRealization);
             }
             var realization = new SystemRealization(components) { Name = name };
             realization.EnsureAdditionalCurves(additionalTypes);
@@ -2995,6 +3002,31 @@ namespace RMC.TotalRisk.Analyses
                 {
                     realization.ConsequenceLabels.Add(string.Empty);
                     realization.ConsequenceUnits.Add(string.Empty);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Stamps each component's end-state labels onto a realization (Phase 6.7 Q3,
+        /// user-ratified): the mode name via the terminal-first label chain and the branch path
+        /// descriptor, read from the frozen projection snapshot so labels can never drift from
+        /// the sampled structure.
+        /// </summary>
+        /// <param name="realization">The realization to stamp.</param>
+        private void StampModeLabels(SystemRealization realization)
+        {
+            for (int i = 0; i < _components.Count; i++)
+            {
+                var modes = _components[i].SampledProjection;
+                if (modes == null) continue;
+                var slots = realization.Components[i].FailureModes;
+                int m = 0;
+                for (int j = 0; j < modes.Count && m < slots.Count; j++)
+                {
+                    if (modes[j].IsNonFailureMode) continue;
+                    slots[m].Name = SystemComponent.ModeLabel(modes[j], m);
+                    slots[m].PathLabel = SystemComponent.ModePathLabel(modes[j]);
+                    m++;
                 }
             }
         }

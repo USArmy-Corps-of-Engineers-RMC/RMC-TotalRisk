@@ -273,6 +273,45 @@ public class RiskAnalysisTests
     }
 
     /// <summary>
+    /// Verifies the end-state labeling (Phase 6.7 Q3): realization and summary trees carry the
+    /// terminal-first mode names and the branch path descriptors, including the percentile
+    /// band trees.
+    /// </summary>
+    [TestMethod]
+    public async Task Test_EndStateLabels_Stamped()
+    {
+        // Arrange — the standard component plus a Non-Fail-port partial terminal.
+        var component = Component(Consequence("A", 300d));
+        var response = component.Graph.GetElements<RMC.TotalRisk.Systems.Components.Graph.ResponseElement>().First();
+        var partial = new RMC.TotalRisk.Systems.Components.Graph.ConsequenceElement("Partial Damages")
+        {
+            Input = new RMC.TotalRisk.Systems.Components.Graph.RiskConnection(response, 1),
+        };
+        partial.Functions.Add(Consequence("Partial", 50d));
+        component.Graph.AddElement(partial);
+        var analysis = new RiskAnalysis(new[] { component });
+        analysis.Options.EstimateMeanRiskOnly = false;
+        analysis.Options.Realizations = 100;
+
+        // Act
+        await analysis.RunAsync();
+
+        // Assert — realization tree, summary tree, and the percentile band trees.
+        var meanModes = analysis.MeanRiskResults!.Components[0].FailureModes;
+        Assert.AreEqual("A", meanModes[0].Name);
+        StringAssert.Contains(meanModes[0].PathLabel!, "[Fail]");
+        Assert.AreEqual("Partial Damages", meanModes[1].Name);
+        StringAssert.Contains(meanModes[1].PathLabel!, "[NonFail]");
+
+        var summaryModes = analysis.RiskResults![0]!.ComponentResults[0].FailureModeResults;
+        Assert.AreEqual("A", summaryModes[0].Name);
+        StringAssert.Contains(summaryModes[0].PathLabel!, "[Fail]");
+
+        var medianModes = analysis.MedianRiskResults!.Components[0].FailureModes;
+        Assert.AreEqual("Partial Damages", medianModes[1].Name);
+    }
+
+    /// <summary>
     /// Verifies the full-uncertainty smoke: the ensemble count, ordered percentile curves, and
     /// a deterministic scenario collapsing the band to a single curve.
     /// </summary>

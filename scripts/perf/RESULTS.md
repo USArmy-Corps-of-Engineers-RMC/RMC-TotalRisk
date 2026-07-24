@@ -113,7 +113,24 @@ figures below are single-rep on a loaded session machine — non-comparative; th
 exists to re-pin the byte gates, which are the Stage 2/3 bit-identity baselines (the
 state-group rework must reproduce them exactly).
 
-Baseline byte-gate hashes (re-pinned at the 6.7 Stage 1 hash event):
+**Phase 6.7 Stage 3 (state-group layer + Q3 end-state labels, 2026-07-24):** the group
+kernels landed with a mechanical inertness proof — F1/F2/F3 reproduced the Stage 1 hashes
+**bit-exactly** with the whole state-group layer active (every pre-6.7 layout is trivial and
+the unit-space arithmetic reduces to the pre-cascade operations exactly; F1 allocations
+4.09 → 4.10 GB from the per-realization layout builds in the combination-cache getters).
+The gates then re-pinned once for the Q3 labeling: `FailureModeRealization`/
+`FailureModeResults` gained the stamped `Name` and the append-only `PathLabel` — a
+JSON-only movement (labels are display metadata; every numeric surface had just been proven
+bit-identical).
+
+Baseline byte-gate hashes (re-pinned at the 6.7 Stage 3 Q3 labeling):
+
+- F1 `917ff3a52dc6b18c9fed374f56b75490649b6086e8b36c8f795de280b4c20ecc`
+- F2 `f5de82ea7e028abff4144a7427fb4d57baf7a9bf1ec3abb15477771b4ddc8397`
+- F3 `f2714852569e72c8883d6936265f2ddcd099711e644be5a869f7496db661b015`
+
+Prior baselines (6.7 Stage 1 hash event; Stage 3 kernels reproduced these bit-exactly
+before the labeling re-pin):
 
 - F1 `193189449835d8ab34d877cc8aedb28be309313d03c17ee31d45b9f3088ca93a` (reps 1: full-MC 7.535 s / 4.09 GB)
 - F2 `d59c57713eb0cd037488b2076df79622917878b96fa0f2062ccd61aab99e79f6` (reps 1: full-MC 37.028 s / 17.93 GB)

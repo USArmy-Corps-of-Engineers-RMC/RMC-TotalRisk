@@ -594,6 +594,12 @@ namespace RMC.TotalRisk.Systems.Components
         private FailureMode? _sampledNonFailureMode;
 
         /// <summary>
+        /// The frozen projection snapshot captured by <see cref="SetupSamplers"/> — exposed for
+        /// the engine's per-run labeling (Phase 6.7 Q3); null before the samplers are set up.
+        /// </summary>
+        internal IReadOnlyList<FailureMode>? SampledProjection => _sampledModes;
+
+        /// <summary>
         /// The snapshot's end-state group layout (arch doc §7.9), frozen beside the projection
         /// by <see cref="SetupSamplers"/> so every realization combines against one structure.
         /// Runtime sampler state: never serialized, never hashed, never cloned.
@@ -1247,20 +1253,47 @@ namespace RMC.TotalRisk.Systems.Components
         }
 
         /// <summary>
-        /// A failure mode's display label for sensitivity columns: the primary consequence
-        /// function's name, then the first response's name, then a positional fallback (the
-        /// projected <c>FailureMode</c> carries no name of its own).
+        /// An end state's display label (Phase 6.7 Q3, user-ratified order): the projected
+        /// consequence terminal's element name (unique within a graph), then the primary
+        /// consequence function's name, then the first response's name, then a positional
+        /// fallback (the projected <c>FailureMode</c> carries no name of its own).
         /// </summary>
         /// <param name="mode">The mode.</param>
         /// <param name="index">The mode's projected position (the fallback ordinal).</param>
         /// <returns>The display label.</returns>
-        private static string ModeLabel(FailureMode mode, int index)
+        internal static string ModeLabel(FailureMode mode, int index)
         {
+            if (!string.IsNullOrEmpty(mode.ProjectedTerminalName)) return mode.ProjectedTerminalName;
             var primary = mode.ConsequenceFunctions.Count > 0 ? mode.ConsequenceFunctions[0] : null;
             if (primary != null && !string.IsNullOrEmpty(primary.Name)) return primary.Name;
             var response = mode.ResponseStages.Count > 0 ? mode.ResponseStages[0]?.Response : null;
             if (response != null && !string.IsNullOrEmpty(response.Name)) return response.Name;
             return mode.IsNonFailureMode ? "Non-Failure Mode" : $"Failure Mode {index + 1}";
+        }
+
+        /// <summary>
+        /// An end state's branch path descriptor (Phase 6.7 Q3): each stage's response name with
+        /// its branch polarity, joined along the chain — e.g.
+        /// <c>"Initiation[Fail] → Progression[NonFail]"</c>; <c>"Non-Failure"</c> for the
+        /// background mode.
+        /// </summary>
+        /// <param name="mode">The mode.</param>
+        /// <returns>The path descriptor.</returns>
+        internal static string ModePathLabel(FailureMode mode)
+        {
+            if (mode.IsNonFailureMode) return "Non-Failure";
+            var builder = new StringBuilder();
+            var stages = mode.ResponseStages;
+            for (int s = 0; s < stages.Count; s++)
+            {
+                if (s > 0) builder.Append(" → ");
+                var stage = stages[s];
+                string name = stage?.Response != null && !string.IsNullOrEmpty(stage.Response.Name)
+                    ? stage.Response.Name
+                    : $"Response {s + 1}";
+                builder.Append(name).Append('[').Append(stage?.BranchPolarity ?? BranchPolarity.Fail).Append(']');
+            }
+            return builder.ToString();
         }
 
         /// <summary>
