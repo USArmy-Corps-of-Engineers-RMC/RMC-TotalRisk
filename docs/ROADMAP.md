@@ -317,7 +317,42 @@ with no store, no resolver, and no consuming layer in the call path.
 
 **Exit criteria:** sensitivity family verified against a legacy-style oracle; remap round-trip + hash recipe pinned; scalar-CI family verified; diagnostics JSON append-only; Q-T/Q-W doc closures.
 
-## Phase 6.7 — Cascading response end states
+## Phase 6.7 — Cascading response end states — **COMPLETE (2026-07-24)**
+
+> Landed in six staged commits (Stage-0 design ratified with three user decisions — final-polarity
+> classification, flipped-final-sibling excess pairing, single-claiming-group scope — plus the Q2
+> allow-with-legacy duplicate-leaf ruling and the Q3 names + path-descriptor labeling; the
+> knowledge-independence directive recorded and pinned; arch doc → v0.18, **Q-X CLOSED**). What
+> shipped, against the scope below:
+>
+> 1. **The authoring/identity surface (the one deliberate hash event):** `BranchPolarity`
+>    (serialized enum, port-index values), `ResponseStage.BranchPolarity` resolved-on-write,
+>    `ResponseElement.OutputCount` 1 → 2, port-aware projection/expansion round-trips, the
+>    identity-form `ResponseNodes` topology annotation (closing the shared-vs-duplicated response
+>    hash gap), same-port-aware `MultipleConsequences`, and the §7.9.1 branch-claim advisories.
+>    Every seed moved once; the deterministic bit-pin + relational families + byte gates proved
+>    only seeds moved.
+> 2. **Multi-stage engine acceptance:** both Q-X seams replaced — per-stage sampled capture, the
+>    polarity-product SRP (single-stage Fail bit-identical), the all-stage consequence-input fold
+>    (fixing a stage-0 truncation), the restrictive `InverseSRP` policy.
+> 3. **The state-group layer:** `EndStateGroupLayout` (public) — leaf-signature exclusive groups,
+>    Q2 standalone ejection, final-polarity classification, sibling pairing; unit-dimensioned
+>    combination caches/MVN/correlation; unit-level kernels with conditional state distribution;
+>    the claimed-complement mixture driving the non-failure scalar, joint excess baseline, and
+>    exhaustive recording; contribution at picked states with exact Σ-identities; the narrow
+>    competing gate (else-chains only) and single-claiming-group validation; group-aware
+>    guardrails. All-singleton inertness proven by bit-identical F1/F2/F3 byte gates.
+> 4. **Q3 labels:** stamped end-state `Name` + append-only `PathLabel` on realization, summary,
+>    and band trees (JSON-only byte-gate re-pin).
+> 5. **`CascadeEndStateVerification`** (8 tests): the partial-damage natural oracle, the
+>    joint/ME/competing across-unit matrix, the bit-exact saturated-stage equivalence,
+>    reliability APF, system smokes, reproducibility pins
+>    ([verification/cascade-end-states.md](verification/cascade-end-states.md)); math in
+>    [technical-reference/cascading-end-states.md](technical-reference/cascading-end-states.md).
+>
+> **Deferred, documented (§7.9.9):** multi-group claimed states; competing over else-chains
+> (telescoping-union analysis); state-level cross-group `ExclusivePCM` coupling; numeric
+> `InverseSRP` for cascades.
 
 **Scope:** the ratified event-tree-in-the-diagram design (arch doc v0.16 — user decisions: typed output ports; exact partition with auto-remainder; EventTreeResponse survives as a compact node):
 
