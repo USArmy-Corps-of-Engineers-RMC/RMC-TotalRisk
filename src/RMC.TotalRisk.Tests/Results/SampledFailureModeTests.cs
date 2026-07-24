@@ -14,7 +14,7 @@ namespace RMC.TotalRisk.Tests.Results;
 /// <summary>
 /// Unit tests for <see cref="SampledFailureMode"/> — known-point response and consequence math,
 /// the Q-N shared-percentile pairing, the Q-V branch-enumerated recording shape, the clamping
-/// flags, and the multi-stage placeholder throw.
+/// flags, and the multi-stage polarity-product math (Phase 6.7, arch doc §7.9).
 /// </summary>
 [TestClass]
 public class SampledFailureModeTests
@@ -195,27 +195,117 @@ public class SampledFailureModeTests
         Assert.AreEqual(150d, output.NonFailureConsequences, 1e-12);
     }
 
+    /// <summary>Builds a wider deterministic fragility: P[F|h] linear from (10 → 0) to (30 → 1).</summary>
+    private static TabularResponse WideFragility()
+    {
+        var response = Fragility();
+        response.UncertainOrderedPairedData = new UncertainOrderedPairedData(
+            new[] { new UncertainOrdinate(10d, new Deterministic(0d)), new UncertainOrdinate(30d, new Deterministic(1d)) },
+            true, SortOrder.Ascending, false, SortOrder.None, UnivariateDistributionType.Deterministic);
+        return response;
+    }
+
+    /// <summary>Builds a deterministic transform scaling the signal by the given factor at 100.</summary>
+    private static RMC.TotalRisk.RiskFunctions.Transforms.TabularTransform ScaleTransform(double valueAtHundred)
+    {
+        return new RMC.TotalRisk.RiskFunctions.Transforms.TabularTransform
+        {
+            Name = "Scale",
+            SpecifiedHazard = "Stage",
+            HazardUnit = "ft",
+            TransformedHazard = "Stage",
+            TransformedHazardUnit = "ft",
+            UncertainOrderedPairedData = new UncertainOrderedPairedData(
+                new[] { new UncertainOrdinate(0d, new Deterministic(0d)), new UncertainOrdinate(100d, new Deterministic(valueAtHundred)) },
+                true, SortOrder.Ascending, false, SortOrder.None, UnivariateDistributionType.Deterministic),
+        };
+    }
+
     /// <summary>
-    /// Verifies the multi-stage placeholder: sampling a mode with two response stages throws the
-    /// documented deferral (event-tree phase), while authoring validation stays untouched.
+    /// Verifies the multi-stage polarity product (Phase 6.7): each stage's fragility evaluates
+    /// at its own stage-transformed signal, Fail contributes p and Non-Fail contributes 1 − p,
+    /// and the single-stage view is unchanged.
     /// </summary>
     [TestMethod]
-    public void Test_MultiStage_SamplingThrows_AuthoringUnaffected()
+    public void Test_MultiStage_PolarityProductSRP()
     {
-        // Arrange
-        var mode = new FailureMode(
+        // Arrange — stage 0: no transforms, p1(15) = 0.5 on the (10→0, 20→1) fragility;
+        // stage 1: a 1.5× transform remaps 15 → 22.5, p2(22.5) = 0.625 on (10→0, 30→1).
+        FailureMode BuildMode(BranchPolarity finalPolarity) => new FailureMode(
             new List<ResponseStage>
             {
                 new ResponseStage(new List<RMC.TotalRisk.Core.Interfaces.ITransformFunction>(), Fragility()),
-                new ResponseStage(new List<RMC.TotalRisk.Core.Interfaces.ITransformFunction>(), Fragility()),
+                new ResponseStage(new List<RMC.TotalRisk.Core.Interfaces.ITransformFunction> { ScaleTransform(150d) },
+                    WideFragility(), finalPolarity),
             },
             null,
             new List<RMC.TotalRisk.Core.Interfaces.IConsequenceFunction> { Consequence("Damages", 300d) });
 
-        // Act / Assert — the sampling seam throws; the mode itself still validates for authoring.
-        var exception = Assert.ThrowsException<NotSupportedException>(() => mode.Sample(null));
-        StringAssert.Contains(exception.Message, "event-tree");
-        Assert.IsTrue(mode.Validate().IsValid, "Authoring validation must not gate multi-stage modes; only the engine does.");
+        // Act / Assert — Fail-final: p1 · p2; Non-Fail-final: p1 · (1 − p2).
+        var progression = BuildMode(BranchPolarity.Fail).Sample(null);
+        Assert.AreEqual(0.5d * 0.625d, progression.SRP(15d), 1e-12);
+
+        var partial = BuildMode(BranchPolarity.NonFail).Sample(null);
+        Assert.AreEqual(0.5d * 0.375d, partial.SRP(15d), 1e-12);
+
+        // Authoring validation stays untouched by the compute acceptance.
+        Assert.IsTrue(BuildMode(BranchPolarity.Fail).Validate().IsValid);
+    }
+
+    /// <summary>
+    /// Verifies the consequence-input fold spans every stage's transforms (the Phase 6.7 fix —
+    /// the pre-cascade fold truncated the bound at stage 0's transform count): position 2 folds
+    /// stage 0's and stage 1's transforms in chain order.
+    /// </summary>
+    [TestMethod]
+    public void Test_MultiStage_ConsequenceInput_FoldsAllStages()
+    {
+        // Arrange — stage 0 carries a 1.5× transform (15 → 22.5), stage 1 a 3× transform
+        // (22.5 → 67.5); the default binding resolves to position 2 (the last response's input).
+        var mode = new FailureMode(
+            new List<ResponseStage>
+            {
+                new ResponseStage(new List<RMC.TotalRisk.Core.Interfaces.ITransformFunction> { ScaleTransform(150d) }, Fragility()),
+                new ResponseStage(new List<RMC.TotalRisk.Core.Interfaces.ITransformFunction> { ScaleTransform(300d) }, WideFragility()),
+            },
+            null,
+            new List<RMC.TotalRisk.Core.Interfaces.IConsequenceFunction> { Consequence("Damages", 300d) });
+        Assert.AreEqual(2, mode.ResolvedConsequenceHazardPosition);
+
+        // Act / Assert — both stage transforms fold; binding position 1 folds only the first.
+        Assert.AreEqual(67.5d, mode.Sample(null).ConsequenceInput(15d), 1e-12);
+        mode.ConsequenceHazardPosition = 1;
+        Assert.AreEqual(22.5d, mode.Sample(null).ConsequenceInput(15d), 1e-12);
+    }
+
+    /// <summary>
+    /// Verifies the InverseSRP policy (arch doc §7.9): exact for a single-stage Fail-polarity
+    /// mode, unsupported for cascades and Non-Fail polarities (a polarity product has no
+    /// monotone inverse; no engine path consumes the member).
+    /// </summary>
+    [TestMethod]
+    public void Test_MultiStage_InverseSRP_Policy()
+    {
+        // A cascade has no monotone inverse.
+        var cascade = new FailureMode(
+            new List<ResponseStage>
+            {
+                new ResponseStage(new List<RMC.TotalRisk.Core.Interfaces.ITransformFunction>(), Fragility()),
+                new ResponseStage(new List<RMC.TotalRisk.Core.Interfaces.ITransformFunction>(), WideFragility()),
+            },
+            null,
+            new List<RMC.TotalRisk.Core.Interfaces.IConsequenceFunction> { Consequence("Damages", 300d) });
+        Assert.ThrowsException<NotSupportedException>(() => cascade.Sample(null).InverseSRP(0.5d));
+
+        // A single-stage Non-Fail-polarity mode is not monotone increasing either.
+        var nonFailFinal = new FailureMode(
+            new List<ResponseStage>
+            {
+                new ResponseStage(new List<RMC.TotalRisk.Core.Interfaces.ITransformFunction>(), Fragility(), BranchPolarity.NonFail),
+            },
+            null,
+            new List<RMC.TotalRisk.Core.Interfaces.IConsequenceFunction> { Consequence("Damages", 300d) });
+        Assert.ThrowsException<NotSupportedException>(() => nonFailFinal.Sample(null).InverseSRP(0.5d));
     }
 
     /// <summary>Verifies the constructor argument contract.</summary>

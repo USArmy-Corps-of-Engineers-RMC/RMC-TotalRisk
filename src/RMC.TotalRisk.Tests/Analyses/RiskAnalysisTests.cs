@@ -208,6 +208,71 @@ public class RiskAnalysisTests
     }
 
     /// <summary>
+    /// Verifies the Phase 6.7 multi-stage acceptance end to end: a component carrying a
+    /// single-stage mode AND a two-stage progression chain (each its own singleton combination
+    /// unit) integrates to the same mean-only total risk as a dense independent trapezoid over
+    /// the same sampled math, whose per-mode probabilities now include the polarity product.
+    /// </summary>
+    [TestMethod]
+    public async Task Test_MeanOnly_TwoStage_MeanVsDenseReference()
+    {
+        // Arrange — the standard component plus a two-stage chain (stage 1's wider fragility
+        // rises over (10 → 0, 30 → 1)).
+        var wide = Fragility();
+        wide.UncertainOrderedPairedData = new UncertainOrderedPairedData(
+            new[] { new UncertainOrdinate(10d, new Deterministic(0d)), new UncertainOrdinate(30d, new Deterministic(1d)) },
+            true, SortOrder.Ascending, false, SortOrder.None, UnivariateDistributionType.Deterministic);
+        var component = Component(Consequence("Failure Loss", 300d));
+        component.AddFailureMode(new FailureMode(
+            new List<ResponseStage>
+            {
+                new ResponseStage(new List<ITransformFunction>(), Fragility()),
+                new ResponseStage(new List<ITransformFunction>(), wide),
+            },
+            null, new List<IConsequenceFunction> { Consequence("Chained Loss", 200d) }));
+        var analysis = new RiskAnalysis(new[] { component });
+
+        // Act
+        await analysis.RunAsync();
+
+        // The reference: a dense trapezoid over the mean sampled component.
+        var sampled = component.Sample(-1);
+        var scratch = new ComponentRealization(sampled.FailureModeCount);
+        var flags = new RiskComputeFlags();
+        int gridCount = 20_000;
+        double lower = 1e-16;
+        double upper = 1d - 1e-16;
+        double step = (upper - lower) / gridCount;
+        double reference = 0d;
+        double previous = Integrand(lower);
+        for (int i = 1; i <= gridCount; i++)
+        {
+            double current = Integrand(lower + i * step);
+            reference += 0.5d * (previous + current) * step;
+            previous = current;
+        }
+
+        double Integrand(double probability)
+        {
+            double hazard = sampled.Hazard.InverseCDF(probability);
+            var output = sampled.ComputeRisk(probability, hazard, flags, scratch);
+            return output.ProbabilityOfFailure * output.MeanFailureConsequences
+                + output.ProbabilityOfNonFailure * output.NonFailureConsequences;
+        }
+
+        // Assert — the engine mean matches the dense reference within 0.1%, and the chained
+        // mode genuinely contributed (the union exceeds the single-mode component's).
+        double engineMean = analysis.RiskResults![0]!.Total.Mean;
+        Assert.AreEqual(reference, engineMean, 1e-3 * reference,
+            $"Engine mean {engineMean} vs dense reference {reference}.");
+
+        var single = new RiskAnalysis(new[] { Component(Consequence("Failure Loss", 300d)) });
+        await single.RunAsync();
+        Assert.IsTrue(analysis.RiskResults[0]!.Fail.TotalProbability > single.RiskResults![0]!.Fail.TotalProbability,
+            "The two-stage mode must add failure probability to the union.");
+    }
+
+    /// <summary>
     /// Verifies the full-uncertainty smoke: the ensemble count, ordered percentile curves, and
     /// a deterministic scenario collapsing the band to a single curve.
     /// </summary>
@@ -366,9 +431,10 @@ public class RiskAnalysisTests
     /// <summary>
     /// Verifies the validation catalog with its pinned messages: the empty analysis, the
     /// additive method's strict-independence requirement (ratified v0.13), the joint method's
-    /// dimension limit and correlation-matrix checks, and the multi-stage response gate
-    /// (event-tree phase). Two independent additive components and reliability mode now
-    /// validate — their Phase 4 gates are gone.
+    /// dimension limit and correlation-matrix checks, and the transitional Phase 6.7 cascade
+    /// gate (single-terminal chains compute; state-group configurations wait for the group
+    /// layer). Two independent additive components and reliability mode now validate — their
+    /// Phase 4 gates are gone, as is the Q-X multi-stage gate.
     /// </summary>
     [TestMethod]
     public async Task Test_Validate_StageGates_PinnedMessages()
@@ -404,7 +470,8 @@ public class RiskAnalysisTests
         reliability.Options.Mode = RiskAnalysisMode.Reliability;
         Assert.IsTrue(reliability.Validate().IsValid);
 
-        // A multi-stage mode → event-tree gate (authoring stays valid; the engine refuses).
+        // The Q-X multi-stage gate is gone: a single-terminal two-stage chain validates and
+        // computes (Phase 6.7 multi-stage acceptance).
         var multiStage = Component(Consequence("A", 300d));
         var chained = new FailureMode(
             new List<ResponseStage>
@@ -415,7 +482,31 @@ public class RiskAnalysisTests
             null, new List<IConsequenceFunction> { Consequence("Chained", 100d) });
         multiStage.AddFailureMode(chained);
         var multiStageAnalysis = new RiskAnalysis(new[] { multiStage });
-        Assert.IsTrue(multiStageAnalysis.Validate().ValidationMessages.Any(m => m.Contains("event-tree")));
+        Assert.IsTrue(multiStageAnalysis.Validate().IsValid,
+            string.Join(" | ", multiStageAnalysis.Validate().ValidationMessages));
+
+        // Transitional cascade gates (removed with the state-group layer): a Non-Fail-final end
+        // state, and terminals sharing responses along divergent branch paths.
+        var partialOnly = Component(Consequence("A", 300d));
+        partialOnly.AddFailureMode(new FailureMode(
+            new List<ResponseStage>
+            {
+                new ResponseStage(new List<ITransformFunction>(), Fragility(), BranchPolarity.NonFail),
+            },
+            null, new List<IConsequenceFunction> { Consequence("Partial", 50d) }));
+        Assert.IsTrue(new RiskAnalysis(new[] { partialOnly }).Validate().ValidationMessages
+            .Any(m => m.StartsWith("Error:", StringComparison.Ordinal) && m.Contains("Non-Fail branch")));
+
+        var divergent = Component(Consequence("A", 300d));
+        var response = divergent.Graph.GetElements<RMC.TotalRisk.Systems.Components.Graph.ResponseElement>().First();
+        var partialTerminal = new RMC.TotalRisk.Systems.Components.Graph.ConsequenceElement("Partial Damages")
+        {
+            Input = new RMC.TotalRisk.Systems.Components.Graph.RiskConnection(response, 1),
+        };
+        partialTerminal.Functions.Add(Consequence("Partial", 50d));
+        divergent.Graph.AddElement(partialTerminal);
+        Assert.IsTrue(new RiskAnalysis(new[] { divergent }).Validate().ValidationMessages
+            .Any(m => m.StartsWith("Error:", StringComparison.Ordinal) && m.Contains("state-group layer")));
     }
 
     /// <summary>

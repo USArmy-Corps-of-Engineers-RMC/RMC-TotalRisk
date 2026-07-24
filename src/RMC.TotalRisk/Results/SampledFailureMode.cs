@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Numerics.Distributions;
 using Numerics.Functions;
+using RMC.TotalRisk.Core.Enums;
 using RMC.TotalRisk.Systems.Components;
 
 namespace RMC.TotalRisk.Results
@@ -28,11 +29,12 @@ namespace RMC.TotalRisk.Results
     /// curve carries the full day/night spread.
     /// </para>
     /// <para>
-    /// Only single-response-stage modes compute in this phase: multi-stage response composition
-    /// is deferred to the event-tree phase by ratified decision (end users are expected to want
-    /// event-tree branch semantics, not a probability product), and the constructor throws the
-    /// documented placeholder error on a multi-stage mode. The analysis validation gate rejects
-    /// multi-stage modes before any sampling, so the throw is defense in depth.
+    /// Multi-stage acceptance (Phase 6.7, arch doc §7.9): every response stage is captured —
+    /// per-stage transform slices, sampled fragilities, and branch polarities — and the system
+    /// response probability is the polarity product ∏ᵢ (polarityᵢ = Fail ? pᵢ(h) : 1 − pᵢ(h)),
+    /// each stage's fragility evaluated at its own stage-transformed signal. A single-stage
+    /// Fail-polarity mode reproduces the pre-6.7 arithmetic bit-identically (the product's single
+    /// factor multiplies 1.0 exactly). This replaced the Q-X constructor throw.
     /// </para>
     /// <para>
     /// Q-U closure (Phase 6.5): every consequence position of the mode's ordered
@@ -61,22 +63,12 @@ namespace RMC.TotalRisk.Results
         /// </param>
         /// <param name="realizationIndex">The realization index, or −1 for the mean functions.</param>
         /// <exception cref="ArgumentNullException">Thrown when the failure mode is null.</exception>
-        /// <exception cref="NotSupportedException">
-        /// Thrown when the mode carries more than one response stage — multi-stage response
-        /// composition lands with the event-tree phase.
-        /// </exception>
         /// <exception cref="InvalidOperationException">
         /// Thrown when sampling by realization index before the samplers have been set up.
         /// </exception>
         public SampledFailureMode(FailureMode failureMode, FailureMode? nonFailureMode, int realizationIndex = -1)
         {
             if (failureMode == null) throw new ArgumentNullException(nameof(failureMode));
-            if (failureMode.ResponseStages.Count > 1)
-            {
-                throw new NotSupportedException(
-                    "The failure mode has more than one response stage. Multi-stage response composition " +
-                    "is deferred to the event-tree phase; the risk engine computes single-stage modes only.");
-            }
 
             Name = failureMode.ResponseFunction.Name;
             IsNonFailureMode = failureMode.IsNonFailureMode;
@@ -84,15 +76,35 @@ namespace RMC.TotalRisk.Results
 
             bool mean = realizationIndex < 0;
 
-            // Stage-0 transforms and response, sampled from their own content-seeded matrices.
-            var stageTransforms = failureMode.HazardToResponse;
-            _hazardToResponse = new IUnivariateFunction[stageTransforms.Count];
-            for (int i = 0; i < stageTransforms.Count; i++)
+            // Every stage's transforms and response, sampled from their own content-seeded
+            // matrices (multi-stage acceptance — Phase 6.7; the sampler walk has always covered
+            // all stages). Transforms flatten into one chain array with per-stage offsets so the
+            // polarity-product SRP and the consequence-input fold index without allocation.
+            var stages = failureMode.ResponseStages;
+            int stageCount = stages.Count;
+            int totalTransforms = 0;
+            for (int s = 0; s < stageCount; s++)
             {
-                _hazardToResponse[i] = mean ? stageTransforms[i].SampleFunction() : stageTransforms[i].SampleFunction(realizationIndex);
+                totalTransforms += stages[s].Transforms.Count;
             }
-            var response = failureMode.ResponseFunction;
-            _response = mean ? response.SampleFunction() : response.SampleFunction(realizationIndex);
+            _stageTransforms = new IUnivariateFunction[totalTransforms];
+            _stageTransformOffsets = new int[stageCount + 1];
+            _stageResponses = new IUnivariateDistribution[stageCount];
+            _stagePolarities = new BranchPolarity[stageCount];
+            int cursor = 0;
+            for (int s = 0; s < stageCount; s++)
+            {
+                _stageTransformOffsets[s] = cursor;
+                var transforms = stages[s].Transforms;
+                for (int i = 0; i < transforms.Count; i++)
+                {
+                    _stageTransforms[cursor++] = mean ? transforms[i].SampleFunction() : transforms[i].SampleFunction(realizationIndex);
+                }
+                var response = stages[s].Response;
+                _stageResponses[s] = mean ? response.SampleFunction() : response.SampleFunction(realizationIndex);
+                _stagePolarities[s] = stages[s].BranchPolarity;
+            }
+            _stageTransformOffsets[stageCount] = cursor;
 
             var trailing = failureMode.ResponseToConsequence;
             _responseToConsequence = new IUnivariateFunction[trailing.Count];
@@ -186,14 +198,28 @@ namespace RMC.TotalRisk.Results
             new (double Weight, IUnivariateFunction Function)[] { (1d, null!) };
 
         /// <summary>
-        /// The sampled stage-0 transform curves, in chain order.
+        /// The sampled stage transform curves, flattened across all stages in chain order —
+        /// stage s owns the slice [<see cref="_stageTransformOffsets"/>[s],
+        /// <see cref="_stageTransformOffsets"/>[s + 1]).
         /// </summary>
-        private readonly IUnivariateFunction[] _hazardToResponse;
+        private readonly IUnivariateFunction[] _stageTransforms;
 
         /// <summary>
-        /// The sampled response distribution (fragility): P[F|transformed hazard] = CDF.
+        /// The per-stage offsets into <see cref="_stageTransforms"/> (length = stage count + 1).
         /// </summary>
-        private readonly IUnivariateDistribution _response;
+        private readonly int[] _stageTransformOffsets;
+
+        /// <summary>
+        /// The sampled per-stage response distributions (fragilities): stage s's
+        /// P[F|transformed hazard] = CDF.
+        /// </summary>
+        private readonly IUnivariateDistribution[] _stageResponses;
+
+        /// <summary>
+        /// The per-stage branch polarities: Fail contributes p(h), Non-Fail contributes
+        /// 1 − p(h) to the polarity-product response probability (arch doc §7.9).
+        /// </summary>
+        private readonly BranchPolarity[] _stagePolarities;
 
         /// <summary>
         /// The sampled trailing transform curves applied from the bound consequence position.
@@ -273,51 +299,74 @@ namespace RMC.TotalRisk.Results
         #region Methods
 
         /// <summary>
-        /// The system response probability (probability of failure) at a hazard level: the
-        /// sampled response distribution's CDF of the transformed hazard, clamped to [0, 1].
+        /// The end state's weight (system response probability) at a hazard level: the polarity
+        /// product over the stages — each stage's sampled fragility CDF, evaluated at that
+        /// stage's transformed signal and clamped to [0, 1], contributes p under a Fail polarity
+        /// and 1 − p under Non-Fail (arch doc §7.9). A single-stage Fail mode reproduces the
+        /// pre-6.7 single-CDF arithmetic bit-identically.
         /// </summary>
         /// <param name="hazardLevel">The hazard level.</param>
         /// <returns>The response probability.</returns>
         public double SRP(double hazardLevel)
         {
             double signal = hazardLevel;
-            for (int i = 0; i < _hazardToResponse.Length; i++)
+            double weight = 1d;
+            for (int s = 0; s < _stageResponses.Length; s++)
             {
-                signal = _hazardToResponse[i].Function(signal);
+                for (int i = _stageTransformOffsets[s]; i < _stageTransformOffsets[s + 1]; i++)
+                {
+                    signal = _stageTransforms[i].Function(signal);
+                }
+                double p = Math.Max(0d, Math.Min(1d, _stageResponses[s].CDF(signal)));
+                weight *= _stagePolarities[s] == BranchPolarity.Fail ? p : 1d - p;
             }
-            return Math.Max(0d, Math.Min(1d, _response.CDF(signal)));
+            return weight;
         }
 
         /// <summary>
         /// The hazard level at which the response probability is reached — the inverse of
-        /// <see cref="SRP"/> through the transform chain.
+        /// <see cref="SRP"/> through the transform chain. Exact for a single-stage Fail-polarity
+        /// mode only: a multi-stage polarity product is not monotone in the hazard, so no closed
+        /// inverse exists (arch doc §7.9; no engine path consumes this member — numeric
+        /// inversion lands if a consumer ever does).
         /// </summary>
         /// <param name="probability">The response probability.</param>
         /// <returns>The hazard level.</returns>
+        /// <exception cref="NotSupportedException">
+        /// Thrown for a multi-stage or Non-Fail-polarity mode, whose polarity product has no
+        /// monotone inverse.
+        /// </exception>
         public double InverseSRP(double probability)
         {
-            double signal = _response.InverseCDF(probability);
-            for (int i = _hazardToResponse.Length - 1; i >= 0; i--)
+            if (_stageResponses.Length != 1 || _stagePolarities[0] != BranchPolarity.Fail)
             {
-                signal = _hazardToResponse[i].InverseFunction(signal);
+                throw new NotSupportedException(
+                    "InverseSRP is exact only for a single-stage Fail-polarity mode; a cascade's polarity product is not monotone in the hazard.");
+            }
+
+            double signal = _stageResponses[0].InverseCDF(probability);
+            for (int i = _stageTransformOffsets[1] - 1; i >= 0; i--)
+            {
+                signal = _stageTransforms[i].InverseFunction(signal);
             }
             return signal;
         }
 
         /// <summary>
         /// The hazard signal feeding this mode's consequences: the chain signal at the bound
-        /// position (0 = the raw hazard, k = after the k-th stage transform), folded through the
-        /// trailing response-to-consequence transforms.
+        /// position (0 = the raw hazard, k = after the k-th stage transform, counted across all
+        /// stages), folded through the trailing response-to-consequence transforms. Phase 6.7
+        /// fixed the pre-cascade fold, which truncated the bound at stage 0's transform count.
         /// </summary>
         /// <param name="hazardLevel">The raw hazard level.</param>
         /// <returns>The consequence input signal.</returns>
         public double ConsequenceInput(double hazardLevel)
         {
             double signal = hazardLevel;
-            int bound = Math.Min(_consequencePosition, _hazardToResponse.Length);
+            int bound = Math.Min(_consequencePosition, _stageTransforms.Length);
             for (int i = 0; i < bound; i++)
             {
-                signal = _hazardToResponse[i].Function(signal);
+                signal = _stageTransforms[i].Function(signal);
             }
             for (int i = 0; i < _responseToConsequence.Length; i++)
             {

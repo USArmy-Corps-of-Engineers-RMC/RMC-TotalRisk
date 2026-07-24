@@ -734,8 +734,11 @@ namespace RMC.TotalRisk.Systems.Components
         /// </param>
         /// <param name="realizationIndex">The realization index, or −1 for the mean functions.</param>
         /// <returns>The sampled failure mode.</returns>
-        /// <exception cref="NotSupportedException">Thrown when the mode carries more than one response stage (deferred to the event-tree phase).</exception>
         /// <exception cref="InvalidOperationException">Thrown when sampling by realization index before <see cref="SetupSamplers"/> has run.</exception>
+        /// <remarks>
+        /// Multi-stage chains sample every stage since Phase 6.7 (arch doc §7.9): the sampled
+        /// mode's response probability is the polarity product over the stages.
+        /// </remarks>
         public SampledFailureMode Sample(FailureMode? nonFailureMode, int realizationIndex = -1)
         {
             return new SampledFailureMode(this, nonFailureMode, realizationIndex);
