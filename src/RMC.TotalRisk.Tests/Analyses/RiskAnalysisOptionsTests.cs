@@ -48,6 +48,8 @@ public class RiskAnalysisOptionsTests
         Assert.AreEqual(VegasTailFocusMode.Automatic, options.VegasTailFocusMode);
         Assert.AreEqual(1d, options.VegasTailFocusParameter, 0d);
         Assert.AreEqual(4096, options.SystemConvolutionPoints);
+        Assert.AreEqual(1e-4, options.EnsembleTolerance, 0d);
+        Assert.AreEqual(0, options.EnsembleMinDepth);
         Assert.IsTrue(options.Validate().IsValid);
     }
 
@@ -74,6 +76,8 @@ public class RiskAnalysisOptionsTests
             (o => o.FinalEvaluations = 999, "final evaluations"),
             (o => o.VegasTailFocusParameter = 0.5d, "tail focus parameter"),
             (o => o.SystemConvolutionPoints = 4095, "convolution points"),
+            (o => o.EnsembleTolerance = 0.1d, "ensemble integrator tolerance"),
+            (o => o.EnsembleMinDepth = 11, "ensemble integrator minimum depth"),
         };
 
         // Act / Assert
@@ -125,6 +129,8 @@ public class RiskAnalysisOptionsTests
             VegasTailFocusMode = VegasTailFocusMode.Manual,
             VegasTailFocusParameter = 4d,
             SystemConvolutionPoints = 8192,
+            EnsembleTolerance = 1e-6,
+            EnsembleMinDepth = 2,
         };
 
         // Act
@@ -155,6 +161,8 @@ public class RiskAnalysisOptionsTests
         Assert.AreEqual(VegasTailFocusMode.Manual, restored.VegasTailFocusMode);
         Assert.AreEqual(4d, restored.VegasTailFocusParameter, 0d);
         Assert.AreEqual(8192, restored.SystemConvolutionPoints);
+        Assert.AreEqual(1e-6, restored.EnsembleTolerance, 0d);
+        Assert.AreEqual(2, restored.EnsembleMinDepth);
         Assert.AreEqual(RiskAnalysisMode.Risk, restored.Mode);
     }
 
@@ -192,6 +200,8 @@ public class RiskAnalysisOptionsTests
             (nameof(RiskAnalysisOptions.VegasTailFocusMode), o => o.VegasTailFocusMode = VegasTailFocusMode.None),
             (nameof(RiskAnalysisOptions.VegasTailFocusParameter), o => o.VegasTailFocusParameter = 3d),
             (nameof(RiskAnalysisOptions.SystemConvolutionPoints), o => o.SystemConvolutionPoints = 8192),
+            (nameof(RiskAnalysisOptions.EnsembleTolerance), o => o.EnsembleTolerance = 1e-6),
+            (nameof(RiskAnalysisOptions.EnsembleMinDepth), o => o.EnsembleMinDepth = 2),
         };
 
         // Act / Assert — each compute field moves the hash.

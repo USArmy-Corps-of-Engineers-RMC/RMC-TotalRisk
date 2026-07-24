@@ -173,9 +173,14 @@ public class LhsVarianceReductionVerification
         // evaluation budget and the minimum output resolution cuts the per-realization cost an
         // order of magnitude while keeping the residual integration noise (≲ 1e-6 relative per
         // realization, averaged 1000-fold in each grand mean) far below the Latin hypercube
-        // replicate variance the ratio assert measures.
+        // replicate variance the ratio assert measures. The ensemble discipline is pinned
+        // in-test at the same 1e-6 (Phase 6.5): this family studies SAMPLING variance, so the
+        // engine's relaxed ensemble default (1e-4) would inject a common integration-noise
+        // floor into the very ratio the family measures.
         analysis.Options.UseDefaults = false;
         analysis.Options.Tolerance = 1e-6;
+        analysis.Options.EnsembleTolerance = 1e-6;
+        analysis.Options.EnsembleMinDepth = 2;
         analysis.Options.MaxEvaluations = 10_000;
         analysis.Options.LECOutputLength = 50;
         return analysis;

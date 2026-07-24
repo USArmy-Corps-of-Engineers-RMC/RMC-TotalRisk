@@ -4,7 +4,6 @@ using System.Text.Json.Serialization;
 using Numerics;
 using Numerics.Data;
 using Numerics.Mathematics;
-using Numerics.Mathematics.Integration;
 
 namespace RMC.TotalRisk.Results
 {
@@ -28,9 +27,10 @@ namespace RMC.TotalRisk.Results
     /// (<c>√(u2 − u1²)</c> and the expanded fourth-moment form) catastrophically cancel when the
     /// mean dominates the spread, the normal life-loss case. <c>ValueAtRisk</c> returns 0 (not the
     /// curve's smallest consequence) when the exceedance level exceeds the curve's total
-    /// probability. The conditional-value-at-risk integral runs on
-    /// <see cref="AdaptiveGaussKronrod"/> with explicit tolerance and evaluation caps — v1.0 used
-    /// library defaults on its steepest integrand.
+    /// probability. The conditional value-at-risk is the exact piecewise integral of the log-log
+    /// LEC quantile (Phase 6.5) — v1.0 ran adaptive quadrature with library defaults on its
+    /// steepest integrand; the closed form retires that per-realization integration entirely and
+    /// is more exact than the quadrature it replaces.
     /// </para>
     /// <para>
     /// <b>Mass semantics:</b> a defective curve (<see cref="IsExhaustive"/> false — Fail, Excess,
@@ -214,8 +214,8 @@ namespace RMC.TotalRisk.Results
 
         /// <summary>
         /// The conditional value-at-risk (expected shortfall) at exceedance level
-        /// <see cref="Alpha"/>, integrated over the log-log LEC quantile by
-        /// <see cref="AdaptiveGaussKronrod"/>; NaN until computed or when the integration fails.
+        /// <see cref="Alpha"/> — the exact piecewise integral of the log-log LEC quantile; NaN
+        /// until computed.
         /// </summary>
         public double ConditionalValueAtRisk { get; set; } = double.NaN;
 
@@ -755,11 +755,13 @@ namespace RMC.TotalRisk.Results
         /// assurance lookup and leaves <see cref="ConsequenceThresholdProbability"/> NaN — the
         /// Phase 6.5 secondary-consequence-type convention: the analysis threshold is declared in
         /// the primary type's units, so it cannot be evaluated on another type's axis (per-type
-        /// thresholds land with the risk-measures phase). The conditional-value-at-risk integral
-        /// runs <see cref="AdaptiveGaussKronrod"/> over [1e-16, α] of the log-log LEC quantile
-        /// with explicit caps (relative tolerance 1e-8, depth 100, one million evaluations,
-        /// minimum depth 2 — the engine's steepest integrand gets the same discipline as the risk
-        /// integral; v1.0 used library defaults).
+        /// thresholds land with the risk-measures phase). The conditional value-at-risk is the
+        /// EXACT segment-by-segment integral of the log-log LEC quantile over [1e-16, α]
+        /// (Phase 6.5): the quantile is piecewise <c>c·(p/p₁)^s</c> in the 1e-16-floored base-10
+        /// space, so each segment integrates in closed form — replacing the per-realization
+        /// adaptive Gauss–Kronrod pass (relative tolerance 1e-8, the engine's deepest recurring
+        /// integration) with an O(knots) computation that is more exact than the quadrature it
+        /// retires.
         /// </remarks>
         public void ComputeRiskMeasures(double consequenceThreshold, double alpha, double hazardThreshold = double.NaN)
         {
@@ -791,25 +793,104 @@ namespace RMC.TotalRisk.Results
                     ValueAtRisk = lec.GetXFromY(alpha);
                 }
 
-                var integrator = new AdaptiveGaussKronrod(p => lec.GetXFromY(p, Transform.Logarithmic, Transform.Logarithmic),
-                    ProbabilityFloor, alpha)
-                {
-                    ReportFailure = false,
-                    RelativeTolerance = 1e-8,
-                    MaxDepth = 100,
-                    MaxFunctionEvaluations = 1_000_000,
-                    MinDepth = 2,
-                };
-                integrator.Integrate();
-                ConditionalValueAtRisk = integrator.Status != IntegrationStatus.Failure
-                    ? integrator.Result / alpha
-                    : double.NaN;
+                ConditionalValueAtRisk = ClosedFormConditionalValueAtRisk(alpha);
             }
 
             if (!double.IsNaN(hazardThreshold) && _hazardFrequencyHazards.Length > 1)
             {
                 HazardThresholdProbability = HazardFrequency.GetYFromX(hazardThreshold, Transform.Logarithmic, Transform.Logarithmic);
             }
+        }
+
+        /// <summary>
+        /// The conditional value-at-risk by exact piecewise integration of the log-log LEC
+        /// quantile over [1e-16, α], divided by α. The quantile mirrors
+        /// <c>GetXFromY(p, Logarithmic, Logarithmic)</c> piece for piece: the raw end clamps
+        /// contribute constant slabs, and each interior segment is
+        /// <c>c(p) = 10^(x₁ + (log₁₀ p − y₁)·s)</c> in the 1e-16-floored transforms, integrated
+        /// through the numerically stable <c>c(p)·p</c> arrangement.
+        /// </summary>
+        /// <param name="alpha">The exceedance level, in (0, 1).</param>
+        /// <returns>The conditional value-at-risk (zero for a degenerate integration domain).</returns>
+        private double ClosedFormConditionalValueAtRisk(double alpha)
+        {
+            var consequences = _lecConsequences;
+            var probabilities = _lecProbabilities;
+            int count = probabilities.Length;
+            double position = ProbabilityFloor;
+            if (alpha <= position) return 0d;
+
+            double integral = 0d;
+
+            // The clamp region below the first ordinate's exceedance returns the largest
+            // consequence (the interpolator's raw end clamp).
+            if (probabilities[0] > position)
+            {
+                double to = Math.Min(alpha, probabilities[0]);
+                integral += consequences[0] * (to - position);
+                position = to;
+            }
+
+            // Interior segments intersected with the remaining domain; zero-width (flat
+            // probability) segments carry no measure and are skipped.
+            for (int i = 0; i + 1 < count && position < alpha; i++)
+            {
+                if (probabilities[i + 1] <= position) continue;
+                double from = Math.Max(position, probabilities[i]);
+                double to = Math.Min(alpha, probabilities[i + 1]);
+                if (to > from)
+                {
+                    integral += SegmentQuantileIntegral(consequences[i], consequences[i + 1],
+                        probabilities[i], probabilities[i + 1], from, to);
+                    position = to;
+                }
+            }
+
+            // The clamp region above the last ordinate's exceedance returns the smallest
+            // consequence.
+            if (position < alpha)
+            {
+                integral += consequences[count - 1] * (alpha - position);
+            }
+
+            return integral / alpha;
+        }
+
+        /// <summary>
+        /// Integrates one log-log quantile segment over a probability sub-interval in closed
+        /// form: with <c>s = (x₂ − x₁)/(y₂ − y₁)</c> in the floored base-10 transforms, the
+        /// quantile is a power function whose antiderivative is <c>c(p)·p/(s + 1)</c>; the flat
+        /// transformed-probability rule mirrors the interpolator's division-by-zero branch, and
+        /// <c>s → −1</c> takes the logarithmic form.
+        /// </summary>
+        /// <param name="consequenceLow">The segment's higher-consequence ordinate (lower exceedance).</param>
+        /// <param name="consequenceHigh">The segment's lower-consequence ordinate (higher exceedance).</param>
+        /// <param name="probabilityLow">The segment's lower exceedance probability.</param>
+        /// <param name="probabilityHigh">The segment's higher exceedance probability.</param>
+        /// <param name="from">The sub-interval lower probability.</param>
+        /// <param name="to">The sub-interval upper probability.</param>
+        /// <returns>The exact sub-interval integral of the quantile.</returns>
+        private static double SegmentQuantileIntegral(double consequenceLow, double consequenceHigh,
+            double probabilityLow, double probabilityHigh, double from, double to)
+        {
+            double x1 = Tools.Log10(consequenceLow);
+            double x2 = Tools.Log10(consequenceHigh);
+            double y1 = Tools.Log10(probabilityLow);
+            double y2 = Tools.Log10(probabilityHigh);
+            if ((y2 - y1) == 0)
+            {
+                // The interpolator's flat rule: the quantile is 10^x1 across the segment.
+                return Math.Pow(10d, x1) * (to - from);
+            }
+            double slope = (x2 - x1) / (y2 - y1);
+            double quantileFrom = Math.Pow(10d, x1 + (Tools.Log10(from) - y1) * slope);
+            double quantileTo = Math.Pow(10d, x1 + (Tools.Log10(to) - y1) * slope);
+            if (Math.Abs(slope + 1d) < 1e-12)
+            {
+                // s → −1: ∫ A/p dp = A·ln(to/from), with A = c(p)·p constant on the segment.
+                return quantileFrom * from * Math.Log(to / from);
+            }
+            return (quantileTo * to - quantileFrom * from) / (slope + 1d);
         }
 
         #endregion

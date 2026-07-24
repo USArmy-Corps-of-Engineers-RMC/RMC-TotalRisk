@@ -1011,7 +1011,7 @@ namespace RMC.TotalRisk.Analyses
             for (int i = 0; i < _components.Count; i++)
             {
                 token.ThrowIfCancellationRequested();
-                IntegrateComponent(sampledComponents[i], componentRealizations[i], realization, flags);
+                IntegrateComponent(sampledComponents[i], componentRealizations[i], realization, flags, realizationIndex);
                 componentRealizations[i].ProcessHazardProbabilities();
                 componentRealizations[i].CreateCurves(_options.LECOutputLength);
                 componentRealizations[i].CreateProfiles();
@@ -1185,6 +1185,14 @@ namespace RMC.TotalRisk.Analyses
         /// <param name="componentRealization">The component's realization sink.</param>
         /// <param name="realization">The system realization (diagnostics).</param>
         /// <param name="flags">The realization's computational-warning flags.</param>
+        /// <param name="realizationIndex">
+        /// The realization index, or −1 for the mean pass. Ensemble realizations (index ≥ 0)
+        /// integrate at the relaxed <see cref="RiskAnalysisOptions.EnsembleTolerance"/> /
+        /// <see cref="RiskAnalysisOptions.EnsembleMinDepth"/> discipline — the v1.0 philosophy:
+        /// ensemble statistics average integration noise, so the ~4,200-evaluation forced floor
+        /// of the full discipline is spent only where a single answer is published (the mean
+        /// pass, mean-only runs, and the deterministic probes).
+        /// </param>
         /// <exception cref="InvalidOperationException">
         /// Thrown when the integration reports failure — an integrand exception was absorbed by
         /// the integrator (<c>ReportFailure</c> is false), so the recorded risk points are
@@ -1193,19 +1201,20 @@ namespace RMC.TotalRisk.Analyses
         /// call sites carry the same guard).
         /// </exception>
         private void IntegrateComponent(SampledComponent sampled, ComponentRealization componentRealization,
-            SystemRealization realization, RiskComputeFlags flags)
+            SystemRealization realization, RiskComputeFlags flags, int realizationIndex)
         {
             // One stratification build serves the balanced-objective scales and the integrator
             // seeding alike (the probes run before the integrator touches the list).
             var bins = BuildStratificationBins(sampled, flags);
             var objective = BuildObjective(sampled, componentRealization, flags, bins);
+            bool ensemble = realizationIndex >= 0;
             var integrator = new AdaptiveGaussKronrod(objective, ProbabilityFloor, 1d - ProbabilityFloor)
             {
                 ReportFailure = false,
                 MaxFunctionEvaluations = _options.MaxEvaluations,
                 MaxDepth = _options.MaxDepth,
-                RelativeTolerance = _options.Tolerance,
-                MinDepth = 2,
+                RelativeTolerance = ensemble ? _options.EnsembleTolerance : _options.Tolerance,
+                MinDepth = ensemble ? _options.EnsembleMinDepth : 2,
             };
             integrator.Integrate(bins);
             if (integrator.Status == IntegrationStatus.Failure)

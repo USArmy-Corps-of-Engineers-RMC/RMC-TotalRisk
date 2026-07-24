@@ -258,12 +258,17 @@ public class SingleComponentMeanParityVerification
     [TestMethod]
     public void Test_FullUncertainty_Deterministic_MatchesMeanOnly()
     {
-        // Arrange
+        // Arrange — the ensemble discipline is pinned to the mean pass's (Phase 6.5): this test
+        // proves both paths share one compute kernel, so the engine's relaxed ensemble default
+        // (a deliberate accuracy split) is set aside for the comparison.
         var meanOnly = BuildAnalysis();
         meanOnly.RunAsync().GetAwaiter().GetResult();
         var full = BuildAnalysis();
         full.Options.EstimateMeanRiskOnly = false;
         full.Options.Realizations = 100;
+        full.Options.UseDefaults = false;
+        full.Options.EnsembleTolerance = 1e-8;
+        full.Options.EnsembleMinDepth = 2;
 
         // Act
         full.RunAsync().GetAwaiter().GetResult();

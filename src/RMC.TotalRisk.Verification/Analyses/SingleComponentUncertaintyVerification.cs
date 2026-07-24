@@ -219,10 +219,15 @@ public class SingleComponentUncertaintyVerification
         analysis.Options.Realizations = EngineRealizations;
         analysis.Options.SamplingScheme = scheme;
         analysis.Options.LECOutputLength = 1000;
-        // The ensemble comparisons are outer-sampling statistics (0.1%+ scales); refining every
-        // inner quadrature to the 1e-8 default across hundreds of realizations buys nothing the
-        // asserts can see and dominates the family's runtime.
-        analysis.Options.Tolerance = 1e-6;
+        // Phase 6.5 discipline pin: the pre-6.5 in-test 1e-6 relaxation never took effect —
+        // UseDefaults stayed true, so the run reset every integration knob to the 1e-8 defaults
+        // before integrating. The family's captured literals therefore reflect 1e-8/MinDepth-2
+        // discipline on BOTH passes, and the pins below keep exactly that (the engine's relaxed
+        // ensemble default is exercised by the MultiConsequence ensemble family instead).
+        analysis.Options.UseDefaults = false;
+        analysis.Options.Tolerance = 1e-8;
+        analysis.Options.EnsembleTolerance = 1e-8;
+        analysis.Options.EnsembleMinDepth = 2;
         return analysis;
     }
 
@@ -653,9 +658,13 @@ public class SingleComponentUncertaintyVerification
         var analysis = new RiskAnalysis(new[] { component }) { Name = "Uncertainty B" };
         analysis.Options.EstimateMeanRiskOnly = false;
         analysis.Options.Realizations = EngineRealizations;
-        // The per-realization comparison tolerance is 0.1% relative; the 1e-6 inner quadrature
-        // keeps the family's runtime in budget (the joint families' rationale).
-        analysis.Options.Tolerance = 1e-6;
+        // Phase 6.5 discipline pin: as in Scenario A, the pre-6.5 1e-6 relaxation was reset by
+        // UseDefaults at run time, so the realization-for-realization posterior-injection
+        // anchor was captured at 1e-8/MinDepth-2 — pinned explicitly here.
+        analysis.Options.UseDefaults = false;
+        analysis.Options.Tolerance = 1e-8;
+        analysis.Options.EnsembleTolerance = 1e-8;
+        analysis.Options.EnsembleMinDepth = 2;
         return analysis;
     }
 

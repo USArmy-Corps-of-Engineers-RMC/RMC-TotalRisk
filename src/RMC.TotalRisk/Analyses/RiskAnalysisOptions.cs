@@ -87,6 +87,8 @@ namespace RMC.TotalRisk.Analyses
             _vegasTailFocusMode = SerializationUtilities.ReadEnum(xElement, nameof(VegasTailFocusMode), VegasTailFocusMode.Automatic);
             _vegasTailFocusParameter = SerializationUtilities.ReadDouble(xElement, nameof(VegasTailFocusParameter), 1d);
             _systemConvolutionPoints = SerializationUtilities.ReadInt32(xElement, nameof(SystemConvolutionPoints), 4096);
+            _ensembleTolerance = SerializationUtilities.ReadDouble(xElement, nameof(EnsembleTolerance), 1e-4);
+            _ensembleMinDepth = SerializationUtilities.ReadInt32(xElement, nameof(EnsembleMinDepth), 0);
         }
 
         #endregion
@@ -164,6 +166,12 @@ namespace RMC.TotalRisk.Analyses
 
         /// <summary>Backing field for <see cref="SystemConvolutionPoints"/>.</summary>
         private int _systemConvolutionPoints = 4096;
+
+        /// <summary>Backing field for <see cref="EnsembleTolerance"/>.</summary>
+        private double _ensembleTolerance = 1e-4;
+
+        /// <summary>Backing field for <see cref="EnsembleMinDepth"/>.</summary>
+        private int _ensembleMinDepth;
 
         /// <summary>
         /// Determines whether the run estimates mean risk only (a single pass on the expected
@@ -342,6 +350,34 @@ namespace RMC.TotalRisk.Analyses
         }
 
         /// <summary>
+        /// The 1D adaptive integrator's relative tolerance inside ensemble (full-uncertainty)
+        /// realizations, in [1e-15, 0.01]. Defaults to 1e-4 — the v1.0 discipline: ensemble
+        /// statistics average integration noise across realizations, so per-realization
+        /// integration need not carry the mean pass's 1e-8 rigor (the mean pass, the probes,
+        /// and mean-only runs always use <see cref="Tolerance"/>). Tighten toward
+        /// <see cref="Tolerance"/> to make individual ensemble realizations
+        /// quadrature-converged (e.g., for per-realization parity studies).
+        /// </summary>
+        public double EnsembleTolerance
+        {
+            get { return _ensembleTolerance; }
+            set { SetField(ref _ensembleTolerance, value, nameof(EnsembleTolerance)); }
+        }
+
+        /// <summary>
+        /// The 1D adaptive integrator's minimum subdivision depth inside ensemble
+        /// (full-uncertainty) realizations, in [0, 10]. Defaults to 0 — with 50 stratified
+        /// seed bins the forced-depth evaluation floor is what made every ensemble realization
+        /// cost ~4,200 evaluations regardless of convergence; the mean pass, the probes, and
+        /// mean-only runs always run at minimum depth 2.
+        /// </summary>
+        public int EnsembleMinDepth
+        {
+            get { return _ensembleMinDepth; }
+            set { SetField(ref _ensembleMinDepth, value, nameof(EnsembleMinDepth)); }
+        }
+
+        /// <summary>
         /// The VEGAS warm-up evaluations per cycle (joint method), in [100, 50000].
         /// </summary>
         public int WarmupEvaluations
@@ -448,6 +484,8 @@ namespace RMC.TotalRisk.Analyses
             WarmupEvaluations = Math.Min(1000 * count, 50_000);
             WarmupCycles = 5;
             FinalEvaluations = Math.Min(10_000 * count, 100_000);
+            EnsembleTolerance = 1e-4;
+            EnsembleMinDepth = 0;
         }
 
         /// <summary>
@@ -515,6 +553,10 @@ namespace RMC.TotalRisk.Analyses
                 messages.Add("Error: The VEGAS tail focus parameter must be between 1 and 20.");
             if (_systemConvolutionPoints < 4096 || _systemConvolutionPoints > 1_048_576)
                 messages.Add("Error: The system convolution points must be between 4,096 and 1,048,576.");
+            if (double.IsNaN(_ensembleTolerance) || _ensembleTolerance < 1e-15 || _ensembleTolerance > 0.01d)
+                messages.Add("Error: The ensemble integrator tolerance must be between 1e-15 and 0.01.");
+            if (_ensembleMinDepth < 0 || _ensembleMinDepth > 10)
+                messages.Add("Error: The ensemble integrator minimum depth must be between 0 and 10.");
 
             return (messages.FindIndex(m => m.StartsWith("Error:", StringComparison.Ordinal)) < 0, messages);
         }
@@ -569,6 +611,8 @@ namespace RMC.TotalRisk.Analyses
             element.SetAttributeValue(nameof(VegasTailFocusMode), _vegasTailFocusMode.ToString());
             element.SetAttributeValue(nameof(VegasTailFocusParameter), SerializationUtilities.FormatDouble(_vegasTailFocusParameter));
             element.SetAttributeValue(nameof(SystemConvolutionPoints), _systemConvolutionPoints);
+            element.SetAttributeValue(nameof(EnsembleTolerance), SerializationUtilities.FormatDouble(_ensembleTolerance));
+            element.SetAttributeValue(nameof(EnsembleMinDepth), _ensembleMinDepth);
             return element;
         }
 

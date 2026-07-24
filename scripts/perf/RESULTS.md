@@ -38,6 +38,13 @@ allocation-elimination commits, where wall time alone is a noisy proxy.
 | C1 workspace | 0.082 | 29.485 | 31.62 | 19.875 | 20.10 | 58.514 | 62.16 | hashes identical on all three fixtures; the remaining allocations are the recording path (lists a RiskPoint adopts), which shrink with the C8 evaluation-count cut |
 | C2+C3 probes/joint | 0.071 | 27.949 | 31.62 | 20.051 | 19.67 | 57.423 | 62.46 | hashes identical; Balanced scales in one 51-eval pass (was 153 + three bin builds); joint latent transform in place off a cached Cholesky factor. Convolution buffer reuse (planned C4) consciously skipped: the additive multi-component convolution runs ~10 allocations per realization — no fixture shows it, not a hot path |
 | C5+C6 percentiles | 0.067 | 25.835 | 25.12 | 19.678 | 16.95 | 54.962 | 48.37 | hashes identical; merge-walk log-log interpolator (0-ulp pinned vs OrderedPairedData) with transposed loops replaces per-ordinate binary searches and the Ordinate-view allocations; profile sort → strictness-gated reverse. SingleComponentUncertainty pinned percentile literals unmoved |
+| C7+C8 CVaR + budget | 0.065 | **3.898** | **3.67** | 20.160 | 16.95 | **7.810** | **7.07** | the value-moving batch: exact closed-form CVaR (more exact than the 1e-8 AGK it retires) + relaxed ensemble discipline (EnsembleTolerance 1e-4 / EnsembleMinDepth 0 defaults; mean pass, probes, and mean-only runs stay 1e-8/2). **F1 8.1×, F3 8.5× vs baseline**; F2 is VEGAS-budget-bound by design. Zero pinned verification constants moved — the exact-anchored families (SingleComponentUncertainty, NfipAssurance, MeanParity kernel-identity, LhsVarianceReduction) pin their discipline in-test with documented rationale; the relaxed default is exercised by MultiConsequence + EngineReproducibility |
+
+Post-C8 byte-gate hashes (the re-pinned baseline for any further bit-inert work):
+
+- F1 `b88a49f3343788ef2cef5c5b99e44615dc286e38536bd63f65f755d2c46c257e`
+- F2 `c50f427116123f8016c4da2512ec9d860dec84e5f7575709da20d8813a7c6a51`
+- F3 `16de774a4fdafc506a0c631cd00c6d5309482b1cc8d1fafc8badde1944c9251c`
 
 Baseline byte-gate hashes:
 

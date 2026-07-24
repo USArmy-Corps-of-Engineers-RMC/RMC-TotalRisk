@@ -644,6 +644,15 @@ public class NfipAssuranceVerification
         analysis.Options.Mode = RiskAnalysisMode.Reliability;
         analysis.Options.EstimateMeanRiskOnly = false;
         analysis.Options.Realizations = AssuranceRealizations;
+        // The ensemble discipline is pinned to full quadrature rigor (Phase 6.5): this test
+        // compares each realization's API to an exact per-parameter-set quadrature oracle and
+        // pins the assurance fraction exactly, so the engine's relaxed ensemble default (a
+        // deliberate accuracy split whose relaxed path the MultiConsequence ensemble family
+        // exercises) is set aside here. UseDefaults must be false or the run-time reset would
+        // re-apply the relaxed ensemble defaults over these pins.
+        analysis.Options.UseDefaults = false;
+        analysis.Options.EnsembleTolerance = 1e-8;
+        analysis.Options.EnsembleMinDepth = 2;
 
         // Act — the engine ensemble and the exact per-parameter-set oracle ensemble.
         Run(analysis, "TOL 70 assurance");
