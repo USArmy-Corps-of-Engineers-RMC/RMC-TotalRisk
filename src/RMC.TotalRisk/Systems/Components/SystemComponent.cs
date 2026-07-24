@@ -1061,6 +1061,134 @@ namespace RMC.TotalRisk.Systems.Components
         }
 
         /// <summary>
+        /// Collects this component's labeled knowledge-input columns for the sensitivity engine
+        /// (Phase 6.6): one column per sampled function dimension plus each mode's consequence
+        /// coupling columns, in the exact <see cref="SetupSamplers"/> walk order with the same
+        /// reference-identity dedup — one shared instance is one knowledge quantity, so labels
+        /// and columns can never drift from the seeded streams. Deterministic functions
+        /// contribute no column, and a coupling column appears only where an uncertain
+        /// consequence actually consumes it (the mode's own function at that position, or —
+        /// for failure modes — the paired non-failure function).
+        /// </summary>
+        /// <param name="sink">Receives the labeled columns, appended in walk order.</param>
+        /// <exception cref="ArgumentNullException">Thrown when the sink is null.</exception>
+        /// <exception cref="InvalidOperationException">Thrown before <see cref="SetupSamplers"/> has run.</exception>
+        internal void CollectSensitivityInputs(List<SensitivityInput> sink)
+        {
+            if (sink == null) throw new ArgumentNullException(nameof(sink));
+            var modes = _sampledModes
+                ?? throw new InvalidOperationException("SetupSamplers() must be called before collecting sensitivity inputs.");
+            var nonFailureMode = _sampledNonFailureMode;
+
+            var seen = new HashSet<IRiskFunction>(ReferenceEqualityComparer.Instance);
+            var usedLabels = new Dictionary<string, int>(StringComparer.Ordinal);
+
+            void AddFunctionColumns(IRiskFunction? function, string fallbackRole)
+            {
+                // Deterministic functions allocate percentile rows their samplers never read —
+                // an inert column would only add tornado noise bars.
+                if (function == null || function.SamplingDimensions <= 0 || function.IsDeterministic) return;
+                if (!seen.Add(function)) return;
+                if (function is not RiskFunctionBase readable) return;
+                string baseName = string.IsNullOrEmpty(function.Name) ? fallbackRole : function.Name;
+                string label = DedupeLabel($"{Name} - {baseName}", usedLabels);
+                int dimensions = function.SamplingDimensions;
+                for (int d = 0; d < dimensions; d++)
+                {
+                    int dimension = d;
+                    string columnLabel = dimensions > 1 ? $"{label} [{dimension + 1}]" : label;
+                    sink.Add(new SensitivityInput(columnLabel, index => readable.SampledPercentile(index, dimension)));
+                }
+            }
+
+            var hazard = HazardFunction;
+            AddFunctionColumns(hazard, "Hazard Function");
+
+            for (int i = 0; i < modes.Count; i++)
+            {
+                var mode = modes[i];
+
+                // The coupling columns (the Q-N shared consequence draws), only where an
+                // uncertain consequence consumes them.
+                int positions = Math.Max(1, mode.ConsequenceFunctions.Count);
+                for (int k = 0; k < positions; k++)
+                {
+                    var own = k < mode.ConsequenceFunctions.Count ? mode.ConsequenceFunctions[k] : null;
+                    var paired = !mode.IsNonFailureMode && nonFailureMode != null && k < nonFailureMode.ConsequenceFunctions.Count
+                        ? nonFailureMode.ConsequenceFunctions[k]
+                        : null;
+                    bool consumed = (own != null && !own.IsDeterministic) || (paired != null && !paired.IsDeterministic);
+                    if (!consumed) continue;
+
+                    string typeLabel = own != null && !string.IsNullOrEmpty(own.SpecifiedConsequence)
+                        ? own.SpecifiedConsequence
+                        : $"type {k + 1}";
+                    string modeLabel = ModeLabel(mode, i);
+                    string couplingLabel = positions > 1
+                        ? $"{Name} - {modeLabel} - Consequence Knowledge [{typeLabel}]"
+                        : $"{Name} - {modeLabel} - Consequence Knowledge";
+                    couplingLabel = DedupeLabel(couplingLabel, usedLabels);
+                    var owner = mode;
+                    int position = k;
+                    sink.Add(new SensitivityInput(couplingLabel, index => owner.CouplingPercentile(index, position)));
+                }
+
+                // The chain functions, in the walk order: stage transforms, stage responses,
+                // trailing transforms.
+                for (int s = 0; s < mode.ResponseStages.Count; s++)
+                {
+                    var stage = mode.ResponseStages[s];
+                    if (stage is null) continue;
+                    for (int t = 0; t < stage.Transforms.Count; t++)
+                    {
+                        AddFunctionColumns(stage.Transforms[t], "Transform");
+                    }
+                    AddFunctionColumns(stage.Response, "Response");
+                }
+                for (int t = 0; t < mode.ResponseToConsequence.Count; t++)
+                {
+                    AddFunctionColumns(mode.ResponseToConsequence[t], "Transform");
+                }
+            }
+        }
+
+        /// <summary>
+        /// A failure mode's display label for sensitivity columns: the primary consequence
+        /// function's name, then the first response's name, then a positional fallback (the
+        /// projected <c>FailureMode</c> carries no name of its own).
+        /// </summary>
+        /// <param name="mode">The mode.</param>
+        /// <param name="index">The mode's projected position (the fallback ordinal).</param>
+        /// <returns>The display label.</returns>
+        private static string ModeLabel(FailureMode mode, int index)
+        {
+            var primary = mode.ConsequenceFunctions.Count > 0 ? mode.ConsequenceFunctions[0] : null;
+            if (primary != null && !string.IsNullOrEmpty(primary.Name)) return primary.Name;
+            var response = mode.ResponseStages.Count > 0 ? mode.ResponseStages[0]?.Response : null;
+            if (response != null && !string.IsNullOrEmpty(response.Name)) return response.Name;
+            return mode.IsNonFailureMode ? "Non-Failure Mode" : $"Failure Mode {index + 1}";
+        }
+
+        /// <summary>
+        /// Makes a display label unique by appending an occurrence suffix on repeats (duplicate
+        /// function or mode names are legal — a dictionary key must not throw on them, the
+        /// latent v1.0 defect).
+        /// </summary>
+        /// <param name="label">The candidate label.</param>
+        /// <param name="usedLabels">The labels already handed out, with their counts.</param>
+        /// <returns>The unique label.</returns>
+        private static string DedupeLabel(string label, Dictionary<string, int> usedLabels)
+        {
+            if (usedLabels.TryGetValue(label, out int count))
+            {
+                usedLabels[label] = count + 1;
+                return $"{label} ({count + 1})";
+            }
+            usedLabels[label] = 1;
+            return label;
+        }
+
+        /// <summary>
         /// Creates a deep, isolated copy via the serialization round-trip. An improvement over
         /// v1.0, which shared function references between clones. The occurrence index is
         /// runtime state and is not carried.

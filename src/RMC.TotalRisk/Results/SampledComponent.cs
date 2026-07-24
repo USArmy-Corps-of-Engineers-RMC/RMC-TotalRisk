@@ -715,6 +715,27 @@ namespace RMC.TotalRisk.Results
         }
 
         /// <summary>
+        /// Maps a profile-axis hazard level back onto the raw driving-hazard axis through this
+        /// realization's sampled profile transform chain, walked in reverse with
+        /// <c>InverseFunction</c> (the sensitivity engine's profile-axis-native interpretation,
+        /// Phase 6.6). The identity when no profile is selected. Out-of-range queries clamp per
+        /// the sampled functions' own inverse behavior.
+        /// </summary>
+        /// <param name="profileLevel">The hazard level on the profile axis.</param>
+        /// <returns>The raw driving-hazard level.</returns>
+        internal double InverseProfileHazard(double profileLevel)
+        {
+            var profile = _profileTransforms;
+            if (profile == null) return profileLevel;
+            double level = profileLevel;
+            for (int i = profile.Length - 1; i >= 0; i--)
+            {
+                level = profile[i].InverseFunction(level);
+            }
+            return level;
+        }
+
+        /// <summary>
         /// Fills and returns the reused column view of one consequence type over the per-mode
         /// outputs.
         /// </summary>

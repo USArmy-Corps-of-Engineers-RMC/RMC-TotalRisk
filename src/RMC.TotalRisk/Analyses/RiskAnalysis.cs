@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Linq;
@@ -987,18 +988,436 @@ namespace RMC.TotalRisk.Analyses
 
         #endregion
 
-        #region Private Helpers â€” Realization Compute
+        #region Sensitivity Analysis
+
+        /// <summary>
+        /// Computes the sensitivity of one stored scalar risk measure to every knowledge input
+        /// (Phase 6.6): the per-realization measure values already persisted in
+        /// <see cref="RiskResults"/> are correlated against the per-function percentile draws,
+        /// re-derived bit-exactly from the content seeds — no re-simulation, no integration.
+        /// </summary>
+        /// <param name="outputMeasure">The scalar measure to explain.</param>
+        /// <param name="riskType">The risk-type stream the measure is read from.</param>
+        /// <param name="measure">The association measure to report.</param>
+        /// <param name="componentIndex">
+        /// The output scope: −1 for the overall system (inputs = every component's knowledge
+        /// columns), or a component position (inputs = that component's columns only — other
+        /// components' draws are independent of its results by construction).
+        /// </param>
+        /// <param name="failureModeIndex">
+        /// Narrows the output to one failure mode's summaries (Excess and Fail streams only);
+        /// −1 for the component or system scope. Requires a component scope.
+        /// </param>
+        /// <param name="consequenceType">The consequence-type position (0 is the primary).</param>
+        /// <returns>
+        /// The labeled associations in the sampler walk order, or null when no full-uncertainty
+        /// results are stored, the scope's outputs are unavailable, fewer than three valid
+        /// realization pairs remain after NaN filtering, or the scope has no knowledge inputs.
+        /// </returns>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown for an out-of-range scope argument.</exception>
+        /// <exception cref="ArgumentException">Thrown for a failure-mode scope with a stream other than Excess or Fail.</exception>
+        /// <remarks>
+        /// The inputs pair with the stored outputs through the content seeds, so the model must
+        /// be unchanged since the run (the same guarantee every diagnostic over stored results
+        /// carries). The call re-runs the component sampler setup at the ensemble size; a
+        /// subsequent <see cref="RunAsync"/> re-seeds itself at run start.
+        /// </remarks>
+        public SensitivityResults? MeasureSensitivity(RiskMeasure outputMeasure, RiskType riskType, SensitivityMeasure measure,
+            int componentIndex = -1, int failureModeIndex = -1, int consequenceType = 0)
+        {
+            ValidateSensitivityScope(componentIndex, failureModeIndex, riskType, consequenceType);
+            var results = RiskResults;
+            if (!IsEstimated || results == null || results.Count < 2) return null;
+
+            int count = results.Count;
+            var outputs = new double[count];
+            for (int i = 0; i < count; i++)
+            {
+                var summary = results[i];
+                var scope = summary == null ? null : SelectScope(summary, componentIndex, failureModeIndex, riskType, consequenceType);
+                outputs[i] = scope == null ? double.NaN : ExtractMeasure(scope, outputMeasure);
+            }
+
+            var inputs = BuildSensitivityInputs(componentIndex, count);
+            if (inputs.Count == 0) return null;
+            string scopeLabel = componentIndex < 0
+                ? "System"
+                : failureModeIndex < 0 ? _components[componentIndex].Name : $"{_components[componentIndex].Name} mode {failureModeIndex + 1}";
+            return Correlate(inputs, outputs, measure, riskType, $"{outputMeasure} — {riskType} — {scopeLabel}");
+        }
+
+        /// <summary>
+        /// Computes <see cref="MeasureSensitivity"/> for the full scalar-measure catalog in one
+        /// pass, reusing one input-matrix derivation across all ten measures.
+        /// </summary>
+        /// <param name="riskType">The risk-type stream the measures are read from.</param>
+        /// <param name="measure">The association measure to report.</param>
+        /// <param name="componentIndex">The output scope (see <see cref="MeasureSensitivity"/>).</param>
+        /// <param name="failureModeIndex">The failure-mode narrowing (see <see cref="MeasureSensitivity"/>).</param>
+        /// <param name="consequenceType">The consequence-type position (0 is the primary).</param>
+        /// <returns>One result per measure that produced valid associations; empty when none did.</returns>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown for an out-of-range scope argument.</exception>
+        /// <exception cref="ArgumentException">Thrown for a failure-mode scope with a stream other than Excess or Fail.</exception>
+        public IReadOnlyList<SensitivityResults> MeasureSensitivityMatrix(RiskType riskType, SensitivityMeasure measure,
+            int componentIndex = -1, int failureModeIndex = -1, int consequenceType = 0)
+        {
+            ValidateSensitivityScope(componentIndex, failureModeIndex, riskType, consequenceType);
+            var matrix = new List<SensitivityResults>();
+            var results = RiskResults;
+            if (!IsEstimated || results == null || results.Count < 2) return matrix;
+
+            int count = results.Count;
+            var inputs = BuildSensitivityInputs(componentIndex, count);
+            if (inputs.Count == 0) return matrix;
+
+            var outputs = new double[count];
+            foreach (RiskMeasure outputMeasure in Enum.GetValues<RiskMeasure>())
+            {
+                for (int i = 0; i < count; i++)
+                {
+                    var summary = results[i];
+                    var scope = summary == null ? null : SelectScope(summary, componentIndex, failureModeIndex, riskType, consequenceType);
+                    outputs[i] = scope == null ? double.NaN : ExtractMeasure(scope, outputMeasure);
+                }
+                string scopeLabel = componentIndex < 0
+                    ? "System"
+                    : failureModeIndex < 0 ? _components[componentIndex].Name : $"{_components[componentIndex].Name} mode {failureModeIndex + 1}";
+                var result = Correlate(inputs, outputs, measure, riskType, $"{outputMeasure} — {riskType} — {scopeLabel}");
+                if (result != null) matrix.Add(result);
+            }
+            return matrix;
+        }
+
+        /// <summary>
+        /// Computes the sensitivity of the risk at one hazard level to every knowledge input
+        /// (the tornado diagnostic, Phase 6.6): a dedicated content-seeded design (default 100
+        /// realizations) evaluates the failure-mode combination decomposition at the level —
+        /// one evaluation per realization, no integration — and correlates the weighted
+        /// expected consequence for the risk type against the percentile draws.
+        /// </summary>
+        /// <param name="componentIndex">The component whose risk is decomposed.</param>
+        /// <param name="hazardLevel">
+        /// The hazard level — interpreted on the component's selected profile hazard axis when
+        /// one is set (each realization inverts its own sampled profile chain back to the
+        /// driving hazard; user-ratified), the raw driving axis otherwise.
+        /// </param>
+        /// <param name="measure">The association measure to report.</param>
+        /// <param name="riskType">The risk type whose expected consequence is the output.</param>
+        /// <param name="realizations">The dedicated design size (a fresh stratified design — not the ensemble's rows).</param>
+        /// <param name="consequenceType">The consequence-type position (0 is the primary).</param>
+        /// <returns>
+        /// The labeled associations in the sampler walk order, or null when the analysis is
+        /// invalid (the v1.0 contract), the component is deterministic, or no knowledge inputs
+        /// exist.
+        /// </returns>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown for an out-of-range component index, consequence type, or a design below three realizations.</exception>
+        /// <remarks>
+        /// Content-seeded — the design derives from (analysis seed, component hash, occurrence
+        /// index), never a wall clock — and re-runs the component's sampler setup at the design
+        /// size (a subsequent <see cref="RunAsync"/> re-seeds itself). The legacy hazard bin
+        /// weight is preserved: the sampled hazard's probability mass over ±(range/200) around
+        /// the level, with the tail masses at the domain ends. When a profile element is
+        /// selected, every transform on its chain must declare an ordered output axis — the
+        /// per-realization inversion reads the sampled curves' <c>InverseFunction</c>, which
+        /// requires monotone outputs (rating curves are; an unordered declaration faults the
+        /// query loudly rather than inverting ambiguously).
+        /// </remarks>
+        public SensitivityResults? HazardLevelSensitivity(int componentIndex, double hazardLevel, SensitivityMeasure measure,
+            RiskType riskType, int realizations = 100, int consequenceType = 0)
+        {
+            if (componentIndex < 0 || componentIndex >= _components.Count)
+            {
+                throw new ArgumentOutOfRangeException(nameof(componentIndex), "The component index is out of range.");
+            }
+            if (realizations < 3)
+            {
+                throw new ArgumentOutOfRangeException(nameof(realizations), "The sensitivity design needs at least three realizations.");
+            }
+            if (consequenceType < 0 || consequenceType > _additionalConsequenceTypes.Count)
+            {
+                throw new ArgumentOutOfRangeException(nameof(consequenceType), "The consequence-type position is not declared.");
+            }
+            if (!Validate().IsValid) return null;
+            var component = _components[componentIndex];
+            if (component.IsDeterministic) return null;
+
+            SystemComponent.AssignOccurrenceIndices(_components);
+            int seed = SeedHelpers.HashCombine(_options.PRNGSeed, component.CanonicalHash(), component.OccurrenceIndex);
+            component.SetupSamplers(realizations, seed, _options.SamplingScheme);
+            var inputs = new List<SensitivityInput>();
+            component.CollectSensitivityInputs(inputs);
+            if (inputs.Count == 0) return null;
+
+            var outputs = new double[realizations];
+            Parallel.For(0, realizations, index =>
+            {
+                var flags = new RiskComputeFlags();
+                var sampled = component.Sample(index);
+                var scratch = new ComponentRealization(sampled.FailureModeCount);
+                scratch.EnsureAdditionalCurves(sampled.ConsequenceTypeCount - 1);
+                double raw = sampled.InverseProfileHazard(hazardLevel);
+
+                // The legacy hazard bin weight on this realization's sampled hazard.
+                double minHazard = sampled.Hazard.InverseCDF(ProbabilityFloor);
+                double maxHazard = sampled.Hazard.InverseCDF(1d - ProbabilityFloor);
+                double dx = (maxHazard - minHazard) / 200d;
+                double weight;
+                if (raw <= minHazard)
+                {
+                    weight = sampled.Hazard.CDF(minHazard + dx);
+                }
+                else if (raw >= maxHazard)
+                {
+                    weight = 1d - sampled.Hazard.CDF(maxHazard - dx);
+                }
+                else
+                {
+                    weight = sampled.Hazard.CDF(raw + dx) - sampled.Hazard.CDF(raw - dx);
+                }
+
+                var typeOutputs = new ComponentRiskOutput[sampled.ConsequenceTypeCount];
+                sampled.ComputeRisk(0.5d, raw, flags, scratch, recordOutput: false, typeOutputs);
+                var output = typeOutputs[consequenceType];
+                double expectedFailure = output.ProbabilityOfFailure * output.MeanFailureConsequences;
+                double expectedExcess = output.ProbabilityOfFailure * output.MeanExcessConsequences;
+                double nonFailure = output.NonFailureConsequences;
+                double nonFailureProbability = output.ProbabilityOfNonFailure;
+                outputs[index] = riskType switch
+                {
+                    RiskType.Excess => weight * expectedExcess,
+                    RiskType.Background => weight * nonFailure,
+                    RiskType.Total => weight * (expectedFailure + nonFailureProbability * nonFailure),
+                    RiskType.Fail => weight * expectedFailure,
+                    _ => weight * nonFailureProbability * nonFailure,
+                };
+            });
+
+            return Correlate(inputs, outputs, measure, riskType,
+                $"Risk at {hazardLevel.ToString("G6", CultureInfo.InvariantCulture)} — {riskType} — {component.Name}");
+        }
+
+        /// <summary>
+        /// Validates a measure-sensitivity scope: index bounds and the failure-mode stream
+        /// restriction (mode summaries carry Excess and Fail only).
+        /// </summary>
+        /// <param name="componentIndex">The component scope (−1 = system).</param>
+        /// <param name="failureModeIndex">The mode narrowing (−1 = none).</param>
+        /// <param name="riskType">The requested stream.</param>
+        /// <param name="consequenceType">The consequence-type position.</param>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown for out-of-range indices.</exception>
+        /// <exception cref="ArgumentException">Thrown for a mode scope with a stream other than Excess or Fail.</exception>
+        private void ValidateSensitivityScope(int componentIndex, int failureModeIndex, RiskType riskType, int consequenceType)
+        {
+            if (componentIndex < -1 || componentIndex >= _components.Count)
+            {
+                throw new ArgumentOutOfRangeException(nameof(componentIndex), "The component index is out of range.");
+            }
+            if (failureModeIndex >= 0 && componentIndex < 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(failureModeIndex), "A failure-mode scope requires a component scope.");
+            }
+            if (failureModeIndex >= 0 && riskType != RiskType.Excess && riskType != RiskType.Fail)
+            {
+                throw new ArgumentException("Failure-mode summaries carry the Excess and Fail streams only.", nameof(riskType));
+            }
+            if (consequenceType < 0 || consequenceType > _additionalConsequenceTypes.Count)
+            {
+                throw new ArgumentOutOfRangeException(nameof(consequenceType), "The consequence-type position is not declared.");
+            }
+        }
+
+        /// <summary>
+        /// Re-derives the knowledge-input columns for a sensitivity scope at the given design
+        /// size: the content-seed walk (occurrence indices, component seeds, sampler setup) and
+        /// the labeled column collection — identical streams to a run at that size.
+        /// </summary>
+        /// <param name="componentIndex">The scope (−1 = every component, in analysis order).</param>
+        /// <param name="sampleSize">The design size.</param>
+        /// <returns>The labeled columns in walk order.</returns>
+        private List<SensitivityInput> BuildSensitivityInputs(int componentIndex, int sampleSize)
+        {
+            SystemComponent.AssignOccurrenceIndices(_components);
+            var inputs = new List<SensitivityInput>();
+            for (int i = 0; i < _components.Count; i++)
+            {
+                if (componentIndex >= 0 && i != componentIndex) continue;
+                int seed = SeedHelpers.HashCombine(_options.PRNGSeed, _components[i].CanonicalHash(), _components[i].OccurrenceIndex);
+                _components[i].SetupSamplers(sampleSize, seed, _options.SamplingScheme);
+                _components[i].CollectSensitivityInputs(inputs);
+            }
+            return inputs;
+        }
+
+        /// <summary>
+        /// Resolves one realization summary's scope stream, or null when the summary does not
+        /// carry it (shape drift across a loaded ensemble).
+        /// </summary>
+        /// <param name="summary">The realization summary.</param>
+        /// <param name="componentIndex">The component scope (−1 = system).</param>
+        /// <param name="failureModeIndex">The mode narrowing (−1 = none).</param>
+        /// <param name="riskType">The stream.</param>
+        /// <param name="consequenceType">The consequence-type position.</param>
+        /// <returns>The stream summary, or null.</returns>
+        private static SummaryRiskResults? SelectScope(SystemRiskResults summary, int componentIndex, int failureModeIndex,
+            RiskType riskType, int consequenceType)
+        {
+            if (componentIndex < 0)
+            {
+                if (consequenceType == 0) return SystemStream(summary, riskType);
+                int k = consequenceType - 1;
+                return k < summary.AdditionalConsequences.Count ? TypeStream(summary.AdditionalConsequences[k], riskType) : null;
+            }
+            if (componentIndex >= summary.ComponentResults.Count) return null;
+            var component = summary.ComponentResults[componentIndex];
+            if (failureModeIndex < 0)
+            {
+                if (consequenceType == 0) return ComponentStream(component, riskType);
+                int k = consequenceType - 1;
+                return k < component.AdditionalConsequences.Count ? TypeStream(component.AdditionalConsequences[k], riskType) : null;
+            }
+            if (failureModeIndex >= component.FailureModeResults.Count) return null;
+            var mode = component.FailureModeResults[failureModeIndex];
+            if (consequenceType == 0)
+            {
+                return riskType == RiskType.Excess ? mode.Excess : mode.Fail;
+            }
+            int typeIndex = consequenceType - 1;
+            if (typeIndex >= mode.AdditionalConsequences.Count) return null;
+            return TypeStream(mode.AdditionalConsequences[typeIndex], riskType);
+        }
+
+        /// <summary>Selects a system-scope stream summary.</summary>
+        /// <param name="summary">The system summary.</param>
+        /// <param name="riskType">The stream.</param>
+        /// <returns>The stream summary.</returns>
+        private static SummaryRiskResults SystemStream(SystemRiskResults summary, RiskType riskType)
+        {
+            return riskType switch
+            {
+                RiskType.Excess => summary.Excess,
+                RiskType.Background => summary.Background,
+                RiskType.Total => summary.Total,
+                RiskType.Fail => summary.Fail,
+                _ => summary.NonFail,
+            };
+        }
+
+        /// <summary>Selects a component-scope stream summary.</summary>
+        /// <param name="component">The component summary.</param>
+        /// <param name="riskType">The stream.</param>
+        /// <returns>The stream summary.</returns>
+        private static SummaryRiskResults ComponentStream(ComponentResults component, RiskType riskType)
+        {
+            return riskType switch
+            {
+                RiskType.Excess => component.Excess,
+                RiskType.Background => component.Background,
+                RiskType.Total => component.Total,
+                RiskType.Fail => component.Fail,
+                _ => component.NonFail,
+            };
+        }
+
+        /// <summary>Selects a consequence-type stream summary.</summary>
+        /// <param name="results">The type's summary set.</param>
+        /// <param name="riskType">The stream.</param>
+        /// <returns>The stream summary.</returns>
+        private static SummaryRiskResults TypeStream(ConsequenceResults results, RiskType riskType)
+        {
+            return riskType switch
+            {
+                RiskType.Excess => results.Excess,
+                RiskType.Background => results.Background,
+                RiskType.Total => results.Total,
+                RiskType.Fail => results.Fail,
+                _ => results.NonFail,
+            };
+        }
+
+        /// <summary>Extracts one scalar measure from a stream summary.</summary>
+        /// <param name="summary">The stream summary.</param>
+        /// <param name="measure">The measure.</param>
+        /// <returns>The value (possibly NaN).</returns>
+        private static double ExtractMeasure(SummaryRiskResults summary, RiskMeasure measure)
+        {
+            return measure switch
+            {
+                RiskMeasure.TotalProbability => summary.TotalProbability,
+                RiskMeasure.ConditionalMean => summary.ConditionalMean,
+                RiskMeasure.Mean => summary.Mean,
+                RiskMeasure.StandardDeviation => summary.StandardDeviation,
+                RiskMeasure.Skewness => summary.Skewness,
+                RiskMeasure.Kurtosis => summary.Kurtosis,
+                RiskMeasure.ConsequenceThresholdProbability => summary.ConsequenceThresholdProbability,
+                RiskMeasure.HazardThresholdProbability => summary.HazardThresholdProbability,
+                RiskMeasure.ValueAtRisk => summary.ValueAtRisk,
+                _ => summary.ConditionalValueAtRisk,
+            };
+        }
+
+        /// <summary>
+        /// Correlates every input column against an output vector: pairwise NaN filtering on
+        /// the output, the selected association per column (a non-finite correlation coerces to
+        /// zero — the v1.0 convention), entries in walk order.
+        /// </summary>
+        /// <param name="inputs">The labeled input columns.</param>
+        /// <param name="outputs">The per-realization output values (NaN = unavailable).</param>
+        /// <param name="measure">The association measure.</param>
+        /// <param name="riskType">The output's stream (carried on the result).</param>
+        /// <param name="outputLabel">The output's display label.</param>
+        /// <returns>The result, or null when fewer than three valid pairs remain.</returns>
+        private static SensitivityResults? Correlate(List<SensitivityInput> inputs, double[] outputs,
+            SensitivityMeasure measure, RiskType riskType, string outputLabel)
+        {
+            var validIndices = new List<int>(outputs.Length);
+            for (int i = 0; i < outputs.Length; i++)
+            {
+                if (!double.IsNaN(outputs[i])) validIndices.Add(i);
+            }
+            if (validIndices.Count < 3) return null;
+
+            int count = validIndices.Count;
+            var outputVector = new double[count];
+            for (int i = 0; i < count; i++)
+            {
+                outputVector[i] = outputs[validIndices[i]];
+            }
+
+            var inputVector = new double[count];
+            var entries = new List<SensitivityEntry>(inputs.Count);
+            for (int c = 0; c < inputs.Count; c++)
+            {
+                var read = inputs[c].Read;
+                for (int i = 0; i < count; i++)
+                {
+                    inputVector[i] = read(validIndices[i]);
+                }
+                double value = measure switch
+                {
+                    SensitivityMeasure.PearsonCorrelation => Correlation.Pearson(inputVector, outputVector),
+                    SensitivityMeasure.SpearmanCorrelation => Correlation.Spearman(inputVector, outputVector),
+                    _ => Math.Pow(Correlation.Pearson(inputVector, outputVector), 2d),
+                };
+                if (double.IsNaN(value) || double.IsInfinity(value)) value = 0d;
+                entries.Add(new SensitivityEntry(inputs[c].Label, value));
+            }
+            return new SensitivityResults(outputLabel, riskType, measure, count, entries);
+        }
+
+        #endregion
+
+        #region Private Helpers — Realization Compute
 
         /// <summary>
         /// Computes one full realization. On the one-dimensional and additive paths each
-        /// component gets its own adaptive Gaussâ€“Kronrod pass over its hazard probability domain
+        /// component gets its own adaptive Gauss–Kronrod pass over its hazard probability domain
         /// and the exact curves, profiles, and risk measures are built per component; a single
         /// component's curves are the system curves (v1.0 behavior), and multiple additive
         /// components aggregate by zero-inflated lattice convolution. The joint path instead
         /// integrates the correlated hazard hypercube with VEGAS, recording component and system
         /// points together.
         /// </summary>
-        /// <param name="realizationIndex">The realization index, or âˆ’1 for the mean pass.</param>
+        /// <param name="realizationIndex">The realization index, or −1 for the mean pass.</param>
         /// <param name="flags">The realization's computational-warning flags.</param>
         /// <param name="token">The run cancellation token.</param>
         /// <returns>The computed realization.</returns>

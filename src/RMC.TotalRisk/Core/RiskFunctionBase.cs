@@ -272,6 +272,24 @@ namespace RMC.TotalRisk.Core
         }
 
         /// <summary>
+        /// Reads the pre-allocated percentile for a realization and sampling dimension — the
+        /// public read the sensitivity engine correlates against (Phase 6.6): the percentile
+        /// row IS the function's knowledge draw, re-derivable bit-exactly from the content
+        /// seeds.
+        /// </summary>
+        /// <param name="realizationIndex">The realization row, in [0, <see cref="SampleSize"/>).</param>
+        /// <param name="dimension">The sampling dimension column, in [0, <see cref="SamplingDimensions"/>).</param>
+        /// <returns>The uniform (0, 1) percentile driving this function's draw.</returns>
+        /// <exception cref="InvalidOperationException">
+        /// Thrown when <see cref="SetupSampler"/> has not been called (or the function has no
+        /// sampling dimensions).
+        /// </exception>
+        public double SampledPercentile(int realizationIndex, int dimension)
+        {
+            return Percentile(realizationIndex, dimension);
+        }
+
+        /// <summary>
         /// Maps any 32-bit seed onto [1, int.MaxValue] deterministically.
         /// </summary>
         /// <param name="seed">The seed, possibly zero or negative (content-derived seeds span the full int range).</param>
