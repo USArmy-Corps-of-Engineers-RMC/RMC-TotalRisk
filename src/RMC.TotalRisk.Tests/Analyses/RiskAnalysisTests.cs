@@ -1499,6 +1499,62 @@ public class RiskAnalysisTests
             "A payload without the members must load forward as null.");
     }
 
+    /// <summary>
+    /// Verifies the ensemble scalar summary (Phase 6.6): a full-uncertainty run populates
+    /// <c>RiskResults.Summary</c> with ordered percentile trees whose mean slot is the
+    /// sequential ensemble mean, the stored summary reproduces bit-for-bit from a JSON
+    /// round-trip via <c>ComputeSummary</c>, convergence indicators aggregate the integrator
+    /// diagnostics, and a mean-only run carries no summary.
+    /// </summary>
+    [TestMethod]
+    public async Task Test_EnsembleSummary_FullRun_ScalarIntervals()
+    {
+        // Arrange / Act
+        var analysis = new RiskAnalysis(new[] { Component(Consequence("Failure Loss", 300d), UncertainFragility()) });
+        analysis.Options.EstimateMeanRiskOnly = false;
+        analysis.Options.Realizations = 200;
+        await analysis.RunAsync();
+
+        // Assert — presence, ordering, and the sequential mean identity.
+        var summary = analysis.RiskResults!.Summary;
+        Assert.IsNotNull(summary, "A full-uncertainty run must populate the scalar summary.");
+        Assert.AreEqual(200, summary!.RealizationCount);
+        Assert.IsTrue(summary.Lower.Total.Mean <= summary.Median.Total.Mean && summary.Median.Total.Mean <= summary.Upper.Total.Mean,
+            "The percentile slots must be ordered.");
+        Assert.IsTrue(summary.Lower.Fail.TotalProbability <= summary.Upper.Fail.TotalProbability);
+        double sequentialMean = 0d;
+        for (int i = 0; i < analysis.RiskResults.Count; i++)
+        {
+            sequentialMean += analysis.RiskResults[i]!.Total.Mean;
+        }
+        sequentialMean /= analysis.RiskResults.Count;
+        Assert.AreEqual(sequentialMean, summary.Mean.Total.Mean, 0d,
+            "The mean slot must be the sequential ensemble mean, bit for bit.");
+
+        // Per-scope intervals exist down to the failure-mode contribution.
+        Assert.IsNotNull(summary.Mean.ComponentResults[0].FailureModeResults[0].Contribution,
+            "Contribution intervals must reduce alongside the measure catalog.");
+        Assert.IsTrue(summary.Mean.ComponentResults[0].Fail.TotalProbability > 0d);
+
+        // Convergence: totals aggregate, and the headline indicators are populated.
+        Assert.IsTrue(summary.Convergence.TotalFunctionEvaluations > 0d);
+        Assert.AreEqual("Annualized Failure Probability", summary.Convergence.Indicators[0].Label);
+        Assert.IsTrue(summary.Convergence.Indicators[0].EnsembleStandardError > 0d);
+        Assert.IsTrue(summary.Convergence.Indicators[0].CiHalfWidth > 0d);
+
+        // The stored summary reproduces from a JSON round-trip.
+        var restored = EnsembleResults.FromJson(analysis.RiskResults.ToJson())!;
+        var recomputed = restored.ComputeSummary(analysis.Options.ConfidenceIntervalWidth)!;
+        Assert.AreEqual(summary.Mean.Total.Mean, recomputed.Mean.Total.Mean, 0d);
+        Assert.AreEqual(summary.Upper.Total.ConditionalValueAtRisk, recomputed.Upper.Total.ConditionalValueAtRisk, 0d);
+        Assert.AreEqual(summary.Lower.Fail.TotalProbability, recomputed.Lower.Fail.TotalProbability, 0d);
+
+        // Mean-only runs carry no summary.
+        var meanOnly = new RiskAnalysis(new[] { Component(Consequence("Failure Loss", 300d)) });
+        await meanOnly.RunAsync();
+        Assert.IsNull(meanOnly.RiskResults!.Summary, "Mean-only runs have a single realization — no scalar intervals.");
+    }
+
     /// <summary>Builds the profile-remap engine fixture: flow hazard → rating (T(h) = h/2) → uncertain stage fragility → stage consequences.</summary>
     private static SystemComponent RemapEngineComponent()
     {

@@ -81,6 +81,28 @@ namespace RMC.TotalRisk.Results
         public int Count => _realizations.Length;
 
         /// <summary>
+        /// The percentile confidence intervals on every scalar risk measure plus the aggregated
+        /// convergence diagnostics (Phase 6.6), populated by the engine at the end of a
+        /// full-uncertainty run and recomputable from any loaded ensemble via
+        /// <see cref="ComputeSummary"/>. Null on older payloads and mean-only runs — "not
+        /// computed" (append-only results JSON).
+        /// </summary>
+        public EnsembleSummary? Summary { get; set; }
+
+        /// <summary>
+        /// Computes the scalar-measure percentile summary and convergence diagnostics from the
+        /// stored realizations — the same reduction the engine runs, available on any loaded
+        /// ensemble (the stored <see cref="Summary"/> is not modified).
+        /// </summary>
+        /// <param name="confidenceIntervalWidth">The confidence-interval width, in (0, 1).</param>
+        /// <returns>The summary, or null when the ensemble holds no realizations.</returns>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown when the width is outside (0, 1).</exception>
+        public EnsembleSummary? ComputeSummary(double confidenceIntervalWidth)
+        {
+            return EnsembleSummary.Compute(this, confidenceIntervalWidth);
+        }
+
+        /// <summary>
         /// Resizes the ensemble, clearing all current summaries.
         /// </summary>
         /// <param name="length">The realization count. Must not be negative.</param>

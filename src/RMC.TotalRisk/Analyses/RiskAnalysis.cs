@@ -928,6 +928,11 @@ namespace RMC.TotalRisk.Analyses
             {
                 ensemble[i] = summaries[i];
             }
+
+            // The scalar-measure percentile summary and convergence diagnostics (Phase 6.6):
+            // curves carry bands through the percentile realizations; the scalar catalog gets
+            // its intervals here, reduced from the stored per-realization summaries.
+            ensemble.Summary = ensemble.ComputeSummary(_options.ConfidenceIntervalWidth);
             RiskResults = ensemble;
         }
 
