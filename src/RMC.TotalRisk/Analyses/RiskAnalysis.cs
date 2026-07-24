@@ -225,6 +225,15 @@ namespace RMC.TotalRisk.Analyses
         private MultivariateNormal? _jointMultivariateNormal;
 
         /// <summary>
+        /// The lower Cholesky factor of the joint hazard covariance, extracted once per run so
+        /// the VEGAS integrand applies the latent transform in place instead of allocating
+        /// through <see cref="MultivariateNormal.InverseCDF(double[])"/> on every evaluation
+        /// (Phase 6.5; the in-place loop replicates the Numerics matrix–vector accumulation
+        /// order exactly, so the recorded stream is bit-identical). Run-scoped runtime state.
+        /// </summary>
+        private double[,]? _jointCholeskyLower;
+
+        /// <summary>
         /// The component failure/non-failure indicator combinations for the joint method: 2^D
         /// rows over D components with the all-zero (no-failure) combination first — the v1.0
         /// engine-level layout. Run-scoped runtime state.
@@ -1186,7 +1195,10 @@ namespace RMC.TotalRisk.Analyses
         private void IntegrateComponent(SampledComponent sampled, ComponentRealization componentRealization,
             SystemRealization realization, RiskComputeFlags flags)
         {
-            var objective = BuildObjective(sampled, componentRealization, flags);
+            // One stratification build serves the balanced-objective scales and the integrator
+            // seeding alike (the probes run before the integrator touches the list).
+            var bins = BuildStratificationBins(sampled, flags);
+            var objective = BuildObjective(sampled, componentRealization, flags, bins);
             var integrator = new AdaptiveGaussKronrod(objective, ProbabilityFloor, 1d - ProbabilityFloor)
             {
                 ReportFailure = false,
@@ -1195,7 +1207,7 @@ namespace RMC.TotalRisk.Analyses
                 RelativeTolerance = _options.Tolerance,
                 MinDepth = 2,
             };
-            integrator.Integrate(BuildStratificationBins(sampled, flags));
+            integrator.Integrate(bins);
             if (integrator.Status == IntegrationStatus.Failure)
             {
                 throw new InvalidOperationException($"The risk integration failed for system component '{sampled.Name}': an integrand evaluation threw and the recorded curves are incomplete. The analysis cannot publish results for this run.");
@@ -1223,15 +1235,14 @@ namespace RMC.TotalRisk.Analyses
         /// <param name="sampled">The sampled component.</param>
         /// <param name="componentRealization">The component's realization sink.</param>
         /// <param name="flags">The realization's computational-warning flags.</param>
+        /// <param name="bins">The component's stratification bins (the balanced objective's scale probes sweep their edges).</param>
         /// <returns>The integrand over hazard non-exceedance probability.</returns>
         private Func<double, double> BuildObjective(SampledComponent sampled, ComponentRealization componentRealization,
-            RiskComputeFlags flags)
+            RiskComputeFlags flags, List<StratificationBin> bins)
         {
             if (EffectiveIntegrand == RiskIntegrand.Balanced)
             {
-                double meanScale = ObjectiveScale(sampled, flags, RiskIntegrand.MeanTotalRisk);
-                double secondScale = ObjectiveScale(sampled, flags, RiskIntegrand.SecondMoment);
-                double tailScale = ObjectiveScale(sampled, flags, RiskIntegrand.TailConditionalRisk);
+                var (meanScale, secondScale, tailScale) = ObjectiveScales(sampled, flags, bins);
                 return p =>
                 {
                     var output = Evaluate(sampled, componentRealization, flags, p, recordOutput: true);
@@ -1311,27 +1322,36 @@ namespace RMC.TotalRisk.Analyses
         }
 
         /// <summary>
-        /// Estimates a normalization scale for one of the balanced objective's members from a
-        /// non-recording pre-pass over the stratification-bin edges; a vanishing scale falls
+        /// Estimates the normalization scales for the balanced objective's three members from
+        /// ONE non-recording pre-pass over the stratification-bin edges — each evaluation feeds
+        /// all three accumulations, so the pass costs a third of the per-member probes it
+        /// replaces while producing the identical per-member sums (Phase 6.5; the pre-6.5 shape
+        /// ran three separate sweeps and rebuilt the bins each time). A vanishing scale falls
         /// back to one so the balanced sum stays finite.
         /// </summary>
         /// <param name="sampled">The sampled component.</param>
         /// <param name="flags">The realization's computational-warning flags.</param>
-        /// <param name="integrand">The objective member to scale.</param>
-        /// <returns>The positive normalization scale.</returns>
-        private double ObjectiveScale(SampledComponent sampled, RiskComputeFlags flags, RiskIntegrand integrand)
+        /// <param name="bins">The component's stratification bins.</param>
+        /// <returns>The positive normalization scales (mean, second moment, tail).</returns>
+        private (double Mean, double Second, double Tail) ObjectiveScales(SampledComponent sampled, RiskComputeFlags flags,
+            List<StratificationBin> bins)
         {
             var scratch = new ComponentRealization(sampled.FailureModeCount);
-            var bins = BuildStratificationBins(sampled, flags);
-            double scale = 0d;
+            double meanScale = 0d;
+            double secondScale = 0d;
+            double tailScale = 0d;
             for (int i = 0; i < bins.Count; i++)
             {
                 var output = Evaluate(sampled, scratch, flags, bins[i].LowerBound, recordOutput: false);
-                scale += Math.Abs(ObjectiveValue(output, bins[i].LowerBound, integrand));
+                meanScale += Math.Abs(ObjectiveValue(output, bins[i].LowerBound, RiskIntegrand.MeanTotalRisk));
+                secondScale += Math.Abs(ObjectiveValue(output, bins[i].LowerBound, RiskIntegrand.SecondMoment));
+                tailScale += Math.Abs(ObjectiveValue(output, bins[i].LowerBound, RiskIntegrand.TailConditionalRisk));
             }
             var last = Evaluate(sampled, scratch, flags, bins[bins.Count - 1].UpperBound, recordOutput: false);
-            scale += Math.Abs(ObjectiveValue(last, bins[bins.Count - 1].UpperBound, integrand));
-            return scale > 0d ? scale : 1d;
+            meanScale += Math.Abs(ObjectiveValue(last, bins[bins.Count - 1].UpperBound, RiskIntegrand.MeanTotalRisk));
+            secondScale += Math.Abs(ObjectiveValue(last, bins[bins.Count - 1].UpperBound, RiskIntegrand.SecondMoment));
+            tailScale += Math.Abs(ObjectiveValue(last, bins[bins.Count - 1].UpperBound, RiskIntegrand.TailConditionalRisk));
+            return (meanScale > 0d ? meanScale : 1d, secondScale > 0d ? secondScale : 1d, tailScale > 0d ? tailScale : 1d);
         }
 
         /// <summary>
@@ -1435,6 +1455,7 @@ namespace RMC.TotalRisk.Analyses
         private void PrepareJointSystem(CancellationToken token)
         {
             _jointMultivariateNormal = null;
+            _jointCholeskyLower = null;
             _jointIndicators = null;
             _jointBinomialCombinations = null;
             _jointTailTargetProbability = 1e-2;
@@ -1444,9 +1465,23 @@ namespace RMC.TotalRisk.Analyses
             }
 
             int d = _components.Count;
-            _jointMultivariateNormal = BuildHazardMultivariateNormal(d);
+            _jointMultivariateNormal = BuildHazardMultivariateNormal(d, out var covariance);
             _jointIndicators = BuildSystemIndicators(d);
             _jointBinomialCombinations = BuildSystemBinomialCombinations(d);
+
+            // Extract the lower Cholesky factor once — the same construction the multivariate
+            // normal performs internally on the same covariance, so the factor bits are
+            // identical and the integrand's in-place latent transform reproduces
+            // MultivariateNormal.InverseCDF exactly.
+            var lower = new CholeskyDecomposition(new Matrix(covariance)).L;
+            _jointCholeskyLower = new double[d, d];
+            for (int i = 0; i < d; i++)
+            {
+                for (int j = 0; j < d; j++)
+                {
+                    _jointCholeskyLower[i, j] = lower[i, j];
+                }
+            }
 
             if (_options.VegasTailFocusMode == VegasTailFocusMode.Automatic)
             {
@@ -1467,11 +1502,12 @@ namespace RMC.TotalRisk.Analyses
         /// analysis-validated user matrix.
         /// </summary>
         /// <param name="dimension">The component count D.</param>
+        /// <param name="covariance">Receives the covariance the normal was built on (the Cholesky-extraction input).</param>
         /// <returns>The multivariate normal over the component hazard probabilities.</returns>
-        private MultivariateNormal BuildHazardMultivariateNormal(int dimension)
+        private MultivariateNormal BuildHazardMultivariateNormal(int dimension, out double[,] covariance)
         {
             var mean = new double[dimension];
-            var covariance = new double[dimension, dimension];
+            covariance = new double[dimension, dimension];
             double offDiagonal;
             switch (_options.ComponentHazardDependency)
             {
@@ -1642,7 +1678,7 @@ namespace RMC.TotalRisk.Analyses
             RiskComputeFlags flags, int realizationIndex, CancellationToken token)
         {
             int d = _components.Count;
-            var multivariateNormal = _jointMultivariateNormal
+            var lower = _jointCholeskyLower
                 ?? throw new InvalidOperationException("The joint-method state was not prepared. The run sequence must call PrepareJointSystem before computing realizations.");
             var indicators = _jointIndicators!;
             var binomialCombinations = _jointBinomialCombinations!;
@@ -1679,6 +1715,8 @@ namespace RMC.TotalRisk.Analyses
             var excessPoints = new RiskPoint?[typeCount];
             var totalPoints = new RiskPoint?[typeCount];
             var nonFailPoints = new RiskPoint?[typeCount];
+            var zBuffer = new double[d];
+            var latentBuffer = new double[d];
 
             bool recording = false;
             double recordedWeightSum = 0d;
@@ -1689,11 +1727,26 @@ namespace RMC.TotalRisk.Analyses
 
                 bool recordSecondary = recording && typeCount > 1;
 
-                // Correlated hazard probabilities through the latent normal (Cholesky).
-                var latent = multivariateNormal.InverseCDF(point);
+                // Correlated hazard probabilities through the latent normal: the in-place
+                // Cholesky transform replicating MultivariateNormal.InverseCDF exactly — the
+                // full-row accumulation order of the Numerics matrix–vector product, with the
+                // zero mean folded in — without its per-evaluation allocations.
+                for (int j = 0; j < d; j++)
+                {
+                    zBuffer[j] = Normal.StandardZ(point[j]);
+                }
                 for (int i = 0; i < d; i++)
                 {
-                    double probability = Normal.StandardCDF(latent[i]);
+                    double sum = 0.0d;
+                    for (int j = 0; j < d; j++)
+                    {
+                        sum += lower[i, j] * zBuffer[j];
+                    }
+                    latentBuffer[i] = sum + 0d;
+                }
+                for (int i = 0; i < d; i++)
+                {
+                    double probability = Normal.StandardCDF(latentBuffer[i]);
                     probability = Math.Max(ProbabilityFloor, Math.Min(1d - ProbabilityFloor, probability));
                     hazardLevels[i] = sampledComponents[i].Hazard.InverseCDF(probability);
 
