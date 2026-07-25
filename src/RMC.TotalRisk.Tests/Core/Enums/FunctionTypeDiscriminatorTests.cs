@@ -48,6 +48,7 @@ public class FunctionTypeDiscriminatorTests
         Assert.AreEqual(HazardFunctionType.Tabular, new TabularHazard().FunctionType);
         Assert.AreEqual(HazardFunctionType.ParametricUnivariate, new ParametricUnivariateHazard().FunctionType);
         Assert.AreEqual(HazardFunctionType.Nonparametric, new NonparametricHazard().FunctionType);
+        Assert.AreEqual(HazardFunctionType.Composite, new CompositeHazard().FunctionType);
         Assert.AreEqual(TransformFunctionType.Tabular, new TabularTransform().FunctionType);
         Assert.AreEqual(TransformFunctionType.Linear, new LinearTransform().FunctionType);
         Assert.AreEqual(TransformFunctionType.Power, new PowerTransform().FunctionType);
@@ -72,6 +73,7 @@ public class FunctionTypeDiscriminatorTests
             new TabularHazard().ToXElement(),
             new ParametricUnivariateHazard().ToXElement(),
             new NonparametricHazard().ToXElement(),
+            new CompositeHazard().ToXElement(),
             new TabularTransform().ToXElement(),
             new LinearTransform().ToXElement(),
             new PowerTransform().ToXElement(),

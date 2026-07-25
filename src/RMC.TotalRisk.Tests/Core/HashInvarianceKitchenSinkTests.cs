@@ -136,6 +136,23 @@ public class HashInvarianceKitchenSinkTests
                 CompositeFunctionType = CompositeFunctionType.Average,
             },
             f => ((CompositeConsequence)f).CompositeFunctionType = CompositeFunctionType.Mixture);
+
+        // Phase 9 — the composite hazard. Registered in Mixture mode so the weights participate in
+        // the hash surface; the mutation flips the combination rule, which changes results.
+        yield return new RegistryEntry(
+            nameof(CompositeHazard),
+            () => new CompositeHazard(new[]
+            {
+                new WeightedHazardFunction(new TabularHazard { Name = "Rain", SpecifiedHazard = "Flow", HazardUnit = "cfs" }, 0.45d),
+                new WeightedHazardFunction(new TabularHazard { Name = "Snow", SpecifiedHazard = "Flow", HazardUnit = "cfs" }, 0.55d),
+            })
+            {
+                Name = "Rain/Snow",
+                SpecifiedHazard = "Flow",
+                HazardUnit = "cfs",
+                CompositeCombinationType = CompositeCombinationType.Mixture,
+            },
+            f => ((CompositeHazard)f).CompositeCombinationType = CompositeCombinationType.CompetingRisks);
     }
 
     /// <summary>Verifies metadata edits (rename/re-describe/relabel) never move any registered type's hash.</summary>

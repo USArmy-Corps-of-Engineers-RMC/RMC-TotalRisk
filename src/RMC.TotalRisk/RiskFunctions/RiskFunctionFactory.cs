@@ -65,6 +65,7 @@ namespace RMC.TotalRisk.RiskFunctions
                 nameof(TabularHazard) => new TabularHazard(xElement),
                 nameof(ParametricUnivariateHazard) => new ParametricUnivariateHazard(xElement),
                 nameof(NonparametricHazard) => new NonparametricHazard(xElement),
+                nameof(CompositeHazard) => new CompositeHazard(xElement, resolver),
                 nameof(TabularTransform) => new TabularTransform(xElement),
                 nameof(LinearTransform) => new LinearTransform(xElement),
                 nameof(PowerTransform) => new PowerTransform(xElement),
@@ -87,6 +88,22 @@ namespace RMC.TotalRisk.RiskFunctions
         public static IHazardFunction? CreateHazardFunction(XElement xElement)
         {
             return CreateFromXElement(xElement) as IHazardFunction;
+        }
+
+        /// <summary>
+        /// Reconstructs a hazard function from its serialized form, resolving any by-reference
+        /// children through the supplied resolver.
+        /// </summary>
+        /// <param name="xElement">The serialized form; the local name selects the concrete type.</param>
+        /// <param name="resolver">
+        /// The function resolver handed to container hazard types (composite functions); leaf types
+        /// ignore it, and null reads self-contained forms.
+        /// </param>
+        /// <returns>The reconstructed hazard function, or null when the local name is unknown or names a non-hazard type.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when the element is null.</exception>
+        public static IHazardFunction? CreateHazardFunction(XElement xElement, IRiskFunctionResolver? resolver)
+        {
+            return CreateFromXElement(xElement, resolver) as IHazardFunction;
         }
 
         /// <summary>
