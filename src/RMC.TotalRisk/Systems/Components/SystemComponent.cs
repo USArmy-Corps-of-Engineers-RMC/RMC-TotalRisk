@@ -62,7 +62,7 @@ namespace RMC.TotalRisk.Systems.Components
     /// occurrence indexing. The v1.0 <c>ProfileHazardFunction</c> (a name-matched
     /// <c>IElement</c> reference) is ported as the structural
     /// <see cref="ProfileHazardElementId"/> element reference (Q-T closure, Phase 6.6):
-    /// resolved at the <see cref="SetupSamplers"/> freeze point into the transform chain that
+    /// resolved at the <see cref="SetupSamplers(int, int, SamplingScheme)"/> freeze point into the transform chain that
     /// remaps every recorded hazard level onto the selected axis, serialized append-only, and
     /// deliberately excluded from the identity form so a reporting-axis flip can never re-roll
     /// Monte Carlo seeds.
@@ -191,7 +191,7 @@ namespace RMC.TotalRisk.Systems.Components
 
         /// <summary>
         /// The resolved profile transform chain — the run-time product of
-        /// <see cref="SetupSamplers"/>, never serialized, hashed, or cloned. Null when no
+        /// <see cref="SetupSamplers(int, int, SamplingScheme)"/>, never serialized, hashed, or cloned. Null when no
         /// profile element is selected or the selection does not resolve.
         /// </summary>
         private ITransformFunction[]? _profileTransformFunctions;
@@ -456,7 +456,7 @@ namespace RMC.TotalRisk.Systems.Components
 
         /// <summary>
         /// The resolved profile transform chain (root-first) whose composition maps the driving
-        /// hazard onto the selected profile axis, refreshed by <see cref="SetupSamplers"/>; null
+        /// hazard onto the selected profile axis, refreshed by <see cref="SetupSamplers(int, int, SamplingScheme)"/>; null
         /// when no profile element is selected. Run-time state — never serialized or hashed.
         /// </summary>
         internal ITransformFunction[]? ProfileTransformFunctions
@@ -558,7 +558,7 @@ namespace RMC.TotalRisk.Systems.Components
         /// modes — back-fills <see cref="CorrelationMatrix"/> with the derived matrix. v1.0
         /// rebuilt eagerly on every ctor/setter/mode edit, so its compute paths always read a
         /// fresh matrix; v1.1 builds lazily, so the per-run freeze point
-        /// (<see cref="SetupSamplers"/>) calls this before any sampling. Without this call the
+        /// (<see cref="SetupSamplers(int, int, SamplingScheme)"/>) calls this before any sampling. Without this call the
         /// perfectly-negative mode's derived matrix never materializes on the compute path (the
         /// sampled component captures the raw <see cref="CorrelationMatrix"/> reference), which
         /// silently zeroed dependent combination kernels before the Phase 5 correction.
@@ -581,7 +581,7 @@ namespace RMC.TotalRisk.Systems.Components
         public int OccurrenceIndex { get; internal set; }
 
         /// <summary>
-        /// The failure-mode projection captured by <see cref="SetupSamplers"/> for the current
+        /// The failure-mode projection captured by <see cref="SetupSamplers(int, int, SamplingScheme)"/> for the current
         /// run — <see cref="FailureModes"/> builds a fresh projection on every access, so the
         /// engine must sample against one frozen snapshot. Runtime sampler state: never
         /// serialized, never hashed, never cloned.
@@ -594,14 +594,14 @@ namespace RMC.TotalRisk.Systems.Components
         private FailureMode? _sampledNonFailureMode;
 
         /// <summary>
-        /// The frozen projection snapshot captured by <see cref="SetupSamplers"/> — exposed for
+        /// The frozen projection snapshot captured by <see cref="SetupSamplers(int, int, SamplingScheme)"/> — exposed for
         /// the engine's per-run labeling (Phase 6.7 Q3); null before the samplers are set up.
         /// </summary>
         internal IReadOnlyList<FailureMode>? SampledProjection => _sampledModes;
 
         /// <summary>
         /// The snapshot's end-state group layout (arch doc §7.9), frozen beside the projection
-        /// by <see cref="SetupSamplers"/> so every realization combines against one structure.
+        /// by <see cref="SetupSamplers(int, int, SamplingScheme)"/> so every realization combines against one structure.
         /// Runtime sampler state: never serialized, never hashed, never cloned.
         /// </summary>
         private EndStateGroupLayout? _sampledLayout;
@@ -1143,12 +1143,12 @@ namespace RMC.TotalRisk.Systems.Components
 
         /// <summary>
         /// Samples the component for one realization against the snapshot captured by
-        /// <see cref="SetupSamplers"/>.
+        /// <see cref="SetupSamplers(int, int, SamplingScheme)"/>.
         /// </summary>
         /// <param name="realizationIndex">The realization index, or −1 for the mean functions.</param>
         /// <returns>The sampled component.</returns>
         /// <exception cref="InvalidOperationException">
-        /// Thrown before <see cref="SetupSamplers"/> has run, or when the component has no
+        /// Thrown before <see cref="SetupSamplers(int, int, SamplingScheme)"/> has run, or when the component has no
         /// hazard function.
         /// </exception>
         public SampledComponent Sample(int realizationIndex = -1)
@@ -1163,7 +1163,7 @@ namespace RMC.TotalRisk.Systems.Components
         /// <summary>
         /// Collects this component's labeled knowledge-input columns for the sensitivity engine
         /// (Phase 6.6): one column per sampled function dimension plus each mode's consequence
-        /// coupling columns, in the exact <see cref="SetupSamplers"/> walk order with the same
+        /// coupling columns, in the exact <see cref="SetupSamplers(int, int, SamplingScheme)"/> walk order with the same
         /// reference-identity dedup — one shared instance is one knowledge quantity, so labels
         /// and columns can never drift from the seeded streams. Deterministic functions
         /// contribute no column, and a coupling column appears only where an uncertain
@@ -1172,7 +1172,7 @@ namespace RMC.TotalRisk.Systems.Components
         /// </summary>
         /// <param name="sink">Receives the labeled columns, appended in walk order.</param>
         /// <exception cref="ArgumentNullException">Thrown when the sink is null.</exception>
-        /// <exception cref="InvalidOperationException">Thrown before <see cref="SetupSamplers"/> has run.</exception>
+        /// <exception cref="InvalidOperationException">Thrown before <see cref="SetupSamplers(int, int, SamplingScheme)"/> has run.</exception>
         internal void CollectSensitivityInputs(List<SensitivityInput> sink)
         {
             if (sink == null) throw new ArgumentNullException(nameof(sink));

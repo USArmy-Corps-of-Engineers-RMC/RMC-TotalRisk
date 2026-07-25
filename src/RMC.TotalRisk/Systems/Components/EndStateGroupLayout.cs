@@ -48,6 +48,7 @@ namespace RMC.TotalRisk.Systems.Components
         /// <param name="isFailureState">The per-state final-polarity classification.</param>
         /// <param name="pairingPartnerState">The per-state flipped-final sibling map.</param>
         /// <param name="claimedStateUnit">The per-state owning combination unit of each claimed state.</param>
+        /// <param name="claimedStateCount">The number of claimed non-failure states in the layout.</param>
         /// <param name="claimingCascadeCount">The number of cascades carrying claimed states.</param>
         /// <param name="hasNonFailBranchFailureState">Whether any failure state rides a Non-Fail branch.</param>
         /// <param name="isTrivial">Whether the layout is the pre-6.7 shape.</param>
