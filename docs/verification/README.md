@@ -81,7 +81,13 @@ the test executable with a TRX report:
 | [Cascading end states](cascade-end-states.md) | `CascadeEndStateVerification` | NEW Phase 6.7 family (the Q-X closure, arch doc §7.9): the partial-damage cascade vs its natural MC oracle (final-polarity APF, conditional complement, sibling-paired excess), the across-unit joint/mutually-exclusive/competing matrix, the bit-exact saturated-stage single-stage equivalence, reliability-mode APF, system aggregation smokes, and the port/polarity reproducibility pins | ✅ Verified (2026-07-24) |
 | [Closed-form functions](closed-form-functions.md) | `ClosedFormFunctionsVerification` | NEW Phase 7 family (no legacy oracles exist — Dev-repo sweep): the 2024 report's SF-8 vs HEC-FDA Table 38 pins (all 20 constants, log10 ±2SD quantiles) + an independent legacy-pipeline re-derivation (the Brent-vs-closed-form optimization-equivalence anchor), transform-chain ensembles vs flat MC oracles (`MersenneTwister(12345)`, N = 10⁶ — the first engine passage of the closed-form transforms), D = 0 dense-quadrature parity, and the nonparametric reliability AFP vs independent knot-semantics oracles with bit-identity pins | ✅ Verified (2026-07-25) |
 
-Engine-level composite scenarios (the legacy `Test_Composite.vb` day/night oracles with a
-hazard curve and fragility in the loop) convert when the risk engine lands — see the
-conversion order in [docs/verification.md](../verification.md); this folder gains their pages
-then (Phase 9), alongside the NFIP TOL 60/65 hazard-bootstrap variants.
+| [Composite hazard](composite-hazard.md) | `CompositeHazardVerification` | NEW Phase 9 family: 2024 report Tables 44–46 (R `mistr` mixture curve and bootstrap bands) + an exact index-parity oracle rebuilt from Numerics `BootstrapAnalysis`/`Mixture` at the legacy seeds + competing-risks maximum-rule closed forms. Records two findings: v1.1 is ~6× closer to the analytic mixture than two published mid-distribution rows, and the upstream bootstrap summary reduction is order-nondeterministic | ✅ Verified (2026-07-25) |
+| [Composite response](composite-response.md) | `CompositeResponseVerification` | NEW Phase 9 family: the shared Table 44 scenario read on the fragility (probability) axis + exact weakest-link probability identities (union under independence, maximum under comonotonic) + a hazard-grid index-parity band oracle | ✅ Verified (2026-07-25) |
+| [Composite transform](composite-transform.md) | `CompositeTransformVerification` | NEW Phase 9 greenfield family (no legacy implementation, no report table): exact linear-combination algebra forward and inverse, exact Normal theory for the ω²-additive ensemble variance (the check that discriminates independent from co-monotonic child seeding), and a realization-for-realization identity against the independently reproduced child-seed recipe | ✅ Verified (2026-07-25) |
+
+**Still to convert (Phase 9 follow-on).** The engine-level composite scenarios — legacy
+`Test_Composite.vb` (`Test_Composite_Hazard`, `Test_Composite_Response`, and the day/night
+consequence oracles) and the `Test_RiskAnalysis.Test_Composite` mixture-consistency identity — put
+a composite behind the full risk engine rather than exercising the function alone. They convert in
+a follow-on session, alongside the NFIP TOL 60/65 hazard-bootstrap variants. See the conversion
+order in [docs/verification.md](../verification.md).

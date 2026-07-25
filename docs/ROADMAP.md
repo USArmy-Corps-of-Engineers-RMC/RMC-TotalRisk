@@ -442,7 +442,11 @@ with no store, no resolver, and no consuming layer in the call path.
 
 **Verification:** `Test_Composite` (incl. its built-in mixture consistency cross-check), `Test_Composite_Uncertainty`, `Test_Composite_Consequence_Mixture` (the engine-level day/night oracles), NFIP TOL 60/65 (hazard bootstrap variants).
 
-**Exit criteria:** composite family P/T/V.
+> **Partially landed (2026-07-25):** **`CompositeHazard` + `WeightedHazardFunction`, `CompositeResponse` + `WeightedResponseFunction`, and `CompositeTransform` + `WeightedTransformFunction`** are P/T/V, with function-level verification families against report Tables 44–46 and closed-form probability identities ([composite-hazard](verification/composite-hazard.md), [composite-response](verification/composite-response.md), [composite-transform](verification/composite-transform.md)) and the doctrine page [technical-reference/composite-functions.md](technical-reference/composite-functions.md). Ratified this session: hazard/response mixtures are **aleatory only** (a real `Mixture` distribution, D = 0, no branch selector — the Q-V defect does not arise because a realization is already a distribution); `CompositeTransform` is **Average only** (Mixture needs engine support for enumerating transform branches); hazard/response carry the new `CompositeCombinationType` rather than overloading `CompositeFunctionType`; and `CompositeConsequence` was left untouched.
+
+**Still open in this phase:** `RFAHazard`; the `CompositeHazard` parameter-set import option (and the `BestFitUnivariateHazard` question); migrating `CompositeConsequence`'s in-library combine onto Numerics `CompositeFunction`; an explicit epistemic mixture mode; and the engine-level oracles — `Test_Composite_Hazard`, `Test_Composite_Response`, the `Test_Composite` mixture-consistency identity, and NFIP TOL 60/65.
+
+**Exit criteria:** composite family P/T/V — met for hazard/transform/response; RFA hazard and the engine-level oracles remain.
 
 ## Phase 10 — Event trees (reshaped 2026-07-23)
 

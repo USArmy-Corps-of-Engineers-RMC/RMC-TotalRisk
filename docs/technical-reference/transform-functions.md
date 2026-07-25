@@ -79,3 +79,26 @@ Documented here for family completeness; they land with the Phase 7 backfill as 
 - Sampling is index-driven through the pre-allocated percentile matrix (`SetupSampler`; Latin hypercube default).
 - Sampling an invalid table throws `InvalidOperationException` (v1.0 returned null).
 - `ComputeUncertaintyResults` moved the app-layer uncertainty plotting math into the model library (exact percentile evaluation).
+
+## Composite transform functions (Phase 9, landed 2026-07-25)
+
+`CompositeTransform` blends candidate transforms — several rating curves with credibility weights —
+into a single consensus curve, `Σ ωᵢfᵢ(x)`, riding the Numerics `CompositeFunction` in
+`WeightedAverage` mode. It is **new in v1.1**: v1.0 had no composite transform.
+
+**`Average` is the only supported combination.** `Mixture` and `Additive` are validation errors.
+Mixture would need per-realization branch selection, and there is no transform analog of the
+consequence exposure-branch surface — `SampledFailureMode` chains transforms deterministically — so
+a mean-only run would collapse the branch and its loss-exceedance tail would diverge from the mean
+of the full-uncertainty ensemble. Additive has no physical reading for a hazard-to-hazard mapping.
+
+The composite's input domain is the **intersection** of its children's, not their union: a weighted
+average needs every child evaluable at every input. An empty intersection is an error; differing
+domains warn.
+
+Practitioners should know that a weighted average is the aleatory-*mean* reading of a set of
+candidate transforms — exact when everything downstream is linear, approximate otherwise — and that
+it contributes no spread of its own. [composite-functions.md](composite-functions.md) §4 works
+through the Jensen-bias example (an eleven-fold difference in conditional failure probability) and
+says when to model alternatives as separate analyses instead. Verification is in
+[../verification/composite-transform.md](../verification/composite-transform.md).

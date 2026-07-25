@@ -125,5 +125,9 @@ Per the verification policy's step 4 (the v1.0 seed-dependency bug regression):
 | `Test_Reproducibility_SameSeed_BitIdentical` / `..._MetadataEdits_BitIdentical` / `..._ComputeEdit_MovesStream` | Seed-identity contract |
 
 Engine-level day/night scenarios (the legacy `Test_Composite.vb` oracles with a Log-Normal
-hazard and Normal fragility in the loop, day weight 0.45) convert when the risk engine lands
-(see the conversion order in [docs/verification.md](../verification.md)).
+hazard and Normal fragility in the loop, day weight 0.45) put a composite behind the full risk
+engine rather than exercising the function alone, and convert in a Phase 9 follow-on session
+alongside `Test_Composite_Hazard` and `Test_Composite_Response` (see the conversion order in
+[docs/verification.md](../verification.md)). The sibling function-level families landed
+2026-07-25: [composite-hazard](composite-hazard.md), [composite-response](composite-response.md),
+[composite-transform](composite-transform.md).

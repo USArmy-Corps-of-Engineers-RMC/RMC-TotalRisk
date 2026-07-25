@@ -141,3 +141,26 @@ UncertaintyAnalysisResults? summary = hazard.ComputeUncertaintyResults(0.90);
 - **Failure paths throw**: sampling an invalid or un-estimated function raises `InvalidOperationException` (v1.0 returned null); a failed bootstrap propagates its exception (v1.0 swallowed it).
 - **Bounds fixes**: the hazard-bounds cache is keyed by the `meanOnly` flag, and the full-posterior bounds scan is race-free (both latent v1.0 defects).
 - **Uncertainty summaries** (`ComputeUncertaintyResults`) moved from app-layer plotting code into the model library; tabular summaries are exact percentile evaluations.
+
+## Composite hazard functions (Phase 9, landed 2026-07-25)
+
+`CompositeHazard` combines a weighted list of child hazard functions under one of two rules:
+
+| Combination | Rule | Reading |
+|---|---|---|
+| **Mixture** (default, the v1.0 `IsMixture = true`) | `F(x) = Σ ωᵢ·Fᵢ(x)` — a `Numerics.Mixture` | Alternative descriptions of the loading; exactly one applies to any event. Report Equation 49. |
+| **CompetingRisks** | the **maximum** rule under the configured `Dependency` | All loading mechanisms occur; the most severe controls. Weights are inert. |
+
+The mixture is **aleatory** (ratified Q-Y): the combination is a single distribution carried through
+every realization, `SamplingDimensions` is 0, and no branch is drawn — so a mixture of deterministic
+children is itself deterministic. Knowledge uncertainty enters through the children's own posteriors.
+The weight semantics, the mixture-versus-competing-risks decision rule, and what is deferred are in
+[composite-functions.md](composite-functions.md); verification is in
+[../verification/composite-hazard.md](../verification/composite-hazard.md).
+
+v1.1 changes vs. v1.0: percentile sampling is deterministic and RNG-free (v1.0 derived a `Random`
+seed from the percentile, colliding percentiles closer than 1e-5); children keep their own
+interpolation transforms; the lossy all-empirical union-knot collapse is not ported; empty composites
+throw instead of returning `double.MaxValue`; the circular-reference recursion carries a visited set;
+and `SetupSampler` rejects a posterior-indexed child whose realization capacity is below the
+requested sample size.

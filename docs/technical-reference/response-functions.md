@@ -109,3 +109,29 @@ v1.1 note: v1.0 exposed a `GetInstance()` singleton and identified the non-failu
 - Sampling an invalid/un-estimated function throws (v1.0 returned null); out-of-range posterior indices throw (v1.0 returned null); a failed bootstrap propagates (v1.0 swallowed it).
 - The parametric full-posterior bounds scan is race-free, and percentile lookup clamps at percentile 1.0 (latent v1.0 defects).
 - `ComputeUncertaintyResults` moved the app-layer uncertainty plotting math into the model library.
+
+## Composite response functions (Phase 9, landed 2026-07-25)
+
+`CompositeResponse` combines a weighted list of child fragilities under one of two rules:
+
+| Combination | Rule | Reading |
+|---|---|---|
+| **Mixture** (default) | `p(h) = Σ ωᵢ·pᵢ(h)` — a `Numerics.Mixture` | Alternative descriptions of the response; exactly one applies |
+| **CompetingRisks** | the **minimum** rule — the weakest link | All mechanisms act; any one can fail the system. Weights are inert. |
+
+The weakest-link rule is the substantive divergence from `CompositeHazard`, which takes the maximum
+because the most severe *loading* controls: for a response, any mechanism failing is enough, so the
+combination is the union of the child failure events, `1 − ∏(1 − pᵢ(h))` under independence.
+
+The mixture is **aleatory** (ratified Q-Y), exactly as for the hazard composite — see
+[composite-functions.md](composite-functions.md); verification is in
+[../verification/composite-response.md](../verification/composite-response.md).
+
+`SampleResponseFunction()` and its overloads **throw**, matching v1.0 and the two sibling response
+types. The engine consumes the distribution form exclusively, and a union-knot re-tabulation would
+agree with the true combined curve only *at* the knots under the weakest-link rule, where the
+combination is nonlinear in the children — that would create a second, subtly wrong response
+surface. `IsMonotonic()` is a theorem rather than a probe: a convex combination of non-decreasing
+`pᵢ` is non-decreasing, and `1 − ∏(1 − pᵢ)` is non-decreasing in each `pᵢ`, so monotone children
+imply a monotone combination under both rules. A `NonFailResponse` child is a validation error — it
+emits no distribution to combine.
