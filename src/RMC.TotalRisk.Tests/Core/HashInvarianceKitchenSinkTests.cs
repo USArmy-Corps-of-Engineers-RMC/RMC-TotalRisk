@@ -65,6 +65,13 @@ public class HashInvarianceKitchenSinkTests
                 new[] { new UncertainOrdinate(0d, new Deterministic(0d)), new UncertainOrdinate(2d, new Deterministic(3d)) },
                 true, SortOrder.Ascending, false, SortOrder.None, UnivariateDistributionType.Deterministic));
 
+        // Phase 7 — the nonparametric hazard (inputs-only identity: the derived table never
+        // serializes, so only input edits can move the hash).
+        yield return new RegistryEntry(
+            nameof(NonparametricHazard),
+            () => new NonparametricHazard { Name = "Graphical", SpecifiedHazard = "Flow", HazardUnit = "cfs" },
+            f => ((NonparametricHazard)f).EffectiveRecordLength = 200);
+
         // Phase 7 — closed-form transforms, registered uncertain so the conditional sigma
         // attribute participates in the hash surface.
         yield return new RegistryEntry(

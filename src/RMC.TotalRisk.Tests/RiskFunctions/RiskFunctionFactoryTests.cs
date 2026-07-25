@@ -26,6 +26,7 @@ public class RiskFunctionFactoryTests
         {
             new TabularHazard(),
             new ParametricUnivariateHazard(),
+            new NonparametricHazard(),
             new TabularTransform(),
             new LinearTransform(),
             new PowerTransform(),

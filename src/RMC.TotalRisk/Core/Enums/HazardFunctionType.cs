@@ -34,5 +34,11 @@ namespace RMC.TotalRisk.Core.Enums
         /// (<c>ParametricUnivariateHazard</c>).
         /// </summary>
         ParametricUnivariate,
+
+        /// <summary>
+        /// A graphical annual-exceedance-probability curve with derived order-statistic quantile
+        /// uncertainty — the HEC-FDA "less simple method" (<c>NonparametricHazard</c>).
+        /// </summary>
+        Nonparametric,
     }
 }
