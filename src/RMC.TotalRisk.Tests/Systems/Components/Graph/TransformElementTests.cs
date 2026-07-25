@@ -177,4 +177,66 @@ public class TransformElementTests
         orphanClone.ResolveClonedConnections(original, new Dictionary<IRiskElement, IRiskElement>());
         Assert.AreSame(hazard, orphanClone.Input!.Source);
     }
+
+    /// <summary>
+    /// Verifies an <b>inline</b> composite transform resolves its own <b>by-reference</b> children:
+    /// the element must thread the resolver into the inline factory, not hand it a bare method
+    /// group. Without the threading the nested references silently load as null children.
+    /// </summary>
+    [TestMethod]
+    public void Test_Serialization_InlineComposite_ResolvesByReferenceChildren()
+    {
+        // Arrange — a store of two stored candidate rating curves and a resolver over it.
+        var ratingA = new LinearTransform
+        {
+            Name = "Rating A",
+            SpecifiedHazard = "Flow",
+            HazardUnit = "cfs",
+            TransformedHazard = "Stage",
+            TransformedHazardUnit = "ft",
+            IsUncertain = false,
+        };
+        var ratingB = new LinearTransform
+        {
+            Name = "Rating B",
+            SpecifiedHazard = "Flow",
+            HazardUnit = "cfs",
+            TransformedHazard = "Stage",
+            TransformedHazardUnit = "ft",
+            Alpha = 2d,
+            IsUncertain = false,
+        };
+        var store = new IRiskFunction[] { ratingA, ratingB }.ToDictionary(f => f.Id);
+        var resolver = new RMC.TotalRisk.RiskFunctions.RiskFunctionResolver(
+            id => store.TryGetValue(id, out var f) ? f : null,
+            name => store.Values.FirstOrDefault(f => f.Name == name));
+
+        var composite = new CompositeTransform(new[]
+        {
+            new WeightedTransformFunction(ratingA, 0.4d),
+            new WeightedTransformFunction(ratingB, 0.6d),
+        })
+        {
+            Name = "Blended rating",
+            SpecifiedHazard = "Flow",
+            HazardUnit = "cfs",
+            TransformedHazard = "Stage",
+            TransformedHazardUnit = "ft",
+        };
+
+        // The element writes the composite inline; the composite writes its children as markers.
+        var element = new TransformElement("Transform") { Function = composite };
+        var form = element.ToXElement();
+        form.Element("Function")!.Elements().First()
+            .ReplaceWith(composite.ToXElement(RMC.TotalRisk.Core.Enums.RiskSerializationMode.ByReference));
+
+        // Act
+        var restored = new TransformElement(form, resolver);
+
+        // Assert — the nested markers resolved back to the live stored instances.
+        var restoredComposite = (CompositeTransform)restored.Function!;
+        Assert.AreSame(ratingA, restoredComposite.TransformFunctions[0].TransformFunction);
+        Assert.AreSame(ratingB, restoredComposite.TransformFunctions[1].TransformFunction);
+        Assert.IsTrue(restoredComposite.Validate().IsValid);
+    }
 }

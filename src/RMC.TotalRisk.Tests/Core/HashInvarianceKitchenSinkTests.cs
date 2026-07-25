@@ -169,6 +169,28 @@ public class HashInvarianceKitchenSinkTests
                 CompositeCombinationType = CompositeCombinationType.Mixture,
             },
             f => ((CompositeResponse)f).ProbabilityTransform = Transform.NormalZ);
+
+        // Phase 9 — the composite transform (Average-only; the mutation nudges a weight).
+        yield return new RegistryEntry(
+            nameof(CompositeTransform),
+            () => new CompositeTransform(new[]
+            {
+                new WeightedTransformFunction(new LinearTransform { Name = "Rating A", SpecifiedHazard = "Flow", HazardUnit = "cfs", TransformedHazard = "Stage", TransformedHazardUnit = "ft", Alpha = 2d, Beta = 3d, IsUncertain = false }, 0.4d),
+                new WeightedTransformFunction(new LinearTransform { Name = "Rating B", SpecifiedHazard = "Flow", HazardUnit = "cfs", TransformedHazard = "Stage", TransformedHazardUnit = "ft", Alpha = 10d, Beta = 4d, IsUncertain = false }, 0.6d),
+            })
+            {
+                Name = "Blended rating",
+                SpecifiedHazard = "Flow",
+                HazardUnit = "cfs",
+                TransformedHazard = "Stage",
+                TransformedHazardUnit = "ft",
+            },
+            f =>
+            {
+                var composite = (CompositeTransform)f;
+                composite.TransformFunctions[0].Weight = 0.5d;
+                composite.TransformFunctions[1].Weight = 0.5d;
+            });
     }
 
     /// <summary>Verifies metadata edits (rename/re-describe/relabel) never move any registered type's hash.</summary>

@@ -52,6 +52,7 @@ public class FunctionTypeDiscriminatorTests
         Assert.AreEqual(TransformFunctionType.Tabular, new TabularTransform().FunctionType);
         Assert.AreEqual(TransformFunctionType.Linear, new LinearTransform().FunctionType);
         Assert.AreEqual(TransformFunctionType.Power, new PowerTransform().FunctionType);
+        Assert.AreEqual(TransformFunctionType.Composite, new CompositeTransform().FunctionType);
         Assert.AreEqual(ResponseFunctionType.Tabular, new TabularResponse().FunctionType);
         Assert.AreEqual(ResponseFunctionType.Parametric, new ParametricResponse().FunctionType);
         Assert.AreEqual(ResponseFunctionType.NonFail, new NonFailResponse().FunctionType);
@@ -78,6 +79,7 @@ public class FunctionTypeDiscriminatorTests
             new TabularTransform().ToXElement(),
             new LinearTransform().ToXElement(),
             new PowerTransform().ToXElement(),
+            new CompositeTransform().ToXElement(),
             new TabularResponse().ToXElement(),
             new ParametricResponse().ToXElement(),
             new NonFailResponse().ToXElement(),

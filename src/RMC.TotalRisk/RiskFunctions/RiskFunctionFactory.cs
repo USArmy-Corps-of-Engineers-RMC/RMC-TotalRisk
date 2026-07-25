@@ -69,6 +69,7 @@ namespace RMC.TotalRisk.RiskFunctions
                 nameof(TabularTransform) => new TabularTransform(xElement),
                 nameof(LinearTransform) => new LinearTransform(xElement),
                 nameof(PowerTransform) => new PowerTransform(xElement),
+                nameof(CompositeTransform) => new CompositeTransform(xElement, resolver),
                 nameof(TabularResponse) => new TabularResponse(xElement),
                 nameof(ParametricResponse) => new ParametricResponse(xElement),
                 nameof(NonFailResponse) => new NonFailResponse(xElement),
@@ -116,6 +117,22 @@ namespace RMC.TotalRisk.RiskFunctions
         public static ITransformFunction? CreateTransformFunction(XElement xElement)
         {
             return CreateFromXElement(xElement) as ITransformFunction;
+        }
+
+        /// <summary>
+        /// Reconstructs a transform function from its serialized form, resolving any by-reference
+        /// children through the supplied resolver.
+        /// </summary>
+        /// <param name="xElement">The serialized form; the local name selects the concrete type.</param>
+        /// <param name="resolver">
+        /// The function resolver handed to container transform types (composite functions); leaf
+        /// types ignore it, and null reads self-contained forms.
+        /// </param>
+        /// <returns>The reconstructed transform function, or null when the local name is unknown or names a non-transform type.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when the element is null.</exception>
+        public static ITransformFunction? CreateTransformFunction(XElement xElement, IRiskFunctionResolver? resolver)
+        {
+            return CreateFromXElement(xElement, resolver) as ITransformFunction;
         }
 
         /// <summary>
