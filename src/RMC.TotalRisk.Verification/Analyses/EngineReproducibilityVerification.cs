@@ -127,9 +127,11 @@ public class EngineReproducibilityVerification
     /// <summary>
     /// Metadata edits — renaming everything, editing descriptions, assigning fresh ids, and a
     /// serialization round trip — must leave every computed number byte-identical: presentation
-    /// is not identity. The summary-ensemble JSON is a pure numeric surface and compares whole;
-    /// the mean realization's display labels legitimately carry the new names, so its numeric
-    /// curve arrays compare directly.
+    /// is not identity. Since the Phase 6.7 Q3 labels, the ensemble JSON carries the stamped
+    /// end-state <c>Name</c> and <c>PathLabel</c> display fields, which legitimately echo the
+    /// CURRENT function names (labels are display metadata by design, never identity), so the
+    /// comparison strips exactly those two fields and asserts every remaining byte — the whole
+    /// numeric surface — is identical.
     /// </summary>
     [TestMethod]
     public void Test_Reproducibility_MetadataEdits_BitIdentical()
@@ -157,8 +159,13 @@ public class EngineReproducibilityVerification
         roundTripped.Options.Realizations = Realizations;
         var result = Run(roundTripped);
 
-        // Assert — the numeric surfaces are byte-identical.
-        Assert.AreEqual(baseline.Ensemble, result.Ensemble, "Metadata edits or the round trip moved the ensemble.");
+        // Assert — the numeric surfaces are byte-identical. The stamped display labels (the
+        // Phase 6.7 Q3 Name/PathLabel fields) echo the renamed functions by design and are
+        // stripped from both sides; every other byte of the ensemble JSON must match.
+        static string StripDisplayLabels(string json) => System.Text.RegularExpressions.Regex.Replace(
+            json, "\"(Name|PathLabel)\":\"[^\"]*\",?", string.Empty);
+        Assert.AreEqual(StripDisplayLabels(baseline.Ensemble), StripDisplayLabels(result.Ensemble),
+            "Metadata edits or the round trip moved the ensemble's numeric surface.");
         var baselineTotal = baselineAnalysis.MeanRiskResults!.Curves.Total;
         var resultTotal = roundTripped.MeanRiskResults!.Curves.Total;
         CollectionAssert.AreEqual(baselineTotal.LECConsequences, resultTotal.LECConsequences,
