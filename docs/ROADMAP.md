@@ -21,8 +21,8 @@ Porting sources in order of authority: (1) the partial C# port `C:\GIT\RMC-Total
 | 5 | Verification I — single-component oracle families | Complete (2026-07-23) |
 | 6 | Verification II — system risk + NFIP assurance | Complete (2026-07-23) |
 | 6.5 | Multi-consequence axis (Q-U closure) + engine performance + cascade design ratification | Complete (2026-07-23) |
-| 6.6 | Risk measures, diagnostics & sensitivity | Not started |
-| 6.7 | Cascading response end states (the event tree in the risk diagram) | Not started (design ratified 2026-07-23, arch doc v0.16) |
+| 6.6 | Risk measures, diagnostics & sensitivity | Complete (2026-07-24) |
+| 6.7 | Cascading response end states (the event tree in the risk diagram) | Complete (2026-07-24) |
 | 7 | Remaining closed-form functions: linear/power transforms, parametric consequence, nonparametric hazard | Not started (`ParametricConsequence` pulled forward 2026-07-21) |
 | 8 | Numerics.Functions expansion (numerics repo) + RMC.Numerics 2.2.0 package switch | Not started |
 | 9 | Composites + RFA hazard + weighted wrappers + BestFit composite imports | Not started (`CompositeConsequence` + `WeightedConsequenceFunction` pulled forward 2026-07-21) |
