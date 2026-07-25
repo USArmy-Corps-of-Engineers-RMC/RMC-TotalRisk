@@ -23,7 +23,7 @@ Porting sources in order of authority: (1) the partial C# port `C:\GIT\RMC-Total
 | 6.5 | Multi-consequence axis (Q-U closure) + engine performance + cascade design ratification | Complete (2026-07-23) |
 | 6.6 | Risk measures, diagnostics & sensitivity | Complete (2026-07-24) |
 | 6.7 | Cascading response end states (the event tree in the risk diagram) | Complete (2026-07-24) |
-| 7 | Remaining closed-form functions: linear/power transforms, parametric consequence, nonparametric hazard | Not started (`ParametricConsequence` pulled forward 2026-07-21) |
+| 7 | Remaining closed-form functions: linear/power transforms, parametric consequence, nonparametric hazard | Complete (2026-07-25) |
 | 8 | Numerics.Functions expansion (numerics repo) + RMC.Numerics 2.2.0 package switch | Not started |
 | 9 | Composites + RFA hazard + weighted wrappers + BestFit composite imports | Not started (`CompositeConsequence` + `WeightedConsequenceFunction` pulled forward 2026-07-21) |
 | 10 | Event trees | Not started |
@@ -363,7 +363,28 @@ with no store, no resolver, and no consuming layer in the call path.
 
 **Exit criteria:** hand-rolled two-stage cascade MC oracle family (including a partial-damage state); single-stage-equivalence checks (statistical — the polarity attribute moves hashes); graph round-trip + projection + polarity tests; arch-doc Q-X closure.
 
-## Phase 7 — Remaining closed-form functions
+## Phase 7 — Remaining closed-form functions — **COMPLETE (2026-07-25)**
+
+> **Landed 2026-07-25** in three commits: `LinearTransform` + `PowerTransform` (v1.0 surfaces
+> verbatim over Numerics `LinearFunction`/`PowerFunction`; σ serialized/hashed only while
+> uncertain per §5.5.3; D = IsUncertain ? 1 : 0 with the deterministic index-sampling branch;
+> `PowerFunction.Minimum` never assigned — its setter was a silent no-op in every shipped v1.0
+> build, so the wrapper keeps `Minimum` as API/hash surface with a new advisory warning when it
+> sits below ξ), then `NonparametricHazard` with the **user-directed optimized
+> quantile-uncertainty derivation** (the per-ordinate Brent 1%-bound repair replaced by the
+> exact closed-form quadratic in the log-space scale with the legacy Brent as guarded fallback;
+> inlined base-e moment maps; the frequent-end extrapolation evaluated before list mutation —
+> fixing a latent v1.0 order-of-operations defect that silently produced a flat extension,
+> inert for 0.999-anchored inputs; inputs-only serialization with deterministic load-time
+> recomputation of the derived table), then the NEW `ClosedFormFunctionsVerification` family
+> (4 tests, run isolated): the 2024 report's SF-8 vs HEC-FDA **Table 38** — all 20 published
+> log10 quantile constants pinned at 5.5e-4 — plus the independent legacy-pipeline
+> re-derivation (the optimization-equivalence anchor), transform-chain ensembles vs flat MC
+> oracles at MT(12345) N = 10⁶, D = 0 dense-quadrature parity, and reliability AFP oracles with
+> bit-identity pins ([verification/closed-form-functions.md](verification/closed-form-functions.md)).
+> **No deferred EAD/NFIP conversions existed** — the Dev-repo sweep proved the legacy scenarios
+> never used these types (transforms: zero Test_TotalRisk usages; the nonparametric hazard:
+> FDA-importer only). Q-N needed no action here (resolved Phase 4, counter-pinned Phase 5).
 
 > **Pulled forward (2026-07-21):** **`ParametricConsequence`** landed pre-Phase-4 (renamed from `ParametricConsequenceFunction` for cluster consistency — arch doc v0.12) with unit tests and a function-level verification family ([docs/verification/parametric-consequence.md](verification/parametric-consequence.md)). This phase's remaining scope is the three types below.
 
