@@ -2,6 +2,9 @@ using System;
 using System.Linq;
 using System.Xml.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using RMC.TotalRisk.Core.Enums;
+using RMC.TotalRisk.Core.Interfaces;
+using RMC.TotalRisk.RiskFunctions;
 using RMC.TotalRisk.RiskFunctions.Hazards;
 using RMC.TotalRisk.Systems.Components.Graph;
 
@@ -125,6 +128,50 @@ public class HazardElementTests
         // Act / Assert
         Assert.ThrowsException<InvalidOperationException>(() => new HazardElement(xml));
         Assert.ThrowsException<ArgumentNullException>(() => new HazardElement((XElement)null!));
+    }
+
+    /// <summary>
+    /// Verifies an <b>inline</b> composite hazard resolves its own <b>by-reference</b> children:
+    /// the element must thread the resolver into the inline factory, not hand it a bare method
+    /// group. Without the threading the nested references silently fail to resolve and the
+    /// composite loads with null children.
+    /// </summary>
+    [TestMethod]
+    public void Test_Serialization_InlineComposite_ResolvesByReferenceChildren()
+    {
+        // Arrange — a store of two stored child hazards and a resolver over it.
+        var rain = new TabularHazard { Name = "Rain", SpecifiedHazard = "Flow", HazardUnit = "cfs" };
+        var snow = new TabularHazard { Name = "Snow", SpecifiedHazard = "Flow", HazardUnit = "cfs" };
+        var store = new IRiskFunction[] { rain, snow }.ToDictionary(f => f.Id);
+        var resolver = new RiskFunctionResolver(
+            id => store.TryGetValue(id, out var f) ? f : null,
+            name => store.Values.FirstOrDefault(f => f.Name == name));
+
+        var composite = new CompositeHazard(new[]
+        {
+            new WeightedHazardFunction(rain, 0.45d),
+            new WeightedHazardFunction(snow, 0.55d),
+        })
+        {
+            Name = "Rain/Snow",
+            SpecifiedHazard = "Flow",
+            HazardUnit = "cfs",
+        };
+
+        // The element writes the composite inline; the composite writes its children as markers.
+        var element = new HazardElement("Hazard") { Function = composite };
+        var form = element.ToXElement();
+        form.Element("Function")!.Elements().First()
+            .ReplaceWith(composite.ToXElement(RiskSerializationMode.ByReference));
+
+        // Act
+        var restored = new HazardElement(form, resolver);
+
+        // Assert — the nested markers resolved back to the live stored instances.
+        var restoredComposite = (CompositeHazard)restored.Function!;
+        Assert.AreSame(rain, restoredComposite.HazardFunctions[0].HazardFunction);
+        Assert.AreSame(snow, restoredComposite.HazardFunctions[1].HazardFunction);
+        Assert.IsTrue(restoredComposite.Validate().IsValid);
     }
 
     /// <summary>Verifies the clone deep-copies the wrapped function.</summary>

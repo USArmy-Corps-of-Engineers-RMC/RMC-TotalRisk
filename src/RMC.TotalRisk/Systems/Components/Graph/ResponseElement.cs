@@ -79,8 +79,10 @@ namespace RMC.TotalRisk.Systems.Components.Graph
             var functionChild = xElement.Element(nameof(Function))?.Elements().FirstOrDefault();
             if (functionChild != null)
             {
+                // The resolver threads into the inline factory so an inline composite child can
+                // resolve its own by-reference children.
                 _function = ReadFunctionEntry<IResponseFunction>(
-                    functionChild, resolver, RiskFunctionFactory.CreateFromXElement, "response function");
+                    functionChild, resolver, c => RiskFunctionFactory.CreateFromXElement(c, resolver), "response function");
                 SubscribeFunction(_function);
             }
         }
