@@ -150,4 +150,47 @@ public class ResponseElementTests
         Assert.AreSame(hazardClone, clone.SecondaryInput!.Source);
         Assert.AreEqual(1, clone.SecondaryInput.SourcePort);
     }
+
+    /// <summary>
+    /// Verifies an <b>inline</b> composite response resolves its own <b>by-reference</b> children:
+    /// the element must thread the resolver into the inline factory, not hand it a bare method
+    /// group. Without the threading the nested references silently load as null children.
+    /// </summary>
+    [TestMethod]
+    public void Test_Serialization_InlineComposite_ResolvesByReferenceChildren()
+    {
+        // Arrange — a store of two stored child fragilities and a resolver over it.
+        var overtopping = new TabularResponse { Name = "Overtopping", SpecifiedHazard = "Stage", HazardUnit = "ft" };
+        var piping = new TabularResponse { Name = "Piping", SpecifiedHazard = "Stage", HazardUnit = "ft" };
+        var store = new IRiskFunction[] { overtopping, piping }.ToDictionary(f => f.Id);
+        var resolver = new RMC.TotalRisk.RiskFunctions.RiskFunctionResolver(
+            id => store.TryGetValue(id, out var f) ? f : null,
+            name => store.Values.FirstOrDefault(f => f.Name == name));
+
+        var composite = new CompositeResponse(new[]
+        {
+            new WeightedResponseFunction(overtopping, 0.45d),
+            new WeightedResponseFunction(piping, 0.55d),
+        })
+        {
+            Name = "Overtopping/Piping",
+            SpecifiedHazard = "Stage",
+            HazardUnit = "ft",
+        };
+
+        // The element writes the composite inline; the composite writes its children as markers.
+        var element = new ResponseElement("Response") { Function = composite };
+        var form = element.ToXElement();
+        form.Element("Function")!.Elements().First()
+            .ReplaceWith(composite.ToXElement(RMC.TotalRisk.Core.Enums.RiskSerializationMode.ByReference));
+
+        // Act
+        var restored = new ResponseElement(form, resolver);
+
+        // Assert — the nested markers resolved back to the live stored instances.
+        var restoredComposite = (CompositeResponse)restored.Function!;
+        Assert.AreSame(overtopping, restoredComposite.ResponseFunctions[0].ResponseFunction);
+        Assert.AreSame(piping, restoredComposite.ResponseFunctions[1].ResponseFunction);
+        Assert.IsTrue(restoredComposite.Validate().IsValid);
+    }
 }

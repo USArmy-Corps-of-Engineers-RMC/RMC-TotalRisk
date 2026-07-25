@@ -153,6 +153,22 @@ public class HashInvarianceKitchenSinkTests
                 CompositeCombinationType = CompositeCombinationType.Mixture,
             },
             f => ((CompositeHazard)f).CompositeCombinationType = CompositeCombinationType.CompetingRisks);
+
+        // Phase 9 — the composite response, registered in Mixture mode for the same reason.
+        yield return new RegistryEntry(
+            nameof(CompositeResponse),
+            () => new CompositeResponse(new[]
+            {
+                new WeightedResponseFunction(new TabularResponse { Name = "Overtopping", SpecifiedHazard = "Stage", HazardUnit = "ft" }, 0.45d),
+                new WeightedResponseFunction(new TabularResponse { Name = "Piping", SpecifiedHazard = "Stage", HazardUnit = "ft" }, 0.55d),
+            })
+            {
+                Name = "Overtopping/Piping",
+                SpecifiedHazard = "Stage",
+                HazardUnit = "ft",
+                CompositeCombinationType = CompositeCombinationType.Mixture,
+            },
+            f => ((CompositeResponse)f).ProbabilityTransform = Transform.NormalZ);
     }
 
     /// <summary>Verifies metadata edits (rename/re-describe/relabel) never move any registered type's hash.</summary>

@@ -72,6 +72,7 @@ namespace RMC.TotalRisk.RiskFunctions
                 nameof(TabularResponse) => new TabularResponse(xElement),
                 nameof(ParametricResponse) => new ParametricResponse(xElement),
                 nameof(NonFailResponse) => new NonFailResponse(xElement),
+                nameof(CompositeResponse) => new CompositeResponse(xElement, resolver),
                 nameof(TabularConsequence) => new TabularConsequence(xElement),
                 nameof(ParametricConsequence) => new ParametricConsequence(xElement),
                 nameof(CompositeConsequence) => new CompositeConsequence(xElement, resolver),
@@ -126,6 +127,22 @@ namespace RMC.TotalRisk.RiskFunctions
         public static IResponseFunction? CreateResponseFunction(XElement xElement)
         {
             return CreateFromXElement(xElement) as IResponseFunction;
+        }
+
+        /// <summary>
+        /// Reconstructs a response function from its serialized form, resolving any by-reference
+        /// children through the supplied resolver.
+        /// </summary>
+        /// <param name="xElement">The serialized form; the local name selects the concrete type.</param>
+        /// <param name="resolver">
+        /// The function resolver handed to container response types (composite functions); leaf
+        /// types ignore it, and null reads self-contained forms.
+        /// </param>
+        /// <returns>The reconstructed response function, or null when the local name is unknown or names a non-response type.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when the element is null.</exception>
+        public static IResponseFunction? CreateResponseFunction(XElement xElement, IRiskFunctionResolver? resolver)
+        {
+            return CreateFromXElement(xElement, resolver) as IResponseFunction;
         }
 
         /// <summary>
