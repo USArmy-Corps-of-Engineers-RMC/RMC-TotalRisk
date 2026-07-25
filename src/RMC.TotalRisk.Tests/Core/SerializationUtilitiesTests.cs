@@ -119,4 +119,58 @@ public class SerializationUtilitiesTests
         Assert.AreEqual(SamplingScheme.MonteCarlo,
             SerializationUtilities.ReadEnum(element, "Bad", SamplingScheme.MonteCarlo));
     }
+
+    /// <summary>
+    /// A square matrix round-trips bit-exact through the G17 row/value text format, and the empty
+    /// cases collapse to empty text and back to null.
+    /// </summary>
+    [TestMethod]
+    public void Test_FormatParseMatrix_RoundTripsBitExact()
+    {
+        // Arrange
+        var matrix = new double[,]
+        {
+            { 1d, 0.5d, -0.25d },
+            { 0.5d, 1d, 0.1d / 3d },
+            { -0.25d, 0.1d / 3d, 1d },
+        };
+
+        // Act
+        string text = SerializationUtilities.FormatMatrix(matrix);
+        double[,]? parsed = SerializationUtilities.ParseMatrix(text);
+
+        // Assert — the format is rows ';'-separated, values ','-separated.
+        Assert.AreEqual(2, text.Split(';').Length - 1);
+        Assert.IsNotNull(parsed);
+        for (int i = 0; i < 3; i++)
+        {
+            for (int j = 0; j < 3; j++)
+            {
+                Assert.AreEqual(matrix[i, j], parsed![i, j], 0d);
+            }
+        }
+
+        // Empty cases.
+        Assert.AreEqual(string.Empty, SerializationUtilities.FormatMatrix(null));
+        Assert.AreEqual(string.Empty, SerializationUtilities.FormatMatrix(new double[0, 0]));
+        Assert.IsNull(SerializationUtilities.ParseMatrix(null));
+        Assert.IsNull(SerializationUtilities.ParseMatrix(string.Empty));
+    }
+
+    /// <summary>
+    /// Parsing is strict: a ragged shape or an unparseable value rejects the whole matrix, so a
+    /// caller never computes with a half-read correlation structure.
+    /// </summary>
+    [TestMethod]
+    public void Test_ParseMatrix_RaggedOrUnparseable_ReturnsNull()
+    {
+        // Assert — a row with the wrong value count.
+        Assert.IsNull(SerializationUtilities.ParseMatrix("1,0.5;0.5"));
+
+        // A non-square shape (two rows, three columns).
+        Assert.IsNull(SerializationUtilities.ParseMatrix("1,0.5,0.2;0.5,1,0.3"));
+
+        // An unparseable value anywhere rejects the whole matrix.
+        Assert.IsNull(SerializationUtilities.ParseMatrix("1,not-a-number;0.5,1"));
+    }
 }

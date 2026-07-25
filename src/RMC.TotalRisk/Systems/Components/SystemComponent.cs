@@ -131,7 +131,7 @@ namespace RMC.TotalRisk.Systems.Components
             _jointConsequences = SerializationUtilities.ReadEnum(xElement, nameof(JointConsequences), JointConsequenceType.Maximum);
             _failureModeDependency = SerializationUtilities.ReadEnum(xElement, nameof(FailureModeDependency), DependencyType.Independent);
             _hazardThreshold = SerializationUtilities.ReadDouble(xElement, nameof(HazardThreshold));
-            _correlationMatrix = ParseMatrix(SerializationUtilities.ReadString(xElement, nameof(CorrelationMatrix)));
+            _correlationMatrix = SerializationUtilities.ParseMatrix(SerializationUtilities.ReadString(xElement, nameof(CorrelationMatrix)));
 
             // Appended in Phase 6.6 (Q-T closure); absent on earlier payloads, which load
             // forward as the primary-hazard default.
@@ -1361,7 +1361,7 @@ namespace RMC.TotalRisk.Systems.Components
             element.SetAttributeValue(nameof(FailureModeDependency), _failureModeDependency.ToString());
             element.SetAttributeValue(nameof(HazardThreshold), SerializationUtilities.FormatDouble(_hazardThreshold));
             element.SetAttributeValue(nameof(CorrelationMatrix),
-                _failureModeDependency == DependencyType.CorrelationMatrix ? FormatMatrix(_correlationMatrix) : string.Empty);
+                _failureModeDependency == DependencyType.CorrelationMatrix ? SerializationUtilities.FormatMatrix(_correlationMatrix) : string.Empty);
             // Appended Phase 6.6 (Q-T): persistence only — deliberately absent from the
             // identity form, so the profile selection can never re-roll seeds.
             element.SetAttributeValue(nameof(ProfileHazardElementId),
@@ -1451,7 +1451,7 @@ namespace RMC.TotalRisk.Systems.Components
             element.SetAttributeValue(nameof(FailureModeDependency), _failureModeDependency.ToString());
             element.SetAttributeValue(nameof(HazardThreshold), SerializationUtilities.FormatDouble(_hazardThreshold));
             element.SetAttributeValue(nameof(CorrelationMatrix),
-                _failureModeDependency == DependencyType.CorrelationMatrix ? FormatMatrix(_correlationMatrix) : string.Empty);
+                _failureModeDependency == DependencyType.CorrelationMatrix ? SerializationUtilities.FormatMatrix(_correlationMatrix) : string.Empty);
 
             var hazard = HazardFunction;
             if (hazard != null)
@@ -1788,56 +1788,6 @@ namespace RMC.TotalRisk.Systems.Components
         private static string ElementName(string? functionName, string fallback)
         {
             return string.IsNullOrEmpty(functionName) ? fallback : functionName!;
-        }
-
-        /// <summary>
-        /// Formats a matrix as G17 invariant text: rows ';'-separated, values ','-separated.
-        /// </summary>
-        /// <param name="matrix">The matrix; null or empty formats as empty text.</param>
-        /// <returns>The serialized text.</returns>
-        private static string FormatMatrix(double[,]? matrix)
-        {
-            if (matrix == null || matrix.GetLength(0) == 0) return string.Empty;
-
-            var builder = new StringBuilder();
-            for (int i = 0; i < matrix.GetLength(0); i++)
-            {
-                if (i > 0) builder.Append(';');
-                for (int j = 0; j < matrix.GetLength(1); j++)
-                {
-                    if (j > 0) builder.Append(',');
-                    builder.Append(SerializationUtilities.FormatDouble(matrix[i, j]));
-                }
-            }
-            return builder.ToString();
-        }
-
-        /// <summary>
-        /// Parses matrix text produced by <see cref="FormatMatrix"/>. Strict: a ragged shape or
-        /// an unparseable value rejects the whole matrix (null) — validation then reports the
-        /// missing matrix.
-        /// </summary>
-        /// <param name="text">The serialized text; may be null or empty.</param>
-        /// <returns>The parsed square matrix, or null.</returns>
-        private static double[,]? ParseMatrix(string? text)
-        {
-            if (string.IsNullOrEmpty(text)) return null;
-
-            string[] rows = text!.Split(';');
-            int size = rows.Length;
-            var matrix = new double[size, size];
-            for (int i = 0; i < size; i++)
-            {
-                string[] values = rows[i].Split(',');
-                if (values.Length != size) return null;
-                for (int j = 0; j < size; j++)
-                {
-                    double parsed = SerializationUtilities.ParseDouble(values[j], double.NaN);
-                    if (double.IsNaN(parsed)) return null;
-                    matrix[i, j] = parsed;
-                }
-            }
-            return matrix;
         }
 
         /// <summary>

@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using System.Text;
 using System.Xml.Linq;
 
 namespace RMC.TotalRisk.Core
@@ -121,6 +122,63 @@ namespace RMC.TotalRisk.Core
             string? text = element?.Attribute(attributeName)?.Value;
             if (text == null) return defaultValue;
             return Enum.TryParse(text, ignoreCase: false, out TEnum result) ? result : defaultValue;
+        }
+
+        /// <summary>
+        /// Formats a square matrix as G17 invariant text: rows ';'-separated, values ','-separated.
+        /// </summary>
+        /// <param name="matrix">The matrix; null or empty formats as empty text.</param>
+        /// <returns>The serialized text.</returns>
+        /// <remarks>
+        /// The correlation-matrix serialization shared by every type carrying a
+        /// <c>DependencyType.CorrelationMatrix</c> option — <c>SystemComponent</c> since Phase 3,
+        /// and the competing-risks composites since Phase 9. Promoted here from
+        /// <c>SystemComponent</c> unchanged: the text format is byte-identical, so no persisted
+        /// form and no canonical hash moves.
+        /// </remarks>
+        public static string FormatMatrix(double[,]? matrix)
+        {
+            if (matrix == null || matrix.GetLength(0) == 0) return string.Empty;
+
+            var builder = new StringBuilder();
+            for (int i = 0; i < matrix.GetLength(0); i++)
+            {
+                if (i > 0) builder.Append(';');
+                for (int j = 0; j < matrix.GetLength(1); j++)
+                {
+                    if (j > 0) builder.Append(',');
+                    builder.Append(FormatDouble(matrix[i, j]));
+                }
+            }
+            return builder.ToString();
+        }
+
+        /// <summary>
+        /// Parses matrix text produced by <see cref="FormatMatrix"/>. Strict: a ragged shape or an
+        /// unparseable value rejects the whole matrix (null) — validation then reports the missing
+        /// matrix rather than silently computing with a half-read one.
+        /// </summary>
+        /// <param name="text">The serialized text; may be null or empty.</param>
+        /// <returns>The parsed square matrix, or null.</returns>
+        public static double[,]? ParseMatrix(string? text)
+        {
+            if (string.IsNullOrEmpty(text)) return null;
+
+            string[] rows = text!.Split(';');
+            int size = rows.Length;
+            var matrix = new double[size, size];
+            for (int i = 0; i < size; i++)
+            {
+                string[] values = rows[i].Split(',');
+                if (values.Length != size) return null;
+                for (int j = 0; j < size; j++)
+                {
+                    double parsed = ParseDouble(values[j], double.NaN);
+                    if (double.IsNaN(parsed)) return null;
+                    matrix[i, j] = parsed;
+                }
+            }
+            return matrix;
         }
     }
 }
