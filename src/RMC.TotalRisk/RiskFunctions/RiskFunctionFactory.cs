@@ -65,6 +65,8 @@ namespace RMC.TotalRisk.RiskFunctions
                 nameof(TabularHazard) => new TabularHazard(xElement),
                 nameof(ParametricUnivariateHazard) => new ParametricUnivariateHazard(xElement),
                 nameof(TabularTransform) => new TabularTransform(xElement),
+                nameof(LinearTransform) => new LinearTransform(xElement),
+                nameof(PowerTransform) => new PowerTransform(xElement),
                 nameof(TabularResponse) => new TabularResponse(xElement),
                 nameof(ParametricResponse) => new ParametricResponse(xElement),
                 nameof(NonFailResponse) => new NonFailResponse(xElement),

@@ -21,5 +21,17 @@ namespace RMC.TotalRisk.Core.Enums
     {
         /// <summary>A tabular hazard-to-transformed-hazard rating table (<c>TabularTransform</c>).</summary>
         Tabular,
+
+        /// <summary>
+        /// A linear relation <c>Y = α + β·X</c> with optional additive Gaussian uncertainty
+        /// (<c>LinearTransform</c>).
+        /// </summary>
+        Linear,
+
+        /// <summary>
+        /// A power relation <c>Y = α·(X − ξ)^β</c> with optional log-space uncertainty and an
+        /// optional inverse form (<c>PowerTransform</c>).
+        /// </summary>
+        Power,
     }
 }

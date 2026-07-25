@@ -65,6 +65,18 @@ public class HashInvarianceKitchenSinkTests
                 new[] { new UncertainOrdinate(0d, new Deterministic(0d)), new UncertainOrdinate(2d, new Deterministic(3d)) },
                 true, SortOrder.Ascending, false, SortOrder.None, UnivariateDistributionType.Deterministic));
 
+        // Phase 7 — closed-form transforms, registered uncertain so the conditional sigma
+        // attribute participates in the hash surface.
+        yield return new RegistryEntry(
+            nameof(LinearTransform),
+            () => new LinearTransform { Name = "Stage shift", SpecifiedHazard = "Flow", HazardUnit = "cfs", TransformedHazard = "Stage", TransformedHazardUnit = "ft", Alpha = 2d, Beta = 0.5d, Sigma = 1.5d, IsUncertain = true },
+            f => ((LinearTransform)f).Beta = 2d);
+
+        yield return new RegistryEntry(
+            nameof(PowerTransform),
+            () => new PowerTransform { Name = "Rating", SpecifiedHazard = "Stage", HazardUnit = "ft", TransformedHazard = "Flow", TransformedHazardUnit = "cfs", Alpha = 5d, Beta = 2d, Xi = 1d, Sigma = 0.1d, IsUncertain = true },
+            f => ((PowerTransform)f).IsInverse = !((PowerTransform)f).IsInverse);
+
         yield return new RegistryEntry(
             nameof(TabularResponse),
             () => new TabularResponse { Name = "Fragility", SpecifiedHazard = "Stage", HazardUnit = "ft" },
