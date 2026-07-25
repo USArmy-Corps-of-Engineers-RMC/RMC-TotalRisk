@@ -27,13 +27,13 @@ public class FunctionTypeDiscriminatorTests
     {
         // Assert
         CollectionAssert.AreEqual(
-            new[] { "Tabular", "ParametricUnivariate", "Nonparametric" },
+            new[] { "Tabular", "ParametricUnivariate", "Nonparametric", "Composite" },
             Enum.GetNames<HazardFunctionType>());
         CollectionAssert.AreEqual(
-            new[] { "Tabular", "Linear", "Power" },
+            new[] { "Tabular", "Linear", "Power", "Composite" },
             Enum.GetNames<TransformFunctionType>());
         CollectionAssert.AreEqual(
-            new[] { "Tabular", "Parametric", "NonFail" },
+            new[] { "Tabular", "Parametric", "NonFail", "Composite" },
             Enum.GetNames<ResponseFunctionType>());
         CollectionAssert.AreEqual(
             new[] { "Tabular", "Parametric", "Composite" },

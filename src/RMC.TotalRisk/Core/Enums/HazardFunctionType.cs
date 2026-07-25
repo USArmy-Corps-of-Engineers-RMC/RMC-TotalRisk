@@ -40,5 +40,11 @@ namespace RMC.TotalRisk.Core.Enums
         /// uncertainty — the HEC-FDA "less simple method" (<c>NonparametricHazard</c>).
         /// </summary>
         Nonparametric,
+
+        /// <summary>
+        /// A weighted combination of child hazard functions — a mixture distribution or a
+        /// competing-risks (maximum-rule) combination (<c>CompositeHazard</c>).
+        /// </summary>
+        Composite,
     }
 }

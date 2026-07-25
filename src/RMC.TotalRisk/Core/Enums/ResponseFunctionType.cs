@@ -32,5 +32,11 @@ namespace RMC.TotalRisk.Core.Enums
         /// (<c>NonFailResponse</c>).
         /// </summary>
         NonFail,
+
+        /// <summary>
+        /// A weighted combination of child response functions — a mixture distribution or a
+        /// competing-risks (minimum-rule, weakest-link) combination (<c>CompositeResponse</c>).
+        /// </summary>
+        Composite,
     }
 }

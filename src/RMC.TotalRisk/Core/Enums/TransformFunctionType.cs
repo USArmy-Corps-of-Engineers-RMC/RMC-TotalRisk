@@ -33,5 +33,10 @@ namespace RMC.TotalRisk.Core.Enums
         /// optional inverse form (<c>PowerTransform</c>).
         /// </summary>
         Power,
+
+        /// <summary>
+        /// A weighted average of child transform functions (<c>CompositeTransform</c>).
+        /// </summary>
+        Composite,
     }
 }
