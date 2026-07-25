@@ -24,7 +24,7 @@ Porting sources in order of authority: (1) the partial C# port `C:\GIT\RMC-Total
 | 6.6 | Risk measures, diagnostics & sensitivity | Complete (2026-07-24) |
 | 6.7 | Cascading response end states (the event tree in the risk diagram) | Complete (2026-07-24) |
 | 7 | Remaining closed-form functions: linear/power transforms, parametric consequence, nonparametric hazard | Complete (2026-07-25) |
-| 8 | Numerics.Functions expansion (numerics repo) + RMC.Numerics 2.2.0 package switch | Not started |
+| 8 | Numerics.Functions expansion (numerics repo) + RMC.Numerics 2.2.0 package switch | Implementation complete (2026-07-25); 2.2.0 release + package switch pending user push |
 | 9 | Composites + RFA hazard + weighted wrappers + BestFit composite imports | Not started (`CompositeConsequence` + `WeightedConsequenceFunction` pulled forward 2026-07-21) |
 | 10 | Event trees | Not started |
 | 11 | Bivariate + BestFit import + LifeSim | Not started |
@@ -394,7 +394,41 @@ with no store, no resolver, and no consuming layer in the call path.
 
 **Exit criteria:** remaining three types P/T; any Phase 5/6 deferred scenarios that needed these types converted.
 
-## Phase 8 — Numerics.Functions expansion (numerics repo) + package switch
+## Phase 8 — Numerics.Functions expansion (numerics repo) + package switch — **IMPLEMENTATION COMPLETE (2026-07-25); release + switch pending**
+
+> **Landed 2026-07-25** in eleven commits on `bug-fixes-and-enhancements` (`b484b21`…`0a16f9d`,
+> unpushed — the user coordinates the push, the v2.2.0 release, and the subsequent
+> HintPath→PackageReference switch, which remain the phase's exit gate; TotalRisk keeps the
+> sibling Debug HintPath until then, per the session's ratified decision). What shipped, per
+> SHARED_FUNCTIONS_STRATEGY v1.2 §4: **N1** (`UnivariateFunctionType` + `UnivariateFunctionFactory`
+> + concrete `ToXElement`/`FromXElement` on Linear/Power/Tabular — the ratified amendment keeps
+> serialization OFF `IUnivariateFunction`: TotalRisk's adapters implement it and net481 has no
+> default interface members); **N2** `SegmentedPowerFunction` (BaRatin addition mode, the exact
+> BestFit `[h₁, log₁₀α₁, β₁, …, σ]` layout, Brent inverse, one-segment `PowerFunction`
+> degeneracy, independently evaluated parity constants); **N3** `CompositeFunction`
+> (weighted-average + single-uniform mixture composition); **N4** `EnsembleFunction` (pure
+> index/percentile clone sampling off an immutable template snapshot — parallel
+> no-shared-mutation pinned); **N5** the `EmpiricalDistribution`/`KernelDensity` XElement
+> round-trip fixes (both previously faulted — parameter names without scalar values — now
+> table-bearing overrides wired into the distribution factory); **N7** the acceptance-aware AGK
+> `Recorder` (nodes flush with half-length-scaled Kronrod weights ONLY on interval acceptance —
+> call-time hand-off double-counts rejected parents; Σweights = domain width and Σw·f ≡ Result
+> pinned under forced subdivision; recorder-off byte-identical); **N8** `ConvolveDiscrete`
+> (exact atom-aware lattice convolution — zero-inflation atoms representable at last; means add
+> exactly) + the opt-in log-spaced output ladder (the linear pipeline untouched); **N9** the
+> Vegas Jacobian unit tests (γ ∈ {1, 4, 10} unbiased; Σwgt = volume per batch); **N11** the
+> pooled `IndependentExclusive` overload (caller-owned buffers, in-place row reuse, the
+> truncation flag; the allocating overload delegates); **N6** round-trip tests throughout + the
+> new `docs/functions/` guide. Pre-existing at the numerics HEAD and fixed first: the
+> Kappa-Four regression test's net481 `double.IsFinite` break (→ `Tools.IsFinite`). **Gates:**
+> numerics 0 warnings + **1943/1943 across all four TFMs**; TotalRisk revalidated against the
+> refreshed sibling Debug build — fast suite 534/534, doc script green, the **F1 byte gate
+> bit-identical** (`917ff3a5…`, allocations unchanged — every upstream change is additive and
+> off by default), `EngineReproducibilityVerification` 3/3 after one latent Phase 6.7 test
+> accommodation (the Q3 `PathLabel` display field echoes renamed functions by design; the
+> metadata bit-identity comparison now strips exactly the two display-label fields — hashes and
+> every numeric byte were proven equal, the engine untouched). **Engine adoption of N7/N8/N11
+> stays a future ratified re-pin session** (user decision 2026-07-25).
 
 **Scope:** Executed in `C:\GIT\numerics` (branch `bug-fixes-and-enhancements`) per [requirements/SHARED_FUNCTIONS_STRATEGY.md](requirements/SHARED_FUNCTIONS_STRATEGY.md) §4: N1 function serialization + `UnivariateFunctionFactory`; N2 `SegmentedPowerFunction` (BestFit BaRatin rating form, `ParameterSet`-compatible layout); N3 `CompositeFunction`; N4 `EnsembleFunction` posterior sampling; N5 `EmpiricalDistribution` XElement round-trip fix; N6 tests + `docs/functions/` guide. **Plus the v0.13 risk-engine follow-ups (raised by Phases 4/4b, non-blocking there because each has a documented interim):** N7 — an `AdaptiveGaussKronrod` integrand overload that hands the Kronrod weight to the callback (so LEC probability mass comes from the quadrature directly, retiring the midpoint-trapezoid fallback); N8 — `EmpiricalDistribution.Convolve` upgrades: a log-spaced / adaptive-grid option (the current linear grid starves order-of-magnitude consequence tails) **and an atom-aware discrete/mixed-distribution overload** (v0.15 finding: `Convolve` samples continuous PDFs, so a zero-inflation atom has no representation — the engine's exact lattice kernel `SystemConvolution` migrates onto it when it ships); N9 — Vegas power-transform Jacobian unit tests (integrate a known heavy-tail function at γ ∈ {1,4,10} to the same value; confirm `Σ wgt` = domain volume at every γ — the engine-level empirical audit is green in `SystemRiskVerification`, this is the upstream unit-test half). Release **RMC.Numerics 2.2.0** to the local feed; switch this repo's three csprojs from the HintPath to the PackageReference (Hydrologics does the same on its side).
 
