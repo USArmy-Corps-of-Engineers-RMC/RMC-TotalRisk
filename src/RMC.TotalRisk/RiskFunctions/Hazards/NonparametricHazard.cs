@@ -598,13 +598,17 @@ namespace RMC.TotalRisk.RiskFunctions.Hazards
         }
 
         /// <summary>
-        /// Throws when the derived table cannot be sampled (v1.0's function-valid gate, upgraded
-        /// from a silent null return).
+        /// Throws when the function cannot be sampled — v1.0's function-valid gate (INPUT
+        /// validity), upgraded from a silent null return. Deliberately NOT a check of the derived
+        /// table's own strict-dominance validity flag: the σ repair enforces the 1% bound only,
+        /// so a legitimately derived LnNormal ladder can still cross deep in the tails when the
+        /// spread jumps between ordinates (v1.0 never consulted the derived flag either — sampled
+        /// curves that cross are repaired by <c>ForceMonotonic</c>, exactly as in v1.0).
         /// </summary>
-        /// <exception cref="InvalidOperationException">Thrown when the derived table is unusable.</exception>
+        /// <exception cref="InvalidOperationException">Thrown when the inputs are unusable.</exception>
         private void ThrowIfNotUsable()
         {
-            if (_trueUncertainFunction is null || _trueUncertainFunction.Count < 2 || !_trueUncertainFunction.IsValid)
+            if (!AreInputsUsable() || _trueUncertainFunction is null || _trueUncertainFunction.Count < 2)
                 throw new InvalidOperationException("The nonparametric hazard function is invalid. Call Validate() and correct the reported errors before sampling.");
         }
 
