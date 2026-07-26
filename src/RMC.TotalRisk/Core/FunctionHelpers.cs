@@ -1,6 +1,8 @@
 using System;
 using Numerics;
 using Numerics.Data;
+using Numerics.Data.Statistics;
+using Numerics.Distributions;
 
 namespace RMC.TotalRisk.Core
 {
@@ -93,6 +95,65 @@ namespace RMC.TotalRisk.Core
             return direction > 0
                 ? Math.Max(Math.BitIncrement(value), value + 2d * Tools.DoubleMachineEpsilon)
                 : Math.Min(Math.BitDecrement(value), value - 2d * Tools.DoubleMachineEpsilon);
+        }
+
+        /// <summary>
+        /// Summarizes one ordinate's ensemble of sampled values into an uncertainty-results row:
+        /// the mean, the median as the mode curve, and the two confidence-interval bounds.
+        /// </summary>
+        /// <param name="values">The ensemble, indexed [ordinate, realization].</param>
+        /// <param name="index">The ordinate to summarize.</param>
+        /// <param name="row">
+        /// A caller-owned scratch buffer of length equal to the realization count, reused across
+        /// ordinates; overwritten and sorted in place.
+        /// </param>
+        /// <param name="tail">The one-sided tail probability, <c>(1 − confidence width) / 2</c>.</param>
+        /// <param name="results">The results being filled.</param>
+        /// <exception cref="ArgumentNullException">Thrown when the ensemble, buffer, or results are null.</exception>
+        /// <remarks>
+        /// The single implementation behind every function cluster's
+        /// <c>ComputeUncertaintyResults</c> — the composites and the parametric consequence carried
+        /// byte-identical copies of it. The copy-and-sum share one pass in this order deliberately:
+        /// the mean is a forward sequential sum over the UNSORTED ensemble, so it does not change
+        /// when the buffer is sorted for the percentiles.
+        /// </remarks>
+        public static void SummarizeEnsembleRow(double[,] values, int index, double[] row, double tail,
+            UncertaintyAnalysisResults results)
+        {
+            if (values == null) throw new ArgumentNullException(nameof(values));
+            if (row == null) throw new ArgumentNullException(nameof(row));
+
+            double sum = 0d;
+            for (int k = 0; k < row.Length; k++)
+            {
+                row[k] = values[index, k];
+                sum += row[k];
+            }
+            SummarizeEnsembleRow(row, sum, index, tail, results);
+        }
+
+        /// <summary>
+        /// Summarizes an already-filled ensemble buffer into an uncertainty-results row — the form
+        /// for callers that compute their ordinate values directly rather than reading them out of
+        /// an ensemble matrix.
+        /// </summary>
+        /// <param name="row">The ordinate's sampled values; sorted in place.</param>
+        /// <param name="sum">The sum of <paramref name="row"/>, accumulated as it was filled.</param>
+        /// <param name="index">The ordinate being summarized.</param>
+        /// <param name="tail">The one-sided tail probability, <c>(1 − confidence width) / 2</c>.</param>
+        /// <param name="results">The results being filled.</param>
+        /// <exception cref="ArgumentNullException">Thrown when the buffer or results are null.</exception>
+        public static void SummarizeEnsembleRow(double[] row, double sum, int index, double tail,
+            UncertaintyAnalysisResults results)
+        {
+            if (row == null) throw new ArgumentNullException(nameof(row));
+            if (results == null) throw new ArgumentNullException(nameof(results));
+
+            Array.Sort(row);
+            results.MeanCurve![index] = sum / row.Length;
+            results.ModeCurve![index] = Statistics.Percentile(row, 0.5d, dataIsSorted: true);
+            results.ConfidenceIntervals![index, 0] = Statistics.Percentile(row, tail, dataIsSorted: true);
+            results.ConfidenceIntervals[index, 1] = Statistics.Percentile(row, 1d - tail, dataIsSorted: true);
         }
     }
 }

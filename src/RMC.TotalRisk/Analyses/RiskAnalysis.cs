@@ -2078,38 +2078,21 @@ namespace RMC.TotalRisk.Analyses
         {
             var mean = new double[dimension];
             covariance = new double[dimension, dimension];
-            double offDiagonal;
-            switch (_options.ComponentHazardDependency)
+            if (_options.ComponentHazardDependency == DependencyType.CorrelationMatrix)
             {
-                case DependencyType.PerfectlyPositive:
-                    offDiagonal = 1d - Math.Sqrt(Tools.DoubleMachineEpsilon);
-                    break;
-                case DependencyType.PerfectlyNegative:
-                    offDiagonal = -1d / (dimension - 1) + Math.Sqrt(Tools.DoubleMachineEpsilon);
-                    break;
-                case DependencyType.CorrelationMatrix:
+                var matrix = _options.HazardCorrelationMatrix!;
+                for (int i = 0; i < dimension; i++)
                 {
-                    var matrix = _options.HazardCorrelationMatrix!;
-                    for (int i = 0; i < dimension; i++)
+                    for (int j = 0; j < dimension; j++)
                     {
-                        for (int j = 0; j < dimension; j++)
-                        {
-                            covariance[i, j] = matrix[i, j];
-                        }
+                        covariance[i, j] = matrix[i, j];
                     }
-                    return new MultivariateNormal(mean, covariance);
                 }
-                default:
-                    offDiagonal = 0d;
-                    break;
+                return new MultivariateNormal(mean, covariance);
             }
-            for (int i = 0; i < dimension; i++)
-            {
-                for (int j = 0; j < dimension; j++)
-                {
-                    covariance[i, j] = i == j ? 1d : offDiagonal;
-                }
-            }
+
+            DependencyMatrix.FillEquicorrelated(covariance, dimension,
+                DependencyMatrix.AutomaticOffDiagonal(_options.ComponentHazardDependency, dimension));
             return new MultivariateNormal(mean, covariance);
         }
 

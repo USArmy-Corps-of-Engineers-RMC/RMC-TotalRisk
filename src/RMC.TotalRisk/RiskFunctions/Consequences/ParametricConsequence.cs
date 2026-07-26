@@ -462,11 +462,7 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
                     row[j] = value;
                     sum += value;
                 }
-                Array.Sort(row);
-                results.MeanCurve[i] = sum / SummaryRealizations;
-                results.ModeCurve[i] = Statistics.Percentile(row, 0.5d, dataIsSorted: true);
-                results.ConfidenceIntervals[i, 0] = Statistics.Percentile(row, tail, dataIsSorted: true);
-                results.ConfidenceIntervals[i, 1] = Statistics.Percentile(row, 1d - tail, dataIsSorted: true);
+                FunctionHelpers.SummarizeEnsembleRow(row, sum, i, tail, results);
             }
             return results;
         }

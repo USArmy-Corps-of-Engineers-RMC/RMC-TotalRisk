@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
@@ -555,17 +555,7 @@ namespace RMC.TotalRisk.RiskFunctions.Transforms
             var row = new double[SummaryRealizations];
             for (int i = 0; i < hazards.Length; i++)
             {
-                double sum = 0d;
-                for (int k = 0; k < SummaryRealizations; k++)
-                {
-                    row[k] = values[i, k];
-                    sum += row[k];
-                }
-                Array.Sort(row);
-                results.MeanCurve[i] = sum / SummaryRealizations;
-                results.ModeCurve[i] = Statistics.Percentile(row, 0.5d, dataIsSorted: true);
-                results.ConfidenceIntervals[i, 0] = Statistics.Percentile(row, tail, dataIsSorted: true);
-                results.ConfidenceIntervals[i, 1] = Statistics.Percentile(row, 1d - tail, dataIsSorted: true);
+                FunctionHelpers.SummarizeEnsembleRow(values, i, row, tail, results);
             }
             return results;
         }

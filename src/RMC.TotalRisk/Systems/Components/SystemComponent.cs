@@ -1825,53 +1825,29 @@ namespace RMC.TotalRisk.Systems.Components
 
             var mu = new double[dimension];
             var sigma = new double[dimension, dimension];
-            switch (_failureModeDependency)
+            if (_failureModeDependency == DependencyType.CorrelationMatrix)
             {
-                case DependencyType.Independent:
-                    for (int i = 0; i < dimension; i++)
+                if (_correlationMatrix == null || _correlationMatrix.GetLength(0) != dimension || _correlationMatrix.GetLength(1) != dimension)
+                {
+                    _matrixValid = false;
+                    return;
+                }
+                for (int i = 0; i < dimension; i++)
+                {
+                    for (int j = 0; j < dimension; j++)
                     {
-                        for (int j = 0; j < dimension; j++)
-                        {
-                            sigma[i, j] = i == j ? 1d : 0d;
-                        }
+                        sigma[i, j] = _correlationMatrix[i, j];
                     }
-                    _correlationMatrix = sigma;
-                    break;
-                case DependencyType.PerfectlyPositive:
-                    for (int i = 0; i < dimension; i++)
-                    {
-                        for (int j = 0; j < dimension; j++)
-                        {
-                            sigma[i, j] = i == j ? 1d : 1d - Math.Sqrt(Tools.DoubleMachineEpsilon);
-                        }
-                    }
-                    _correlationMatrix = sigma;
-                    break;
-                case DependencyType.PerfectlyNegative:
-                    double minimumRho = -1d / (dimension - 1) + Math.Sqrt(Tools.DoubleMachineEpsilon);
-                    for (int i = 0; i < dimension; i++)
-                    {
-                        for (int j = 0; j < dimension; j++)
-                        {
-                            sigma[i, j] = i == j ? 1d : minimumRho;
-                        }
-                    }
-                    _correlationMatrix = sigma;
-                    break;
-                case DependencyType.CorrelationMatrix:
-                    if (_correlationMatrix == null || _correlationMatrix.GetLength(0) != dimension || _correlationMatrix.GetLength(1) != dimension)
-                    {
-                        _matrixValid = false;
-                        return;
-                    }
-                    for (int i = 0; i < dimension; i++)
-                    {
-                        for (int j = 0; j < dimension; j++)
-                        {
-                            sigma[i, j] = _correlationMatrix[i, j];
-                        }
-                    }
-                    break;
+                }
+            }
+            else
+            {
+                // The automatic modes derive their matrix from the shared constants and write it
+                // back to the correlation-matrix field (v1.0 behavior; it never serializes from
+                // those modes).
+                DependencyMatrix.FillEquicorrelated(sigma, dimension,
+                    DependencyMatrix.AutomaticOffDiagonal(_failureModeDependency, dimension));
+                _correlationMatrix = sigma;
             }
 
             ValidateCorrelationMatrix(dimension);
