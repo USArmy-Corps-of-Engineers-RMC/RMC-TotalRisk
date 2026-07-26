@@ -2306,6 +2306,15 @@ namespace RMC.TotalRisk.Analyses
             bool recording = false;
             double recordedWeightSum = 0d;
 
+            // Reusable exclusive-combination outputs. The Numerics pooled overload clears and
+            // refills these, reusing indicator rows of matching length in place, so the integrand
+            // performs no output allocation after its first evaluation — where the allocating
+            // overload produced two lists plus one row per emitted combination on every one of the
+            // tens of thousands of evaluations per realization. Locals of this call, and this call
+            // belongs to one realization, so the parallel loop shares nothing.
+            var exclusiveProbabilities = new List<double>();
+            var exclusiveIndicators = new List<int[]>();
+
             double Integrand(double[] point, double weight)
             {
                 if (token.IsCancellationRequested) return 0d;
@@ -2381,7 +2390,7 @@ namespace RMC.TotalRisk.Analyses
                 // hazard levels, component failures are independent â€” dependence enters only
                 // through the correlated hazards (the v1.0 model).
                 Probability.IndependentExclusive(failureProbabilities, binomialCombinations, indicators,
-                    out var exclusiveProbabilities, out var exclusiveIndicators);
+                    exclusiveProbabilities, exclusiveIndicators);
 
                 double expectedFailure = 0d;
                 double expectedNonFailure = 0d;

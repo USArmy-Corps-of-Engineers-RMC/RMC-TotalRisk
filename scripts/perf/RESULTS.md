@@ -162,10 +162,22 @@ are the hash and the allocation counter:
 | 1b PERT-percentile-Z determinism | 5.328 | 4.10 | — | — | bit-identical (branch unreachable from the fixtures) |
 | 1c combination-cache hygiene | 5.646 | **4.09** | 17.93 | **7.84** | bit-identical |
 | 1d competing-risk CIF sharing | 5.615 | 4.09 | 17.93 | 7.84 | bit-identical |
+| 1e pooled exclusive-combination buffers | 5.4 | **3.88** | **16.38** | **7.64** | bit-identical |
 
 The 1c allocation drop is the eliminated double re-projection (`CombinationUnitCount()` rebuilt
 the end-state layout twice per component per realization); the per-method matrix saving does
 not show on these fixtures because they are single-mode.
+
+The 1e drop is the pooled `IndependentExclusive` outputs replacing the allocating overload at
+both call sites (the component pathway decomposition and the joint system integrand). It is
+largest on **F2, −1.55 GB (−8.6%)**, because the joint integrand runs the enumeration tens of
+thousands of times per realization; F1/F3 gain the component-scope half only. Cumulative Stage 1
+allocation: F1 4.10 → 3.88 GB, F2 17.93 → 16.38 GB, F3 7.85 → 7.64 GB, all bit-identical.
+
+One constraint the pooled overload imposes, checked at both sites before adopting it: it reuses
+indicator row arrays in place, so a caller must not retain a row past its evaluation. Neither
+does — the joint integrand extracts participating indices into its own list before the odometer
+runs, and the component kernel reads rows within the same evaluation.
 
 ### F4 — the competing-risks measurement, and why its hash is not a gate
 

@@ -453,6 +453,20 @@ namespace RMC.TotalRisk.Results
         private readonly List<EmpiricalDistribution>? _cumulativeIncidenceFunctions;
 
         /// <summary>
+        /// The reusable exclusive-pathway probability buffer for the independent joint decomposition
+        /// (allocated on first use). Owned by this sampled component, which is owned by one
+        /// realization, so the parallel realization loop shares nothing.
+        /// </summary>
+        private List<double>? _scratchPathwayProbabilities;
+
+        /// <summary>
+        /// The reusable exclusive-pathway indicator buffer, parallel to
+        /// <see cref="_scratchPathwayProbabilities"/>; the Numerics pooled overload refills matching
+        /// rows in place, so steady-state evaluations allocate nothing.
+        /// </summary>
+        private List<int[]>? _scratchPathwayIndicators;
+
+        /// <summary>
         /// The sampled profile transform chain mapping the driving hazard onto the selected
         /// profile axis for this realization (Q-T); null when the primary hazard is the axis.
         /// </summary>
@@ -1188,6 +1202,15 @@ namespace RMC.TotalRisk.Results
         /// Thrown when the combination caches or the dependent-mode correlation matrix are
         /// missing — an engine wiring defect, not a data condition.
         /// </exception>
+        /// <remarks>
+        /// The independent arm writes into buffers this sampled component owns, so a run performs
+        /// no output allocation here after the first evaluation. The allocating overload it
+        /// replaced produced two fresh lists (plus an indicator row per emitted combination) on
+        /// every integrand evaluation — several thousand per component per realization. The buffers
+        /// are per-<see cref="SampledComponent"/>, which is per-realization, so the parallel
+        /// realization loop shares nothing. The dependent arms still allocate; their Numerics
+        /// kernels have no pooled overload yet.
+        /// </remarks>
         private void ComputePathwayDecomposition(List<double> responseProbabilities,
             out List<double> pathwayProbabilities, out List<int[]> pathwayIndicators)
         {
@@ -1198,12 +1221,19 @@ namespace RMC.TotalRisk.Results
                 throw new InvalidOperationException("The failure-mode combination caches are missing. The component was not sampled through SetupSamplers().");
             }
 
+            if (_failureModeDependency == DependencyType.Independent)
+            {
+                var probabilities = _scratchPathwayProbabilities ??= new List<double>();
+                var indicators = _scratchPathwayIndicators ??= new List<int[]>();
+                Probability.IndependentExclusive(responseProbabilities, binomialCombinations, indicatorCombinations,
+                    probabilities, indicators);
+                pathwayProbabilities = probabilities;
+                pathwayIndicators = indicators;
+                return;
+            }
+
             switch (_failureModeDependency)
             {
-                case DependencyType.Independent:
-                    Probability.IndependentExclusive(responseProbabilities, binomialCombinations, indicatorCombinations,
-                        out pathwayProbabilities, out pathwayIndicators);
-                    break;
                 case DependencyType.PerfectlyPositive:
                     Probability.PositivelyDependentExclusive(responseProbabilities, binomialCombinations, indicatorCombinations,
                         out pathwayProbabilities, out pathwayIndicators);
