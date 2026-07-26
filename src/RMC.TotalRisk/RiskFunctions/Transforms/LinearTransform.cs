@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Xml.Linq;
+using Numerics;
 using Numerics.Distributions;
 using Numerics.Functions;
 using RMC.TotalRisk.Core;
@@ -238,21 +239,21 @@ namespace RMC.TotalRisk.RiskFunctions.Transforms
             if (string.IsNullOrEmpty(TransformedHazardUnit))
                 messages.Add("Error: The linear transform function does not have a specified transformed hazard unit.");
 
-            if (double.IsNaN(Minimum) || double.IsInfinity(Minimum))
+            if (!Tools.IsFinite(Minimum))
                 messages.Add("Error: Invalid minimum X-value.");
-            if (double.IsNaN(Maximum) || double.IsInfinity(Maximum))
+            if (!Tools.IsFinite(Maximum))
                 messages.Add("Error: Invalid maximum X-value.");
             if (!double.IsNaN(Minimum) && !double.IsNaN(Maximum) && Minimum >= Maximum)
                 messages.Add("Error: The minimum X-value must be less than the maximum X-value.");
 
-            if (double.IsNaN(Alpha) || double.IsInfinity(Alpha))
+            if (!Tools.IsFinite(Alpha))
                 messages.Add("Error: Invalid intercept parameter (α).");
-            if (double.IsNaN(Beta) || double.IsInfinity(Beta))
+            if (!Tools.IsFinite(Beta))
                 messages.Add("Error: Invalid slope parameter (β).");
 
             if (IsUncertain)
             {
-                if (double.IsNaN(Sigma) || double.IsInfinity(Sigma))
+                if (!Tools.IsFinite(Sigma))
                     messages.Add("Error: Invalid standard error (σ).");
                 else if (Sigma <= 0d)
                     messages.Add("Error: The standard error (σ) must be greater than zero.");
@@ -432,12 +433,12 @@ namespace RMC.TotalRisk.RiskFunctions.Transforms
         /// <returns>True when the configuration is usable.</returns>
         private bool ConfigurationIsUsable()
         {
-            if (double.IsNaN(Minimum) || double.IsInfinity(Minimum)) return false;
-            if (double.IsNaN(Maximum) || double.IsInfinity(Maximum)) return false;
+            if (!Tools.IsFinite(Minimum)) return false;
+            if (!Tools.IsFinite(Maximum)) return false;
             if (Minimum >= Maximum) return false;
-            if (double.IsNaN(Alpha) || double.IsInfinity(Alpha)) return false;
-            if (double.IsNaN(Beta) || double.IsInfinity(Beta)) return false;
-            if (IsUncertain && (double.IsNaN(Sigma) || double.IsInfinity(Sigma) || Sigma <= 0d)) return false;
+            if (!Tools.IsFinite(Alpha)) return false;
+            if (!Tools.IsFinite(Beta)) return false;
+            if (IsUncertain && (!Tools.IsFinite(Sigma) || Sigma <= 0d)) return false;
             return true;
         }
 

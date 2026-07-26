@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Numerics;
 using Numerics.Data;
 using Numerics.Data.Statistics;
 using Numerics.Distributions;
@@ -575,7 +576,7 @@ namespace RMC.TotalRisk.Results
             // the non-exceedance coordinate, but the VEGAS path passes its weight), and only
             // when the coordinate will be recorded.
             double hazardExceedance = recordOutput
-                ? Math.Min(1d, Math.Max(0d, 1d - Hazard.CDF(hazardLevel)))
+                ? Tools.Clamp(1d - Hazard.CDF(hazardLevel), 0d, 1d)
                 : double.NaN;
 
             // Secondary types ride along only when their results are consumed (recording, or the
@@ -703,7 +704,7 @@ namespace RMC.TotalRisk.Results
                     int owningUnit = _layout.ClaimedStateUnit[j];
                     double divisor = owningUnit >= 0 ? 1d - unitProbabilities[owningUnit] : 1d;
                     double share = divisor > 0d ? responseProbabilities[j] / divisor : 0d;
-                    claimedConditional[j] = Math.Min(1d, Math.Max(0d, share));
+                    claimedConditional[j] = Tools.Clamp(share, 0d, 1d);
                     claimedShareTotal += claimedConditional[j];
                 }
                 if (claimedShareTotal > 1d)

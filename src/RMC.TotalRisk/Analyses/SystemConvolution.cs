@@ -175,8 +175,10 @@ namespace RMC.TotalRisk.Analyses
         /// <returns>The convolved lattice mass vector, length <c>left + right − 1</c>.</returns>
         private static double[] ConvolvePair(double[] left, double[] right)
         {
-            if (right.Length == 1) return Scale(left, right[0]);
-            if (left.Length == 1) return Scale(right, left[0]);
+            // A degenerate operand is a point mass at zero: convolution is an exact rescale
+            // (Numerics ExtensionMethods.Multiply — same loop, no transform round-trip).
+            if (right.Length == 1) return left.Multiply(right[0]);
+            if (left.Length == 1) return right.Multiply(left[0]);
 
             int resultLength = left.Length + right.Length - 1;
             int size = Tools.NextPowerOfTwo(resultLength);
@@ -212,21 +214,5 @@ namespace RMC.TotalRisk.Analyses
             return result;
         }
 
-        /// <summary>
-        /// Scales a lattice mass vector by a scalar atom's mass (convolution with a point mass at
-        /// zero) — exact, no transform round-trip.
-        /// </summary>
-        /// <param name="vector">The lattice mass vector.</param>
-        /// <param name="mass">The atom's mass.</param>
-        /// <returns>The scaled copy.</returns>
-        private static double[] Scale(double[] vector, double mass)
-        {
-            var result = new double[vector.Length];
-            for (int i = 0; i < vector.Length; i++)
-            {
-                result[i] = vector[i] * mass;
-            }
-            return result;
-        }
     }
 }

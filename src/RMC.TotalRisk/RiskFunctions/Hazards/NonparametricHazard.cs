@@ -812,10 +812,10 @@ namespace RMC.TotalRisk.RiskFunctions.Hazards
                 if (discriminant > 0d)
                 {
                     double v = z + Math.Sqrt(discriminant);
-                    if (v > 0d && !double.IsInfinity(v))
+                    if (v > 0d && Tools.IsFinite(v))
                     {
                         double sd = mean * Math.Sqrt(Math.Exp(v * v) - 1d);
-                        if (!double.IsNaN(sd) && !double.IsInfinity(sd) && sd > 0d) return sd;
+                        if (Tools.IsFinite(sd) && sd > 0d) return sd;
                     }
                 }
             }

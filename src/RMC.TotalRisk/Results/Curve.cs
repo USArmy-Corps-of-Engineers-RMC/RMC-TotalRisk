@@ -712,12 +712,21 @@ namespace RMC.TotalRisk.Results
         /// <exception cref="ArgumentNullException">Thrown when the pair list is null.</exception>
         /// <exception cref="ArgumentOutOfRangeException">Thrown when the output length is less than two.</exception>
         /// <remarks>
+        /// <para>
         /// The algorithm: sort by consequence descending, merge equal consequences, accumulate the
         /// exact reverse-cumulative exceedance, compute the two-pass weighted central moments
         /// (including the implicit zero-consequence atom carrying any unrecorded mass, which is
         /// what makes a defective curve's moments unconditional — the v1.0 semantics, computed
         /// stably), then thin the stored ordinates by log-spaced exceedance targets that always
         /// retain the extreme-tail and terminal points.
+        /// </para>
+        /// <para>
+        /// The moment block stays local rather than calling <c>Statistics.ProductMoments</c>: those
+        /// are UNWEIGHTED (Numerics exposes no weighted moment API), the Numerics kurtosis is
+        /// EXCESS and its skewness and standard deviation carry sample corrections, where v1.0
+        /// convention — preserved here and pinned by verification — is plain normalized central
+        /// moments over the population. The zero-consequence atom also has no array to live in.
+        /// </para>
         /// </remarks>
         public void CreateCurve(IReadOnlyList<(double Mass, double Consequence)> pairs, int outputLength)
         {
@@ -875,7 +884,7 @@ namespace RMC.TotalRisk.Results
                 if (i == 0 || RiskPoints[i].HazardLevel != hazards[hazards.Count - 1])
                 {
                     hazards.Add(RiskPoints[i].HazardLevel);
-                    exceedances.Add(Math.Min(1d - ProbabilityFloor, Math.Max(ProbabilityFloor, sumExceedance)));
+                    exceedances.Add(Tools.Clamp(sumExceedance, ProbabilityFloor, 1d - ProbabilityFloor));
                     conditionalMeans.Add(sumExpectedConsequence / sumExceedance);
                 }
             }
@@ -1245,11 +1254,7 @@ namespace RMC.TotalRisk.Results
             {
                 return new OrderedPairedData(true, SortOrder.Descending, false, SortOrder.Descending);
             }
-            var normalized = new double[yValues.Length];
-            for (int i = 0; i < yValues.Length; i++)
-            {
-                normalized[i] = yValues[i] / yValues[0];
-            }
+            var normalized = yValues.Divide(yValues[0]);
             return BuildView(xValues, normalized, yStrict: false, yOrder: SortOrder.Descending);
         }
 

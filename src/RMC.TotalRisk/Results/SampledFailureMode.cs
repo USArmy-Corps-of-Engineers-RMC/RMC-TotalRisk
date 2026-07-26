@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Numerics;
 using Numerics.Distributions;
 using Numerics.Functions;
 using RMC.TotalRisk.Core.Enums;
@@ -337,7 +338,7 @@ namespace RMC.TotalRisk.Results
                 {
                     signal = _stageTransforms[i].Function(signal);
                 }
-                double p = Math.Max(0d, Math.Min(1d, _stageResponses[s].CDF(signal)));
+                double p = Tools.Clamp(_stageResponses[s].CDF(signal), 0d, 1d);
                 weight *= _stagePolarities[s] == BranchPolarity.Fail ? p : 1d - p;
             }
             return weight;

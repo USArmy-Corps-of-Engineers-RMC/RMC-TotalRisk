@@ -1429,7 +1429,7 @@ namespace RMC.TotalRisk.Analyses
                     SensitivityMeasure.SpearmanCorrelation => Correlation.Spearman(inputVector, outputVector),
                     _ => Math.Pow(Correlation.Pearson(inputVector, outputVector), 2d),
                 };
-                if (double.IsNaN(value) || double.IsInfinity(value)) value = 0d;
+                if (!Tools.IsFinite(value)) value = 0d;
                 entries.Add(new SensitivityEntry(inputs[c].Label, value));
             }
             return new SensitivityResults(outputLabel, riskType, measure, count, entries);
@@ -2061,7 +2061,7 @@ namespace RMC.TotalRisk.Analyses
                     token.ThrowIfCancellationRequested();
                     minimumFailureProbability = Math.Min(minimumFailureProbability, ProbeAnnualFailureProbability(_components[i]));
                 }
-                _jointTailTargetProbability = Math.Min(1e-2, Math.Max(1e-12, minimumFailureProbability * _options.Alpha));
+                _jointTailTargetProbability = Tools.Clamp(minimumFailureProbability * _options.Alpha, 1e-12, 1e-2);
             }
         }
 
@@ -2184,7 +2184,7 @@ namespace RMC.TotalRisk.Analyses
             {
                 throw new InvalidOperationException($"The failure-probability probe failed for system component '{sampled.Name}': an integrand evaluation threw, so the tail-focus target cannot be derived.");
             }
-            return Math.Min(1d, Math.Max(0d, integrator.Result));
+            return Tools.Clamp(integrator.Result, 0d, 1d);
         }
 
         /// <summary>
@@ -2332,7 +2332,7 @@ namespace RMC.TotalRisk.Analyses
                 for (int i = 0; i < d; i++)
                 {
                     double probability = Normal.StandardCDF(latentBuffer[i]);
-                    probability = Math.Max(ProbabilityFloor, Math.Min(1d - ProbabilityFloor, probability));
+                    probability = Tools.Clamp(probability, ProbabilityFloor, 1d - ProbabilityFloor);
                     hazardLevels[i] = sampledComponents[i].Hazard.InverseCDF(probability);
 
                     // The VEGAS weight is the recorded probability-mass coordinate (v1.0
@@ -2769,6 +2769,14 @@ namespace RMC.TotalRisk.Analyses
         /// <param name="indicators">The combination's failure indicators.</param>
         /// <param name="rule">The combination rule.</param>
         /// <returns>The combined complement value.</returns>
+        /// <remarks>
+        /// Deliberately not delegated to <c>Tools.Sum(values, indicators, useComplement: true)</c> /
+        /// <c>Tools.Mean(...)</c>, which exist for exactly this shape: they take <c>IList</c>, so
+        /// every element access inside this per-evaluation kernel would become an interface
+        /// dispatch, and the Maximum/Minimum rules have no indicator overload — the rule switch
+        /// would still live here while the single fused pass became four. The Numerics overloads
+        /// also return NaN on an empty complement where v1.0 returns the zero sentinel below.
+        /// </remarks>
         private static double CombineComplement(double[] values, int[] indicators, JointConsequenceType rule)
         {
             double combined = 0d;
@@ -3050,6 +3058,12 @@ namespace RMC.TotalRisk.Analyses
         /// <param name="maximum">The grid maximum.</param>
         /// <param name="count">The ordinate count (at least two).</param>
         /// <returns>The descending grid.</returns>
+        /// <remarks>
+        /// Deliberately not <c>Tools.Sequence(start, end, step)</c>: that form accumulates
+        /// <c>v += step</c> (so rounding compounds across the grid) and derives its length from the
+        /// step, where the percentile assembly requires exactly <paramref name="count"/> ordinates.
+        /// The <c>maximum - i * step</c> form here is drift-free and length-exact.
+        /// </remarks>
         private static double[] BuildDescendingGrid(double minimum, double maximum, int count)
         {
             var grid = new double[count];
