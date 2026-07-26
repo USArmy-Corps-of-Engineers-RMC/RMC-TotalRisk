@@ -151,6 +151,54 @@ public class TabularHazardTests
         Assert.AreEqual(1d - medianExceedance, median.CDF(100d), 1e-9);
     }
 
+    /// <summary>
+    /// Verifies the PERT-percentile-Z mean curve is bit-reproducible across repeated calls.
+    /// </summary>
+    /// <remarks>
+    /// This ordinate mean is not analytic, so it is rebuilt by averaging 10,000 percentile curves.
+    /// That reduction previously ran through <c>Statistics.ParallelMean</c> (PLINQ
+    /// <c>AsParallel().Sum()</c>), whose partitioning follows the core count and thread-pool
+    /// state, so the summation order — and the last bits of a curve that feeds every realization
+    /// of an analysis — was not guaranteed to reproduce across machines or runs. The reduction now
+    /// sums sequentially in realization order, which is deterministic by construction.
+    /// <para>
+    /// What this test can and cannot show: a same-process pair of PLINQ reductions will often
+    /// partition identically, so this is a REGRESSION GUARD against reintroducing a parallel
+    /// reduction here rather than a reproduction of the original defect. Bit equality is asserted
+    /// on the raw doubles because a tolerance-based assert would not detect the class of change it
+    /// is guarding against at all.
+    /// </para>
+    /// </remarks>
+    [TestMethod]
+    public void Test_SampleFunction_PertPercentileZMean_IsBitReproducible()
+    {
+        // Arrange — a probability-uncertain table whose ordinates are PERT-percentile-Z, the one
+        // configuration that takes the 10,000-curve averaging branch.
+        var h = LabeledHazard(FunctionUncertainty.Probability);
+        h.ProbabilityUncertainFunction = new UncertainOrderedPairedData(
+            new[]
+            {
+                new UncertainOrdinate(1d, new PertPercentileZ(0.98d, 0.999d, 0.9999d)),
+                new UncertainOrdinate(100d, new PertPercentileZ(0.0001d, 0.0005d, 0.005d)),
+            },
+            true, SortOrder.Ascending, true, SortOrder.Descending, UnivariateDistributionType.PertPercentileZ);
+
+        // Act — the mean curve, twice.
+        var first = (EmpiricalDistribution)h.SampleFunction();
+        var second = (EmpiricalDistribution)h.SampleFunction();
+
+        // Assert — identical ordinate count and bit-identical probabilities.
+        Assert.AreEqual(first.ProbabilityValues.Count, second.ProbabilityValues.Count);
+        for (int i = 0; i < first.ProbabilityValues.Count; i++)
+        {
+            Assert.AreEqual(
+                BitConverter.DoubleToInt64Bits(first.ProbabilityValues[i]),
+                BitConverter.DoubleToInt64Bits(second.ProbabilityValues[i]),
+                $"The mean curve is not bit-reproducible at ordinate {i}.");
+            Assert.AreEqual(first.XValues[i], second.XValues[i], 0d);
+        }
+    }
+
     /// <summary>Verifies the mode-switched hazard bounds, incl. the 1e-5 full-uncertainty probes.</summary>
     [TestMethod]
     public void Test_Bounds_ModeSwitched()

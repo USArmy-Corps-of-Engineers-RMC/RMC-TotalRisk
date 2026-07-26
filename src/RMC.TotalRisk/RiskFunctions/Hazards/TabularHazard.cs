@@ -408,8 +408,22 @@ namespace RMC.TotalRisk.RiskFunctions.Hazards
                                 for (int i = 0; i < count; i++)
                                     probabilities[i, idx] = curves[idx].ProbabilityValues[i];
                             });
+
+                            // Sum each ordinate's realizations SEQUENTIALLY, in realization order.
+                            // This is Statistics.Mean's exact arithmetic (a forward sum divided by
+                            // the count) without the double[realizations] row copy GetRow would
+                            // allocate per ordinate. It deliberately does not use ParallelMean,
+                            // whose PLINQ reduction partitions by core count and so returns a
+                            // different sum in the last bits from run to run — a nondeterministic
+                            // mean curve here would feed every realization of the analysis and
+                            // break the bit-reproducibility contract at its source.
                             for (int i = 0; i < count; i++)
-                                expected[i] = Statistics.ParallelMean(probabilities.GetRow(i));
+                            {
+                                double sum = 0d;
+                                for (int idx = 0; idx < realizations; idx++)
+                                    sum += probabilities[i, idx];
+                                expected[i] = sum / realizations;
+                            }
 
                             var opd = new OrderedPairedData(meanCurve.XValues, expected, true, SortOrder.Ascending, true, SortOrder.Descending);
                             if (!opd.IsValid)
