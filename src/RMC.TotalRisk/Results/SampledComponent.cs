@@ -244,30 +244,26 @@ namespace RMC.TotalRisk.Results
             // Weak-link competing failures: pre-process the cumulative incidence functions over
             // 200 stratified hazard levels (v1.0 constants). A single mode short-circuits to its
             // own response probability, so the pre-processing is skipped then.
-            if (_failureModeMethod == FailureModeMethod.CompetingFailures && _layout.CombinationUnitCount > 1
-                && component.TryGetCompetingIncidence(out var sharedIncidence, out var sharedBins))
-            {
-                // A deterministic component samples the identical hazard and fragilities every
-                // realization, so this run already holds the incidence data this realization would
-                // recompute. Rebuilding the distributions over it is bit-exact and skips the whole
-                // pre-processing — which, under a dependent configuration, is a Genz rectangle
-                // integral per unit per hazard level. The distributions themselves are NEVER shared:
-                // a Numerics interpolator mutates its SearchStart on every lookup, so one instance
-                // read by parallel realizations is a race, not just contention.
-                HazardBins = sharedBins;
-                _cumulativeIncidenceFunctions = new List<EmpiricalDistribution>(sharedIncidence!.Length);
-                for (int j = 0; j < sharedIncidence.Length; j++)
-                {
-                    var incidenceCurve = new OrderedPairedData(sharedIncidence[j].Hazards, sharedIncidence[j].Probabilities,
-                        true, SortOrder.Ascending, false, SortOrder.Ascending);
-                    _cumulativeIncidenceFunctions.Add(new EmpiricalDistribution(incidenceCurve));
-                }
-            }
-            else if (_failureModeMethod == FailureModeMethod.CompetingFailures && _layout.CombinationUnitCount > 1)
+            if (_failureModeMethod == FailureModeMethod.CompetingFailures && _layout.CombinationUnitCount > 1)
             {
                 double minHazard = Hazard.InverseCDF(ProbabilityFloor);
                 double maxHazard = Hazard.InverseCDF(1d - ProbabilityFloor);
                 HazardBins = Stratify.XValues(new StratificationOptions(minHazard, maxHazard, 200), false);
+
+                // A deterministic component samples the identical hazard and fragilities every
+                // realization, so this run may already hold the incidence data this realization
+                // would recompute — skipping a Genz rectangle integral per unit per hazard level
+                // under a dependent configuration. Only the DATA is shared: the bins are rebuilt
+                // above (they are trivially cheap and carry a settable Weight), and the
+                // distributions are rebuilt below, because a Numerics interpolator mutates its
+                // SearchStart on every lookup — one instance read by parallel realizations is a
+                // race, and on these non-strict curves a corrupted search start can return a
+                // different ordinate, not merely a slower lookup.
+                if (component.TryGetCompetingIncidence(out var sharedIncidence))
+                {
+                    _cumulativeIncidenceFunctions = BuildIncidenceFunctions(sharedIncidence!);
+                    return;
+                }
 
                 // The competing marginals are the combination units' failure masses — a unit's
                 // mass sums its exclusive members' polarity-product weights (validation admits
@@ -317,6 +313,17 @@ namespace RMC.TotalRisk.Results
                         DependencyType.PerfectlyPositive => Probability.DependencyType.PerfectlyPositive,
                         _ => Probability.DependencyType.CorrelationMatrix,
                     },
+
+                    // The dependent branches evaluate Genz's RANDOMIZED lattice rule, which draws
+                    // from the multivariate normal's own generator. Numerics defaulted that to a
+                    // clock-seeded Mersenne Twister, so dependent competing incidence curves did
+                    // not reproduce across runs — invisibly, because the error sits near the
+                    // requested tolerance and the verification family asserts at k·SE. Seeding it
+                    // from the component's content seed restores the run contract. The realization
+                    // index is deliberately NOT folded in: the run-shared cache above publishes
+                    // whichever realization finishes first, so a realization-dependent seed would
+                    // make the shared result depend on thread scheduling.
+                    PRNGSeed = component.CompetingRiskSeed,
                 };
                 if (_correlationMatrix != null)
                 {
@@ -328,22 +335,47 @@ namespace RMC.TotalRisk.Results
                 // a mode contributes no hazard — rebuild each output as a non-strict ascending
                 // curve so its CDF is queryable (Numerics follow-up item alongside N7–N9).
                 var rawIncidenceFunctions = competingRisks.CumulativeIncidenceFunctions(HazardBins);
-                _cumulativeIncidenceFunctions = new List<EmpiricalDistribution>(rawIncidenceFunctions.Count);
                 var incidenceData = new (double[] Hazards, double[] Probabilities)[rawIncidenceFunctions.Count];
                 for (int j = 0; j < rawIncidenceFunctions.Count; j++)
                 {
-                    var hazards = rawIncidenceFunctions[j].XValues.ToArray();
-                    var probabilities = rawIncidenceFunctions[j].ProbabilityValues.ToArray();
-                    incidenceData[j] = (hazards, probabilities);
-                    var incidenceCurve = new OrderedPairedData(hazards, probabilities,
-                        true, SortOrder.Ascending, false, SortOrder.Ascending);
-                    _cumulativeIncidenceFunctions.Add(new EmpiricalDistribution(incidenceCurve));
+                    incidenceData[j] = (rawIncidenceFunctions[j].XValues.ToArray(), rawIncidenceFunctions[j].ProbabilityValues.ToArray());
                 }
+                _cumulativeIncidenceFunctions = BuildIncidenceFunctions(incidenceData);
 
                 // Offer the DATA to the run. Accepted only for a deterministic component, where
                 // every other realization would compute exactly this.
-                component.PublishCompetingIncidence(incidenceData, HazardBins);
+                component.PublishCompetingIncidence(incidenceData);
             }
+        }
+
+        /// <summary>
+        /// Wraps cumulative incidence data in queryable distributions, one per combination unit.
+        /// </summary>
+        /// <param name="incidenceData">The hazard and incidence-probability arrays per unit.</param>
+        /// <returns>The incidence distributions, in unit order.</returns>
+        /// <remarks>
+        /// The arrays may be this run's shared copy, so they are only ever READ here:
+        /// <see cref="OrderedPairedData"/>'s two-list constructor copies each pair into its own
+        /// ordinate list rather than retaining or sorting the inputs, which is what makes sharing
+        /// them across parallel realizations safe. The resulting distributions are per-realization
+        /// by construction.
+        /// <para>
+        /// The non-strict Y ordering is required, not incidental: the Numerics incidence factory
+        /// builds its outputs with the strict two-list constructor, but a cumulative incidence
+        /// function legitimately plateaus wherever a unit contributes no hazard, so the strict form
+        /// would reject the curve (a Numerics follow-up alongside N7–N9).
+        /// </para>
+        /// </remarks>
+        private static List<EmpiricalDistribution> BuildIncidenceFunctions((double[] Hazards, double[] Probabilities)[] incidenceData)
+        {
+            var functions = new List<EmpiricalDistribution>(incidenceData.Length);
+            for (int j = 0; j < incidenceData.Length; j++)
+            {
+                var incidenceCurve = new OrderedPairedData(incidenceData[j].Hazards, incidenceData[j].Probabilities,
+                    true, SortOrder.Ascending, false, SortOrder.Ascending);
+                functions.Add(new EmpiricalDistribution(incidenceCurve));
+            }
+            return functions;
         }
 
         #endregion

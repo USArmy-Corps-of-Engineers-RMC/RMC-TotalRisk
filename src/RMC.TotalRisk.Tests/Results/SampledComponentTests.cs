@@ -192,67 +192,68 @@ public class SampledComponentTests
     }
 
     /// <summary>
-    /// Verifies the competing-risks pre-processing is shared across realizations exactly when the
-    /// component is deterministic, and rebuilt per realization when it is not.
+    /// Verifies a DEPENDENT competing-risks component reproduces bit-for-bit across independent
+    /// runs, and that its realizations agree when the component is deterministic.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Building the cumulative incidence functions is the dominant construction cost of a
-    /// competing component — under a dependent configuration it is a Genz multivariate-normal
-    /// rectangle integral per unit per hazard level, 201 levels, once per realization. When the
-    /// hazard and every fragility are deterministic, every realization samples identical curves
-    /// and so recomputes an identical answer, and the run can share one. Reference identity on the
-    /// stratification bins is the assertion because it distinguishes "shared" from "recomputed to
-    /// the same value" — value equality would hold either way and would not detect the cache
-    /// silently failing.
+    /// The perfectly-negative and correlation-matrix branches of the incidence factory evaluate
+    /// Genz's rectangle integral, a RANDOMIZED lattice rule that draws from the multivariate
+    /// normal's own generator. Numerics defaulted that generator to a clock-seeded Mersenne
+    /// Twister, so these curves — and therefore every competing failure probability computed from
+    /// them — did not reproduce across runs. The defect was invisible to the verification family,
+    /// whose asserts carry k·SE tolerances far wider than the ≈1e-4 Genz error. The seed is now
+    /// derived from the component's content seed.
     /// </para>
     /// <para>
-    /// Only the bins and the incidence DATA are shared. The <c>EmpiricalDistribution</c> wrappers
-    /// are rebuilt per realization, because a Numerics interpolator mutates its <c>SearchStart</c>
-    /// on every lookup — sharing one instance across the parallel realization loop would be a data
-    /// race. That property is not reachable from here (the incidence list is private); the perf
-    /// harness is where it shows up.
+    /// Three failure modes, not two: the multivariate normal uses a closed bivariate form at two
+    /// dimensions and only reaches the randomized lattice rule above that, so a two-unit fixture
+    /// would pass whether or not the seeding is fixed.
     /// </para>
     /// </remarks>
     [TestMethod]
-    public void Test_CompetingIncidence_SharedOnlyWhenDeterministic()
+    public void Test_DependentCompeting_ReproducesAcrossRuns()
     {
-        // Arrange — a deterministic two-mode competing component.
-        var deterministic = TwoModeComponent(FailureModeMethod.CompetingFailures);
-        Assert.IsTrue(deterministic.IsDeterministic);
-        deterministic.SetupSamplers(8, componentSeed: 12345, SamplingScheme.LatinHypercube);
-
-        // Act
-        var first = deterministic.Sample(0);
-        var second = deterministic.Sample(1);
-
-        // Assert — the second realization took the first's pre-processing, and the shared curves
-        // still produce the same adjusted probabilities.
-        Assert.IsNotNull(first.HazardBins);
-        Assert.AreSame(first.HazardBins, second.HazardBins);
-        var flagsA = new RiskComputeFlags();
-        var flagsB = new RiskComputeFlags();
-        var outputA = first.ComputeRisk(0.5d, 15d, flagsA, new ComponentRealization(first.FailureModeCount), recordOutput: false);
-        var outputB = second.ComputeRisk(0.5d, 15d, flagsB, new ComponentRealization(second.FailureModeCount), recordOutput: false);
-        Assert.AreEqual(outputA.ProbabilityOfFailure, outputB.ProbabilityOfFailure, 0d);
-
-        // Arrange — the same component with an uncertain hazard is no longer deterministic.
-        var uncertain = TwoModeComponent(FailureModeMethod.CompetingFailures);
-        uncertain.HazardFunction = new TabularHazard
+        // Arrange — three fragilities under perfect negative dependence: the Genz branch.
+        static SystemComponent Build()
         {
-            Name = "Uncertain Stage Frequency",
-            SpecifiedHazard = "Stage",
-            HazardUnit = "ft",
-            UncertaintyValue = FunctionUncertainty.Hazard,
-        };
-        Assert.IsFalse(uncertain.IsDeterministic);
-        uncertain.SetupSamplers(8, componentSeed: 12345, SamplingScheme.LatinHypercube);
+            var component = new SystemComponent { Name = "Dependent Competing" };
+            component.HazardFunction = StageFrequency();
+            component.AddFailureMode(new FailureMode(null, null, Fragility("Mode A", 10d, 20d), Consequence("A Loss", 300d)));
+            component.AddFailureMode(new FailureMode(null, null, Fragility("Mode B", 10d, 25d), Consequence("B Loss", 600d)));
+            component.AddFailureMode(new FailureMode(null, null, Fragility("Mode C", 12d, 30d), Consequence("C Loss", 900d)));
+            component.AddFailureMode(new FailureMode(null, null, null, Consequence("Non-Failure Loss", 60d)));
+            component.FailureModeMethod = FailureModeMethod.CompetingFailures;
+            component.FailureModeDependency = DependencyType.PerfectlyNegative;
+            return component;
+        }
 
-        // Act / Assert — each realization builds its own, because each samples a different hazard.
-        var third = uncertain.Sample(0);
-        var fourth = uncertain.Sample(1);
-        Assert.IsNotNull(third.HazardBins);
-        Assert.AreNotSame(third.HazardBins, fourth.HazardBins);
+        static double FailureProbability(SampledComponent sampled)
+        {
+            var flags = new RiskComputeFlags();
+            return sampled.ComputeRisk(0.5d, 18d, flags, new ComponentRealization(sampled.FailureModeCount), recordOutput: false)
+                .ProbabilityOfFailure;
+        }
+
+        // Act — two independent runs of the same model at the same seed.
+        var firstRun = Build();
+        Assert.IsTrue(firstRun.IsDeterministic);
+        firstRun.SetupSamplers(8, componentSeed: 12345, SamplingScheme.LatinHypercube);
+        double firstValue = FailureProbability(firstRun.Sample(0));
+        double firstOtherRealization = FailureProbability(firstRun.Sample(1));
+
+        var secondRun = Build();
+        secondRun.SetupSamplers(8, componentSeed: 12345, SamplingScheme.LatinHypercube);
+        double secondValue = FailureProbability(secondRun.Sample(0));
+
+        // Assert — bit-identical across runs, and across realizations of a deterministic component.
+        // Raw bits, not a delta: the Genz error this guards against is far below any tolerance a
+        // value-based assert would use.
+        Assert.AreEqual(BitConverter.DoubleToInt64Bits(firstValue), BitConverter.DoubleToInt64Bits(secondValue),
+            "A dependent competing component must reproduce across runs at the same seed.");
+        Assert.AreEqual(BitConverter.DoubleToInt64Bits(firstValue), BitConverter.DoubleToInt64Bits(firstOtherRealization),
+            "A deterministic component's realizations must agree.");
+        Assert.IsTrue(firstValue > 0d && firstValue < 1d);
     }
 
     /// <summary>

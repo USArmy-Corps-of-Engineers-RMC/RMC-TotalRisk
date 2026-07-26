@@ -25,8 +25,7 @@ Fixtures:
   `SampledComponent`'s constructor rather than in the risk integral: a dependent competing
   configuration routes `CompetingRisks.CumulativeIncidenceFunctions` onto its Genz
   multivariate-normal branch, one rectangle integral per unit per hazard level over 201
-  levels, per realization. **F4's results hash is NOT a byte gate** — see the Phase 8.5
-  section below.
+  levels, per realization.
 - **F2** — two-component joint (VEGAS) system, N = 200 at a reduced VEGAS budget (warm-up
   1000 × 2 cycles, 2000 final evaluations × 5 recording passes) — the default budget runs
   ~110k evaluations per realization, far too heavy for an iteration fixture, and optimization
@@ -175,28 +174,48 @@ Measured with the cache force-disabled versus enabled, same fixture, same sessio
 | F4 | full-MC (s) | allocated (GB) |
 |---|---|---|
 | CIF rebuilt per realization (pre-1d) | 22.284 | 20.36 |
-| CIF data shared across the run (1d) | 5.615 | 4.67 |
+| CIF data shared across the run (1d) | 5.487 | 4.77 |
 
-**≈ 4.0× faster, ≈ 4.4× less allocated**, on a fixture that is 200 realizations; the ratio grows
+**≈ 4.1× faster, ≈ 4.3× less allocated**, on a fixture that is 200 realizations; the ratio grows
 with realization count because the skipped work is per-realization and constant.
 
-**F4's results SHA-256 changes on every run, and that is a pre-existing defect this fixture
-exposed rather than one Stage 1 introduced.** `MultivariateNormal` initializes its quasi-Monte
-Carlo generator as `new MersenneTwister()` (`MultivariateNormal.cs:73`), whose parameterless
-constructor seeds from `DateTime.UtcNow.Ticks`. `MVNDST` draws from it, so every Genz interval
-evaluation — and therefore every dependent competing-risks incidence curve — is clock-seeded.
-Measured across three consecutive runs: `237b694e…`, `a37864ab…`, `603f565e…`.
+### N17 — the reproducibility defect F4 exposed, and its fix
+
+Building F4 immediately showed its results SHA-256 changing on **every run**:
+`237b694e…`, `a37864ab…`, `603f565e…`. That was **pre-existing**, not introduced by Stage 1.
+`MultivariateNormal` initialized its quasi-Monte-Carlo generator as `new MersenneTwister()`
+(`MultivariateNormal.cs:73`), whose parameterless constructor seeds from
+`DateTime.UtcNow.Ticks`. `MVNDST` draws from it, so every Genz interval evaluation — and
+therefore every dependent competing-risks incidence curve — was clock-seeded.
 
 It went unnoticed because no fixture exercised dependent competing risks before F4, and
 `CompetingFailuresVerification` asserts statistically at k·SE tolerances that absorb Genz's
-≈1e-4 error. The joint and additive system paths are unaffected — the joint hazard uses an
+≈1e-4 error. The joint and additive system paths were never affected: the joint hazard uses an
 in-place Cholesky transform, not the MVN CDF, and `Probability.ExclusiveMVN`/`UnionMVN` have no
-engine callers. Tracked as Numerics item **N17**; once `MVNUNI` is deterministically seeded from
-the component's content hash, F4 becomes a real byte gate and its hash gets pinned here.
+engine callers. Note also that the multivariate normal reaches the randomized lattice rule only
+above two dimensions — at two it uses a closed bivariate form — so the exposure begins at three
+combination units.
 
-An incidental correctness finding from the same investigation, folded into 1d: the shared cache
-holds the incidence **data** (hazard/probability arrays), never the `EmpiricalDistribution`
-wrappers. A Numerics interpolator mutates its `SearchStart` on every lookup (`UseSmartSearch`
-defaults true), so one distribution instance read by parallel realizations is a data race — and
-on the non-strict incidence curves, where ties admit more than one valid bracket, a corrupted
-search start can return a different ordinate rather than merely a slower lookup.
+Fixed in two parts: Numerics defaults `MVNUNI` to a fixed seed and `CompetingRisks` gained a
+`PRNGSeed` that seeds it at construction; TotalRisk sets that from the component's content-derived
+run seed. The realization index is deliberately excluded, because the run-shared pre-processing
+below publishes whichever realization finishes first — a realization-dependent seed would make
+the shared result depend on thread scheduling.
+
+**F4 byte gate (pinned 2026-07-26, reproduced twice consecutively):**
+
+- F4 `af2348d1b2dfa20afb0bedf9b1d732189a40848ba38f254eb48ed3a59921e46b`
+
+### Thread-safety constraints on the shared pre-processing
+
+Two findings from the same work, both load-bearing for the cache's correctness:
+
+- **Only plain `double[]` is shared.** `OrderedPairedData`'s two-list constructor copies each
+  pair into its own ordinate list rather than retaining or sorting the inputs, which is what
+  makes concurrent reads of the shared arrays safe.
+- **Distributions and bins are rebuilt per realization.** A Numerics interpolator writes its
+  `SearchStart` on every lookup (`UseSmartSearch` defaults true), so one `EmpiricalDistribution`
+  read by parallel realizations is a data race — and on the non-strict incidence curves, where
+  ties admit more than one valid bracket, a corrupted search start can return a *different
+  ordinate*, not merely a slower lookup. `StratificationBin.Weight` is publicly settable, so the
+  bins are rebuilt too; at 200 bins that is free beside the integration being skipped.

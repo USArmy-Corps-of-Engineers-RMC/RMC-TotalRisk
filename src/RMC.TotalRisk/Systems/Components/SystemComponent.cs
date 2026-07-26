@@ -254,14 +254,15 @@ namespace RMC.TotalRisk.Systems.Components
         private (double[] Hazards, double[] Probabilities)[]? _sharedIncidenceData;
 
         /// <summary>
-        /// The stratified hazard levels the shared incidence functions were built over.
-        /// </summary>
-        private List<StratificationBin>? _sharedIncidenceHazardBins;
-
-        /// <summary>
         /// Guards publication of the run-shared competing-risks pre-processing.
         /// </summary>
         private readonly object _incidenceCacheLock = new object();
+
+        /// <summary>
+        /// This run's content-derived component seed, captured at <c>SetupSamplers</c>; it seeds
+        /// the competing-risks quadrature randomizer. Zero outside a run.
+        /// </summary>
+        private int _runComponentSeed;
 
         /// <summary>
         /// The component's display name. Identity metadata — serialized, never hashed.
@@ -520,12 +521,29 @@ namespace RMC.TotalRisk.Systems.Components
         public int[,]? FailureModeIndicators => FailureModeIndicatorsFor(CombinationUnitCount());
 
         /// <summary>
+        /// The seed for this run's competing-risks quadrature randomizer, derived from the
+        /// component's content seed so dependent incidence curves reproduce run to run.
+        /// </summary>
+        /// <remarks>
+        /// Folded through <see cref="SeedHelpers.HashCombine"/> with a fixed ordinal so it cannot
+        /// collide with the per-function sampler seeds drawn from the same component seed. The
+        /// realization index is deliberately absent: the run-shared pre-processing publishes
+        /// whichever realization finishes first, so a realization-dependent seed would make the
+        /// shared result depend on thread scheduling.
+        /// </remarks>
+        internal int CompetingRiskSeed => SeedHelpers.HashCombine(_runComponentSeed, Array.Empty<byte>(), CompetingRiskSeedOrdinal);
+
+        /// <summary>
+        /// The walk ordinal reserved for the competing-risks quadrature seed.
+        /// </summary>
+        private const int CompetingRiskSeedOrdinal = -101;
+
+        /// <summary>
         /// Attempts to take this run's shared competing-risks pre-processing, so a deterministic
         /// component builds its cumulative incidence functions once instead of once per
         /// realization.
         /// </summary>
         /// <param name="incidenceData">Receives the shared incidence data, or null on a miss.</param>
-        /// <param name="hazardBins">Receives the hazard levels it was built over, or null on a miss.</param>
         /// <returns>True when the run may share and a previous realization has already published.</returns>
         /// <remarks>
         /// <para>
@@ -543,49 +561,46 @@ namespace RMC.TotalRisk.Systems.Components
         /// perfectly-positive configurations take the cheaper delta-method branch and benefit less.
         /// </para>
         /// <para>
-        /// What is shared is the DATA, never the distribution objects. A Numerics interpolator
-        /// carries a mutable <c>SearchStart</c> that every lookup writes (the correlated-search
-        /// accelerator), so one <see cref="EmpiricalDistribution"/> read concurrently by several
-        /// realizations is a data race — and on the non-strict incidence curves, where ties admit
-        /// more than one valid bracket, a corrupted search start can return a different ordinate
-        /// rather than merely a slower one. Each realization therefore rebuilds its own
-        /// distributions over these arrays, which costs nothing next to the integration they skip.
-        /// The stratification bins are inert value holders and are shared directly.
+        /// What is shared is the DATA — plain <c>double[]</c> that every consumer only reads,
+        /// because <c>OrderedPairedData</c>'s two-list constructor copies each pair into its own
+        /// ordinate list rather than retaining or sorting the inputs. Nothing else is shared. The
+        /// distribution wrappers are rebuilt per realization, since a Numerics interpolator writes
+        /// its <c>SearchStart</c> on every lookup, so one instance read concurrently is a data race
+        /// — and on the non-strict incidence curves, where ties admit more than one valid bracket,
+        /// a corrupted search start can return a different ordinate rather than merely a slower
+        /// one. The stratification bins are rebuilt too: they are trivially cheap beside the
+        /// integration, and <c>StratificationBin.Weight</c> is publicly settable, so sharing them
+        /// would put a mutable object on the parallel path for no gain.
         /// </para>
         /// </remarks>
-        internal bool TryGetCompetingIncidence(out (double[] Hazards, double[] Probabilities)[]? incidenceData,
-            out List<StratificationBin>? hazardBins)
+        internal bool TryGetCompetingIncidence(out (double[] Hazards, double[] Probabilities)[]? incidenceData)
         {
             if (!_shareCompetingIncidence)
             {
                 incidenceData = null;
-                hazardBins = null;
                 return false;
             }
             incidenceData = Volatile.Read(ref _sharedIncidenceData);
-            hazardBins = Volatile.Read(ref _sharedIncidenceHazardBins);
-            return incidenceData != null && hazardBins != null;
+            return incidenceData != null;
         }
 
         /// <summary>
         /// Publishes a realization's competing-risks pre-processing for the rest of the run.
         /// </summary>
-        /// <param name="incidenceData">The cumulative incidence data to share (copied, not aliased).</param>
-        /// <param name="hazardBins">The hazard levels it was built over.</param>
+        /// <param name="incidenceData">The cumulative incidence data to share.</param>
         /// <remarks>
         /// Realizations construct in parallel, so two may reach this before either publishes. That
-        /// is harmless — sharing is gated on determinism, so both computed the same values and
+        /// is harmless — sharing is gated on determinism, and the quadrature randomizer is seeded
+        /// from the component rather than the realization, so both computed identical values and
         /// either may win — but the write is still taken under a lock and published with a release
         /// barrier so a reader cannot observe a partially constructed array.
         /// </remarks>
-        internal void PublishCompetingIncidence((double[] Hazards, double[] Probabilities)[] incidenceData,
-            List<StratificationBin> hazardBins)
+        internal void PublishCompetingIncidence((double[] Hazards, double[] Probabilities)[] incidenceData)
         {
             if (!_shareCompetingIncidence) return;
             lock (_incidenceCacheLock)
             {
                 if (_sharedIncidenceData != null) return;
-                Volatile.Write(ref _sharedIncidenceHazardBins, hazardBins);
                 Volatile.Write(ref _sharedIncidenceData, incidenceData);
             }
         }
@@ -1216,9 +1231,11 @@ namespace RMC.TotalRisk.Systems.Components
             }
 
             // Arm the competing-risks pre-processing cache for this run, and drop any previous
-            // run's (the samplers have just been re-seeded, so it is stale by definition).
+            // run's (the samplers have just been re-seeded, so it is stale by definition). The
+            // component seed is captured here because the competing-risks quadrature randomizer
+            // must be content-derived rather than clock-derived.
+            _runComponentSeed = componentSeed;
             Volatile.Write(ref _sharedIncidenceData, null);
-            Volatile.Write(ref _sharedIncidenceHazardBins, null);
             _shareCompetingIncidence = _failureModeMethod == FailureModeMethod.CompetingFailures
                 && _sampledLayout.CombinationUnitCount > 1
                 && IsDeterministic;
