@@ -490,18 +490,29 @@ namespace RMC.TotalRisk.Systems.Components
         /// failure-mode combination method operates over (arch doc §7.9): exclusive state groups
         /// plus standalone failure states — the failure-path count for every pre-6.7 layout.
         /// </summary>
-        public int[,]? FailureModeIndicators
+        public int[,]? FailureModeIndicators => FailureModeIndicatorsFor(CombinationUnitCount());
+
+        /// <summary>
+        /// The combination-unit indicator cache for an ALREADY-KNOWN unit count — the compute
+        /// path's accessor.
+        /// </summary>
+        /// <param name="unitCount">The combination-unit count, from the caller's frozen layout.</param>
+        /// <returns>The indicator matrix, or null when the component has no failure paths.</returns>
+        /// <remarks>
+        /// The property form re-derives the count by projecting the graph and rebuilding the
+        /// end-state layout. Callers that already hold the frozen layout — every per-realization
+        /// caller — pass the count instead, which is why this overload exists. Populate it once at
+        /// the <c>SetupSamplers</c> freeze point: the cache fields are shared component state, and
+        /// realizations read them from inside a parallel loop.
+        /// </remarks>
+        internal int[,]? FailureModeIndicatorsFor(int unitCount)
         {
-            get
+            if (unitCount != _combosForCount)
             {
-                int count = CombinationUnitCount();
-                if (count != _combosForCount)
-                {
-                    _failureModeCombinations = count > 0 ? Factorial.AllCombinations(count) : null;
-                    _combosForCount = count;
-                }
-                return _failureModeCombinations;
+                _failureModeCombinations = unitCount > 0 ? Factorial.AllCombinations(unitCount) : null;
+                _combosForCount = unitCount;
             }
+            return _failureModeCombinations;
         }
 
         /// <summary>
@@ -509,30 +520,34 @@ namespace RMC.TotalRisk.Systems.Components
         /// exactly k units), cached per unit count; null while the component has no failure
         /// paths. Capture before a realization loop.
         /// </summary>
-        public int[]? FailureModeBinomialCombinations
+        public int[]? FailureModeBinomialCombinations => FailureModeBinomialCombinationsFor(CombinationUnitCount());
+
+        /// <summary>
+        /// The binomial subset-count cache for an ALREADY-KNOWN unit count — the compute path's
+        /// accessor (see <see cref="FailureModeIndicatorsFor"/> for why).
+        /// </summary>
+        /// <param name="unitCount">The combination-unit count, from the caller's frozen layout.</param>
+        /// <returns>The subset counts, or null when the component has no failure paths.</returns>
+        internal int[]? FailureModeBinomialCombinationsFor(int unitCount)
         {
-            get
+            if (unitCount != _binomialForCount)
             {
-                int count = CombinationUnitCount();
-                if (count != _binomialForCount)
+                if (unitCount > 0)
                 {
-                    if (count > 0)
+                    var subsets = new int[unitCount];
+                    for (int i = 1; i <= unitCount; i++)
                     {
-                        var subsets = new int[count];
-                        for (int i = 1; i <= count; i++)
-                        {
-                            subsets[i - 1] = (int)Math.Round(Factorial.BinomialCoefficient(count, i));
-                        }
-                        _failureModeBinomialCombinations = subsets;
+                        subsets[i - 1] = (int)Math.Round(Factorial.BinomialCoefficient(unitCount, i));
                     }
-                    else
-                    {
-                        _failureModeBinomialCombinations = null;
-                    }
-                    _binomialForCount = count;
+                    _failureModeBinomialCombinations = subsets;
                 }
-                return _failureModeBinomialCombinations;
+                else
+                {
+                    _failureModeBinomialCombinations = null;
+                }
+                _binomialForCount = unitCount;
             }
+            return _failureModeBinomialCombinations;
         }
 
         /// <summary>
@@ -1089,6 +1104,19 @@ namespace RMC.TotalRisk.Systems.Components
             var modes = ProjectFailureModes();
             _sampledModes = modes;
             _sampledLayout = EndStateGroupLayout.Build(modes);
+
+            // Populate the combination caches here, at the single-threaded freeze point, so the
+            // parallel realization loop only ever READS them. Only the joint method consumes
+            // them, and they cost 4·U·(2^U − 1) bytes, so the per-mode methods never build them
+            // at all — which is also what lets a component carry more combination units than
+            // Factorial.AllCombinations could enumerate.
+            if (_failureModeMethod == FailureModeMethod.JointFailures)
+            {
+                int unitCount = _sampledLayout.CombinationUnitCount;
+                FailureModeIndicatorsFor(unitCount);
+                FailureModeBinomialCombinationsFor(unitCount);
+            }
+
             _sampledNonFailureMode = null;
             for (int i = 0; i < modes.Count; i++)
             {

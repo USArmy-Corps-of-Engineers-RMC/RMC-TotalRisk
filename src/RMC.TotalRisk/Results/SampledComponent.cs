@@ -107,8 +107,19 @@ namespace RMC.TotalRisk.Results
             _failureModeDependency = component.FailureModeDependency;
             _jointConsequences = component.JointConsequences;
             _correlationMatrix = component.CorrelationMatrix;
-            _indicators = component.FailureModeIndicators;
-            _binomialCombinations = component.FailureModeBinomialCombinations;
+
+            // Only the joint method decomposes pathways, and only it reads these caches. Capturing
+            // them unconditionally made every mutually-exclusive, common-cause, and competing
+            // component pay for a 2^U indicator matrix it never touches — and capped those methods
+            // at the 30 units Factorial.AllCombinations can enumerate, for no reason. The frozen
+            // layout supplies the unit count, so the accessors no longer re-project the graph and
+            // rebuild the end-state layout twice per component per realization.
+            if (_failureModeMethod == FailureModeMethod.JointFailures)
+            {
+                int unitCount = _layout.CombinationUnitCount;
+                _indicators = component.FailureModeIndicatorsFor(unitCount);
+                _binomialCombinations = component.FailureModeBinomialCombinationsFor(unitCount);
+            }
 
             Hazard = realizationIndex < 0 ? hazardFunction.SampleFunction() : hazardFunction.SampleFunction(realizationIndex);
 

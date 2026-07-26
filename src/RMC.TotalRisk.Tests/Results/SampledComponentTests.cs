@@ -192,6 +192,48 @@ public class SampledComponentTests
     }
 
     /// <summary>
+    /// Verifies a per-mode combination method runs past the enumeration ceiling of the joint
+    /// method's 2^U indicator matrix.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="SampledComponent"/> used to capture the combination caches for every failure-mode
+    /// method, though only <see cref="FailureModeMethod.JointFailures"/> reads them. That made the
+    /// per-mode methods allocate a 4·U·(2^U − 1)-byte matrix they never touch — 80 MB at 20 units,
+    /// 3.3 GB at 25 — and inherit <c>Factorial.AllCombinations</c>'s hard throw at 31, for no
+    /// modelling reason: competing risks, common cause, and mutually exclusive all combine
+    /// marginally and never enumerate subsets. The capture is now gated on the joint method, so
+    /// this 32-mode component constructs and computes; before, it threw
+    /// <c>ArgumentOutOfRangeException</c> out of the constructor.
+    /// </remarks>
+    [TestMethod]
+    public void Test_PerModeMethod_BeyondCombinationEnumerationLimit_Computes()
+    {
+        // Arrange — 32 competing modes, two past the 30 Factorial.AllCombinations can enumerate.
+        const int modeCount = 32;
+        var component = new SystemComponent { Name = "Wide Competing" };
+        component.HazardFunction = StageFrequency();
+        for (int i = 0; i < modeCount; i++)
+        {
+            component.AddFailureMode(new FailureMode(null, null, Fragility($"Mode {i}", 10d, 30d), Consequence($"Loss {i}", 100d)));
+        }
+        component.FailureModeMethod = FailureModeMethod.CompetingFailures;
+        component.FailureModeDependency = DependencyType.Independent;
+
+        // Act
+        var sampled = MeanSample(component);
+        var realization = new ComponentRealization(sampled.FailureModeCount);
+        var flags = new RiskComputeFlags();
+        var output = sampled.ComputeRisk(0.5d, 30d, flags, realization, recordOutput: true);
+
+        // Assert — every fragility saturates at stage 30, so the competing adjustment distributes
+        // one unit of failure probability across the modes and the complement is exhausted.
+        Assert.AreEqual(modeCount, sampled.FailureModeCount);
+        Assert.AreEqual(1d, output.ProbabilityOfFailure, 1e-9);
+        Assert.AreEqual(0d, output.ProbabilityOfNonFailure, 1e-9);
+        Assert.AreEqual(1d, realization.Curves.Total.RiskPoints[0].ResponseProbabilities.Sum(), 1e-9);
+    }
+
+    /// <summary>
     /// Verifies the across-unit combination at a known point: the cascade's exclusive unit and
     /// a standalone mode combine under joint failures exactly as two events with masses
     /// P_A = 0.125 and p₃ = 0.5, and the contribution split lands on the picked states with the
