@@ -542,35 +542,29 @@ public class CompositeHazardVerification
     }
 
     /// <summary>
-    /// Documents the upstream estimation nondeterminism found while building this family, so it is
-    /// visible as a pinned behavior rather than an intermittent surprise elsewhere.
+    /// Verifies two independent estimations of the same configuration produce the same posterior,
+    /// bit-for-bit, and therefore the same canonical hash.
     /// </summary>
     /// <remarks>
-    /// Two parametric children with identical inputs and an identical <c>PRNGSeed</c> agree on
-    /// every sampled quantile to well inside any risk-relevant tolerance, but not bit-for-bit —
-    /// the Numerics bootstrap summary reduction is order-nondeterministic. If this assert ever
-    /// starts failing because the two agree exactly, the upstream reduction has been made
-    /// deterministic and the round-trip workaround in
-    /// <see cref="Test_Reproducibility_RoundTripAndMetadataPins"/> can be replaced by a genuine
-    /// two-instance comparison.
+    /// The posterior is serialized content, so a container that folds a child hash — a composite,
+    /// a component — has a stable identity only if estimation is reproducible. That requires the
+    /// bootstrap summary reduction to be order-independent, which is why it sums over a fixed
+    /// chunk count rather than a scheduler-determined partitioning.
     /// </remarks>
     [TestMethod]
-    public void Test_UpstreamEstimation_IsNotBitReproducible_ButAgreesNumerically()
+    public void Test_UpstreamEstimation_IsBitReproducible()
     {
         // Arrange — two independent estimations of the same configuration.
         var a = Child(0, uncertain: true);
         var b = Child(0, uncertain: true);
 
-        // Assert — numerically equivalent everywhere that matters.
+        // Assert — equal on every sampled quantile, and equal in identity.
         for (int k = 0; k < Realizations; k += 613)
         {
-            Assert.AreEqual(a.SampleFunction(k).InverseCDF(0.99d), b.SampleFunction(k).InverseCDF(0.99d), 1e-6,
-                $"The two posteriors diverged materially at realization {k}.");
+            Assert.AreEqual(a.SampleFunction(k).InverseCDF(0.99d), b.SampleFunction(k).InverseCDF(0.99d), 0d,
+                $"The two posteriors diverged at realization {k}.");
         }
-
-        // But not bit-identical, so their canonical hashes differ (the upstream defect).
-        CollectionAssert.AreNotEqual(a.CanonicalHash(), b.CanonicalHash(),
-            "If this now matches, the upstream bootstrap reduction became order-deterministic — " +
-            "see the remarks and simplify the round-trip reproducibility pin.");
+        CollectionAssert.AreEqual(a.CanonicalHash(), b.CanonicalHash(),
+            "Two estimations of identical inputs must yield the same canonical hash.");
     }
 }
