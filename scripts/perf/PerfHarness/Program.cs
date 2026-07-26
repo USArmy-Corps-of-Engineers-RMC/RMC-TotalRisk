@@ -31,10 +31,10 @@ namespace RMC.TotalRisk.PerfHarness
     /// Fixtures: <b>F1</b> — the PROGRESS-recorded trivial 1D fixture (uncertain triangular
     /// fragility) at N = 1000 full uncertainty (the ≈54 s pre-optimization reference); <b>F2</b>
     /// — a two-component joint system at N = 200; <b>F3</b> — F1 with a second consequence type
-    /// (the Phase 6.5 axis); <b>F4</b> — a DEPENDENT competing-risks component (Phase 8.5), the
-    /// one shape whose cost is dominated by construction rather than integration, because the
-    /// Numerics incidence factory evaluates Genz's multivariate-normal rectangle integral per unit
-    /// per hazard level. Each fixture reports the mean-only and full-uncertainty medians of
+    /// (the Phase 6.5 axis); <b>F4</b> — a dependent competing-risks component, the one shape whose
+    /// cost is dominated by construction rather than integration, because the incidence factory
+    /// evaluates a multivariate-normal rectangle integral per unit per hazard level. Each fixture
+    /// reports the mean-only and full-uncertainty medians of
     /// three runs plus the SHA-256 of the concatenated results JSON (mean, lower, upper, median
     /// realizations and the summary ensemble).
     /// </para>
@@ -216,15 +216,10 @@ namespace RMC.TotalRisk.PerfHarness
         /// perfectly-negative dependency at N = 200.
         /// </summary>
         /// <remarks>
-        /// This is the shape whose cost lives in <c>SampledComponent</c>'s constructor rather than
-        /// in the risk integral. A dependent competing configuration routes the Numerics incidence
-        /// factory onto its multivariate-normal branch, which evaluates a Genz rectangle integral
-        /// per combination unit per hazard level over 201 levels — once per realization, before a
-        /// single integrand evaluation runs. The component is deliberately DETERMINISTIC (no
-        /// knowledge uncertainty on the hazard or the fragilities) so it is eligible for the
-        /// run-shared pre-processing; an uncertain variant would rebuild every realization by
-        /// necessity and would measure a different thing. N = 200 keeps the fixture inside the
-        /// session workflow's minutes budget.
+        /// The cost lives in <c>SampledComponent</c>'s constructor rather than in the risk integral:
+        /// a dependent competing configuration evaluates a rectangle integral per combination unit
+        /// per hazard level, once per realization. The component is deterministic so it is eligible
+        /// for the run-shared pre-processing; an uncertain variant measures a different thing.
         /// </remarks>
         private static RiskAnalysis BuildF4()
         {

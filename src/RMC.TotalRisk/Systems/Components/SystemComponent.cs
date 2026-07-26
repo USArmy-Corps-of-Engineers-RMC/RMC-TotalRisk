@@ -247,9 +247,8 @@ namespace RMC.TotalRisk.Systems.Components
 
         /// <summary>
         /// The run-shared cumulative incidence DATA — hazard levels and incidence probabilities
-        /// per combination unit — or null until the first realization publishes it. Deliberately
-        /// arrays and not <see cref="EmpiricalDistribution"/> instances: see
-        /// <see cref="TryGetCompetingIncidence"/>.
+        /// per combination unit — or null until the first realization publishes it. Arrays rather
+        /// than distributions: see <see cref="TryGetCompetingIncidence"/>.
         /// </summary>
         private (double[] Hazards, double[] Probabilities)[]? _sharedIncidenceData;
 
@@ -522,15 +521,10 @@ namespace RMC.TotalRisk.Systems.Components
 
         /// <summary>
         /// The seed for this run's competing-risks quadrature randomizer, derived from the
-        /// component's content seed so dependent incidence curves reproduce run to run.
+        /// component's content seed on a reserved ordinal so it cannot collide with the
+        /// per-function sampler seeds. Carries no realization index: the shared pre-processing
+        /// below is published by whichever realization finishes first.
         /// </summary>
-        /// <remarks>
-        /// Folded through <see cref="SeedHelpers.HashCombine"/> with a fixed ordinal so it cannot
-        /// collide with the per-function sampler seeds drawn from the same component seed. The
-        /// realization index is deliberately absent: the run-shared pre-processing publishes
-        /// whichever realization finishes first, so a realization-dependent seed would make the
-        /// shared result depend on thread scheduling.
-        /// </remarks>
         internal int CompetingRiskSeed => SeedHelpers.HashCombine(_runComponentSeed, Array.Empty<byte>(), CompetingRiskSeedOrdinal);
 
         /// <summary>
@@ -546,32 +540,11 @@ namespace RMC.TotalRisk.Systems.Components
         /// <param name="incidenceData">Receives the shared incidence data, or null on a miss.</param>
         /// <returns>True when the run may share and a previous realization has already published.</returns>
         /// <remarks>
-        /// <para>
-        /// Sharing is admissible only when <see cref="IsDeterministic"/> held at the freeze point:
-        /// every realization then samples the identical hazard and fragilities, so every
-        /// realization would compute the identical incidence data. The cache is therefore
-        /// bit-exact, not an approximation.
-        /// </para>
-        /// <para>
-        /// It matters most where the pre-processing is most expensive. Under a dependent
-        /// (perfectly-negative or correlation-matrix) competing configuration, the Numerics
-        /// incidence factory evaluates Genz's multivariate normal rectangle integral once per unit
-        /// per hazard level — 201 levels — so a four-unit component at 1,000 realizations paid
-        /// roughly 800,000 of them before a single integrand evaluation ran. Independent and
-        /// perfectly-positive configurations take the cheaper delta-method branch and benefit less.
-        /// </para>
-        /// <para>
-        /// What is shared is the DATA — plain <c>double[]</c> that every consumer only reads,
-        /// because <c>OrderedPairedData</c>'s two-list constructor copies each pair into its own
-        /// ordinate list rather than retaining or sorting the inputs. Nothing else is shared. The
-        /// distribution wrappers are rebuilt per realization, since a Numerics interpolator writes
-        /// its <c>SearchStart</c> on every lookup, so one instance read concurrently is a data race
-        /// — and on the non-strict incidence curves, where ties admit more than one valid bracket,
-        /// a corrupted search start can return a different ordinate rather than merely a slower
-        /// one. The stratification bins are rebuilt too: they are trivially cheap beside the
-        /// integration, and <c>StratificationBin.Weight</c> is publicly settable, so sharing them
-        /// would put a mutable object on the parallel path for no gain.
-        /// </para>
+        /// Admissible only when <see cref="IsDeterministic"/> held at the freeze point, where every
+        /// realization samples identical curves and so computes identical incidence data. Only the
+        /// arrays are shared — callers rebuild their own distributions and bins, since a Numerics
+        /// interpolator writes its <c>SearchStart</c> on every lookup and cannot be read
+        /// concurrently.
         /// </remarks>
         internal bool TryGetCompetingIncidence(out (double[] Hazards, double[] Probabilities)[]? incidenceData)
         {
@@ -589,11 +562,9 @@ namespace RMC.TotalRisk.Systems.Components
         /// </summary>
         /// <param name="incidenceData">The cumulative incidence data to share.</param>
         /// <remarks>
-        /// Realizations construct in parallel, so two may reach this before either publishes. That
-        /// is harmless — sharing is gated on determinism, and the quadrature randomizer is seeded
-        /// from the component rather than the realization, so both computed identical values and
-        /// either may win — but the write is still taken under a lock and published with a release
-        /// barrier so a reader cannot observe a partially constructed array.
+        /// Two realizations may reach this before either publishes; both computed identical values,
+        /// so either may win. The write is still locked and published with a release barrier so a
+        /// reader cannot observe a partially constructed array.
         /// </remarks>
         internal void PublishCompetingIncidence((double[] Hazards, double[] Probabilities)[] incidenceData)
         {
@@ -606,17 +577,14 @@ namespace RMC.TotalRisk.Systems.Components
         }
 
         /// <summary>
-        /// The combination-unit indicator cache for an ALREADY-KNOWN unit count — the compute
-        /// path's accessor.
+        /// The combination-unit indicator cache for a known unit count — the compute path's
+        /// accessor, avoiding the property's re-projection of the graph.
         /// </summary>
         /// <param name="unitCount">The combination-unit count, from the caller's frozen layout.</param>
         /// <returns>The indicator matrix, or null when the component has no failure paths.</returns>
         /// <remarks>
-        /// The property form re-derives the count by projecting the graph and rebuilding the
-        /// end-state layout. Callers that already hold the frozen layout — every per-realization
-        /// caller — pass the count instead, which is why this overload exists. Populate it once at
-        /// the <c>SetupSamplers</c> freeze point: the cache fields are shared component state, and
-        /// realizations read them from inside a parallel loop.
+        /// Populate once at the <c>SetupSamplers</c> freeze point: the cache fields are shared
+        /// component state and realizations read them from inside a parallel loop.
         /// </remarks>
         internal int[,]? FailureModeIndicatorsFor(int unitCount)
         {
@@ -636,8 +604,8 @@ namespace RMC.TotalRisk.Systems.Components
         public int[]? FailureModeBinomialCombinations => FailureModeBinomialCombinationsFor(CombinationUnitCount());
 
         /// <summary>
-        /// The binomial subset-count cache for an ALREADY-KNOWN unit count — the compute path's
-        /// accessor (see <see cref="FailureModeIndicatorsFor"/> for why).
+        /// The binomial subset-count cache for a known unit count — the compute path's accessor
+        /// (see <see cref="FailureModeIndicatorsFor"/>).
         /// </summary>
         /// <param name="unitCount">The combination-unit count, from the caller's frozen layout.</param>
         /// <returns>The subset counts, or null when the component has no failure paths.</returns>
@@ -1218,11 +1186,9 @@ namespace RMC.TotalRisk.Systems.Components
             _sampledModes = modes;
             _sampledLayout = EndStateGroupLayout.Build(modes);
 
-            // Populate the combination caches here, at the single-threaded freeze point, so the
-            // parallel realization loop only ever READS them. Only the joint method consumes
-            // them, and they cost 4·U·(2^U − 1) bytes, so the per-mode methods never build them
-            // at all — which is also what lets a component carry more combination units than
-            // Factorial.AllCombinations could enumerate.
+            // Populate the combination caches at this single-threaded freeze point so the parallel
+            // realization loop only reads them. Only the joint method consumes them, and they cost
+            // 4·U·(2^U − 1) bytes, so the per-mode methods never build them.
             if (_failureModeMethod == FailureModeMethod.JointFailures)
             {
                 int unitCount = _sampledLayout.CombinationUnitCount;
@@ -1230,10 +1196,8 @@ namespace RMC.TotalRisk.Systems.Components
                 FailureModeBinomialCombinationsFor(unitCount);
             }
 
-            // Arm the competing-risks pre-processing cache for this run, and drop any previous
-            // run's (the samplers have just been re-seeded, so it is stale by definition). The
-            // component seed is captured here because the competing-risks quadrature randomizer
-            // must be content-derived rather than clock-derived.
+            // Arm the competing-risks pre-processing cache for this run and drop the previous
+            // run's, which the re-seeding has just invalidated.
             _runComponentSeed = componentSeed;
             Volatile.Write(ref _sharedIncidenceData, null);
             _shareCompetingIncidence = _failureModeMethod == FailureModeMethod.CompetingFailures
@@ -1842,9 +1806,8 @@ namespace RMC.TotalRisk.Systems.Components
             }
             else
             {
-                // The automatic modes derive their matrix from the shared constants and write it
-                // back to the correlation-matrix field (v1.0 behavior; it never serializes from
-                // those modes).
+                // The automatic modes write their derived matrix back to the correlation-matrix
+                // field (v1.0 behavior; it never serializes from those modes).
                 DependencyMatrix.FillEquicorrelated(sigma, dimension,
                     DependencyMatrix.AutomaticOffDiagonal(_failureModeDependency, dimension));
                 _correlationMatrix = sigma;

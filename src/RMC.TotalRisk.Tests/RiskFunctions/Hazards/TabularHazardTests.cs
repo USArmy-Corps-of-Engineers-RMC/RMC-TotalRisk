@@ -155,19 +155,10 @@ public class TabularHazardTests
     /// Verifies the PERT-percentile-Z mean curve is bit-reproducible across repeated calls.
     /// </summary>
     /// <remarks>
-    /// This ordinate mean is not analytic, so it is rebuilt by averaging 10,000 percentile curves.
-    /// That reduction previously ran through <c>Statistics.ParallelMean</c> (PLINQ
-    /// <c>AsParallel().Sum()</c>), whose partitioning follows the core count and thread-pool
-    /// state, so the summation order — and the last bits of a curve that feeds every realization
-    /// of an analysis — was not guaranteed to reproduce across machines or runs. The reduction now
-    /// sums sequentially in realization order, which is deterministic by construction.
-    /// <para>
-    /// What this test can and cannot show: a same-process pair of PLINQ reductions will often
-    /// partition identically, so this is a REGRESSION GUARD against reintroducing a parallel
-    /// reduction here rather than a reproduction of the original defect. Bit equality is asserted
-    /// on the raw doubles because a tolerance-based assert would not detect the class of change it
-    /// is guarding against at all.
-    /// </para>
+    /// This ordinate mean is not analytic, so it is rebuilt by averaging 10,000 percentile curves —
+    /// a reduction that must stay sequential, since the curve feeds every realization of an
+    /// analysis. A guard against reintroducing a parallel reduction here; it compares raw bits,
+    /// which a tolerance assert could not.
     /// </remarks>
     [TestMethod]
     public void Test_SampleFunction_PertPercentileZMean_IsBitReproducible()

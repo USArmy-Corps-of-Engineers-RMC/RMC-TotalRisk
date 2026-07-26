@@ -111,11 +111,8 @@ namespace RMC.TotalRisk.Core
         /// <param name="results">The results being filled.</param>
         /// <exception cref="ArgumentNullException">Thrown when the ensemble, buffer, or results are null.</exception>
         /// <remarks>
-        /// The single implementation behind every function cluster's
-        /// <c>ComputeUncertaintyResults</c> — the composites and the parametric consequence carried
-        /// byte-identical copies of it. The copy-and-sum share one pass in this order deliberately:
-        /// the mean is a forward sequential sum over the UNSORTED ensemble, so it does not change
-        /// when the buffer is sorted for the percentiles.
+        /// The copy and the sum share one pass ahead of the sort, so the mean is taken over the
+        /// unsorted ensemble.
         /// </remarks>
         public static void SummarizeEnsembleRow(double[,] values, int index, double[] row, double tail,
             UncertaintyAnalysisResults results)

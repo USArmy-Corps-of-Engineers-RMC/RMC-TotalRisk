@@ -196,20 +196,11 @@ public class SampledComponentTests
     /// runs, and that its realizations agree when the component is deterministic.
     /// </summary>
     /// <remarks>
-    /// <para>
-    /// The perfectly-negative and correlation-matrix branches of the incidence factory evaluate
-    /// Genz's rectangle integral, a RANDOMIZED lattice rule that draws from the multivariate
-    /// normal's own generator. Numerics defaulted that generator to a clock-seeded Mersenne
-    /// Twister, so these curves — and therefore every competing failure probability computed from
-    /// them — did not reproduce across runs. The defect was invisible to the verification family,
-    /// whose asserts carry k·SE tolerances far wider than the ≈1e-4 Genz error. The seed is now
-    /// derived from the component's content seed.
-    /// </para>
-    /// <para>
-    /// Three failure modes, not two: the multivariate normal uses a closed bivariate form at two
-    /// dimensions and only reaches the randomized lattice rule above that, so a two-unit fixture
-    /// would pass whether or not the seeding is fixed.
-    /// </para>
+    /// The dependent branches of the incidence factory evaluate a randomized-lattice rectangle
+    /// integral drawing from the multivariate normal's generator, so these curves reproduce only
+    /// when that generator is seeded from the component. Three failure modes, not two: the
+    /// multivariate normal uses a closed bivariate form at two dimensions and only reaches the
+    /// randomized rule above that.
     /// </remarks>
     [TestMethod]
     public void Test_DependentCompeting_ReproducesAcrossRuns()
@@ -261,14 +252,10 @@ public class SampledComponentTests
     /// method's 2^U indicator matrix.
     /// </summary>
     /// <remarks>
-    /// <see cref="SampledComponent"/> used to capture the combination caches for every failure-mode
-    /// method, though only <see cref="FailureModeMethod.JointFailures"/> reads them. That made the
-    /// per-mode methods allocate a 4·U·(2^U − 1)-byte matrix they never touch — 80 MB at 20 units,
-    /// 3.3 GB at 25 — and inherit <c>Factorial.AllCombinations</c>'s hard throw at 31, for no
-    /// modelling reason: competing risks, common cause, and mutually exclusive all combine
-    /// marginally and never enumerate subsets. The capture is now gated on the joint method, so
-    /// this 32-mode component constructs and computes; before, it threw
-    /// <c>ArgumentOutOfRangeException</c> out of the constructor.
+    /// Only <see cref="FailureModeMethod.JointFailures"/> enumerates failure subsets, so only it
+    /// builds the 2^U indicator matrix and only it is bounded by what
+    /// <c>Factorial.AllCombinations</c> can enumerate. The per-mode methods combine marginally and
+    /// carry no such limit.
     /// </remarks>
     [TestMethod]
     public void Test_PerModeMethod_BeyondCombinationEnumerationLimit_Computes()

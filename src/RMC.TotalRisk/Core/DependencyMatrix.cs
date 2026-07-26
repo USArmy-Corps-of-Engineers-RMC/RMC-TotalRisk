@@ -14,13 +14,9 @@ namespace RMC.TotalRisk.Core
     ///     Haden Smith, USACE Risk Management Center, cole.h.smith@usace.army.mil
     /// </para>
     /// <para>
-    /// Two places build one of these: the component's failure-mode dependence
-    /// (<c>SystemComponent.UpdateMultivariateNormal</c>, which also writes the derived matrix back
-    /// to the correlation-matrix field per v1.0) and the analysis's component-hazard dependence
-    /// (<c>RiskAnalysis.BuildHazardMultivariateNormal</c>, which extracts a Cholesky factor from
-    /// it). Their surrounding code legitimately differs, but the off-diagonal constants are the
-    /// same modelling decision and are reproduced against v1.0 — so they live here rather than in
-    /// two switch statements that could drift apart unnoticed.
+    /// Shared by the component's failure-mode dependence and the analysis's component-hazard
+    /// dependence. Their surrounding code differs, but the off-diagonal constants are the same
+    /// modelling decision and are held here so the two cannot drift apart.
     /// </para>
     /// </remarks>
     internal static class DependencyMatrix
@@ -35,9 +31,9 @@ namespace RMC.TotalRisk.Core
         /// <param name="dimension">The matrix dimension D.</param>
         /// <returns>The off-diagonal value, or zero for independent and unrecognized modes.</returns>
         /// <remarks>
-        /// The √εmach offsets are v1.0's, and are not cosmetic: an exact ±1 correlation is singular,
-        /// and the perfectly-negative bound is exactly attained at <c>−1/(D − 1)</c>, so both are
-        /// nudged just inside the admissible region.
+        /// The √εmach offsets are not cosmetic: an exact ±1 correlation is singular, and the
+        /// perfectly-negative bound is attained exactly at <c>−1/(D − 1)</c>, so both are nudged
+        /// just inside the admissible region.
         /// </remarks>
         internal static double AutomaticOffDiagonal(DependencyType dependency, int dimension)
         {

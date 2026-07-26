@@ -108,12 +108,9 @@ namespace RMC.TotalRisk.Results
             _jointConsequences = component.JointConsequences;
             _correlationMatrix = component.CorrelationMatrix;
 
-            // Only the joint method decomposes pathways, and only it reads these caches. Capturing
-            // them unconditionally made every mutually-exclusive, common-cause, and competing
-            // component pay for a 2^U indicator matrix it never touches — and capped those methods
-            // at the 30 units Factorial.AllCombinations can enumerate, for no reason. The frozen
-            // layout supplies the unit count, so the accessors no longer re-project the graph and
-            // rebuild the end-state layout twice per component per realization.
+            // Only the joint method decomposes pathways, and only it reads these caches; the
+            // per-mode methods would pay for a 2^U indicator matrix they never touch. The frozen
+            // layout supplies the unit count, so the accessors need not re-project the graph.
             if (_failureModeMethod == FailureModeMethod.JointFailures)
             {
                 int unitCount = _layout.CombinationUnitCount;
@@ -250,15 +247,9 @@ namespace RMC.TotalRisk.Results
                 double maxHazard = Hazard.InverseCDF(1d - ProbabilityFloor);
                 HazardBins = Stratify.XValues(new StratificationOptions(minHazard, maxHazard, 200), false);
 
-                // A deterministic component samples the identical hazard and fragilities every
-                // realization, so this run may already hold the incidence data this realization
-                // would recompute — skipping a Genz rectangle integral per unit per hazard level
-                // under a dependent configuration. Only the DATA is shared: the bins are rebuilt
-                // above (they are trivially cheap and carry a settable Weight), and the
-                // distributions are rebuilt below, because a Numerics interpolator mutates its
-                // SearchStart on every lookup — one instance read by parallel realizations is a
-                // race, and on these non-strict curves a corrupted search start can return a
-                // different ordinate, not merely a slower lookup.
+                // A deterministic component samples identical curves every realization, so the run
+                // may already hold this incidence data — skipping a rectangle integral per unit
+                // per hazard level under a dependent configuration.
                 if (component.TryGetCompetingIncidence(out var sharedIncidence))
                 {
                     _cumulativeIncidenceFunctions = BuildIncidenceFunctions(sharedIncidence!);
@@ -314,15 +305,8 @@ namespace RMC.TotalRisk.Results
                         _ => Probability.DependencyType.CorrelationMatrix,
                     },
 
-                    // The dependent branches evaluate Genz's RANDOMIZED lattice rule, which draws
-                    // from the multivariate normal's own generator. Numerics defaulted that to a
-                    // clock-seeded Mersenne Twister, so dependent competing incidence curves did
-                    // not reproduce across runs — invisibly, because the error sits near the
-                    // requested tolerance and the verification family asserts at k·SE. Seeding it
-                    // from the component's content seed restores the run contract. The realization
-                    // index is deliberately NOT folded in: the run-shared cache above publishes
-                    // whichever realization finishes first, so a realization-dependent seed would
-                    // make the shared result depend on thread scheduling.
+                    // The dependent branches draw from a randomized lattice rule, so the incidence
+                    // curves reproduce only when its generator is seeded from model content.
                     PRNGSeed = component.CompetingRiskSeed,
                 };
                 if (_correlationMatrix != null)
@@ -330,10 +314,6 @@ namespace RMC.TotalRisk.Results
                     competingRisks.CorrelationMatrix = _correlationMatrix;
                 }
 
-                // Interim: the Numerics CIF factory builds its outputs with the strict two-list
-                // constructor, but a cumulative incidence function legitimately plateaus wherever
-                // a mode contributes no hazard — rebuild each output as a non-strict ascending
-                // curve so its CDF is queryable (Numerics follow-up item alongside N7–N9).
                 var rawIncidenceFunctions = competingRisks.CumulativeIncidenceFunctions(HazardBins);
                 var incidenceData = new (double[] Hazards, double[] Probabilities)[rawIncidenceFunctions.Count];
                 for (int j = 0; j < rawIncidenceFunctions.Count; j++)
@@ -342,8 +322,6 @@ namespace RMC.TotalRisk.Results
                 }
                 _cumulativeIncidenceFunctions = BuildIncidenceFunctions(incidenceData);
 
-                // Offer the DATA to the run. Accepted only for a deterministic component, where
-                // every other realization would compute exactly this.
                 component.PublishCompetingIncidence(incidenceData);
             }
         }
@@ -354,17 +332,11 @@ namespace RMC.TotalRisk.Results
         /// <param name="incidenceData">The hazard and incidence-probability arrays per unit.</param>
         /// <returns>The incidence distributions, in unit order.</returns>
         /// <remarks>
-        /// The arrays may be this run's shared copy, so they are only ever READ here:
-        /// <see cref="OrderedPairedData"/>'s two-list constructor copies each pair into its own
-        /// ordinate list rather than retaining or sorting the inputs, which is what makes sharing
-        /// them across parallel realizations safe. The resulting distributions are per-realization
-        /// by construction.
-        /// <para>
-        /// The non-strict Y ordering is required, not incidental: the Numerics incidence factory
-        /// builds its outputs with the strict two-list constructor, but a cumulative incidence
-        /// function legitimately plateaus wherever a unit contributes no hazard, so the strict form
-        /// would reject the curve (a Numerics follow-up alongside N7–N9).
-        /// </para>
+        /// The arrays may be the run's shared copy and are only read here — the
+        /// <see cref="OrderedPairedData"/> two-list constructor copies each pair rather than
+        /// retaining the inputs, so the distributions it produces are per-realization. The
+        /// non-strict Y ordering is required: a cumulative incidence function plateaus wherever a
+        /// unit contributes no hazard, which the strict form would reject.
         /// </remarks>
         private static List<EmpiricalDistribution> BuildIncidenceFunctions((double[] Hazards, double[] Probabilities)[] incidenceData)
         {
@@ -453,16 +425,14 @@ namespace RMC.TotalRisk.Results
         private readonly List<EmpiricalDistribution>? _cumulativeIncidenceFunctions;
 
         /// <summary>
-        /// The reusable exclusive-pathway probability buffer for the independent joint decomposition
-        /// (allocated on first use). Owned by this sampled component, which is owned by one
-        /// realization, so the parallel realization loop shares nothing.
+        /// The reusable exclusive-pathway probability buffer for the independent joint
+        /// decomposition, allocated on first use.
         /// </summary>
         private List<double>? _scratchPathwayProbabilities;
 
         /// <summary>
         /// The reusable exclusive-pathway indicator buffer, parallel to
-        /// <see cref="_scratchPathwayProbabilities"/>; the Numerics pooled overload refills matching
-        /// rows in place, so steady-state evaluations allocate nothing.
+        /// <see cref="_scratchPathwayProbabilities"/>.
         /// </summary>
         private List<int[]>? _scratchPathwayIndicators;
 
@@ -1203,13 +1173,10 @@ namespace RMC.TotalRisk.Results
         /// missing — an engine wiring defect, not a data condition.
         /// </exception>
         /// <remarks>
-        /// The independent arm writes into buffers this sampled component owns, so a run performs
-        /// no output allocation here after the first evaluation. The allocating overload it
-        /// replaced produced two fresh lists (plus an indicator row per emitted combination) on
-        /// every integrand evaluation — several thousand per component per realization. The buffers
-        /// are per-<see cref="SampledComponent"/>, which is per-realization, so the parallel
-        /// realization loop shares nothing. The dependent arms still allocate; their Numerics
-        /// kernels have no pooled overload yet.
+        /// The independent arm writes into buffers this sampled component owns, so a run allocates
+        /// no outputs here after the first evaluation; the buffers are per-realization, so the
+        /// parallel loop shares nothing. The dependent arms still allocate — their Numerics kernels
+        /// have no pooled overload.
         /// </remarks>
         private void ComputePathwayDecomposition(List<double> responseProbabilities,
             out List<double> pathwayProbabilities, out List<int[]> pathwayIndicators)

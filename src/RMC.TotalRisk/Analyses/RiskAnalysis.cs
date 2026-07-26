@@ -2289,12 +2289,9 @@ namespace RMC.TotalRisk.Analyses
             bool recording = false;
             double recordedWeightSum = 0d;
 
-            // Reusable exclusive-combination outputs. The Numerics pooled overload clears and
-            // refills these, reusing indicator rows of matching length in place, so the integrand
-            // performs no output allocation after its first evaluation — where the allocating
-            // overload produced two lists plus one row per emitted combination on every one of the
-            // tens of thousands of evaluations per realization. Locals of this call, and this call
-            // belongs to one realization, so the parallel loop shares nothing.
+            // Reusable exclusive-combination outputs: the pooled overload clears and refills these,
+            // reusing indicator rows in place, so the integrand allocates no outputs after its
+            // first evaluation. Locals of this call, so the parallel loop shares nothing.
             var exclusiveProbabilities = new List<double>();
             var exclusiveIndicators = new List<int[]>();
 
@@ -2762,12 +2759,9 @@ namespace RMC.TotalRisk.Analyses
         /// <param name="rule">The combination rule.</param>
         /// <returns>The combined complement value.</returns>
         /// <remarks>
-        /// Deliberately not delegated to <c>Tools.Sum(values, indicators, useComplement: true)</c> /
-        /// <c>Tools.Mean(...)</c>, which exist for exactly this shape: they take <c>IList</c>, so
-        /// every element access inside this per-evaluation kernel would become an interface
-        /// dispatch, and the Maximum/Minimum rules have no indicator overload — the rule switch
-        /// would still live here while the single fused pass became four. The Numerics overloads
-        /// also return NaN on an empty complement where v1.0 returns the zero sentinel below.
+        /// Not delegated to the <c>Tools.Sum</c>/<c>Tools.Mean</c> indicator overloads: they take
+        /// <c>IList</c>, which would make every element access in this per-evaluation kernel an
+        /// interface dispatch, and Maximum/Minimum have no indicator overload.
         /// </remarks>
         private static double CombineComplement(double[] values, int[] indicators, JointConsequenceType rule)
         {
@@ -3051,10 +3045,8 @@ namespace RMC.TotalRisk.Analyses
         /// <param name="count">The ordinate count (at least two).</param>
         /// <returns>The descending grid.</returns>
         /// <remarks>
-        /// Deliberately not <c>Tools.Sequence(start, end, step)</c>: that form accumulates
-        /// <c>v += step</c> (so rounding compounds across the grid) and derives its length from the
-        /// step, where the percentile assembly requires exactly <paramref name="count"/> ordinates.
-        /// The <c>maximum - i * step</c> form here is drift-free and length-exact.
+        /// Not <c>Tools.Sequence</c>: that form accumulates its step and derives its length from
+        /// it, where the percentile assembly needs exactly <paramref name="count"/> ordinates.
         /// </remarks>
         private static double[] BuildDescendingGrid(double minimum, double maximum, int count)
         {

@@ -721,11 +721,9 @@ namespace RMC.TotalRisk.Results
         /// retain the extreme-tail and terminal points.
         /// </para>
         /// <para>
-        /// The moment block stays local rather than calling <c>Statistics.ProductMoments</c>: those
-        /// are UNWEIGHTED (Numerics exposes no weighted moment API), the Numerics kurtosis is
-        /// EXCESS and its skewness and standard deviation carry sample corrections, where v1.0
-        /// convention — preserved here and pinned by verification — is plain normalized central
-        /// moments over the population. The zero-consequence atom also has no array to live in.
+        /// The moments stay local rather than calling <c>Statistics.ProductMoments</c>: those are
+        /// unweighted, and the Numerics kurtosis is excess where the v1.0 convention preserved here
+        /// is a plain normalized central moment over the population.
         /// </para>
         /// </remarks>
         public void CreateCurve(IReadOnlyList<(double Mass, double Consequence)> pairs, int outputLength)
