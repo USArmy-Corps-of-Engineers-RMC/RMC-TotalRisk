@@ -192,6 +192,70 @@ public class SampledComponentTests
     }
 
     /// <summary>
+    /// Verifies the competing-risks pre-processing is shared across realizations exactly when the
+    /// component is deterministic, and rebuilt per realization when it is not.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Building the cumulative incidence functions is the dominant construction cost of a
+    /// competing component — under a dependent configuration it is a Genz multivariate-normal
+    /// rectangle integral per unit per hazard level, 201 levels, once per realization. When the
+    /// hazard and every fragility are deterministic, every realization samples identical curves
+    /// and so recomputes an identical answer, and the run can share one. Reference identity on the
+    /// stratification bins is the assertion because it distinguishes "shared" from "recomputed to
+    /// the same value" — value equality would hold either way and would not detect the cache
+    /// silently failing.
+    /// </para>
+    /// <para>
+    /// Only the bins and the incidence DATA are shared. The <c>EmpiricalDistribution</c> wrappers
+    /// are rebuilt per realization, because a Numerics interpolator mutates its <c>SearchStart</c>
+    /// on every lookup — sharing one instance across the parallel realization loop would be a data
+    /// race. That property is not reachable from here (the incidence list is private); the perf
+    /// harness is where it shows up.
+    /// </para>
+    /// </remarks>
+    [TestMethod]
+    public void Test_CompetingIncidence_SharedOnlyWhenDeterministic()
+    {
+        // Arrange — a deterministic two-mode competing component.
+        var deterministic = TwoModeComponent(FailureModeMethod.CompetingFailures);
+        Assert.IsTrue(deterministic.IsDeterministic);
+        deterministic.SetupSamplers(8, componentSeed: 12345, SamplingScheme.LatinHypercube);
+
+        // Act
+        var first = deterministic.Sample(0);
+        var second = deterministic.Sample(1);
+
+        // Assert — the second realization took the first's pre-processing, and the shared curves
+        // still produce the same adjusted probabilities.
+        Assert.IsNotNull(first.HazardBins);
+        Assert.AreSame(first.HazardBins, second.HazardBins);
+        var flagsA = new RiskComputeFlags();
+        var flagsB = new RiskComputeFlags();
+        var outputA = first.ComputeRisk(0.5d, 15d, flagsA, new ComponentRealization(first.FailureModeCount), recordOutput: false);
+        var outputB = second.ComputeRisk(0.5d, 15d, flagsB, new ComponentRealization(second.FailureModeCount), recordOutput: false);
+        Assert.AreEqual(outputA.ProbabilityOfFailure, outputB.ProbabilityOfFailure, 0d);
+
+        // Arrange — the same component with an uncertain hazard is no longer deterministic.
+        var uncertain = TwoModeComponent(FailureModeMethod.CompetingFailures);
+        uncertain.HazardFunction = new TabularHazard
+        {
+            Name = "Uncertain Stage Frequency",
+            SpecifiedHazard = "Stage",
+            HazardUnit = "ft",
+            UncertaintyValue = FunctionUncertainty.Hazard,
+        };
+        Assert.IsFalse(uncertain.IsDeterministic);
+        uncertain.SetupSamplers(8, componentSeed: 12345, SamplingScheme.LatinHypercube);
+
+        // Act / Assert — each realization builds its own, because each samples a different hazard.
+        var third = uncertain.Sample(0);
+        var fourth = uncertain.Sample(1);
+        Assert.IsNotNull(third.HazardBins);
+        Assert.AreNotSame(third.HazardBins, fourth.HazardBins);
+    }
+
+    /// <summary>
     /// Verifies a per-mode combination method runs past the enumeration ceiling of the joint
     /// method's 2^U indicator matrix.
     /// </summary>

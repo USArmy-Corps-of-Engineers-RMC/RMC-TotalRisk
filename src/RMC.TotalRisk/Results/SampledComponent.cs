@@ -244,7 +244,26 @@ namespace RMC.TotalRisk.Results
             // Weak-link competing failures: pre-process the cumulative incidence functions over
             // 200 stratified hazard levels (v1.0 constants). A single mode short-circuits to its
             // own response probability, so the pre-processing is skipped then.
-            if (_failureModeMethod == FailureModeMethod.CompetingFailures && _layout.CombinationUnitCount > 1)
+            if (_failureModeMethod == FailureModeMethod.CompetingFailures && _layout.CombinationUnitCount > 1
+                && component.TryGetCompetingIncidence(out var sharedIncidence, out var sharedBins))
+            {
+                // A deterministic component samples the identical hazard and fragilities every
+                // realization, so this run already holds the incidence data this realization would
+                // recompute. Rebuilding the distributions over it is bit-exact and skips the whole
+                // pre-processing — which, under a dependent configuration, is a Genz rectangle
+                // integral per unit per hazard level. The distributions themselves are NEVER shared:
+                // a Numerics interpolator mutates its SearchStart on every lookup, so one instance
+                // read by parallel realizations is a race, not just contention.
+                HazardBins = sharedBins;
+                _cumulativeIncidenceFunctions = new List<EmpiricalDistribution>(sharedIncidence!.Length);
+                for (int j = 0; j < sharedIncidence.Length; j++)
+                {
+                    var incidenceCurve = new OrderedPairedData(sharedIncidence[j].Hazards, sharedIncidence[j].Probabilities,
+                        true, SortOrder.Ascending, false, SortOrder.Ascending);
+                    _cumulativeIncidenceFunctions.Add(new EmpiricalDistribution(incidenceCurve));
+                }
+            }
+            else if (_failureModeMethod == FailureModeMethod.CompetingFailures && _layout.CombinationUnitCount > 1)
             {
                 double minHazard = Hazard.InverseCDF(ProbabilityFloor);
                 double maxHazard = Hazard.InverseCDF(1d - ProbabilityFloor);
@@ -310,12 +329,20 @@ namespace RMC.TotalRisk.Results
                 // curve so its CDF is queryable (Numerics follow-up item alongside N7–N9).
                 var rawIncidenceFunctions = competingRisks.CumulativeIncidenceFunctions(HazardBins);
                 _cumulativeIncidenceFunctions = new List<EmpiricalDistribution>(rawIncidenceFunctions.Count);
+                var incidenceData = new (double[] Hazards, double[] Probabilities)[rawIncidenceFunctions.Count];
                 for (int j = 0; j < rawIncidenceFunctions.Count; j++)
                 {
-                    var incidenceCurve = new OrderedPairedData(rawIncidenceFunctions[j].XValues, rawIncidenceFunctions[j].ProbabilityValues,
+                    var hazards = rawIncidenceFunctions[j].XValues.ToArray();
+                    var probabilities = rawIncidenceFunctions[j].ProbabilityValues.ToArray();
+                    incidenceData[j] = (hazards, probabilities);
+                    var incidenceCurve = new OrderedPairedData(hazards, probabilities,
                         true, SortOrder.Ascending, false, SortOrder.Ascending);
                     _cumulativeIncidenceFunctions.Add(new EmpiricalDistribution(incidenceCurve));
                 }
+
+                // Offer the DATA to the run. Accepted only for a deterministic component, where
+                // every other realization would compute exactly this.
+                component.PublishCompetingIncidence(incidenceData, HazardBins);
             }
         }
 

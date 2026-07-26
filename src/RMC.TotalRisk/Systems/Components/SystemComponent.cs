@@ -3,11 +3,13 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Text;
+using System.Threading;
 using System.Xml.Linq;
 using Numerics;
 using Numerics.Distributions;
 using Numerics.Mathematics.LinearAlgebra;
 using Numerics.Mathematics.SpecialFunctions;
+using Numerics.Sampling;
 using RMC.TotalRisk.Core;
 using RMC.TotalRisk.Core.Enums;
 using RMC.TotalRisk.Core.Interfaces;
@@ -235,6 +237,31 @@ namespace RMC.TotalRisk.Systems.Components
         /// Whether the correlation matrix passed its last positive-definiteness check.
         /// </summary>
         private bool _matrixValid = true;
+
+        /// <summary>
+        /// Whether this run may share one competing-risks pre-processing across realizations
+        /// (see <see cref="TryGetCompetingIncidence"/>). Set at the <c>SetupSamplers</c> freeze
+        /// point; false outside a run.
+        /// </summary>
+        private bool _shareCompetingIncidence;
+
+        /// <summary>
+        /// The run-shared cumulative incidence DATA — hazard levels and incidence probabilities
+        /// per combination unit — or null until the first realization publishes it. Deliberately
+        /// arrays and not <see cref="EmpiricalDistribution"/> instances: see
+        /// <see cref="TryGetCompetingIncidence"/>.
+        /// </summary>
+        private (double[] Hazards, double[] Probabilities)[]? _sharedIncidenceData;
+
+        /// <summary>
+        /// The stratified hazard levels the shared incidence functions were built over.
+        /// </summary>
+        private List<StratificationBin>? _sharedIncidenceHazardBins;
+
+        /// <summary>
+        /// Guards publication of the run-shared competing-risks pre-processing.
+        /// </summary>
+        private readonly object _incidenceCacheLock = new object();
 
         /// <summary>
         /// The component's display name. Identity metadata — serialized, never hashed.
@@ -491,6 +518,77 @@ namespace RMC.TotalRisk.Systems.Components
         /// plus standalone failure states — the failure-path count for every pre-6.7 layout.
         /// </summary>
         public int[,]? FailureModeIndicators => FailureModeIndicatorsFor(CombinationUnitCount());
+
+        /// <summary>
+        /// Attempts to take this run's shared competing-risks pre-processing, so a deterministic
+        /// component builds its cumulative incidence functions once instead of once per
+        /// realization.
+        /// </summary>
+        /// <param name="incidenceData">Receives the shared incidence data, or null on a miss.</param>
+        /// <param name="hazardBins">Receives the hazard levels it was built over, or null on a miss.</param>
+        /// <returns>True when the run may share and a previous realization has already published.</returns>
+        /// <remarks>
+        /// <para>
+        /// Sharing is admissible only when <see cref="IsDeterministic"/> held at the freeze point:
+        /// every realization then samples the identical hazard and fragilities, so every
+        /// realization would compute the identical incidence data. The cache is therefore
+        /// bit-exact, not an approximation.
+        /// </para>
+        /// <para>
+        /// It matters most where the pre-processing is most expensive. Under a dependent
+        /// (perfectly-negative or correlation-matrix) competing configuration, the Numerics
+        /// incidence factory evaluates Genz's multivariate normal rectangle integral once per unit
+        /// per hazard level — 201 levels — so a four-unit component at 1,000 realizations paid
+        /// roughly 800,000 of them before a single integrand evaluation ran. Independent and
+        /// perfectly-positive configurations take the cheaper delta-method branch and benefit less.
+        /// </para>
+        /// <para>
+        /// What is shared is the DATA, never the distribution objects. A Numerics interpolator
+        /// carries a mutable <c>SearchStart</c> that every lookup writes (the correlated-search
+        /// accelerator), so one <see cref="EmpiricalDistribution"/> read concurrently by several
+        /// realizations is a data race — and on the non-strict incidence curves, where ties admit
+        /// more than one valid bracket, a corrupted search start can return a different ordinate
+        /// rather than merely a slower one. Each realization therefore rebuilds its own
+        /// distributions over these arrays, which costs nothing next to the integration they skip.
+        /// The stratification bins are inert value holders and are shared directly.
+        /// </para>
+        /// </remarks>
+        internal bool TryGetCompetingIncidence(out (double[] Hazards, double[] Probabilities)[]? incidenceData,
+            out List<StratificationBin>? hazardBins)
+        {
+            if (!_shareCompetingIncidence)
+            {
+                incidenceData = null;
+                hazardBins = null;
+                return false;
+            }
+            incidenceData = Volatile.Read(ref _sharedIncidenceData);
+            hazardBins = Volatile.Read(ref _sharedIncidenceHazardBins);
+            return incidenceData != null && hazardBins != null;
+        }
+
+        /// <summary>
+        /// Publishes a realization's competing-risks pre-processing for the rest of the run.
+        /// </summary>
+        /// <param name="incidenceData">The cumulative incidence data to share (copied, not aliased).</param>
+        /// <param name="hazardBins">The hazard levels it was built over.</param>
+        /// <remarks>
+        /// Realizations construct in parallel, so two may reach this before either publishes. That
+        /// is harmless — sharing is gated on determinism, so both computed the same values and
+        /// either may win — but the write is still taken under a lock and published with a release
+        /// barrier so a reader cannot observe a partially constructed array.
+        /// </remarks>
+        internal void PublishCompetingIncidence((double[] Hazards, double[] Probabilities)[] incidenceData,
+            List<StratificationBin> hazardBins)
+        {
+            if (!_shareCompetingIncidence) return;
+            lock (_incidenceCacheLock)
+            {
+                if (_sharedIncidenceData != null) return;
+                Volatile.Write(ref _sharedIncidenceHazardBins, hazardBins);
+                Volatile.Write(ref _sharedIncidenceData, incidenceData);
+            }
+        }
 
         /// <summary>
         /// The combination-unit indicator cache for an ALREADY-KNOWN unit count — the compute
@@ -1116,6 +1214,14 @@ namespace RMC.TotalRisk.Systems.Components
                 FailureModeIndicatorsFor(unitCount);
                 FailureModeBinomialCombinationsFor(unitCount);
             }
+
+            // Arm the competing-risks pre-processing cache for this run, and drop any previous
+            // run's (the samplers have just been re-seeded, so it is stale by definition).
+            Volatile.Write(ref _sharedIncidenceData, null);
+            Volatile.Write(ref _sharedIncidenceHazardBins, null);
+            _shareCompetingIncidence = _failureModeMethod == FailureModeMethod.CompetingFailures
+                && _sampledLayout.CombinationUnitCount > 1
+                && IsDeterministic;
 
             _sampledNonFailureMode = null;
             for (int i = 0; i < modes.Count; i++)

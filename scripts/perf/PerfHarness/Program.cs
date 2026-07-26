@@ -31,7 +31,10 @@ namespace RMC.TotalRisk.PerfHarness
     /// Fixtures: <b>F1</b> — the PROGRESS-recorded trivial 1D fixture (uncertain triangular
     /// fragility) at N = 1000 full uncertainty (the ≈54 s pre-optimization reference); <b>F2</b>
     /// — a two-component joint system at N = 200; <b>F3</b> — F1 with a second consequence type
-    /// (the Phase 6.5 axis). Each fixture reports the mean-only and full-uncertainty medians of
+    /// (the Phase 6.5 axis); <b>F4</b> — a DEPENDENT competing-risks component (Phase 8.5), the
+    /// one shape whose cost is dominated by construction rather than integration, because the
+    /// Numerics incidence factory evaluates Genz's multivariate-normal rectangle integral per unit
+    /// per hazard level. Each fixture reports the mean-only and full-uncertainty medians of
     /// three runs plus the SHA-256 of the concatenated results JSON (mean, lower, upper, median
     /// realizations and the summary ensemble).
     /// </para>
@@ -44,7 +47,7 @@ namespace RMC.TotalRisk.PerfHarness
         /// <c>--reps 3</c> for the committed baseline/final table rows.</summary>
         private static int _reps = 1;
 
-        /// <summary>Runs the requested fixtures (args: optional <c>--reps N</c> plus fixture names among F1 F2 F3; default all).</summary>
+        /// <summary>Runs the requested fixtures (args: optional <c>--reps N</c> plus fixture names among F1 F2 F3 F4; default all).</summary>
         /// <param name="args">Optional repetition count and fixture filter.</param>
         /// <returns>Zero on success.</returns>
         public static int Main(string[] args)
@@ -70,6 +73,7 @@ namespace RMC.TotalRisk.PerfHarness
             if (All("F1")) Measure("F1 1D single-component, N=1000", () => BuildF1());
             if (All("F2")) Measure("F2 joint two-component, N=200 (reduced VEGAS budget)", () => BuildF2());
             if (All("F3")) Measure("F3 = F1 + second consequence type", () => BuildF3());
+            if (All("F4")) Measure("F4 dependent competing risks, 4 modes, N=200", () => BuildF4());
             return 0;
         }
 
@@ -204,6 +208,69 @@ namespace RMC.TotalRisk.PerfHarness
             };
             analysis.AdditionalConsequenceTypes.Add(new ConsequenceTypeDescriptor("Damages", "$"));
             analysis.Options.Realizations = 1000;
+            return analysis;
+        }
+
+        /// <summary>
+        /// Builds the F4 dependent competing-risks fixture: four failure modes under a
+        /// perfectly-negative dependency at N = 200.
+        /// </summary>
+        /// <remarks>
+        /// This is the shape whose cost lives in <c>SampledComponent</c>'s constructor rather than
+        /// in the risk integral. A dependent competing configuration routes the Numerics incidence
+        /// factory onto its multivariate-normal branch, which evaluates a Genz rectangle integral
+        /// per combination unit per hazard level over 201 levels — once per realization, before a
+        /// single integrand evaluation runs. The component is deliberately DETERMINISTIC (no
+        /// knowledge uncertainty on the hazard or the fragilities) so it is eligible for the
+        /// run-shared pre-processing; an uncertain variant would rebuild every realization by
+        /// necessity and would measure a different thing. N = 200 keeps the fixture inside the
+        /// session workflow's minutes budget.
+        /// </remarks>
+        private static RiskAnalysis BuildF4()
+        {
+            var component = new SystemComponent { Name = "Competing Dam" };
+            component.HazardFunction = new TabularHazard
+            {
+                Name = "Stage Frequency",
+                SpecifiedHazard = "Stage",
+                HazardUnit = "ft",
+                NoUncertaintyFunction = new UncertainOrderedPairedData(
+                    new[]
+                    {
+                        new UncertainOrdinate(0.999d, new Deterministic(0d)),
+                        new UncertainOrdinate(0.5d, new Deterministic(10d)),
+                        new UncertainOrdinate(0.001d, new Deterministic(30d)),
+                    },
+                    true, SortOrder.Descending, true, SortOrder.Ascending, UnivariateDistributionType.Deterministic),
+            };
+            for (int i = 0; i < 4; i++)
+            {
+                var fragility = new TabularResponse
+                {
+                    Name = $"Fragility {i}",
+                    SpecifiedHazard = "Stage",
+                    HazardUnit = "ft",
+                    UncertainOrderedPairedData = new UncertainOrderedPairedData(
+                        new[]
+                        {
+                            new UncertainOrdinate(8d + i, new Deterministic(0d)),
+                            new UncertainOrdinate(22d + i, new Deterministic(1d)),
+                        },
+                        true, SortOrder.Ascending, false, SortOrder.None, UnivariateDistributionType.Deterministic),
+                };
+                component.AddFailureMode(new FailureMode(null, null, fragility,
+                    Consequence($"Loss {i}", "Life Loss", "lives", 200d + 100d * i)));
+            }
+            component.AddFailureMode(new FailureMode(null, null, null, Consequence("Non-Failure Loss", "Life Loss", "lives", 60d)));
+            component.FailureModeMethod = FailureModeMethod.CompetingFailures;
+            component.FailureModeDependency = DependencyType.PerfectlyNegative;
+
+            var analysis = new RiskAnalysis(new[] { component })
+            {
+                SpecifiedConsequence = "Life Loss",
+                ConsequenceUnit = "lives",
+            };
+            analysis.Options.Realizations = 200;
             return analysis;
         }
 

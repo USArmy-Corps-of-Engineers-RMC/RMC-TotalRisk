@@ -20,6 +20,13 @@ Fixtures:
   uncertainty. The PROGRESS-recorded pre-optimization reference measured ≈ 54 s on the
   session machine of 2026-07-23 (Debug-adjacent conditions); the Release baseline below is
   the working reference.
+- **F4** (added Phase 8.5) — a **dependent** competing-risks component, 4 failure modes under a
+  perfectly-negative dependency, N = 200. The one shape whose cost lives in
+  `SampledComponent`'s constructor rather than in the risk integral: a dependent competing
+  configuration routes `CompetingRisks.CumulativeIncidenceFunctions` onto its Genz
+  multivariate-normal branch, one rectangle integral per unit per hazard level over 201
+  levels, per realization. **F4's results hash is NOT a byte gate** — see the Phase 8.5
+  section below.
 - **F2** — two-component joint (VEGAS) system, N = 200 at a reduced VEGAS budget (warm-up
   1000 × 2 cycles, 2000 final evaluations × 5 recording passes) — the default budget runs
   ~110k evaluations per realization, far too heavy for an iteration fixture, and optimization
@@ -141,3 +148,55 @@ Prior baselines (post-6.6, superseded by the 6.7 hash event):
 - F1 `7a88638cf38c5ee38a3091fabd933e747dd9dc43ea14d44b0addbb465c12f500`
 - F2 `dbc8dd66faf06c8de4ee434bf9bb04d321b812e5d26b3db1ae899ee72e34ec80`
 - F3 `06a1456315cc3a6458850e1a22611fc72dc7529a188b36c5efa073169fb0d785`
+
+## Phase 8.5 Stage 1 — bit-inert cleanups (2026-07-26)
+
+Every Stage 1 sub-stage is gated on reproducing the 6.7 Stage 3 hashes **bit-for-bit**. They
+all did. Session reference conditions (machine HADEN, 22 logical processors, Release, single
+rep) — wall-clock on this machine drifts by ±30% between runs, so the deterministic signals
+are the hash and the allocation counter:
+
+| Stage | F1 full (s) | F1 alloc (GB) | F2 alloc (GB) | F3 alloc (GB) | Hashes |
+|---|---|---|---|---|---|
+| baseline (`f186989`) | 5.619 | 4.10 | 17.93 | 7.85 | all three reproduce the 6.7 Stage 3 values |
+| 1a Numerics helpers | 5.328 | 4.10 | 17.93 | 7.85 | bit-identical |
+| 1b PERT-percentile-Z determinism | 5.328 | 4.10 | — | — | bit-identical (branch unreachable from the fixtures) |
+| 1c combination-cache hygiene | 5.646 | **4.09** | 17.93 | **7.84** | bit-identical |
+| 1d competing-risk CIF sharing | 5.615 | 4.09 | 17.93 | 7.84 | bit-identical |
+
+The 1c allocation drop is the eliminated double re-projection (`CombinationUnitCount()` rebuilt
+the end-state layout twice per component per realization); the per-method matrix saving does
+not show on these fixtures because they are single-mode.
+
+### F4 — the competing-risks measurement, and why its hash is not a gate
+
+Measured with the cache force-disabled versus enabled, same fixture, same session:
+
+| F4 | full-MC (s) | allocated (GB) |
+|---|---|---|
+| CIF rebuilt per realization (pre-1d) | 22.284 | 20.36 |
+| CIF data shared across the run (1d) | 5.615 | 4.67 |
+
+**≈ 4.0× faster, ≈ 4.4× less allocated**, on a fixture that is 200 realizations; the ratio grows
+with realization count because the skipped work is per-realization and constant.
+
+**F4's results SHA-256 changes on every run, and that is a pre-existing defect this fixture
+exposed rather than one Stage 1 introduced.** `MultivariateNormal` initializes its quasi-Monte
+Carlo generator as `new MersenneTwister()` (`MultivariateNormal.cs:73`), whose parameterless
+constructor seeds from `DateTime.UtcNow.Ticks`. `MVNDST` draws from it, so every Genz interval
+evaluation — and therefore every dependent competing-risks incidence curve — is clock-seeded.
+Measured across three consecutive runs: `237b694e…`, `a37864ab…`, `603f565e…`.
+
+It went unnoticed because no fixture exercised dependent competing risks before F4, and
+`CompetingFailuresVerification` asserts statistically at k·SE tolerances that absorb Genz's
+≈1e-4 error. The joint and additive system paths are unaffected — the joint hazard uses an
+in-place Cholesky transform, not the MVN CDF, and `Probability.ExclusiveMVN`/`UnionMVN` have no
+engine callers. Tracked as Numerics item **N17**; once `MVNUNI` is deterministically seeded from
+the component's content hash, F4 becomes a real byte gate and its hash gets pinned here.
+
+An incidental correctness finding from the same investigation, folded into 1d: the shared cache
+holds the incidence **data** (hazard/probability arrays), never the `EmpiricalDistribution`
+wrappers. A Numerics interpolator mutates its `SearchStart` on every lookup (`UseSmartSearch`
+defaults true), so one distribution instance read by parallel realizations is a data race — and
+on the non-strict incidence curves, where ties admit more than one valid bracket, a corrupted
+search start can return a different ordinate rather than merely a slower lookup.
