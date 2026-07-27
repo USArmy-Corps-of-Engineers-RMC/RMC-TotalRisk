@@ -63,8 +63,12 @@ def main() -> None:
 
     # Swap the agent name. "CLAUDE.md" (all caps) is untouched by the word-boundary
     # match, so file references survive.
+    authority_phrase = "Codex and Claude"
+    authority_token = "__CODEX_AND_CLAUDE_AUTHORITY__"
+    text = text.replace(authority_phrase, authority_token)
     text = re.sub(r"\bClaude Code\b", "Codex", text)
     text = re.sub(r"\bClaude\b", "Codex", text)
+    text = text.replace(authority_token, authority_phrase)
 
     AGENTS_MD.write_text(GENERATED_BANNER + text, encoding="utf-8", newline="\n")
     print(f"Wrote {AGENTS_MD} ({len(text.splitlines())} lines from CLAUDE.md).")

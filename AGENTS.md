@@ -2,6 +2,17 @@
 
 ﻿# RMC-TotalRisk
 
+## Technical Authority and Algorithm Change Control (NON-NEGOTIABLE)
+
+Haden Smith is the final technical and numerical authority for this repository. AI agents,
+including Codex and Claude, must never change an established algorithm, formula,
+probability-combination rule, numerical method, convergence rule, default tolerance,
+random-seed behavior, clipping or normalization policy, or reference-result contract without
+Haden Smith's explicit prior approval. A failing test authorizes diagnosis and a proposed fix
+only; it does not authorize tuning or replacing the algorithm. When an agent's reasoning
+conflicts with Haden Smith's direction or domain judgment, the agent must stop, present the
+evidence, and request a decision. AI confidence is not technical authority.
+
 ## Project Overview
 
 Monte-Carlo-based quantitative risk analysis framework for dam and levee safety, developed by the USACE Risk Management Center. **This software is used for life-safety flood risk assessments worldwide.** Code quality is paramount.
