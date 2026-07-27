@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -41,6 +41,13 @@ namespace RMC.TotalRisk.PerfHarness
     /// </remarks>
     public static class Program
     {
+        /// <summary>
+        /// When set by <c>--dump &lt;path&gt;</c>, the concatenated results JSON of each fixture is
+        /// written to <c>&lt;path&gt;.&lt;fixture&gt;.json</c> as well as hashed — the diff that shows
+        /// whether a moved byte gate is a numeric change or an added field.
+        /// </summary>
+        private static string? _dumpPath;
+
         /// <summary>The measurement repetitions per fixture (median reported). One by default —
         /// results are deterministic, so the hash gate needs a single run and the timing signal
         /// at the fixture scale (tens of seconds) resolves the targeted multiples; pass
@@ -58,6 +65,10 @@ namespace RMC.TotalRisk.PerfHarness
                 if (string.Equals(args[i], "--reps", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
                 {
                     _reps = Math.Max(1, int.Parse(args[++i], CultureInfo.InvariantCulture));
+                }
+                else if (string.Equals(args[i], "--dump", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
+                {
+                    _dumpPath = args[++i];
                 }
                 else
                 {
@@ -108,7 +119,7 @@ namespace RMC.TotalRisk.PerfHarness
                 gen0 = GC.CollectionCount(0) - gen0Before;
                 gen1 = GC.CollectionCount(1) - gen1Before;
                 gen2 = GC.CollectionCount(2) - gen2Before;
-                hash = ResultsHash(analysis);
+                hash = ResultsHash(analysis, label);
                 return elapsed;
             });
 
@@ -151,7 +162,7 @@ namespace RMC.TotalRisk.PerfHarness
         /// </summary>
         /// <param name="analysis">The finished analysis.</param>
         /// <returns>The lowercase hex digest.</returns>
-        private static string ResultsHash(RiskAnalysis analysis)
+        private static string ResultsHash(RiskAnalysis analysis, string label)
         {
             var builder = new StringBuilder();
             builder.Append(analysis.MeanRiskResults?.ToJson() ?? string.Empty).Append('|');
@@ -159,7 +170,12 @@ namespace RMC.TotalRisk.PerfHarness
             builder.Append(analysis.UpperRiskResults?.ToJson() ?? string.Empty).Append('|');
             builder.Append(analysis.MedianRiskResults?.ToJson() ?? string.Empty).Append('|');
             builder.Append(analysis.RiskResults?.ToJson() ?? string.Empty);
-            byte[] digest = SHA256.HashData(Encoding.UTF8.GetBytes(builder.ToString()));
+            string payload = builder.ToString();
+            if (_dumpPath != null)
+            {
+                System.IO.File.WriteAllText($"{_dumpPath}.{label.Split(' ')[0]}.json", payload);
+            }
+            byte[] digest = SHA256.HashData(Encoding.UTF8.GetBytes(payload));
             return Convert.ToHexString(digest).ToLowerInvariant();
         }
 

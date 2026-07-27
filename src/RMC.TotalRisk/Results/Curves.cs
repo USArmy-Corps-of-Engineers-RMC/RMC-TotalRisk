@@ -109,6 +109,19 @@ namespace RMC.TotalRisk.Results
         }
 
         /// <summary>
+        /// Applies the run's optional-measure selection to every stream.
+        /// </summary>
+        /// <param name="measures">The measures to compute.</param>
+        public void SetMeasureOptions(RiskMeasureOptions measures)
+        {
+            Excess.MeasureOptions = measures;
+            Background.MeasureOptions = measures;
+            Total.MeasureOptions = measures;
+            Fail.MeasureOptions = measures;
+            NonFail.MeasureOptions = measures;
+        }
+
+        /// <summary>
         /// Builds the risk profiles on every stream. The failure-stream profiles (the cumulative
         /// failure probability by hazard and the system response profile) build on the Fail
         /// stream only, and only for the primary consequence type — probabilities are

@@ -39,6 +39,11 @@ namespace RMC.TotalRisk.Results
             PathLabel = failureModeRealization.PathLabel;
             Excess = new SummaryRiskResults(failureModeRealization.Curves.Excess);
             Fail = new SummaryRiskResults(failureModeRealization.Curves.Fail);
+            if (failureModeRealization.AdjustedCurves != null)
+            {
+                AdjustedExcess = new SummaryRiskResults(failureModeRealization.AdjustedCurves.Excess);
+                AdjustedFail = new SummaryRiskResults(failureModeRealization.AdjustedCurves.Fail);
+            }
             Contribution = RiskContribution.Copy(failureModeRealization.Contribution);
             AdditionalConsequences = new List<ConsequenceResults>(failureModeRealization.AdditionalCurves.Count);
             for (int k = 0; k < failureModeRealization.AdditionalCurves.Count; k++)
@@ -81,6 +86,20 @@ namespace RMC.TotalRisk.Results
         /// empty). Empty on a single-type analysis.
         /// </summary>
         public List<ConsequenceResults> AdditionalConsequences { get; set; }
+
+        /// <summary>
+        /// The combination-adjusted incremental risk summary — this mode's share after the
+        /// component's combination method has resolved the modes against one another. Null unless
+        /// <c>RiskAnalysisOptions.OutputAdjustedFailureModeCurves</c> was set.
+        /// </summary>
+        public SummaryRiskResults? AdjustedExcess { get; set; }
+
+        /// <summary>
+        /// The combination-adjusted failure risk summary; its total probability is the mode's
+        /// share of the component's annualized failure probability. Null unless adjusted output
+        /// was requested.
+        /// </summary>
+        public SummaryRiskResults? AdjustedFail { get; set; }
 
         /// <summary>
         /// This mode's attributed contribution to the component's risk on the primary

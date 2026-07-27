@@ -1,5 +1,6 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
+using RMC.TotalRisk.Core.Enums;
 
 namespace RMC.TotalRisk.Results
 {
@@ -167,6 +168,23 @@ namespace RMC.TotalRisk.Results
             for (int i = 0; i < FailureModes.Count; i++)
             {
                 FailureModes[i].ProcessHazardProbabilities();
+            }
+        }
+
+        /// <summary>
+        /// Applies the run's optional-measure selection to every curve set this realization owns.
+        /// </summary>
+        /// <param name="measures">The measures to compute.</param>
+        public void SetMeasureOptions(RiskMeasureOptions measures)
+        {
+            Curves.SetMeasureOptions(measures);
+            for (int k = 0; k < AdditionalCurves.Count; k++)
+            {
+                AdditionalCurves[k].SetMeasureOptions(measures);
+            }
+            for (int i = 0; i < FailureModes.Count; i++)
+            {
+                FailureModes[i].SetMeasureOptions(measures);
             }
         }
 

@@ -1636,6 +1636,7 @@ namespace RMC.TotalRisk.Analyses
             {
                 token.ThrowIfCancellationRequested();
                 sampledComponents[i] = _components[i].Sample(realizationIndex);
+                sampledComponents[i].RecordAdjustedModeCurves = _options.OutputAdjustedFailureModeCurves;
                 additionalTypes = Math.Max(additionalTypes, sampledComponents[i].ConsequenceTypeCount - 1);
                 componentRealizations.Add(new ComponentRealization(sampledComponents[i].FailureModeCount)
                 {
@@ -1646,6 +1647,19 @@ namespace RMC.TotalRisk.Analyses
             realization.EnsureAdditionalCurves(additionalTypes);
             StampConsequenceLabels(realization);
             StampModeLabels(realization);
+            for (int i = 0; i < componentRealizations.Count; i++)
+            {
+                componentRealizations[i].SetMeasureOptions(_options.RiskMeasures);
+                if (_options.OutputAdjustedFailureModeCurves)
+                {
+                    var modes = componentRealizations[i].FailureModes;
+                    for (int j = 0; j < modes.Count; j++)
+                    {
+                        modes[j].EnableAdjustedCurves(additionalTypes);
+                        modes[j].SetMeasureOptions(_options.RiskMeasures);
+                    }
+                }
+            }
 
             if (_components.Count > 1 && _options.SystemRiskMethod == SystemRiskType.JointRiskMethod)
             {
@@ -1661,7 +1675,10 @@ namespace RMC.TotalRisk.Analyses
                 componentRealizations[i].ProcessHazardProbabilities();
                 componentRealizations[i].FinalizeContributions(trapezoidMasses: true);
                 componentRealizations[i].CreateCurves(_options.LECOutputLength);
-                componentRealizations[i].CreateProfiles(includeFailureModes: realizationIndex < 0);
+                if ((_options.RiskMeasures & RiskMeasureOptions.RiskProfiles) != 0)
+                {
+                    componentRealizations[i].CreateProfiles(includeFailureModes: realizationIndex < 0);
+                }
                 componentRealizations[i].ComputeRiskMeasures(_options.ConsequenceThreshold, _options.Alpha, _components[i].HazardThreshold, _runAdditionalThresholds);
 
                 realization.MinN = Math.Min(realization.MinN, componentRealizations[i].MinN);
@@ -2690,7 +2707,10 @@ namespace RMC.TotalRisk.Analyses
             {
                 token.ThrowIfCancellationRequested();
                 componentRealizations[i].CreateCurves(_options.LECOutputLength);
-                componentRealizations[i].CreateProfiles(includeFailureModes: realizationIndex < 0);
+                if ((_options.RiskMeasures & RiskMeasureOptions.RiskProfiles) != 0)
+                {
+                    componentRealizations[i].CreateProfiles(includeFailureModes: realizationIndex < 0);
+                }
                 componentRealizations[i].ComputeRiskMeasures(_options.ConsequenceThreshold, _options.Alpha, _components[i].HazardThreshold, _runAdditionalThresholds);
                 realization.MinN = Math.Min(realization.MinN, componentRealizations[i].MinN);
                 realization.MaxN = Math.Max(realization.MaxN, componentRealizations[i].MaxN);

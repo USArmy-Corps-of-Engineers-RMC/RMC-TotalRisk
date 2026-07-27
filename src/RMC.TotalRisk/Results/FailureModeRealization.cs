@@ -1,6 +1,7 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
+using RMC.TotalRisk.Core.Enums;
 
 namespace RMC.TotalRisk.Results
 {
@@ -58,6 +59,45 @@ namespace RMC.TotalRisk.Results
         /// (entry k − 1 is type k). Empty on a single-type analysis.
         /// </summary>
         public List<Curves> AdditionalCurves { get; set; }
+
+        /// <summary>
+        /// The mode's combination-adjusted Fail and Excess curves for the primary consequence type —
+        /// its share after the component's combination method has resolved the modes against one
+        /// another, so the modes sum to the component total. Null unless
+        /// <c>RiskAnalysisOptions.OutputAdjustedFailureModeCurves</c> is set.
+        /// </summary>
+        public Curves? AdjustedCurves { get; set; }
+
+        /// <summary>
+        /// The combination-adjusted curves of the additional consequence types, in declared order
+        /// (entry k − 1 is type k). Empty unless adjusted output is requested.
+        /// </summary>
+        public List<Curves> AdditionalAdjustedCurves { get; set; } = new List<Curves>();
+
+        /// <summary>
+        /// Creates the adjusted curve sets for the primary and additional consequence types.
+        /// </summary>
+        /// <param name="additionalTypes">The number of additional consequence types.</param>
+        public void EnableAdjustedCurves(int additionalTypes)
+        {
+            AdjustedCurves ??= new Curves();
+            while (AdditionalAdjustedCurves.Count < additionalTypes)
+            {
+                AdditionalAdjustedCurves.Add(new Curves());
+            }
+        }
+
+        /// <summary>
+        /// The adjusted curve set for a consequence type, or null when adjusted output is off.
+        /// </summary>
+        /// <param name="typeIndex">The consequence type index; zero is the primary type.</param>
+        /// <returns>The adjusted curve set, or null.</returns>
+        public Curves? AdjustedCurvesFor(int typeIndex)
+        {
+            if (typeIndex == 0) return AdjustedCurves;
+            int index = typeIndex - 1;
+            return index < AdditionalAdjustedCurves.Count ? AdditionalAdjustedCurves[index] : null;
+        }
 
         /// <summary>
         /// This mode's attributed contribution to the component's risk on the primary
@@ -158,6 +198,29 @@ namespace RMC.TotalRisk.Results
             {
                 AdditionalCurves[k].ProcessHazardProbabilities();
             }
+            AdjustedCurves?.ProcessHazardProbabilities();
+            for (int k = 0; k < AdditionalAdjustedCurves.Count; k++)
+            {
+                AdditionalAdjustedCurves[k].ProcessHazardProbabilities();
+            }
+        }
+
+        /// <summary>
+        /// Applies the run's optional-measure selection to every curve set this mode owns.
+        /// </summary>
+        /// <param name="measures">The measures to compute.</param>
+        public void SetMeasureOptions(RiskMeasureOptions measures)
+        {
+            Curves.SetMeasureOptions(measures);
+            for (int k = 0; k < AdditionalCurves.Count; k++)
+            {
+                AdditionalCurves[k].SetMeasureOptions(measures);
+            }
+            AdjustedCurves?.SetMeasureOptions(measures);
+            for (int k = 0; k < AdditionalAdjustedCurves.Count; k++)
+            {
+                AdditionalAdjustedCurves[k].SetMeasureOptions(measures);
+            }
         }
 
         /// <summary>
@@ -171,6 +234,11 @@ namespace RMC.TotalRisk.Results
             for (int k = 0; k < AdditionalCurves.Count; k++)
             {
                 AdditionalCurves[k].CreateCurves(outputLength);
+            }
+            AdjustedCurves?.CreateCurves(outputLength);
+            for (int k = 0; k < AdditionalAdjustedCurves.Count; k++)
+            {
+                AdditionalAdjustedCurves[k].CreateCurves(outputLength);
             }
         }
 
@@ -224,6 +292,11 @@ namespace RMC.TotalRisk.Results
             {
                 AdditionalCurves[k].DumpMemory();
             }
+            AdjustedCurves?.DumpMemory();
+            for (int k = 0; k < AdditionalAdjustedCurves.Count; k++)
+            {
+                AdditionalAdjustedCurves[k].DumpMemory();
+            }
             var accumulators = ContributionAccumulators;
             if (accumulators != null)
             {
@@ -246,6 +319,11 @@ namespace RMC.TotalRisk.Results
             for (int k = 0; k < AdditionalCurves.Count; k++)
             {
                 AdditionalCurves[k].ScaleRecordedMass(factor);
+            }
+            AdjustedCurves?.ScaleRecordedMass(factor);
+            for (int k = 0; k < AdditionalAdjustedCurves.Count; k++)
+            {
+                AdditionalAdjustedCurves[k].ScaleRecordedMass(factor);
             }
         }
     }

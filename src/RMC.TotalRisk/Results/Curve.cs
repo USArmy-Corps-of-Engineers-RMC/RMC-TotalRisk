@@ -1,9 +1,10 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
 using Numerics;
 using Numerics.Data;
 using Numerics.Mathematics;
+using RMC.TotalRisk.Core.Enums;
 
 namespace RMC.TotalRisk.Results
 {
@@ -213,6 +214,13 @@ namespace RMC.TotalRisk.Results
         /// </summary>
         [JsonIgnore]
         public double ConditionalMean => TotalProbability > 0d ? Mean / TotalProbability : double.NaN;
+
+        /// <summary>
+        /// Which optional measures this curve computes. Set by the owning realization before its
+        /// curves are built; run-time state, never serialized.
+        /// </summary>
+        [JsonIgnore]
+        public RiskMeasureOptions MeasureOptions { get; set; } = RiskMeasureOptions.All;
 
         /// <summary>
         /// The exceedance probability level for <see cref="ValueAtRisk"/> and
@@ -777,21 +785,23 @@ namespace RMC.TotalRisk.Results
             }
 
             // Pass two: central sums about the mean — no raw power sums, no cancellation.
+            bool higherMoments = (MeasureOptions & RiskMeasureOptions.HigherMoments) != 0;
             double m2 = atom * mean * mean;
-            double m3 = atom * -(mean * mean * mean);
-            double m4 = atom * mean * mean * mean * mean;
+            double m3 = higherMoments ? atom * -(mean * mean * mean) : 0d;
+            double m4 = higherMoments ? atom * mean * mean * mean * mean : 0d;
             for (int i = 0; i < mergedMass.Count; i++)
             {
                 double delta = mergedConsequence[i] - mean;
                 double delta2 = delta * delta;
                 m2 += mergedMass[i] * delta2;
+                if (!higherMoments) continue;
                 m3 += mergedMass[i] * delta2 * delta;
                 m4 += mergedMass[i] * delta2 * delta2;
             }
             Mean = mean;
             StandardDeviation = Math.Sqrt(m2);
-            Skewness = m2 > 0d ? m3 / (m2 * Math.Sqrt(m2)) : double.NaN;
-            Kurtosis = m2 > 0d ? m4 / (m2 * m2) : double.NaN;
+            Skewness = higherMoments && m2 > 0d ? m3 / (m2 * Math.Sqrt(m2)) : double.NaN;
+            Kurtosis = higherMoments && m2 > 0d ? m4 / (m2 * m2) : double.NaN;
 
             // The exact exceedance ordinates: a zero-probability anchor just above the largest
             // consequence (the v1.0 interpolation anchor), the exact reverse-cumulative points,
@@ -1065,30 +1075,36 @@ namespace RMC.TotalRisk.Results
             ConditionalValueAtRisk = double.NaN;
             HazardThresholdProbability = double.NaN;
 
+            bool wantThresholds = (MeasureOptions & RiskMeasureOptions.ThresholdProbabilities) != 0;
+            bool wantValueAtRisk = (MeasureOptions & RiskMeasureOptions.ValueAtRisk) != 0;
+
             if (_lecConsequences.Length > 2)
             {
                 var lec = LEC;
-                if (!double.IsNaN(consequenceThreshold))
+                if (wantThresholds && !double.IsNaN(consequenceThreshold))
                 {
                     ConsequenceThresholdProbability = lec.GetYFromX(consequenceThreshold, Transform.Logarithmic, Transform.Logarithmic);
                 }
 
-                if (alpha > TotalProbability)
+                if (wantValueAtRisk)
                 {
-                    // At an exceedance level above the curve's total probability the consequence
-                    // is not realized at all — the value at risk is zero, not the smallest
-                    // recorded consequence (the v1.0 defect).
-                    ValueAtRisk = 0d;
-                }
-                else
-                {
-                    ValueAtRisk = lec.GetXFromY(alpha);
-                }
+                    if (alpha > TotalProbability)
+                    {
+                        // At an exceedance level above the curve's total probability the consequence
+                        // is not realized at all — the value at risk is zero, not the smallest
+                        // recorded consequence (the v1.0 defect).
+                        ValueAtRisk = 0d;
+                    }
+                    else
+                    {
+                        ValueAtRisk = lec.GetXFromY(alpha);
+                    }
 
-                ConditionalValueAtRisk = ClosedFormConditionalValueAtRisk(alpha);
+                    ConditionalValueAtRisk = ClosedFormConditionalValueAtRisk(alpha);
+                }
             }
 
-            if (!double.IsNaN(hazardThreshold) && _hazardFrequencyHazards.Length > 1)
+            if (wantThresholds && !double.IsNaN(hazardThreshold) && _hazardFrequencyHazards.Length > 1)
             {
                 HazardThresholdProbability = HazardFrequency.GetYFromX(hazardThreshold, Transform.Logarithmic, Transform.Logarithmic);
             }

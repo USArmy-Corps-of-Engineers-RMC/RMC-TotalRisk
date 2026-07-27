@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -93,6 +93,77 @@ public class RiskAnalysisTests
         component.AddFailureMode(new FailureMode(null, null, response ?? Fragility(), failureConsequence));
         component.AddFailureMode(new FailureMode(null, null, null, Consequence("Non-Failure Loss", 60d)));
         return component;
+    }
+
+    /// <summary>
+    /// Verifies the optional measures are computed by default and skipped when deselected.
+    /// </summary>
+    [TestMethod]
+    public async Task Test_RiskMeasureOptions_SkipDeselectedMeasures()
+    {
+        // Arrange — the same scenario with and without the optional measures.
+        var full = new RiskAnalysis(new[] { Component(Consequence("Failure Loss", 300d)) });
+        var lean = new RiskAnalysis(new[] { Component(Consequence("Failure Loss", 300d)) });
+        lean.Options.RiskMeasures = RiskMeasureOptions.None;
+
+        // Act
+        await full.RunAsync();
+        await lean.RunAsync();
+
+        var fullTotal = full.MeanRiskResults!.Components[0].Curves.Total;
+        var leanTotal = lean.MeanRiskResults!.Components[0].Curves.Total;
+
+        // Assert — the contract measures always compute, and agree.
+        Assert.AreEqual(fullTotal.Mean, leanTotal.Mean, 0d);
+        Assert.AreEqual(fullTotal.StandardDeviation, leanTotal.StandardDeviation, 0d);
+        Assert.AreEqual(fullTotal.TotalProbability, leanTotal.TotalProbability, 0d);
+
+        // The optional ones compute by default and are absent when deselected.
+        Assert.IsFalse(double.IsNaN(fullTotal.Skewness));
+        Assert.IsFalse(double.IsNaN(fullTotal.ValueAtRisk));
+        Assert.IsTrue(double.IsNaN(leanTotal.Skewness));
+        Assert.IsTrue(double.IsNaN(leanTotal.Kurtosis));
+        Assert.IsTrue(double.IsNaN(leanTotal.ValueAtRisk));
+        Assert.IsTrue(double.IsNaN(leanTotal.ConditionalValueAtRisk));
+    }
+
+    /// <summary>
+    /// Verifies the adjusted failure-mode curves are absent by default and, when requested, carry
+    /// the mode's share of the component's failure probability rather than its raw marginal.
+    /// </summary>
+    [TestMethod]
+    public async Task Test_AdjustedFailureModeCurves_OptInAndSumToComponent()
+    {
+        // Arrange — two modes combined mutually exclusively, so the adjustment is a normalization.
+        var component = TwoModeMethodComponent(FailureModeMethod.MutuallyExclusive);
+        var baseline = new RiskAnalysis(new[] { component });
+        await baseline.RunAsync();
+        Assert.IsNull(baseline.MeanRiskResults!.Components[0].FailureModes[0].AdjustedCurves);
+
+        var adjusted = new RiskAnalysis(new[] { TwoModeMethodComponent(FailureModeMethod.MutuallyExclusive) });
+        adjusted.Options.OutputAdjustedFailureModeCurves = true;
+
+        // Act
+        await adjusted.RunAsync();
+
+        // Assert — the unadjusted curves are unchanged, and the adjusted ones sum to the component.
+        var componentResults = adjusted.MeanRiskResults!.Components[0];
+        var modes = componentResults.FailureModes;
+        double rawSum = 0d;
+        double adjustedSum = 0d;
+        for (int i = 0; i < modes.Count; i++)
+        {
+            Assert.AreEqual(baseline.MeanRiskResults!.Components[0].FailureModes[i].Curves.Fail.TotalProbability,
+                modes[i].Curves.Fail.TotalProbability, 0d, "Requesting adjusted curves must not move the unadjusted ones.");
+            Assert.IsNotNull(modes[i].AdjustedCurves);
+            rawSum += modes[i].Curves.Fail.TotalProbability;
+            adjustedSum += modes[i].AdjustedCurves!.Fail.TotalProbability;
+        }
+
+        Assert.AreEqual(componentResults.Curves.Fail.TotalProbability, adjustedSum, 1e-9,
+            "The adjusted failure probabilities must sum to the component's.");
+        Assert.IsTrue(rawSum > adjustedSum,
+            "The mutually exclusive normalization must reduce the raw marginal sum.");
     }
 
     /// <summary>

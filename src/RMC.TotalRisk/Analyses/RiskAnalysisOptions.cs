@@ -91,6 +91,8 @@ namespace RMC.TotalRisk.Analyses
             _ensembleMinDepth = SerializationUtilities.ReadInt32(xElement, nameof(EnsembleMinDepth), 0);
             _maxSystemCombinations = SerializationUtilities.ReadInt32(xElement, nameof(MaxSystemCombinations), 65_536);
             _maxPathwayCombinations = SerializationUtilities.ReadInt32(xElement, nameof(MaxPathwayCombinations), 4_096);
+            _riskMeasures = SerializationUtilities.ReadEnum(xElement, nameof(RiskMeasures), RiskMeasureOptions.All);
+            _outputAdjustedFailureModeCurves = SerializationUtilities.ReadBoolean(xElement, nameof(OutputAdjustedFailureModeCurves), false);
         }
 
         #endregion
@@ -178,6 +180,16 @@ namespace RMC.TotalRisk.Analyses
         /// Backing field for <see cref="MaxPathwayCombinations"/>.
         /// </summary>
         private int _maxPathwayCombinations = 4_096;
+
+        /// <summary>
+        /// Backing field for <see cref="RiskMeasures"/>.
+        /// </summary>
+        private RiskMeasureOptions _riskMeasures = RiskMeasureOptions.All;
+
+        /// <summary>
+        /// Backing field for <see cref="OutputAdjustedFailureModeCurves"/>.
+        /// </summary>
+        private bool _outputAdjustedFailureModeCurves;
 
         /// <summary>Backing field for <see cref="EnsembleTolerance"/>.</summary>
         private double _ensembleTolerance = 1e-4;
@@ -503,6 +515,36 @@ namespace RMC.TotalRisk.Analyses
         }
 
         /// <summary>
+        /// Which optional risk measures to compute. Every measure by default.
+        /// </summary>
+        /// <remarks>
+        /// The mean, standard deviation, total probability, and mass balance are always computed.
+        /// Switching a measure off leaves it <see cref="double.NaN"/> and saves its cost on every
+        /// stream of every consequence type of every realization.
+        /// </remarks>
+        public RiskMeasureOptions RiskMeasures
+        {
+            get { return _riskMeasures; }
+            set { SetField(ref _riskMeasures, value, nameof(RiskMeasures)); }
+        }
+
+        /// <summary>
+        /// Whether to also output each failure mode's combination-adjusted loss exceedance curves
+        /// alongside its unadjusted ones. Off by default.
+        /// </summary>
+        /// <remarks>
+        /// A failure mode's own curves carry its raw marginal response probability, which is what
+        /// an investment decision compares across modes. The adjusted curves carry the mode's share
+        /// after the component's combination method has resolved the modes against one another, so
+        /// they sum to the component total. Both are useful; they answer different questions.
+        /// </remarks>
+        public bool OutputAdjustedFailureModeCurves
+        {
+            get { return _outputAdjustedFailureModeCurves; }
+            set { SetField(ref _outputAdjustedFailureModeCurves, value, nameof(OutputAdjustedFailureModeCurves)); }
+        }
+
+        /// <summary>
         /// Raised when an option changes. The owning analysis invalidates its results on any
         /// option change.
         /// </summary>
@@ -657,6 +699,8 @@ namespace RMC.TotalRisk.Analyses
             element.SetAttributeValue(nameof(SystemConvolutionPoints), _systemConvolutionPoints);
             element.SetAttributeValue(nameof(MaxSystemCombinations), _maxSystemCombinations);
             element.SetAttributeValue(nameof(MaxPathwayCombinations), _maxPathwayCombinations);
+            element.SetAttributeValue(nameof(RiskMeasures), _riskMeasures);
+            element.SetAttributeValue(nameof(OutputAdjustedFailureModeCurves), _outputAdjustedFailureModeCurves);
             element.SetAttributeValue(nameof(EnsembleTolerance), SerializationUtilities.FormatDouble(_ensembleTolerance));
             element.SetAttributeValue(nameof(EnsembleMinDepth), _ensembleMinDepth);
             return element;

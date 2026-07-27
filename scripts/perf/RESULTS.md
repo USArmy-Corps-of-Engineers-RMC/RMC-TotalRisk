@@ -191,6 +191,32 @@ Measured with the cache force-disabled versus enabled, same fixture, same sessio
 **≈ 4.1× faster, ≈ 4.3× less allocated**, on a fixture that is 200 realizations; the ratio grows
 with realization count because the skipped work is per-realization and constant.
 
+## Phase 8.5 Stage 2 — new capability (2026-07-26)
+
+The optional-measure flags and the adjusted failure-mode curves both default to preserving
+today's behaviour, so no number moved — but both add fields to the results JSON, so the byte
+gates re-pin once. Proven JSON-only rather than numeric by dumping F1's payload
+(`--dump <path>`, added to the harness for exactly this) and stripping the four added keys —
+`AdjustedExcess`, `AdjustedFail`, `AdjustedCurves`, `AdditionalAdjustedCurves` — which
+reproduces the previous hash `917ff3a5…` **exactly**.
+
+Baseline byte-gate hashes (re-pinned at Stage 2):
+
+- F1 `8169cce116c5c7a247a52514bdb07c5d431f8bcc3f8d12c996f130b3d34053fb`
+- F2 `4efa12fd62c5f5cfb90367424ac062ace1ff2dd5de746c48df199a8c7aaee17e`
+- F3 `383bbe0028414d6ae01d5b3decac71cebe648259bcce305782da3ec5d8bba540`
+- F4 `ab80eab10d2fceae00e1f0d17771cbab9c19f4b650682e687a4fe89ff1174687`
+
+Allocations are unchanged from Stage 1 (F1 3.88 GB, F2 16.52 GB, F3 7.64 GB, F4 4.68 GB): the
+new fields are null or empty unless the options are set.
+
+Prior baselines (Stage 1, superseded by the Stage 2 field additions):
+
+- F1 `917ff3a52dc6b18c9fed374f56b75490649b6086e8b36c8f795de280b4c20ecc`
+- F2 `f5de82ea7e028abff4144a7427fb4d57baf7a9bf1ec3abb15477771b4ddc8397`
+- F3 `f2714852569e72c8883d6936265f2ddcd099711e644be5a869f7496db661b015`
+- F4 `af2348d1b2dfa20afb0bedf9b1d732189a40848ba38f254eb48ed3a59921e46b`
+
 ### N17 — the reproducibility defect F4 exposed, and its fix
 
 Building F4 immediately showed its results SHA-256 changing on **every run**:

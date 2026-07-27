@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using Numerics;
 using Numerics.Data;
@@ -886,6 +886,19 @@ namespace RMC.TotalRisk.Results
                             accumulateContribution ? _scratchContributionProbability : null,
                             accumulateContribution ? _scratchContributionFailure : null,
                             accumulateContribution ? _scratchContributionExcess : null);
+
+                        // Under the joint method a mode's adjusted share is its pathway
+                        // attribution, which the contribution split already computed.
+                        if (recordOutput && RecordAdjustedModeCurves && accumulateContribution)
+                        {
+                            for (int j = 0; j < _fModes.Count; j++)
+                            {
+                                if (!_layout.IsFailureState[j]) continue;
+                                RecordAdjustedModeEntries(realization, j, k, typeModeOutputs[j],
+                                    responseProbabilities[j], _scratchContributionProbability[j],
+                                    recordedHazard, probability, hazardExceedance);
+                            }
+                        }
                     }
                     else
                     {
@@ -897,6 +910,12 @@ namespace RMC.TotalRisk.Results
 
                             AppendModeEntries(typeModeOutputs[j], responseProbabilities[j], adjustedProbabilities![j],
                                 failEntryProbabilities, failEntryValues, excessEntryProbabilities, excessEntryValues, ref minN, ref maxN);
+
+                            if (recordOutput && RecordAdjustedModeCurves)
+                            {
+                                RecordAdjustedModeEntries(realization, j, k, typeModeOutputs[j],
+                                    responseProbabilities[j], adjustedProbabilities[j], recordedHazard, probability, hazardExceedance);
+                            }
 
                             expectedFailureConsequences += adjustedProbabilities[j] * typeModeOutputs[j].MeanFailureConsequences;
                             expectedExcessConsequences += adjustedProbabilities[j] * typeModeOutputs[j].MeanExcessConsequences;
@@ -1120,6 +1139,52 @@ namespace RMC.TotalRisk.Results
                 return Probability.CommonCauseAdjustment(responseProbabilities, _correlationMatrix, Probability.DependencyType.PerfectlyPositive);
             }
             return Probability.CommonCauseAdjustment(responseProbabilities, _correlationMatrix, Probability.DependencyType.CorrelationMatrix);
+        }
+
+        /// <summary>
+        /// Whether the run records each failure mode's combination-adjusted curves alongside its
+        /// unadjusted ones. Set by the engine before sampling.
+        /// </summary>
+        public bool RecordAdjustedModeCurves { get; set; }
+
+        /// <summary>
+        /// Records one evaluation's combination-adjusted entries onto a failure mode's adjusted
+        /// curves — the mode's branch entries rescaled from its raw marginal probability to the
+        /// share the component's combination method left it.
+        /// </summary>
+        /// <param name="realization">The component realization owning the mode's curves.</param>
+        /// <param name="modeIndex">The failure-mode index.</param>
+        /// <param name="typeIndex">The consequence-type index; zero is the primary type.</param>
+        /// <param name="modeOutput">The mode's risk output at this consequence type.</param>
+        /// <param name="rawProbability">The mode's raw marginal failure probability.</param>
+        /// <param name="adjustedProbability">The mode's adjusted failure probability.</param>
+        /// <param name="recordedHazard">The recorded hazard coordinate.</param>
+        /// <param name="probability">The evaluation's probability coordinate.</param>
+        /// <param name="hazardExceedance">The driving hazard's exceedance probability, or NaN.</param>
+        private static void RecordAdjustedModeEntries(ComponentRealization realization, int modeIndex, int typeIndex,
+            ComponentRiskOutput modeOutput, double rawProbability, double adjustedProbability,
+            double recordedHazard, double probability, double hazardExceedance)
+        {
+            if (modeIndex >= realization.FailureModes.Count) return;
+            var target = realization.FailureModes[modeIndex].AdjustedCurvesFor(typeIndex);
+            if (target == null) return;
+
+            double scale = rawProbability > 0d ? adjustedProbability / rawProbability : 0d;
+            int entries = modeOutput.ResponseProbabilities.Count;
+            var failProbabilities = new List<double>(entries);
+            var failValues = new List<double>(entries);
+            var excessProbabilities = new List<double>(entries);
+            var excessValues = new List<double>(entries);
+            for (int i = 0; i < entries; i++)
+            {
+                double entryProbability = modeOutput.ResponseProbabilities[i] * scale;
+                failProbabilities.Add(entryProbability);
+                failValues.Add(modeOutput.FailureConsequences[i]);
+                excessProbabilities.Add(entryProbability);
+                excessValues.Add(modeOutput.ExcessConsequences[i]);
+            }
+            target.Fail.AddRiskPoint(recordedHazard, probability, failProbabilities, failValues, hazardExceedance);
+            target.Excess.AddRiskPoint(recordedHazard, probability, excessProbabilities, excessValues);
         }
 
         /// <summary>
