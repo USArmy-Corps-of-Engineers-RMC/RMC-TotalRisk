@@ -1,4 +1,4 @@
-# RMC-TotalRisk v1.1 Roadmap
+﻿# RMC-TotalRisk v1.1 Roadmap
 
 > Phased development of the v1.1 model library, tests, and verification suite. **One phase per working session.** Every phase exits with: a zero-warning build, the fast test suite green (`dotnet test -c Release`), `validate-code-xml-docs.ps1` green, the Ported Types Matrix in CLAUDE.md updated, `docs/PROGRESS.md` updated, and AGENTS.md regenerated if CLAUDE.md changed. **Every ported compute type ships with unit tests in `RMC.TotalRisk.Tests`, and gains verification coverage in `RMC.TotalRisk.Verification` by the phase that converts its legacy oracle scenarios.**
 >
@@ -25,7 +25,7 @@ Porting sources in order of authority: (1) the partial C# port `C:\GIT\RMC-Total
 | 6.7 | Cascading response end states (the event tree in the risk diagram) | Complete (2026-07-24) |
 | 7 | Remaining closed-form functions: linear/power transforms, parametric consequence, nonparametric hazard | Complete (2026-07-25) |
 | 8 | Numerics.Functions expansion (numerics repo) + RMC.Numerics 2.2.0 package switch | Implementation complete (2026-07-25); 2.2.0 release + package switch pending user push |
-| 8.5 | Polish & optimization: Numerics helper adoption, determinism fixes, dimension-cap removal, optional measures, adjusted marginal LEC, N7 adoption | Stage 1 complete (2026-07-26); Stages 0/2/3 in progress |
+| 8.5 | Polish & optimization: Numerics helper adoption, determinism fixes, dimension-cap removal, optional measures, adjusted marginal LEC, N7 adoption | Complete (2026-07-26) |
 | 9 | Composites + RFA hazard + weighted wrappers + BestFit composite imports | Not started (`CompositeConsequence` + `WeightedConsequenceFunction` pulled forward 2026-07-21) |
 | 10 | Event trees | Not started |
 | 11 | Bivariate + BestFit import + LifeSim | Not started |
@@ -458,22 +458,34 @@ allocations F1 4.10 → 3.88 GB, F2 17.93 → 16.38 GB, F3 7.85 → 7.64 GB. New
 clock-seeded Genz quadrature randomizer (N17) and a would-be interpolator data race. Details in
 [scripts/perf/RESULTS.md](../scripts/perf/RESULTS.md) and PROGRESS.
 
-**Stage 0 — numerics upstream (N12–N17).** N12 `BootstrapAnalysis`/`UncertaintyAnalysisResults`
+**Stage 0 — numerics upstream. COMPLETE (2026-07-26).** N12 `BootstrapAnalysis`/`UncertaintyAnalysisResults`
 determinism *and* speed (loop inversion + a fixed-chunk deterministic reduction; the class
 review also found a null-divisor bias, silent fit failures, LINQ in loop bounds, re-bootstrapping
 accessors, and a per-distribution lock); N13 lazy exclusive enumeration removing the 2^D
-materialization; N14 AGK recorder capture-array pooling; N15 `CompetingRisks` CIF knobs; N16
-weighted moments; **N17 deterministic MVN seeding — landed 2026-07-26**.
+materialization; N14 AGK recorder capture-array pooling; N17 deterministic MVN seeding; N18
+NaN-filled parameter sets for failed replications. N15 (`CompetingRisks` CIF knobs) and N16
+(weighted moments) were not needed by the stages that would have consumed them and remain open
+upstream items.
 
-**Stage 2 — new capability, append-only, defaults preserving today's output.** `RiskMeasureOptions`
-(every flag defaulting true); the adjusted marginal failure-mode LEC as opt-in streams;
-`EstimateResourceRequirements()` + a validator clause replacing four scattered magic caps;
-lifting the dimension caps onto the lazy enumeration; Phase 8 backend migration.
+**Stage 2 — new capability, append-only, defaults preserving today's output. COMPLETE (2026-07-26).**
+`RiskMeasureOptions` (every flag defaulting true); the adjusted marginal failure-mode LEC as
+opt-in streams; `EstimateResourceRequirements()` + a validator clause replacing four scattered
+magic caps; the dimension caps lifted onto the lazy enumeration (VEGAS raised to 50 dimensions
+after a survey of the reference implementations — none caps at 20).
 
-**Stage 3 — the deliberate value-moving batch, one re-pin.** AGK `Recorder` adoption for LEC
-probability mass (retiring the midpoint-trapezoid interim), the `UncertaintyAnalysisResults`
-migration, `SystemConvolution` onto `ConvolveDiscrete`, and `Math.Pow(x, 2d)` → `Tools.Sqr`
-(measured non-inert: 1,560 differences per 3,000,000 inputs).
+**Stage 3 — the deliberate value-moving batch. COMPLETE (2026-07-26).** AGK `Recorder` adoption
+for LEC probability mass via `QuadratureMassLedger`, retiring the midpoint-trapezoid interim
+(measured 5.7e-7 → 4.0e-11 relative against a 4,000,000-point dense reference); the parametric
+hazard/response posterior summarized into `UncertaintyAnalysisResults` directly; and
+`Math.Pow(x, 2d)` → `Tools.Sqr` (measured non-inert: 1,560 differences per 3,000,000 inputs).
+`SystemConvolution` **stays local** — the audit against N8's `ConvolveDiscrete` is recorded in
+the type's remarks: that kernel is pairwise and re-derives its lattice step per fold, so an N-way
+fold re-bins and smears each atom once per fold, where the local kernel bins once and folds by
+integer shift. Byte gates re-pinned once; the `RMCTR_LEGACY_MASS` A/B scaffold deleted at close.
+
+**Exit criteria:** met — build 0 warnings, fast suite 665/665, doc script green, **all 27
+verification families green run isolated across the stage-3 sweep** (149 tests), byte gates
+re-pinned in [scripts/perf/RESULTS.md](../scripts/perf/RESULTS.md), and the A/B scaffold removed.
 
 ## Phase 9 — Composites + RFA hazard + weighted wrappers
 
