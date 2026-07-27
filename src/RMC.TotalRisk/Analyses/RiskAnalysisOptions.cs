@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Globalization;
@@ -89,6 +89,8 @@ namespace RMC.TotalRisk.Analyses
             _systemConvolutionPoints = SerializationUtilities.ReadInt32(xElement, nameof(SystemConvolutionPoints), 4096);
             _ensembleTolerance = SerializationUtilities.ReadDouble(xElement, nameof(EnsembleTolerance), 1e-4);
             _ensembleMinDepth = SerializationUtilities.ReadInt32(xElement, nameof(EnsembleMinDepth), 0);
+            _maxSystemCombinations = SerializationUtilities.ReadInt32(xElement, nameof(MaxSystemCombinations), 65_536);
+            _maxPathwayCombinations = SerializationUtilities.ReadInt32(xElement, nameof(MaxPathwayCombinations), 4_096);
         }
 
         #endregion
@@ -166,6 +168,16 @@ namespace RMC.TotalRisk.Analyses
 
         /// <summary>Backing field for <see cref="SystemConvolutionPoints"/>.</summary>
         private int _systemConvolutionPoints = 4096;
+
+        /// <summary>
+        /// Backing field for <see cref="MaxSystemCombinations"/>.
+        /// </summary>
+        private int _maxSystemCombinations = 65_536;
+
+        /// <summary>
+        /// Backing field for <see cref="MaxPathwayCombinations"/>.
+        /// </summary>
+        private int _maxPathwayCombinations = 4_096;
 
         /// <summary>Backing field for <see cref="EnsembleTolerance"/>.</summary>
         private double _ensembleTolerance = 1e-4;
@@ -459,6 +471,38 @@ namespace RMC.TotalRisk.Analyses
         }
 
         /// <summary>
+        /// The cap on exclusive component-failure combinations enumerated per joint-system
+        /// evaluation. Default 65,536.
+        /// </summary>
+        /// <remarks>
+        /// The inclusion-exclusion expansion normally closes on its own convergence bracket well
+        /// inside this, and does so after the third subset size at the failure probabilities a risk
+        /// model carries. The cap bounds the one regime the bracket cannot close — many components
+        /// near probability one half — where the run would otherwise enumerate 2^D combinations per
+        /// evaluation. Reaching it truncates rather than throws, and the dropped mass is reported
+        /// as a computation warning.
+        /// </remarks>
+        public int MaxSystemCombinations
+        {
+            get { return _maxSystemCombinations; }
+            set { SetField(ref _maxSystemCombinations, value, nameof(MaxSystemCombinations)); }
+        }
+
+        /// <summary>
+        /// The cap on exclusive failure pathways enumerated per component per evaluation under the
+        /// joint failure-mode method. Default 4,096.
+        /// </summary>
+        /// <remarks>
+        /// Tighter than <see cref="MaxSystemCombinations"/> because this expansion runs once per
+        /// integrand evaluation per component rather than once per system evaluation.
+        /// </remarks>
+        public int MaxPathwayCombinations
+        {
+            get { return _maxPathwayCombinations; }
+            set { SetField(ref _maxPathwayCombinations, value, nameof(MaxPathwayCombinations)); }
+        }
+
+        /// <summary>
         /// Raised when an option changes. The owning analysis invalidates its results on any
         /// option change.
         /// </summary>
@@ -611,6 +655,8 @@ namespace RMC.TotalRisk.Analyses
             element.SetAttributeValue(nameof(VegasTailFocusMode), _vegasTailFocusMode.ToString());
             element.SetAttributeValue(nameof(VegasTailFocusParameter), SerializationUtilities.FormatDouble(_vegasTailFocusParameter));
             element.SetAttributeValue(nameof(SystemConvolutionPoints), _systemConvolutionPoints);
+            element.SetAttributeValue(nameof(MaxSystemCombinations), _maxSystemCombinations);
+            element.SetAttributeValue(nameof(MaxPathwayCombinations), _maxPathwayCombinations);
             element.SetAttributeValue(nameof(EnsembleTolerance), SerializationUtilities.FormatDouble(_ensembleTolerance));
             element.SetAttributeValue(nameof(EnsembleMinDepth), _ensembleMinDepth);
             return element;

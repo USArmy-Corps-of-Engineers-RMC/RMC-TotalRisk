@@ -235,19 +235,6 @@ namespace RMC.TotalRisk.Analyses
         private double[,]? _jointCholeskyLower;
 
         /// <summary>
-        /// The component failure/non-failure indicator combinations for the joint method: 2^D
-        /// rows over D components with the all-zero (no-failure) combination first â€” the v1.0
-        /// engine-level layout. Run-scoped runtime state.
-        /// </summary>
-        private int[,]? _jointIndicators;
-
-        /// <summary>
-        /// The binomial subset counts over the components (how many combinations fail exactly k
-        /// components). Run-scoped runtime state.
-        /// </summary>
-        private int[]? _jointBinomialCombinations;
-
-        /// <summary>
         /// The run's content-derived base seed for the VEGAS driving stream: the analysis seed
         /// folded with every component's canonical hash and occurrence index in declared order.
         /// Run-scoped runtime state.
@@ -555,10 +542,6 @@ namespace RMC.TotalRisk.Analyses
                 }
                 else
                 {
-                    if (_components.Count > 20)
-                    {
-                        messages.Add($"Error: The joint system risk method supports at most 20 components (the VEGAS dimension limit); the analysis has {_components.Count}.");
-                    }
                     if (_options.ComponentHazardDependency == DependencyType.CorrelationMatrix &&
                         !IsHazardCorrelationMatrixValid())
                     {
@@ -595,8 +578,196 @@ namespace RMC.TotalRisk.Analyses
 
             ValidateConsequenceTypeAxis(messages);
             ValidateHazardAxisConsistency(messages);
+            messages.AddRange(EstimateResourceRequirements().Messages(ResourceSeverity.Warning));
 
             return (messages.FindIndex(m => m.StartsWith("Error:", StringComparison.Ordinal)) < 0, messages);
+        }
+
+        /// <summary>
+        /// Estimates what this run will cost before it starts: the memory it will hold and the
+        /// work that dominates it, line by line.
+        /// </summary>
+        /// <returns>The estimate.</returns>
+        /// <remarks>
+        /// <para>
+        /// Peak LIVE memory, not total allocation — a long ensemble run churns far more than it
+        /// holds at any instant. <see cref="Validate"/> folds the warning and error lines into its
+        /// messages, so a configuration that cannot run says which option to change rather than
+        /// failing later with an allocation exception.
+        /// </para>
+        /// <para>
+        /// Estimates only. The recorded-point figure follows the adaptive integrator, whose
+        /// evaluation count is bounded only by <see cref="RiskAnalysisOptions.MaxEvaluations"/>,
+        /// and the combination figures assume the inclusion-exclusion bracket does not converge —
+        /// the pessimistic end of a range whose usual case is far cheaper.
+        /// </para>
+        /// </remarks>
+        public ResourceEstimate EstimateResourceRequirements()
+        {
+            const long bytesPerDouble = 8;
+            const long bytesPerInt = 4;
+            var items = new List<ResourceEstimateItem>();
+
+            int componentCount = _components.Count;
+            int typeCount = 1 + _additionalConsequenceTypes.Count;
+            int realizations = _options.EstimateMeanRiskOnly ? 1 : _options.Realizations;
+            int concurrency = Math.Max(1, Math.Min(Environment.ProcessorCount, realizations));
+            bool joint = componentCount > 1 && _options.SystemRiskMethod == SystemRiskType.JointRiskMethod;
+
+            // The joint system's exclusive combination enumeration, per evaluation in flight.
+            if (joint)
+            {
+                if (componentCount > VegasMaxDimensions)
+                {
+                    items.Add(new ResourceEstimateItem("Joint system dimension", 0, componentCount, false, ResourceSeverity.Error,
+                        $"Error: The joint system risk method integrates over one dimension per component and supports at most {VegasMaxDimensions}; the analysis has {componentCount}. Use the additive system risk method, which convolves the components' loss distributions and carries no dimension limit, or group the components."));
+                }
+
+                long cap = Math.Max(1, _options.MaxSystemCombinations);
+                long enumerated = componentCount >= 62 ? cap : Math.Min(cap, (1L << componentCount));
+                long bytes = enumerated * (bytesPerDouble + componentCount * bytesPerInt + 24) * concurrency;
+
+                // An upper bound only. The inclusion-exclusion bracket normally closes far short
+                // of the cap, and whether it does depends on the failure probabilities the run
+                // encounters, which is not knowable here — the run reports actual truncation.
+                items.Add(new ResourceEstimateItem("Joint system combination enumeration", bytes, enumerated, false,
+                    ResourceSeverity.Informational,
+                    $"The joint system enumerates at most {enumerated:N0} exclusive component combinations per evaluation, holding about {FormatBytes(bytes)}."));
+            }
+
+            // Per-component structures: the joint method's 2^U indicator matrix, the correlation
+            // matrix, and the dependent competing-risk pre-processing.
+            double genzEvaluations = 0d;
+            for (int i = 0; i < componentCount; i++)
+            {
+                var component = _components[i];
+                int units = component.CombinationUnitCountForEstimate();
+                if (units <= 0) continue;
+
+                if (component.FailureModeMethod == FailureModeMethod.JointFailures)
+                {
+                    if (units >= 31)
+                    {
+                        items.Add(new ResourceEstimateItem($"Combination matrix — {component.Name}", 0, 0, false, ResourceSeverity.Error,
+                            $"Error: System component '{component.Name}' combines {units} failure paths under the joint failure-mode method, which enumerates every subset of them and cannot exceed 30. Use the Common Cause, Mutually Exclusive, or Competing method, which combine marginally and carry no such limit, or group the failure paths."));
+                    }
+                    else
+                    {
+                        long matrixBytes = (long)units * ((1L << units) - 1) * bytesPerInt;
+                        var severity = matrixBytes > 512L * 1024 * 1024 ? ResourceSeverity.Error
+                            : matrixBytes > 64L * 1024 * 1024 ? ResourceSeverity.Warning
+                            : ResourceSeverity.Informational;
+                        items.Add(new ResourceEstimateItem($"Combination matrix — {component.Name}", matrixBytes, 0, true, severity,
+                            severity == ResourceSeverity.Informational
+                                ? $"System component '{component.Name}' holds a {FormatBytes(matrixBytes)} combination matrix over {units} failure paths."
+                                : $"{(severity == ResourceSeverity.Error ? "Error" : "Warning")}: System component '{component.Name}' combines {units} failure paths under the joint failure-mode method, whose combination matrix needs {FormatBytes(matrixBytes)}. Use the Common Cause, Mutually Exclusive, or Competing method, which combine marginally and allocate nothing here, or group the failure paths."));
+                    }
+                }
+
+                if (component.FailureModeDependency != DependencyType.Independent)
+                {
+                    items.Add(new ResourceEstimateItem($"Correlation matrix — {component.Name}",
+                        (long)units * units * bytesPerDouble, 0, true, ResourceSeverity.Informational,
+                        $"System component '{component.Name}' holds a {units}×{units} correlation matrix."));
+                }
+
+                // The dependent competing branches evaluate a multivariate-normal rectangle
+                // integral per unit per hazard level, once per realization unless the component is
+                // deterministic and the run can share one pre-processing.
+                bool dependentCompeting = component.FailureModeMethod == FailureModeMethod.CompetingFailures
+                    && units > 1
+                    && component.FailureModeDependency != DependencyType.Independent
+                    && component.FailureModeDependency != DependencyType.PerfectlyPositive;
+                if (dependentCompeting)
+                {
+                    double passes = component.IsDeterministic ? 1d : realizations;
+                    double evaluations = passes * units * (CompetingIncidenceBins + 1d);
+                    genzEvaluations += evaluations;
+                    var severity = evaluations > 5e6 ? ResourceSeverity.Warning : ResourceSeverity.Informational;
+                    items.Add(new ResourceEstimateItem($"Competing-risk pre-processing — {component.Name}", 0, evaluations, false, severity,
+                        severity == ResourceSeverity.Informational
+                            ? $"System component '{component.Name}' evaluates {evaluations:N0} multivariate-normal rectangle integrals building its incidence functions."
+                            : $"Warning: System component '{component.Name}' evaluates {evaluations:N0} multivariate-normal rectangle integrals building its incidence functions, once per realization because it carries knowledge uncertainty. Reduce Realizations, use the Independent or Perfectly Positive failure-mode dependency, or remove the uncertainty from its hazard and fragilities so the run can build them once."));
+                }
+            }
+
+            // Recorded risk points per realization in flight, and the stored ensemble.
+            double evaluationFloor = (double)realizations * componentCount * HazardBinCount * GaussKronrodNodes
+                * (1L << (_options.EnsembleMinDepth + 1));
+            long streams = 5 + 2L * MaxFailureModeCount();
+            long pointBytes = (long)(HazardBinCount * GaussKronrodNodes) * streams * typeCount * 96 * concurrency;
+            items.Add(new ResourceEstimateItem("Recorded risk points", pointBytes, evaluationFloor, false, ResourceSeverity.Informational,
+                $"Realizations in flight hold about {FormatBytes(pointBytes)} of recorded risk points."));
+
+            long ensembleBytes = (long)realizations * componentCount * typeCount * streams
+                * _options.LECOutputLength * bytesPerDouble * 2;
+            var ensembleSeverity = ensembleBytes > 8L * 1024 * 1024 * 1024 ? ResourceSeverity.Error
+                : ensembleBytes > 2L * 1024 * 1024 * 1024 ? ResourceSeverity.Warning
+                : ResourceSeverity.Informational;
+            items.Add(new ResourceEstimateItem("Stored ensemble", ensembleBytes, 0, true, ensembleSeverity,
+                ensembleSeverity == ResourceSeverity.Informational
+                    ? $"The stored ensemble holds about {FormatBytes(ensembleBytes)}."
+                    : $"{(ensembleSeverity == ResourceSeverity.Error ? "Error" : "Warning")}: The stored ensemble needs about {FormatBytes(ensembleBytes)} for {realizations:N0} realizations at an output length of {_options.LECOutputLength}. Reduce Realizations or LECOutputLength, or set EstimateMeanRiskOnly."));
+
+            if (componentCount > 1 && _options.SystemRiskMethod == SystemRiskType.AdditiveRiskMethod)
+            {
+                long latticeBytes = (long)_options.SystemConvolutionPoints * (componentCount + 1) * bytesPerDouble * concurrency;
+                items.Add(new ResourceEstimateItem("System convolution lattice", latticeBytes, 0, false, ResourceSeverity.Informational,
+                    $"The additive system convolution holds about {FormatBytes(latticeBytes)} of lattice."));
+            }
+
+            return new ResourceEstimate(items, concurrency, evaluationFloor, genzEvaluations);
+        }
+
+        /// <summary>
+        /// The Gauss–Kronrod node count per accepted interval (G10K21).
+        /// </summary>
+        private const int GaussKronrodNodes = 21;
+
+        /// <summary>
+        /// The mean dropped mass above which a truncated combination enumeration is reported as an
+        /// error rather than a warning.
+        /// </summary>
+        private const double TruncatedCombinationResidualLimit = 1e-3;
+
+        /// <summary>
+        /// The largest dimension the VEGAS integrator accepts, and therefore the largest component
+        /// count the joint system risk method can carry. The additive method has no equivalent
+        /// limit.
+        /// </summary>
+        private const int VegasMaxDimensions = 20;
+
+        /// <summary>
+        /// The stratified hazard levels the competing-risks incidence pre-processing spans.
+        /// </summary>
+        private const int CompetingIncidenceBins = 200;
+
+        /// <summary>
+        /// The largest projected failure-mode count across the analysis's components, at least one.
+        /// </summary>
+        /// <returns>The failure-mode count.</returns>
+        private long MaxFailureModeCount()
+        {
+            long most = 1;
+            for (int i = 0; i < _components.Count; i++)
+            {
+                int count = _components[i].FailureModes.Count;
+                if (count > most) most = count;
+            }
+            return most;
+        }
+
+        /// <summary>
+        /// Formats a byte count for a caller-facing message.
+        /// </summary>
+        /// <param name="bytes">The byte count.</param>
+        /// <returns>The formatted size.</returns>
+        private static string FormatBytes(long bytes)
+        {
+            if (bytes >= 1024L * 1024 * 1024) return $"{bytes / (1024d * 1024d * 1024d):F1} GB";
+            if (bytes >= 1024L * 1024) return $"{bytes / (1024d * 1024d):F0} MB";
+            if (bytes >= 1024) return $"{bytes / 1024d:F0} KB";
+            return $"{bytes} bytes";
         }
 
         /// <summary>
@@ -982,6 +1153,10 @@ namespace RMC.TotalRisk.Analyses
                 _computationWarnings.Add("Warning: Negative excess consequences were computed and set to zero.");
             if (flags.HasProbabilityGreaterThanOne)
                 _computationWarnings.Add("Warning: Mutually exclusive failure mode probabilities summed above one and were normalized.");
+            if (flags.HasExcessiveTruncatedMass)
+                _computationWarnings.Add($"Error: The joint system's combination enumeration reached the {_options.MaxSystemCombinations:N0}-combination cap and dropped more than {TruncatedCombinationResidualLimit:P1} of the exclusive probability mass onto the all-components-fail combination, which distorts the system tail. Raise MaxSystemCombinations, or model fewer components under the joint method.");
+            else if (flags.HasTruncatedCombinationEnumeration)
+                _computationWarnings.Add($"Warning: The joint system's combination enumeration reached the {_options.MaxSystemCombinations:N0}-combination cap on some evaluations; the deepest combinations were not enumerated and their mass was attributed to the all-components-fail combination. Raise MaxSystemCombinations to enumerate further.");
             RaisePropertyChange(nameof(ComputationWarnings));
 
             // Exhaustive mass-balance drift surfaces here instead of a silent clamp (Â§7.7).
@@ -2026,8 +2201,6 @@ namespace RMC.TotalRisk.Analyses
         {
             _jointMultivariateNormal = null;
             _jointCholeskyLower = null;
-            _jointIndicators = null;
-            _jointBinomialCombinations = null;
             _jointTailTargetProbability = 1e-2;
             if (_components.Count < 2 || _options.SystemRiskMethod != SystemRiskType.JointRiskMethod)
             {
@@ -2036,8 +2209,6 @@ namespace RMC.TotalRisk.Analyses
 
             int d = _components.Count;
             _jointMultivariateNormal = BuildHazardMultivariateNormal(d, out var covariance);
-            _jointIndicators = BuildSystemIndicators(d);
-            _jointBinomialCombinations = BuildSystemBinomialCombinations(d);
 
             // Extract the lower Cholesky factor once â€” the same construction the multivariate
             // normal performs internally on the same covariance, so the factor bits are
@@ -2094,44 +2265,6 @@ namespace RMC.TotalRisk.Analyses
             DependencyMatrix.FillEquicorrelated(covariance, dimension,
                 DependencyMatrix.AutomaticOffDiagonal(_options.ComponentHazardDependency, dimension));
             return new MultivariateNormal(mean, covariance);
-        }
-
-        /// <summary>
-        /// Builds the engine-level failure/non-failure indicator combinations: 2^D rows over the
-        /// D components, the all-zero (no-failure) combination first and the remaining rows in
-        /// subset-size order â€” the layout <c>Probability.IndependentExclusive</c> enumerates and
-        /// the v1.0 engine used.
-        /// </summary>
-        /// <param name="dimension">The component count D.</param>
-        /// <returns>The indicator matrix.</returns>
-        private static int[,] BuildSystemIndicators(int dimension)
-        {
-            var combinations = Factorial.AllCombinations(dimension);
-            var indicators = new int[1 << dimension, dimension];
-            for (int i = 0; i < combinations.GetLength(0); i++)
-            {
-                for (int j = 0; j < dimension; j++)
-                {
-                    indicators[i + 1, j] = combinations[i, j];
-                }
-            }
-            return indicators;
-        }
-
-        /// <summary>
-        /// Builds the binomial subset counts over the components: how many combinations fail
-        /// exactly k of the D components, for k = 1..D.
-        /// </summary>
-        /// <param name="dimension">The component count D.</param>
-        /// <returns>The subset counts.</returns>
-        private static int[] BuildSystemBinomialCombinations(int dimension)
-        {
-            var counts = new int[dimension];
-            for (int i = 1; i <= dimension; i++)
-            {
-                counts[i - 1] = (int)Factorial.BinomialCoefficient(dimension, i);
-            }
-            return counts;
         }
 
         /// <summary>
@@ -2233,8 +2366,6 @@ namespace RMC.TotalRisk.Analyses
             int d = _components.Count;
             var lower = _jointCholeskyLower
                 ?? throw new InvalidOperationException("The joint-method state was not prepared. The run sequence must call PrepareJointSystem before computing realizations.");
-            var indicators = _jointIndicators!;
-            var binomialCombinations = _jointBinomialCombinations!;
             int typeCount = 1 + realization.AdditionalCurves.Count;
 
             // The integration extents: the hazard probability hypercube (v1.0 constants).
@@ -2294,6 +2425,8 @@ namespace RMC.TotalRisk.Analyses
             // first evaluation. Locals of this call, so the parallel loop shares nothing.
             var exclusiveProbabilities = new List<double>();
             var exclusiveIndicators = new List<int[]>();
+            long cappedEvaluations = 0;
+            double cappedResidual = 0d;
 
             double Integrand(double[] point, double weight)
             {
@@ -2368,9 +2501,18 @@ namespace RMC.TotalRisk.Analyses
 
                 // The exclusive component failure/non-failure combinations. Conditional on the
                 // hazard levels, component failures are independent â€” dependence enters only
-                // through the correlated hazards (the v1.0 model).
-                Probability.IndependentExclusive(failureProbabilities, binomialCombinations, indicators,
-                    exclusiveProbabilities, exclusiveIndicators);
+                // through the correlated hazards (the v1.0 model). Combinations are generated on
+                // demand, so nothing here is bounded by a 2^D matrix.
+                var enumeration = Probability.IndependentExclusiveLazy(failureProbabilities,
+                    exclusiveProbabilities, exclusiveIndicators, includeNoEventRow: true,
+                    maxEmittedCombinations: _options.MaxSystemCombinations);
+                if (enumeration == Probability.ExclusiveEnumerationStatus.Capped)
+                {
+                    double emitted = 0d;
+                    for (int c = 0; c < exclusiveProbabilities.Count - 1; c++) emitted += exclusiveProbabilities[c];
+                    cappedEvaluations++;
+                    cappedResidual += Math.Max(0d, 1d - emitted);
+                }
 
                 double expectedFailure = 0d;
                 double expectedNonFailure = 0d;
@@ -2492,6 +2634,13 @@ namespace RMC.TotalRisk.Analyses
             }
             realization.FunctionEvaluations += integrator.FunctionEvaluations;
             realization.StandardError = integrator.StandardError;
+
+            if (cappedEvaluations > 0)
+            {
+                double meanResidual = cappedResidual / cappedEvaluations;
+                flags.HasTruncatedCombinationEnumeration = true;
+                if (meanResidual > TruncatedCombinationResidualLimit) flags.HasExcessiveTruncatedMass = true;
+            }
 
             if (recordedWeightSum > 0d)
             {

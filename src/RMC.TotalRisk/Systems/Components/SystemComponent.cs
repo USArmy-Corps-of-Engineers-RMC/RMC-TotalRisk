@@ -1769,6 +1769,16 @@ namespace RMC.TotalRisk.Systems.Components
         }
 
         /// <summary>
+        /// The combination-unit count for resource estimation, taken from the frozen layout when
+        /// the component has been set up and derived from the projection otherwise.
+        /// </summary>
+        /// <returns>The combination-unit count.</returns>
+        internal int CombinationUnitCountForEstimate()
+        {
+            return _sampledLayout != null ? _sampledLayout.CombinationUnitCount : CombinationUnitCount();
+        }
+
+        /// <summary>
         /// Rebuilds the multivariate normal for the failure-mode dependence — the exact v1.0
         /// construction: zero means; unit diagonal; off-diagonals per the dependency option
         /// (identity, <c>1 − √εmach</c>, <c>−1/(D − 1) + √εmach</c>, or the user matrix). In the

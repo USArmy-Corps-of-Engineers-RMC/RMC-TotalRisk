@@ -1,4 +1,4 @@
-namespace RMC.TotalRisk.Results
+﻿namespace RMC.TotalRisk.Results
 {
     /// <summary>
     /// The per-realization computational-warning flags the risk integrand raises: negative
@@ -45,10 +45,23 @@ namespace RMC.TotalRisk.Results
         public bool HasProbabilityGreaterThanOne { get; set; }
 
         /// <summary>
+        /// True when the joint system's exclusive combination enumeration reached its cap, so the
+        /// deepest combinations were not enumerated and their mass was attributed to the
+        /// all-components-fail combination.
+        /// </summary>
+        public bool HasTruncatedCombinationEnumeration { get; set; }
+
+        /// <summary>
+        /// True when the mass dropped by that truncation was large enough to distort the tail.
+        /// </summary>
+        public bool HasExcessiveTruncatedMass { get; set; }
+
+        /// <summary>
         /// True when any flag is raised.
         /// </summary>
         public bool Any => HasNegativeFailureConsequence || HasNegativeNonFailureConsequence
-            || HasNegativeExcessConsequence || HasProbabilityGreaterThanOne;
+            || HasNegativeExcessConsequence || HasProbabilityGreaterThanOne
+            || HasTruncatedCombinationEnumeration || HasExcessiveTruncatedMass;
 
         /// <summary>
         /// OR-merges another instance's flags into this one — the engine's sequential post-pass
@@ -62,6 +75,8 @@ namespace RMC.TotalRisk.Results
             HasNegativeNonFailureConsequence |= other.HasNegativeNonFailureConsequence;
             HasNegativeExcessConsequence |= other.HasNegativeExcessConsequence;
             HasProbabilityGreaterThanOne |= other.HasProbabilityGreaterThanOne;
+            HasTruncatedCombinationEnumeration |= other.HasTruncatedCombinationEnumeration;
+            HasExcessiveTruncatedMass |= other.HasExcessiveTruncatedMass;
         }
     }
 }

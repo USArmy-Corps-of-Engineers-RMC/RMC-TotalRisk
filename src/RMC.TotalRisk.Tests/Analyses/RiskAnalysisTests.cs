@@ -96,6 +96,89 @@ public class RiskAnalysisTests
     }
 
     /// <summary>
+    /// Verifies the additive system risk method runs past twenty components, and that the joint
+    /// method reports its dimension limit with the additive method as the alternative.
+    /// </summary>
+    /// <remarks>
+    /// The joint method integrates one dimension per component through VEGAS, which accepts at
+    /// most twenty. The additive method convolves the components' loss distributions instead and
+    /// has no equivalent limit.
+    /// </remarks>
+    [TestMethod]
+    public async Task Test_AdditiveSystem_BeyondTwentyComponents_Runs()
+    {
+        // Arrange — twenty-four components, mean-only.
+        var components = new List<SystemComponent>();
+        for (int i = 0; i < 24; i++)
+        {
+            var component = Component(Consequence($"Failure Loss {i}", 100d + i));
+            component.Name = $"Dam {i}";
+            components.Add(component);
+        }
+        var analysis = new RiskAnalysis(components)
+        {
+            SpecifiedConsequence = "Life Loss",
+            ConsequenceUnit = "lives",
+        };
+        analysis.Options.SystemRiskMethod = SystemRiskType.AdditiveRiskMethod;
+
+        // Act / Assert — validation admits it, the estimate reports a cost, and the run completes.
+        var (isValid, messages) = analysis.Validate();
+        Assert.IsTrue(isValid, string.Join(" | ", messages));
+
+        var estimate = analysis.EstimateResourceRequirements();
+        Assert.IsTrue(estimate.PeakLiveBytes > 0);
+        Assert.IsTrue(estimate.EstimatedIntegrandEvaluationFloor > 0);
+
+        AnalysisRunCompletedEventArgs? completion = null;
+        analysis.AnalysisCompleted += (_, e) => completion = e;
+        await analysis.RunAsync();
+
+        Assert.IsNotNull(completion);
+        Assert.IsTrue(completion!.Succeeded, completion.Error?.ToString() ?? "The run did not succeed.");
+        Assert.IsNotNull(analysis.MeanRiskResults);
+
+        // The same components under the joint method are rejected, pointing at the additive one.
+        analysis.Options.SystemRiskMethod = SystemRiskType.JointRiskMethod;
+        var (jointValid, jointMessages) = analysis.Validate();
+        Assert.IsFalse(jointValid);
+        StringAssert.Contains(string.Join(" | ", jointMessages), "additive system risk method");
+    }
+
+    /// <summary>
+    /// Verifies the resource estimate rejects a joint failure-mode component whose subset
+    /// enumeration cannot be built, and names the methods that can carry it.
+    /// </summary>
+    [TestMethod]
+    public void Test_ResourceEstimate_JointFailureModes_BeyondEnumerationLimit_Errors()
+    {
+        // Arrange — thirty-two failure paths under the joint failure-mode method.
+        var component = new SystemComponent { Name = "Wide Joint" };
+        component.HazardFunction = StageFrequency();
+        for (int i = 0; i < 32; i++)
+        {
+            component.AddFailureMode(new FailureMode(null, null, Fragility(), Consequence($"Loss {i}", 100d)));
+        }
+        component.AddFailureMode(new FailureMode(null, null, null, Consequence("Non-Failure Loss", 60d)));
+        component.FailureModeMethod = FailureModeMethod.JointFailures;
+        var analysis = new RiskAnalysis(new[] { component })
+        {
+            SpecifiedConsequence = "Life Loss",
+            ConsequenceUnit = "lives",
+        };
+
+        // Act
+        var estimate = analysis.EstimateResourceRequirements();
+
+        // Assert — an error naming the alternatives, and validation fails on it.
+        Assert.AreEqual(ResourceSeverity.Error, estimate.Severity);
+        string message = string.Join(" | ", estimate.Messages(ResourceSeverity.Error));
+        StringAssert.Contains(message, "Common Cause");
+        StringAssert.Contains(message, "Competing");
+        Assert.IsFalse(analysis.Validate().IsValid);
+    }
+
+    /// <summary>
     /// Bit-pins a fully deterministic scenario across the Phase 6.7 landing stages: a
     /// deterministic model draws nothing from the seeded samplers, so these exact bit patterns
     /// must survive the BranchPolarity/ResponseNodes hash event (which moves only seeds) and the
