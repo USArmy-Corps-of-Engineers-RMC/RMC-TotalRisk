@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using RMC.TotalRisk.Core.Enums;
 
 namespace RMC.TotalRisk.Results
@@ -92,6 +92,19 @@ namespace RMC.TotalRisk.Results
             Total.ProcessHazardProbabilities();
             Fail.ProcessHazardProbabilities();
             NonFail.ProcessHazardProbabilities();
+        }
+
+        /// <summary>
+        /// Applies the quadrature ledger's masses to every stream.
+        /// </summary>
+        /// <param name="ledger">The pass's quadrature ledger, sealed.</param>
+        public void ApplyRecordedMass(QuadratureMassLedger ledger)
+        {
+            Excess.ApplyRecordedMass(ledger);
+            Background.ApplyRecordedMass(ledger);
+            Total.ApplyRecordedMass(ledger);
+            Fail.ApplyRecordedMass(ledger);
+            NonFail.ApplyRecordedMass(ledger);
         }
 
         /// <summary>

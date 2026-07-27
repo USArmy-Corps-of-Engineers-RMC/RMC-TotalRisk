@@ -108,10 +108,10 @@ gated on `recordOutput` so probes and warm-ups pay nothing, and **never touching
 floating-point chains** — the Phase 6.6 landing moved zero pinned verification constants. Two
 finalize modes mirror the engine's two mass regimes:
 
-- `FinalizeTrapezoid()` — the exact `ProcessHazardProbabilities` dedupe + midpoint-trapezoid
-  algorithm over the recorded exceedance probabilities (the 1D quadrature path). Because the
-  accumulator sees the identical probability multiset the component curves see, the sum
-  identities hold to ~1e-12 relative.
+- `FinalizeFromLedger(ledger)` — the 1D quadrature path. Each row's probability coordinate is an
+  integration abscissa, and its mass is read from the **same** `QuadratureMassLedger` the recorded
+  curves read, under the same credit-first-occurrence rule. Because the accumulator therefore sees
+  the identical mass multiset the component curves see, the sum identities hold to ~1e-12 relative.
 - `FinalizeDirect(scale)` — the joint path, where VEGAS rows carry their mass directly and every
   recorded quantity is scaled by the same self-normalization at the `ScaleRecordedMass` hook.
 

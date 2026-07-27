@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 
 namespace RMC.TotalRisk.Results
@@ -17,13 +17,11 @@ namespace RMC.TotalRisk.Results
     /// <para>
     /// One row per recording evaluation carries the evaluation's probability coordinate and the
     /// scope's attributed (probability, failure-value, excess-value) sums at that evaluation.
-    /// <see cref="FinalizeTrapezoid"/> replicates <c>Curve.ProcessHazardProbabilities</c>'s mass
-    /// derivation — sort by probability, merge equal coordinates by summing, midpoint-trapezoid
-    /// partition — so the accumulated rows see the <i>identical</i> mass multiset the recorded
-    /// curves see, and Σ scope contributions telescopes to the parent's recorded totals to
-    /// floating-point association. <see cref="FinalizeDirect"/> serves the VEGAS path, where the
-    /// probability coordinate is already the recorded weight and the caller supplies the
-    /// self-normalization scale. The accumulation is deliberately kept in separate chains from
+    /// <see cref="FinalizeFromLedger"/> reads each row's mass from the same quadrature ledger the
+    /// recorded curves read, so the rows see the identical mass multiset and Σ scope contributions
+    /// telescopes to the parent's recorded totals to floating-point association.
+    /// <see cref="FinalizeDirect"/> serves the VEGAS path, where the probability coordinate is
+    /// already the recorded weight and the caller supplies the self-normalization scale. The accumulation is deliberately kept in separate chains from
     /// the recorded curves — the existing floating-point op order is untouched, the
     /// bit-identity guard for every pinned result.
     /// </para>
@@ -81,59 +79,36 @@ namespace RMC.TotalRisk.Results
         }
 
         /// <summary>
-        /// Finalizes under the one-dimensional path's mass regime: sort by probability, merge
-        /// equal coordinates by summing their shares (the recorded curves concatenate entries at
-        /// merged points, which sums the same way), then apply the midpoint-trapezoid partition
-        /// and integrate. Fewer than two distinct coordinates finalize to zero — the same guard
-        /// under which the recorded curves decline to build.
+        /// Finalizes under the one-dimensional path's mass regime: each row's probability
+        /// coordinate is an integration abscissa, and its mass is the quadrature weight the
+        /// ledger recorded there. Rows at abscissas the refinement superseded carry no mass, and
+        /// a repeated abscissa is credited once — the same collapse the recorded curves apply, so
+        /// the contributions still sum to the curve totals.
         /// </summary>
+        /// <param name="ledger">The pass's quadrature ledger, sealed.</param>
         /// <returns>The finalized contribution.</returns>
-        public RiskContribution FinalizeTrapezoid()
+        /// <exception cref="ArgumentNullException">Thrown when the ledger is null.</exception>
+        public RiskContribution FinalizeFromLedger(QuadratureMassLedger ledger)
         {
+            if (ledger == null) throw new ArgumentNullException(nameof(ledger));
             var rows = _rows;
             if (rows.Count < 2) return new RiskContribution();
 
             rows.Sort((x, y) => x.Probability.CompareTo(y.Probability));
-            var merged = new List<ContributionRow>(rows.Count) { rows[0] };
-            for (int i = 1; i < rows.Count; i++)
-            {
-                var row = rows[i];
-                var last = merged[merged.Count - 1];
-                if (row.Probability == last.Probability)
-                {
-                    merged[merged.Count - 1] = new ContributionRow(last.Probability,
-                        last.ProbabilityShare + row.ProbabilityShare,
-                        last.FailureShare + row.FailureShare,
-                        last.ExcessShare + row.ExcessShare);
-                }
-                else
-                {
-                    merged.Add(row);
-                }
-            }
-            if (merged.Count < 2) return new RiskContribution();
-
-            int n = merged.Count;
             var contribution = new RiskContribution();
-            for (int i = 0; i < n; i++)
+            bool first = true;
+            double previous = double.NaN;
+            for (int i = 0; i < rows.Count; i++)
             {
-                double mass;
-                if (i == 0)
-                {
-                    mass = (merged[0].Probability + merged[1].Probability) / 2d;
-                }
-                else if (i == n - 1)
-                {
-                    mass = 1d - (merged[n - 2].Probability + merged[n - 1].Probability) / 2d;
-                }
-                else
-                {
-                    mass = (merged[i].Probability + merged[i + 1].Probability) / 2d
-                         - (merged[i].Probability + merged[i - 1].Probability) / 2d;
-                }
-                contribution.FailureProbability += mass * merged[i].ProbabilityShare;
-                contribution.FailureMean += mass * merged[i].FailureShare;
-                contribution.ExcessMean += mass * merged[i].ExcessShare;
+                if (!first && rows[i].Probability == previous) continue;
+                previous = rows[i].Probability;
+                first = false;
+
+                double mass = ledger.MassAt(rows[i].Probability);
+                if (mass <= 0d) continue;
+                contribution.FailureProbability += mass * rows[i].ProbabilityShare;
+                contribution.FailureMean += mass * rows[i].FailureShare;
+                contribution.ExcessMean += mass * rows[i].ExcessShare;
             }
             return contribution;
         }

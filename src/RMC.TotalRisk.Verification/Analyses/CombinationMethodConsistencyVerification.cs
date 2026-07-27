@@ -246,9 +246,16 @@ public class CombinationMethodConsistencyVerification
     /// <summary>
     /// Background invariance: the background risk integrates the hazard against the
     /// non-failure consequence alone, so every combination method, dependency, and
-    /// joint-consequence rule must reproduce it identically (1e-9 relative — pure quadrature
-    /// determinism on identical inputs).
+    /// joint-consequence rule must reproduce it.
     /// </summary>
+    /// <remarks>
+    /// The allowance is the integrator's own relative tolerance, not an exact match. The
+    /// combination method changes the total integrand, so the adaptive mesh accepts a
+    /// different interval set per configuration, and the background stream is integrated on
+    /// whichever mesh the total drove. Its recorded mass is the Kronrod weight of that mesh,
+    /// so the background agrees to the integration tolerance and no tighter (measured worst
+    /// case 6.9e-9 relative, against a 1e-8 configured tolerance).
+    /// </remarks>
     [TestMethod]
     public void Test_BackgroundInvariance()
     {
@@ -267,7 +274,7 @@ public class CombinationMethodConsistencyVerification
         foreach (var configuration in configurations)
         {
             double background = Run(Build(configuration.Method, configuration.Dependency, configuration.Matrix)).Background.Mean;
-            Assert.AreEqual(reference, background, 1e-9 * reference,
+            Assert.AreEqual(reference, background, 1e-8 * reference,
                 $"Background risk must be invariant ({configuration.Method} + {configuration.Dependency}).");
         }
     }

@@ -141,13 +141,13 @@ namespace RMC.TotalRisk.Results
         /// Finalizes the accumulated contribution samples into the stored per-type
         /// contributions under the caller's mass regime. No-ops when nothing was accumulated.
         /// </summary>
-        /// <param name="trapezoidMasses">
+        /// <param name="ledger">
         /// True for the one-dimensional path (masses re-derived by the midpoint-trapezoid
         /// partition); false for the VEGAS path (the probability coordinates are weights,
         /// scaled by <paramref name="scale"/>).
         /// </param>
         /// <param name="scale">The VEGAS self-normalization scale (ignored under trapezoid masses).</param>
-        public void FinalizeContributions(bool trapezoidMasses, double scale = 1d)
+        public void FinalizeContributions(QuadratureMassLedger? ledger, double scale = 1d)
         {
             var accumulators = ContributionAccumulators;
             if (accumulators == null) return;
@@ -155,7 +155,7 @@ namespace RMC.TotalRisk.Results
             {
                 var accumulator = accumulators[k];
                 if (accumulator == null) continue;
-                var contribution = trapezoidMasses ? accumulator.FinalizeTrapezoid() : accumulator.FinalizeDirect(scale);
+                var contribution = ledger != null ? accumulator.FinalizeFromLedger(ledger) : accumulator.FinalizeDirect(scale);
                 if (k == 0)
                 {
                     Contribution = contribution;
@@ -220,6 +220,24 @@ namespace RMC.TotalRisk.Results
             for (int k = 0; k < AdditionalAdjustedCurves.Count; k++)
             {
                 AdditionalAdjustedCurves[k].SetMeasureOptions(measures);
+            }
+        }
+
+        /// <summary>
+        /// Applies the quadrature ledger's masses to every consequence type.
+        /// </summary>
+        /// <param name="ledger">The pass's quadrature ledger, sealed.</param>
+        public void ApplyRecordedMass(QuadratureMassLedger ledger)
+        {
+            Curves.ApplyRecordedMass(ledger);
+            for (int k = 0; k < AdditionalCurves.Count; k++)
+            {
+                AdditionalCurves[k].ApplyRecordedMass(ledger);
+            }
+            AdjustedCurves?.ApplyRecordedMass(ledger);
+            for (int k = 0; k < AdditionalAdjustedCurves.Count; k++)
+            {
+                AdditionalAdjustedCurves[k].ApplyRecordedMass(ledger);
             }
         }
 

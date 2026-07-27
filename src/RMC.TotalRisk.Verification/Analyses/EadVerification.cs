@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Numerics.Data;
 using Numerics.Distributions;
@@ -269,11 +269,10 @@ public class EadVerification
 
     /// <summary>
     /// The three-way pins: the oracle validates against the closed form at 4·SE, and both
-    /// engine mappings reproduce the closed-form mean and standard deviation at 1e-5 relative
-    /// — the adaptive quadrature refines to 1e-8, but the published means read the recorded
-    /// risk-point masses (the documented N7 midpoint-trapezoid interim), whose error crossing
-    /// this curve's probability kinks measures ≈ 3e-6 relative; 1e-5 bounds it with margin
-    /// while staying two orders below the oracle's own 4·SE. Also pinned: the exceedance
+    /// engine mappings reproduce the closed-form mean and standard deviation at 1e-5 relative.
+    /// The published means read the recorded risk-point masses, which are now the quadrature's
+    /// own weights rather than a midpoint-trapezoid partition over them, so the residual is the
+    /// adaptive refinement's rather than the partition's. Also pinned: the exceedance
     /// ordinates at two off-knot probes, the value-at-risk (the knot damage at α = 0.01), and
     /// the conditional value-at-risk (0.1% relative floors absorb the output-curve
     /// interpolation).
@@ -310,7 +309,7 @@ public class EadVerification
         Assert.AreEqual(0d, backgroundSummary.Fail.TotalProbability, 1e-12, "Mapping A: the annualized failure probability is zero.");
         Assert.AreEqual(1d, backgroundSummary.Total.TotalProbability, 1e-9, "Mapping A: the total stream is exhaustive.");
         Assert.AreEqual(exactSigma, backgroundSummary.Total.StandardDeviation, 5e-5 * exactSigma,
-            "Mapping A: total standard deviation (the N7 recorded-mass interim doubles through the second moment — measured 1.1e-5 relative here).");
+            "Mapping A: total standard deviation.");
         Assert.AreEqual(oracle.Mean, backgroundSummary.Total.Mean, K * oracle.MeanSe, "Mapping A: total mean within the oracle's 4·SE.");
 
         // Mapping B: EAD is the failure risk with certain failure.
@@ -328,13 +327,18 @@ public class EadVerification
             "Conditional value-at-risk at α = 0.01 (0.1% relative floor).");
 
         // Exceedance probes at off-knot damages (exact linear-in-probability ordinates). The
-        // 0.5% relative tolerance is the documented cost of reading a linear-in-probability
-        // segment through the output curve's log-log interpolation convention (measured
-        // ≈ 0.2% here); the construction itself is exact at the recorded points.
+        // tolerance is the cost of reading a linear-in-probability segment through the output
+        // curve's log-log interpolation convention; the construction itself is exact at the
+        // recorded points. It widened from 0.5% to 1% when the recorded masses moved onto the
+        // quadrature weights: the curve is then built from the ACCEPTED nodes rather than every
+        // evaluation, which is roughly half as many knots to interpolate between, so an off-knot
+        // probe spans wider segments — measured ≈ 0.53% here against ≈ 0.2% before. That is a
+        // resolution property of the output curve, and it is traded for a mean that moved from
+        // 5.7e-7 to 4.0e-11 relative against a dense reference.
         Assert.AreEqual(ExactExceedance(300000d), totalCurve.LEC.GetYFromX(300000d, Transform.Logarithmic, Transform.Logarithmic),
-            5e-3 * ExactExceedance(300000d), "Exceedance at damage 300,000.");
+            1e-2 * ExactExceedance(300000d), "Exceedance at damage 300,000.");
         Assert.AreEqual(ExactExceedance(500000d), totalCurve.LEC.GetYFromX(500000d, Transform.Logarithmic, Transform.Logarithmic),
-            5e-3 * ExactExceedance(500000d), "Exceedance at damage 500,000.");
+            1e-2 * ExactExceedance(500000d), "Exceedance at damage 500,000.");
 
         Console.WriteLine(
             $"EAD: closed form {exactMean:G9}, oracle {oracle.Mean:G9} (SE {oracle.MeanSe:G4}), engine background {backgroundSummary.Background.Mean:G9}, " +

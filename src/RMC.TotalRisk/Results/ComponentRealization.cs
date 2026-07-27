@@ -189,6 +189,24 @@ namespace RMC.TotalRisk.Results
         }
 
         /// <summary>
+        /// Applies the quadrature ledger's masses to the component and every failure mode, across
+        /// every consequence type.
+        /// </summary>
+        /// <param name="ledger">The pass's quadrature ledger, sealed.</param>
+        public void ApplyRecordedMass(QuadratureMassLedger ledger)
+        {
+            Curves.ApplyRecordedMass(ledger);
+            for (int k = 0; k < AdditionalCurves.Count; k++)
+            {
+                AdditionalCurves[k].ApplyRecordedMass(ledger);
+            }
+            for (int i = 0; i < FailureModes.Count; i++)
+            {
+                FailureModes[i].ApplyRecordedMass(ledger);
+            }
+        }
+
+        /// <summary>
         /// Builds the exact curves and moments on the component and every failure mode, across
         /// every consequence type.
         /// </summary>
@@ -266,16 +284,16 @@ namespace RMC.TotalRisk.Results
         /// Finalizes every failure mode's accumulated contribution samples into their stored
         /// per-type contributions (Phase 6.6). No-ops for modes that accumulated nothing.
         /// </summary>
-        /// <param name="trapezoidMasses">
+        /// <param name="ledger">
         /// True for the one-dimensional path (masses re-derived by the midpoint-trapezoid
         /// partition); false for the VEGAS path (weights scaled by <paramref name="scale"/>).
         /// </param>
         /// <param name="scale">The VEGAS self-normalization scale (ignored under trapezoid masses).</param>
-        public void FinalizeContributions(bool trapezoidMasses, double scale = 1d)
+        public void FinalizeContributions(QuadratureMassLedger? ledger, double scale = 1d)
         {
             for (int i = 0; i < FailureModes.Count; i++)
             {
-                FailureModes[i].FinalizeContributions(trapezoidMasses, scale);
+                FailureModes[i].FinalizeContributions(ledger, scale);
             }
         }
 

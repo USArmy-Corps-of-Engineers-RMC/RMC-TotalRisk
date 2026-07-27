@@ -731,6 +731,15 @@ namespace RMC.TotalRisk.Analyses
         private const double TruncatedCombinationResidualLimit = 1e-3;
 
         /// <summary>
+        /// Set RMCTR_LEGACY_MASS=1 to re-derive the one-dimensional path's probability mass with
+        /// the retired midpoint-trapezoid partition instead of the quadrature weights. A temporary
+        /// A/B scaffold for the adoption sweep; not a <see cref="RiskAnalysisOptions"/> member,
+        /// which would make it permanent serialized API and persist into saved models.
+        /// </summary>
+        private static readonly bool UseLegacyTrapezoidMass =
+            Environment.GetEnvironmentVariable("RMCTR_LEGACY_MASS") == "1";
+
+        /// <summary>
         /// The largest dimension the VEGAS integrator accepts, and therefore the largest component
         /// count the joint system risk method can carry. The additive method has no equivalent
         /// limit.
@@ -1677,9 +1686,16 @@ namespace RMC.TotalRisk.Analyses
             for (int i = 0; i < _components.Count; i++)
             {
                 token.ThrowIfCancellationRequested();
-                IntegrateComponent(sampledComponents[i], componentRealizations[i], realization, flags, realizationIndex);
-                componentRealizations[i].ProcessHazardProbabilities();
-                componentRealizations[i].FinalizeContributions(trapezoidMasses: true);
+                var ledger = IntegrateComponent(sampledComponents[i], componentRealizations[i], realization, flags, realizationIndex);
+                if (ledger != null)
+                {
+                    componentRealizations[i].ApplyRecordedMass(ledger);
+                }
+                else
+                {
+                    componentRealizations[i].ProcessHazardProbabilities();
+                }
+                componentRealizations[i].FinalizeContributions(ledger);
                 componentRealizations[i].CreateCurves(_options.LECOutputLength);
                 if ((_options.RiskMeasures & RiskMeasureOptions.RiskProfiles) != 0)
                 {
@@ -1959,7 +1975,7 @@ namespace RMC.TotalRisk.Analyses
         /// evaluation from silently reading as zero risk (the Phase 5 correction; the VEGAS
         /// call sites carry the same guard).
         /// </exception>
-        private void IntegrateComponent(SampledComponent sampled, ComponentRealization componentRealization,
+        private QuadratureMassLedger? IntegrateComponent(SampledComponent sampled, ComponentRealization componentRealization,
             SystemRealization realization, RiskComputeFlags flags, int realizationIndex)
         {
             // One stratification build serves the balanced-objective scales and the integrator
@@ -1967,6 +1983,7 @@ namespace RMC.TotalRisk.Analyses
             var bins = BuildStratificationBins(sampled, flags);
             var objective = BuildObjective(sampled, componentRealization, flags, bins);
             bool ensemble = realizationIndex >= 0;
+            var ledger = UseLegacyTrapezoidMass ? null : new QuadratureMassLedger();
             var integrator = new AdaptiveGaussKronrod(objective, ProbabilityFloor, 1d - ProbabilityFloor)
             {
                 ReportFailure = false,
@@ -1974,6 +1991,7 @@ namespace RMC.TotalRisk.Analyses
                 MaxDepth = _options.MaxDepth,
                 RelativeTolerance = ensemble ? _options.EnsembleTolerance : _options.Tolerance,
                 MinDepth = ensemble ? _options.EnsembleMinDepth : 2,
+                Recorder = ledger != null ? ledger.Record : null,
             };
             integrator.Integrate(bins);
             if (integrator.Status == IntegrationStatus.Failure)
@@ -1983,6 +2001,27 @@ namespace RMC.TotalRisk.Analyses
 
             realization.FunctionEvaluations += integrator.FunctionEvaluations;
             realization.StandardError += integrator.StandardError / _components.Count;
+
+            if (ledger != null)
+            {
+                ledger.Seal();
+
+                // The accepted intervals partition the integrated region exactly, so their weights
+                // sum to the total width of the stratification bins. A double-counted interval
+                // would overshoot by that interval's width, which is macroscopic rather than a
+                // rounding difference.
+                double binWidth = 0d;
+                for (int i = 0; i < bins.Count; i++)
+                {
+                    binWidth += bins[i].UpperBound - bins[i].LowerBound;
+                }
+                if (Math.Abs(ledger.TotalWeight - binWidth) > 1e-9 * Math.Max(binWidth, 1e-12))
+                {
+                    throw new InvalidOperationException(
+                        $"The quadrature weights recorded for system component '{sampled.Name}' sum to {ledger.TotalWeight:R} instead of the integrated width {binWidth:R}. The recorded risk-point set cannot be trusted.");
+                }
+            }
+            return ledger;
         }
 
         /// <summary>
@@ -2172,7 +2211,28 @@ namespace RMC.TotalRisk.Analyses
         {
             var bins = Stratify.XValues(new StratificationOptions(
                 sampled.Hazard.InverseCDF(ProbabilityFloor), sampled.Hazard.InverseCDF(1d - ProbabilityFloor), HazardBinCount), true);
-            return Stratify.XToProbability(bins, sampled.Hazard.CDF, false);
+            var probabilityBins = Stratify.XToProbability(bins, sampled.Hazard.CDF, false);
+
+            // Extend the end bins to the integration domain. A hazard defined over a finite table
+            // reaches neither zero nor one, so mapping its support back through the CDF leaves
+            // slivers at both ends uncovered — for a table spanning [0.001, 0.999] that is 0.2% of
+            // the probability mass, and it sits at the extremes where the consequences are
+            // largest. Beyond the support the sampled hazard is constant at its end value, so the
+            // slivers integrate correctly at the end bins' own integrand.
+            if (probabilityBins.Count > 0)
+            {
+                var first = probabilityBins[0];
+                if (first.LowerBound > ProbabilityFloor)
+                {
+                    probabilityBins[0] = new StratificationBin(ProbabilityFloor, first.UpperBound);
+                }
+                var last = probabilityBins[probabilityBins.Count - 1];
+                if (last.UpperBound < 1d - ProbabilityFloor)
+                {
+                    probabilityBins[probabilityBins.Count - 1] = new StratificationBin(last.LowerBound, 1d - ProbabilityFloor);
+                }
+            }
+            return probabilityBins;
         }
 
         /// <summary>
@@ -2683,7 +2743,7 @@ namespace RMC.TotalRisk.Analyses
                 // per-component system attributions scale with the recorded masses.
                 for (int i = 0; i < componentRealizations.Count; i++)
                 {
-                    componentRealizations[i].FinalizeContributions(trapezoidMasses: false, scale);
+                    componentRealizations[i].FinalizeContributions(null, scale);
                     componentRealizations[i].SystemContribution = new RiskContribution
                     {
                         FailureProbability = systemContributionProbability[0][i] * scale,

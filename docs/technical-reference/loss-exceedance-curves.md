@@ -36,11 +36,17 @@ VEGAS path already does this: it uses `wgt` directly (legacy `RiskAnalysis.vb:30
 and *re-derives* mass by sorting risk points on `p` and midpoint-partitioning the gaps between them —
 a trapezoidal `dF` heuristic that is only as good as the point spacing and breaks on any duplicate `p`.
 
-**Target state (Numerics item N7):** hand the Kronrod weight to the integrand callback so the 1D path
-uses exact weights like the VEGAS path. **Interim (until N7):** keep the midpoint-partition fallback
-but (a) **deduplicate** the sorted points first (G10K21's strictly-interior nodes make duplicates rare
-but a shared bin edge can still collide), and (b) assert `Σ mass = 1 ± 1e-9`. Do not silently accept a
-mass budget that does not sum to 1.
+**Current state (N7 adopted, Phase 8.5):** the 1D path takes exact weights like the VEGAS path.
+`AdaptiveGaussKronrod.Recorder` flushes `(x, weight, f)` for **accepted** intervals only;
+`QuadratureMassLedger` seals that flush into a sorted array keyed on the exact abscissa with a
+Neumaier-compensated total, and `Curve.ApplyRecordedMass` credits each risk point from it. Duplicate
+abscissas are **summed**, which is what makes the degenerate zero-width bin correct (v1.0 concatenated
+the 21 duplicate entries and gave them one full trapezoid mass — a 21× overcount). Points at abscissas
+the refinement superseded carry no mass and are compacted away. The mass budget is checked against the
+integration domain, not against 1: see [risk-integration.md](risk-integration.md) for the two gates.
+
+The comparison against a 4,000,000-point dense reference: **5.7e-7** relative for the midpoint
+trapezoid, **4.0e-11** for the ledger.
 
 ## Building the exceedance curve
 

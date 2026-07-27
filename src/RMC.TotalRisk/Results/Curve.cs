@@ -651,6 +651,60 @@ namespace RMC.TotalRisk.Results
         }
 
         /// <summary>
+        /// Assigns each recorded risk point the probability mass its abscissa carries in the
+        /// composite Gauss–Kronrod rule, and drops the points the adaptive refinement superseded.
+        /// </summary>
+        /// <param name="ledger">The pass's quadrature ledger, sealed.</param>
+        /// <exception cref="ArgumentNullException">Thrown when the ledger is null.</exception>
+        /// <exception cref="InvalidOperationException">
+        /// Thrown when this curve's distinct abscissas do not cover the ledger's — the recording
+        /// fan-out is expected to receive one point per evaluation, so a shortfall means the
+        /// recorded set is incomplete and no result may be published.
+        /// </exception>
+        /// <remarks>
+        /// Duplicate abscissas are discarded rather than concatenated: the integrand is a
+        /// deterministic function of its argument, so repeated evaluations at one point are
+        /// content-identical and keeping the first is exact.
+        /// </remarks>
+        public void ApplyRecordedMass(QuadratureMassLedger ledger)
+        {
+            if (ledger == null) throw new ArgumentNullException(nameof(ledger));
+            if (RiskPoints.Count == 0) return;
+
+            RiskPoints.Sort((x, y) => x.HazardProbability.CompareTo(y.HazardProbability));
+
+            // Compacted in place: the surviving points are a subsequence of the sorted list, so
+            // the kept ones can be shifted down rather than copied into a second list.
+            int kept = 0;
+            int matched = 0;
+            bool first = true;
+            double previous = double.NaN;
+            for (int i = 0; i < RiskPoints.Count; i++)
+            {
+                var point = RiskPoints[i];
+                if (!first && point.HazardProbability == previous) continue;
+                previous = point.HazardProbability;
+                first = false;
+
+                if (!ledger.TryGetMass(point.HazardProbability, out double mass)) continue;
+                matched++;
+                if (mass <= 0d) continue;
+                point.HazardProbabilityMass = mass;
+                RiskPoints[kept++] = point;
+            }
+
+            // The recorded points are a superset of the accepted nodes — every evaluation records,
+            // and the refinement supersedes most of them — so the invariant is coverage: the curve
+            // must carry a point for every abscissa the quadrature accepted.
+            if (matched != ledger.DistinctAbscissaCount)
+            {
+                throw new InvalidOperationException(
+                    $"The curve carries {matched} of the {ledger.DistinctAbscissaCount} abscissas the quadrature accepted. The recorded risk-point set is incomplete.");
+            }
+            RiskPoints.RemoveRange(kept, RiskPoints.Count - kept);
+        }
+
+        /// <summary>
         /// Builds the exact loss exceedance curve, total probability, and central moments from the
         /// recorded risk points, then thins the stored curve to the requested output length.
         /// </summary>

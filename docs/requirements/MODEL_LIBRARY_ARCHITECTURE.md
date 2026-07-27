@@ -1355,7 +1355,7 @@ The `Compute(seed, idx)` per-realization method ports the legacy structure — a
 4. Cancellation via `CancellationToken` (was via internal CTS).
 5. Bivariate-aware integration: when `component.HazardFunction is IBivariateHazardFunction`, the integrand performs nested Y | X integration (§7.4).
 6. **1D integrator is `AdaptiveGaussKronrod`, not `AdaptiveSimpsonsRule`** (v0.13; §7.7). Same `Integrate(List<StratificationBin>)` surface, same p-domain `[1e-16, 1−1e-16]`, same 50 `Stratify` hazard bins, tol `1e-8`, `MaxDepth` 100, `MaxEvaluations` 1e6; set `MinDepth ≥ 2`. As in v1.0 the integrator is used as an *adaptive sampler* — its returned value is discarded and only its evaluation points populate the risk-point set — so the choice of integrand (item 8) changes only where points are placed.
-7. **LEC construction is exact, not histogrammed** (v0.13; §7.7): probability mass comes from the Kronrod weight (interim: the deduplicated midpoint-trapezoid fallback with a `Σ mass = 1 ± 1e-9` assertion, until Numerics item N7 lands the weight-exposing overload); moments use weighted Welford; `LECOutputLength` thins the output only.
+7. **LEC construction is exact, not histogrammed** (v0.13; §7.7): probability mass comes from the Kronrod weight — the N7 acceptance-aware `Recorder`, adopted Phase 8.5 via `QuadratureMassLedger`; moments use weighted Welford; `LECOutputLength` thins the output only.
 8. **`Options.RiskIntegrand`** (default `MeanTotalRisk`) selects the adaptive refinement objective (§4, §7.7). Discontinuous integrands (`TailConditionalRisk`, `ThresholdExceedanceProbability`) inject their discontinuity `p` as an extra stratification-bin boundary.
 9. **System aggregation is rebuilt** (v0.13; §7.8): additive assumes strict independence and convolves component LECs via FFT (producing a real system LEC v1.0 never built); joint enumerates true component failure/non-failure combinations and exposes the Vegas power transform.
 
@@ -1477,8 +1477,11 @@ as a stratification-bin boundary so it lands on a bin edge (the `Integrate(List<
 overload already supports this).
 
 **LEC construction** (both 1D and system paths converge on one algorithm):
-1. Probability mass is the quadrature weight, not a re-derivation. Interim until Numerics item N7:
-   keep a *deduplicated* midpoint-trapezoid fallback and assert `Σ mass = 1 ± 1e-9`.
+1. Probability mass is the quadrature weight, not a re-derivation. On the 1D path that is the N7
+   acceptance-aware `AdaptiveGaussKronrod.Recorder` flush, collected by `QuadratureMassLedger`
+   (adopted Phase 8.5); on the joint path it is the VEGAS `wgt`. The mass budget is gated against
+   the **integration domain** (Σ weights = Σ bin widths), not against 1 — the old `Σ mass = 1`
+   assertion held identically for any point set and so measured nothing.
 2. Build the exceedance curve **exactly** from sorted `(mass, consequence)` pairs (descending
    consequence, exact reverse-cumulative mass); thin to `LECOutputLength` ordinates for output only,
    always retaining the extreme-tail points. The v1.0 200-bin log10 histogram plotted at bin

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -95,6 +95,18 @@ public class SampledComponentTests
     {
         component.SetupSamplers(8, componentSeed: 12345, SamplingScheme.LatinHypercube);
         return component.Sample();
+    }
+
+    /// <summary>Builds a sealed quadrature ledger carrying the given abscissa masses.</summary>
+    private static QuadratureMassLedger Ledger(params (double Abscissa, double Mass)[] entries)
+    {
+        var ledger = new QuadratureMassLedger();
+        for (int i = 0; i < entries.Length; i++)
+        {
+            ledger.Record(entries[i].Abscissa, entries[i].Mass, 0d);
+        }
+        ledger.Seal();
+        return ledger;
     }
 
     /// <summary>
@@ -622,10 +634,10 @@ public class SampledComponentTests
         var realization = new ComponentRealization(failureModes: 2);
         var flags = new RiskComputeFlags();
 
-        // Act — two recording evaluations, then the trapezoid finalize.
+        // Act — two recording evaluations, each carrying half the mass, then finalize.
         sampled.ComputeRisk(0.4d, 12d, flags, realization, recordOutput: true);
         sampled.ComputeRisk(0.6d, 15d, flags, realization, recordOutput: true);
-        realization.FinalizeContributions(trapezoidMasses: true);
+        realization.FinalizeContributions(Ledger((0.4d, 0.5d), (0.6d, 0.5d)));
 
         // Assert — mode A.
         var a = realization.FailureModes[0].Contribution!;
@@ -663,7 +675,7 @@ public class SampledComponentTests
         // Act
         sampled.ComputeRisk(0.4d, 12d, flags, realization, recordOutput: true);
         sampled.ComputeRisk(0.6d, 15d, flags, realization, recordOutput: true);
-        realization.FinalizeContributions(trapezoidMasses: true);
+        realization.FinalizeContributions(Ledger((0.4d, 0.5d), (0.6d, 0.5d)));
 
         // Assert — the probability split is the Shapley attribution regardless of consequences.
         var a = realization.FailureModes[0].Contribution!;
@@ -698,7 +710,7 @@ public class SampledComponentTests
         // Act
         sampled.ComputeRisk(0.4d, 12d, flags, realization, recordOutput: true);
         sampled.ComputeRisk(0.6d, 15d, flags, realization, recordOutput: true);
-        realization.FinalizeContributions(trapezoidMasses: true);
+        realization.FinalizeContributions(Ledger((0.4d, 0.5d), (0.6d, 0.5d)));
 
         // Assert
         double adjustedA12 = 0.2d * (0.28d / 0.3d);

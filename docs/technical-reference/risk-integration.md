@@ -66,9 +66,11 @@ integrator.Integrate(bins);
 ### Properties to port correctly
 
 - **G10K21 nodes are strictly interior** — the largest abscissa is ≈ 0.99566 < 1, so no evaluation
-  lands on an interval endpoint. Adjacent stratification bins therefore never share a `p`, and the
-  recorded risk-point set is duplicate-free. The LEC probability-mass step that sorts risk points by
-  `p` (legacy `Curve.ProcessHazardProbabilities`, `Curve.vb:304-316`) relies on that uniqueness.
+  lands on an interval endpoint, and adjacent stratification bins never share a `p` from the node
+  placement alone. That is *not* enough to make the recorded set duplicate-free: a saturating hazard
+  CDF collapses several hazard bins onto the same probability, and `Integrate(List<StratificationBin>)`
+  then evaluates a zero-width bin 21 times at one abscissa. The mass ledger keys on the exact abscissa
+  and **sums weights per key**, so the degenerate case is credited once at its true (zero) width.
 - **Point placement is denser and differently distributed than Simpson's.** Recorded LECs will differ
   from v1.0 by quadrature resolution alone. The mean converges to the same value — that is the
   verification gate ([../verification.md](../verification.md), v0.13 policy: means are v1.0-parity,
@@ -78,13 +80,27 @@ integrator.Integrate(bins);
 - **`StandardError`** is a real error estimate (`√Σ (Kronrod − Gauss)²` accumulated across accepted
   intervals), unlike Simpson's Richardson proxy — surface it on the results container as a diagnostic.
 
-### Interim: probability mass from the weight (Numerics item N7)
+### Probability mass from the quadrature weight (N7, adopted Phase 8.5)
 
-The exact LEC construction wants each evaluation's **quadrature weight** (the `dF` mass it represents)
-handed to the integrand, exactly as the VEGAS path already receives `wgt`. `AdaptiveGaussKronrod.Function`
-is `Func<double, double>` today — it does not pass the Kronrod weight to the callback. Until Numerics
-adds a weight-exposing overload (**roadmap item N7**, Phase 8), keep the v1.0 midpoint-trapezoid mass
-re-derivation but **deduplicate** the sorted risk points first and assert `Σ mass = 1 ± 1e-9`. See
+The exact LEC construction takes each evaluation's **quadrature weight** — the `dF` mass it represents —
+from the integrator, exactly as the VEGAS path takes `wgt`. `AdaptiveGaussKronrod.Recorder` is the
+acceptance-aware `(x, weight, f)` ledger: it flushes only for intervals the refinement **accepted**, so
+`Σ weights` is the domain width and `Σ w·f ≡ Result`. `RMC.TotalRisk.Results.QuadratureMassLedger`
+collects the flush, seals it (sort + coalesce duplicate abscissas), and `Curve.ApplyRecordedMass` sets
+each risk point's mass from it, compacting away points the refinement superseded.
+
+Two gates replace the old `Σ mass = 1` assertion, which could not detect a mis-partition (the trapezoid
+partition telescoped to one regardless of whether the point set was right):
+
+1. **Domain-partition witness**, once per component integration — `|Σ weights − Σ bin widths|` within
+   1e-9 relative, against a Neumaier-compensated total. A double-counted rejected interval overshoots
+   by that interval's *width*, which is macroscopic rather than rounding.
+2. **Fan-out coverage** per curve — the number of recorded abscissas that match a ledger key must equal
+   `DistinctAbscissaCount`, so a break in the record fan-out is caught rather than silently thinning
+   the curve.
+
+Measured against a 4,000,000-point dense reference, the mass partition improves from **5.7e-7** relative
+(midpoint trapezoid) to **4.0e-11** (ledger). See
 [loss-exceedance-curves.md](loss-exceedance-curves.md) §Probability mass.
 
 ## `RiskIntegrand` — the adaptive-refinement objective

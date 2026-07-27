@@ -257,3 +257,57 @@ Two findings from the same work, both load-bearing for the cache's correctness:
   ties admit more than one valid bracket, a corrupted search start can return a *different
   ordinate*, not merely a slower lookup. `StratificationBin.Weight` is publicly settable, so the
   bins are rebuilt too; at 200 bins that is free beside the integration being skipped.
+
+## Phase 8.5 stage 3a — quadrature mass ledger (N7 adoption)
+
+The 1D LEC probability mass now comes from `AdaptiveGaussKronrod.Recorder` (the acceptance-aware
+`(x, weight, f)` flush) collected by `RMC.TotalRisk.Results.QuadratureMassLedger`, replacing the
+v1.0 midpoint-trapezoid re-derivation of mass from the recorded abscissas. This is a deliberate
+value-moving change; the byte gates are re-pinned.
+
+### Accuracy, measured
+
+The A/B was taken through the `RMCTR_LEGACY_MASS` environment switch against a 4,000,000-point
+dense reference on fixture F1's component:
+
+| Mass source | Relative error vs the dense reference |
+|---|---|
+| Midpoint trapezoid (v1.0) | 5.664E-007 |
+| Quadrature ledger | 3.996E-011 |
+
+### Byte gates, re-pinned at `--reps 3`
+
+- F1 `23a0f30ea40cff8c05025c4e0a7e9acefa66c40800b8b60d35f7fa1843548a49`
+- F2 `9dbec059b6f10d6f8dcde5b6abaa4bdaa777b390cfe2293061d818b4b6f54f4f`
+- F3 `8c8494416786fef6185a80e46327c7c30b6b631119e5b542e371f8a14753353d`
+- F4 `31bef59fda695643aa576ae3d172f8dd39bb243a8c5f51176e4ee774baf24b46`
+
+**F2 was expected to hold and did not — the cause is understood and is not a leak.** F2 is the
+joint/VEGAS path, which the ledger does not touch. It moved because the same commit extends the
+end stratification bins in `BuildHazardBins` to the integration domain, and `BuildHazardBins`
+also feeds `ProbeAnnualFailureProbability`, whose result sets the VEGAS tail-focus γ. A different
+γ redistributes the VEGAS samples, so every joint ordinate moves. The ledger itself is confined to
+the 1D path.
+
+### Why the end bins were extended
+
+The ledger's domain-partition gate compares `Σ weights` against `Σ bin widths`, and the bins
+covered only the hazard's tabulated support (0.998 wide) rather than the stated integration domain
+`[1e-16, 1−1e-16]`. Normalizing the recorded mass to close that gap was tried first and rejected:
+scaling every mass by 1/0.998 spreads the uncovered tail mass *proportionally across the whole
+curve*, a 0.5% systematic bias, when the missing mass belongs at the tails. Extending the first and
+last bins puts the quadrature on the domain it claims, and the gate then holds without a correction
+factor.
+
+### Allocation cost
+
+The ledger retains one `(abscissa, weight)` row per accepted evaluation for the life of a
+component integration:
+
+| Fixture | Before | After |
+|---|---|---|
+| F1 | 3.88 GB | 4.54 GB |
+| F3 | 7.64 GB | 8.81 GB |
+
+In-place compaction in `Curve.ApplyRecordedMass` (overwriting the kept points and trimming once,
+rather than building a second list) took F1 from 4.61 GB to 4.54 GB and F3 from 8.95 GB to 8.81 GB.

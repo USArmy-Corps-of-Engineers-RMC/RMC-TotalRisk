@@ -263,8 +263,9 @@ public class RiskAnalysisTests
     /// deterministic model draws nothing from the seeded samplers, so these exact bit patterns
     /// must survive the BranchPolarity/ResponseNodes hash event (which moves only seeds) and the
     /// state-group engine rework (whose all-singleton path must reduce to today's arithmetic).
-    /// Captured 2026-07-24 at the Stage 1 landing; any drift means math moved, not seeds.
-    /// Re-capture ONLY for a documented math change, never for a seed event.
+    /// Re-captured 2026-07-26 when the loss exceedance mass moved from the midpoint-trapezoid
+    /// partition onto the quadrature weights -- a documented math change. Re-capture ONLY for
+    /// another one, never for a seed event.
     /// </summary>
     [TestMethod]
     public async Task Test_Deterministic_BitPin_CascadePhases()
@@ -277,11 +278,11 @@ public class RiskAnalysisTests
 
         // Assert — exact bit patterns of the headline scalars.
         var summary = meanOnly.RiskResults![0]!;
-        Assert.AreEqual(4633156764016115401L, BitConverter.DoubleToInt64Bits(summary.Total.Mean), "Total.Mean moved.");
-        Assert.AreEqual(4631174406377053994L, BitConverter.DoubleToInt64Bits(summary.Fail.Mean), "Fail.Mean moved.");
-        Assert.AreEqual(4629978888563543066L, BitConverter.DoubleToInt64Bits(summary.Excess.Mean), "Excess.Mean moved.");
-        Assert.AreEqual(4627048968587273581L, BitConverter.DoubleToInt64Bits(summary.Background.Mean), "Background.Mean moved.");
-        Assert.AreEqual(4597854407371364657L, BitConverter.DoubleToInt64Bits(summary.Fail.TotalProbability), "Fail.TotalProbability moved.");
+        Assert.AreEqual(4633156762156860364L, BitConverter.DoubleToInt64Bits(summary.Total.Mean), "Total.Mean moved.");
+        Assert.AreEqual(4631174403777343344L, BitConverter.DoubleToInt64Bits(summary.Fail.Mean), "Fail.Mean moved.");
+        Assert.AreEqual(4629978886483774554L, BitConverter.DoubleToInt64Bits(summary.Excess.Mean), "Excess.Mean moved.");
+        Assert.AreEqual(4627048969028300537L, BitConverter.DoubleToInt64Bits(summary.Background.Mean), "Background.Mean moved.");
+        Assert.AreEqual(4597854404619542115L, BitConverter.DoubleToInt64Bits(summary.Fail.TotalProbability), "Fail.TotalProbability moved.");
 
         // A deterministic full-uncertainty run pins the ensemble path too (every realization is
         // identical by construction; the value differs from the mean pass only by the documented
@@ -290,7 +291,7 @@ public class RiskAnalysisTests
         full.Options.EstimateMeanRiskOnly = false;
         full.Options.Realizations = 100;
         await full.RunAsync();
-        Assert.AreEqual(4633156864729413265L, BitConverter.DoubleToInt64Bits(full.RiskResults![50]!.Total.Mean),
+        Assert.AreEqual(4633156767901978988L, BitConverter.DoubleToInt64Bits(full.RiskResults![50]!.Total.Mean),
             "Mid-ensemble realization Total.Mean moved.");
     }
 

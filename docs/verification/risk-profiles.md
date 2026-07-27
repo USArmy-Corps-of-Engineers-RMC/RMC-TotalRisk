@@ -70,5 +70,7 @@ reproduced the Phase 6.5 byte-gate hash `b88a49f3…` **exactly** at the stage 1
 `NfipAssuranceVerification` (5/5) and `EngineReproducibilityVerification` (3/3) families passed
 unchanged as the stage gates. Stage 2's new serialized arrays are a documented byte-gate
 re-pin (`scripts/perf/RESULTS.md`); `EngineReproducibilityVerification` re-ran green (3/3) on
-the extended payload. Run of record 2026-07-24: `RiskProfileVerification` 5/5 passed
+the extended payload. The `b88a49f3…` hash above is the Phase 6.6 record, not a live pin — the
+current F1 hash is in `scripts/perf/RESULTS.md` (re-pinned at Phase 8.5 for the quadrature mass
+ledger). Run of record 2026-07-24: `RiskProfileVerification` 5/5 passed
 (~22 s wall), fast suite 447/447 (Debug and Release).
