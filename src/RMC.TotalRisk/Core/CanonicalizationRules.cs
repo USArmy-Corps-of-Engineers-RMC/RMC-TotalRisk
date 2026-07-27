@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Frozen;
+using System.Collections.ObjectModel;
 using System.Xml.Linq;
 
 namespace RMC.TotalRisk.Core
@@ -46,17 +48,17 @@ namespace RMC.TotalRisk.Core
         /// <summary>
         /// Backing set of attribute names removed everywhere in the subtree (ordinal match).
         /// </summary>
-        private readonly HashSet<string> _strippedAttributes;
+        private readonly FrozenSet<string> _strippedAttributes;
 
         /// <summary>
         /// Backing set of element names removed everywhere in the subtree (ordinal match).
         /// </summary>
-        private readonly HashSet<string> _strippedElements;
+        private readonly FrozenSet<string> _strippedElements;
 
         /// <summary>
         /// Backing list of structural rewrites applied to the working copy before stripping, in order.
         /// </summary>
-        private readonly List<Action<XElement>> _rewriters;
+        private readonly ReadOnlyCollection<Action<XElement>> _rewriters;
 
         /// <summary>
         /// Backing field for the audited model rule set.
@@ -95,9 +97,9 @@ namespace RMC.TotalRisk.Core
             if (strippedElements == null) throw new ArgumentNullException(nameof(strippedElements));
             if (rewriters == null) throw new ArgumentNullException(nameof(rewriters));
 
-            _strippedAttributes = new HashSet<string>(strippedAttributes, StringComparer.Ordinal);
-            _strippedElements = new HashSet<string>(strippedElements, StringComparer.Ordinal);
-            _rewriters = new List<Action<XElement>>(rewriters);
+            _strippedAttributes = strippedAttributes.ToFrozenSet(StringComparer.Ordinal);
+            _strippedElements = strippedElements.ToFrozenSet(StringComparer.Ordinal);
+            _rewriters = Array.AsReadOnly(new List<Action<XElement>>(rewriters).ToArray());
         }
 
         /// <summary>

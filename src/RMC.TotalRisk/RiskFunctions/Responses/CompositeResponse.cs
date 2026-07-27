@@ -489,27 +489,30 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
         }
 
         /// <inheritdoc/>
-        /// <exception cref="NotImplementedException">
+        public override bool SupportsOrderedCurveSampling => false;
+
+        /// <inheritdoc/>
+        /// <exception cref="NotSupportedException">
         /// Always — composite response functions do not emit ordered-pair curve samples. See the
         /// class remarks for why a union-knot re-tabulation would be wrong.
         /// </exception>
         public override OrderedPairedData SampleResponseFunction()
         {
-            throw new NotImplementedException(CurveSampleMessage);
+            throw new NotSupportedException(CurveSampleMessage);
         }
 
         /// <inheritdoc/>
-        /// <exception cref="NotImplementedException">Always — see <see cref="SampleResponseFunction()"/>.</exception>
+        /// <exception cref="NotSupportedException">Always — see <see cref="SampleResponseFunction()"/>.</exception>
         public override OrderedPairedData SampleResponseFunction(double percentile)
         {
-            throw new NotImplementedException(CurveSampleMessage);
+            throw new NotSupportedException(CurveSampleMessage);
         }
 
         /// <inheritdoc/>
-        /// <exception cref="NotImplementedException">Always — see <see cref="SampleResponseFunction()"/>.</exception>
+        /// <exception cref="NotSupportedException">Always — see <see cref="SampleResponseFunction()"/>.</exception>
         public override OrderedPairedData SampleResponseFunction(int realizationIndex)
         {
-            throw new NotImplementedException(CurveSampleMessage);
+            throw new NotSupportedException(CurveSampleMessage);
         }
 
         /// <inheritdoc/>

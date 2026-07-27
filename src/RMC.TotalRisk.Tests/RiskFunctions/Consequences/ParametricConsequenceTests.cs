@@ -329,63 +329,6 @@ public class ParametricConsequenceTests
         Assert.IsTrue(double.IsPositiveInfinity(c.MaxHazard()));
     }
 
-    /// <summary>
-    /// Verifies the uncertainty summary is deterministic, content-seeded (metadata edits cannot
-    /// move it), grid-aligned, and exact for deterministic configurations.
-    /// </summary>
-    [TestMethod]
-    public void Test_ComputeUncertaintyResults_DeterministicSeed_BitIdenticalAcrossCalls()
-    {
-        // Arrange
-        var c = UncertainConsequence();
-
-        // Act
-        var first = c.ComputeUncertaintyResults(0.90d)!;
-        var second = c.ComputeUncertaintyResults(0.90d)!;
-
-        // Assert — repeated calls are bit-identical and grid-aligned.
-        double[] grid = c.UncertaintySummaryHazards();
-        Assert.AreEqual(grid.Length, first.MeanCurve!.Length);
-        CollectionAssert.AreEqual(first.MeanCurve, second.MeanCurve);
-        CollectionAssert.AreEqual(first.ModeCurve, second.ModeCurve);
-
-        // Metadata edits cannot move the summary (the seed is content-based).
-        c.Name = "Renamed";
-        c.AssignNewId();
-        var renamed = c.ComputeUncertaintyResults(0.90d)!;
-        CollectionAssert.AreEqual(first.MeanCurve, renamed.MeanCurve);
-
-        // The grid starts at the threshold, where every curve is exactly zero.
-        Assert.AreEqual(c.Threshold, grid[0], 0d);
-        Assert.AreEqual(0d, first.MeanCurve[0], 0d);
-        Assert.AreEqual(0d, first.ConfidenceIntervals![0, 1], 0d);
-
-        // The bands bracket the median everywhere.
-        for (int i = 0; i < grid.Length; i++)
-        {
-            Assert.IsTrue(first.ConfidenceIntervals[i, 0] <= first.ModeCurve![i] + 1e-12);
-            Assert.IsTrue(first.ModeCurve[i] <= first.ConfidenceIntervals[i, 1] + 1e-12);
-        }
-
-        // Deterministic configurations collapse every curve onto the nominal curve.
-        var deterministic = ReferenceConsequence();
-        var summary = deterministic.ComputeUncertaintyResults(0.90d)!;
-        var nominal = deterministic.SampleFunction();
-        double[] detGrid = deterministic.UncertaintySummaryHazards();
-        for (int i = 0; i < detGrid.Length; i++)
-        {
-            Assert.AreEqual(nominal.Function(detGrid[i]), summary.MeanCurve![i], 0d);
-            Assert.AreEqual(summary.MeanCurve[i], summary.ConfidenceIntervals![i, 0], 0d);
-        }
-
-        // Width bounds are enforced; validation errors return null.
-        Assert.ThrowsException<ArgumentOutOfRangeException>(() => c.ComputeUncertaintyResults(0d));
-        Assert.ThrowsException<ArgumentOutOfRangeException>(() => c.ComputeUncertaintyResults(1d));
-        var invalid = ReferenceConsequence();
-        invalid.Alpha = 0d;
-        Assert.IsNull(invalid.ComputeUncertaintyResults(0.90d));
-    }
-
     /// <summary>Verifies the summary grid caps at the saturation crossing when the cap is finite.</summary>
     [TestMethod]
     public void Test_UncertaintySummaryHazards_CapsAtCrossing()

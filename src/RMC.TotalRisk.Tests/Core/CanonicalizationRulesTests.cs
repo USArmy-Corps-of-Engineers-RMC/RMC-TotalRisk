@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Xml.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using RMC.TotalRisk.Core;
@@ -81,5 +82,34 @@ public class CanonicalizationRulesTests
         Assert.IsTrue(rules.StrippedElements.Contains("E"));
         Assert.AreEqual(1, rules.Rewriters.Count);
         Assert.AreSame(rewriter, rules.Rewriters[0]);
+    }
+
+    /// <summary>
+    /// Constructor inputs are defensively snapshotted and the exposed views cannot be downcast
+    /// to their mutable source collections.
+    /// </summary>
+    [TestMethod]
+    public void Test_Collections_AreImmutableSnapshots()
+    {
+        var attributes = new List<string> { "A" };
+        var elements = new List<string> { "E" };
+        var rewriters = new List<Action<XElement>> { _ => { } };
+        var rules = new CanonicalizationRules(attributes, elements, rewriters);
+
+        attributes.Add("B");
+        elements.Clear();
+        rewriters.Add(_ => { });
+
+        Assert.AreEqual(1, rules.StrippedAttributes.Count);
+        Assert.IsTrue(rules.StrippedAttributes.Contains("A"));
+        Assert.IsFalse(rules.StrippedAttributes.Contains("B"));
+        Assert.AreEqual(1, rules.StrippedElements.Count);
+        Assert.IsTrue(rules.StrippedElements.Contains("E"));
+        Assert.AreEqual(1, rules.Rewriters.Count);
+        Assert.IsFalse(rules.StrippedAttributes is HashSet<string>);
+        Assert.IsFalse(rules.StrippedElements is HashSet<string>);
+        Assert.IsFalse(rules.Rewriters is List<Action<XElement>>);
+        Assert.ThrowsException<NotSupportedException>(() =>
+            ((IList<Action<XElement>>)rules.Rewriters).Add(_ => { }));
     }
 }

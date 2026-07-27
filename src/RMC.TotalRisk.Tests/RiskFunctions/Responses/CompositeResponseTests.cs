@@ -324,9 +324,10 @@ public class CompositeResponseTests
         var composite = Composite(CompositeCombinationType.Mixture, (NormalChild("A", 140d, 30d), 1d));
 
         // Assert
-        Assert.ThrowsException<NotImplementedException>(() => composite.SampleResponseFunction());
-        Assert.ThrowsException<NotImplementedException>(() => composite.SampleResponseFunction(0.5d));
-        Assert.ThrowsException<NotImplementedException>(() => composite.SampleResponseFunction(0));
+        Assert.IsFalse(composite.SupportsOrderedCurveSampling);
+        Assert.ThrowsException<NotSupportedException>(() => composite.SampleResponseFunction());
+        Assert.ThrowsException<NotSupportedException>(() => composite.SampleResponseFunction(0.5d));
+        Assert.ThrowsException<NotSupportedException>(() => composite.SampleResponseFunction(0));
     }
 
     /// <summary>
@@ -656,36 +657,6 @@ public class CompositeResponseTests
         // But under competing risks the dependence is live content.
         competing.Dependency = DependencyType.PerfectlyPositive;
         CollectionAssert.AreNotEqual(competingBaseline, competing.CanonicalHash());
-    }
-
-    /// <summary>Verifies the uncertainty summary is deterministic and leaves the live sampler untouched.</summary>
-    [TestMethod]
-    public void Test_ComputeUncertaintyResults_DeterministicAndDoesNotDisturbLiveSampler()
-    {
-        // Arrange
-        var composite = Composite(CompositeCombinationType.Mixture,
-            (TabularChild("A", 0.1d, 0.8d, 0.05d), 0.45d), (TabularChild("B", 0.2d, 0.9d, 0.05d), 0.55d));
-        composite.SetupSampler(64, 777, SamplingScheme.LatinHypercube);
-        double beforeDraw = composite.SampleFunction(5).CDF(150d);
-
-        // Act
-        var results = composite.ComputeUncertaintyResults();
-        var repeat = composite.ComputeUncertaintyResults();
-
-        // Assert
-        Assert.IsNotNull(results);
-        double[] hazards = composite.UncertaintySummaryHazards();
-        Assert.AreEqual(hazards.Length, results!.MeanCurve!.Length);
-        for (int i = 0; i < hazards.Length; i++)
-        {
-            Assert.AreEqual(results.MeanCurve[i], repeat!.MeanCurve![i], 0d);
-            Assert.IsTrue(results.ConfidenceIntervals![i, 0] <= results.ConfidenceIntervals[i, 1]);
-        }
-
-        Assert.AreEqual(beforeDraw, composite.SampleFunction(5).CDF(150d), 0d);
-        Assert.ThrowsException<ArgumentOutOfRangeException>(() => composite.ComputeUncertaintyResults(0d));
-        Assert.ThrowsException<ArgumentOutOfRangeException>(() => composite.ComputeUncertaintyResults(1d));
-        Assert.IsNull(new CompositeResponse().ComputeUncertaintyResults());
     }
 
     /// <summary>Verifies a nested composite samples and hashes through the recursion.</summary>

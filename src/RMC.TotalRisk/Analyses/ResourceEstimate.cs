@@ -45,9 +45,16 @@ namespace RMC.TotalRisk.Analyses
         /// <param name="isRetained">True when the memory lives for the whole run rather than one realization.</param>
         /// <param name="severity">The finding's severity.</param>
         /// <param name="message">The caller-facing message; names the option to change when the severity is not informational.</param>
+        /// <exception cref="ArgumentOutOfRangeException">
+        /// Thrown when <paramref name="bytes"/> or <paramref name="operations"/> is negative, or
+        /// when <paramref name="operations"/> is not finite.
+        /// </exception>
         public ResourceEstimateItem(string label, long bytes, double operations, bool isRetained,
             ResourceSeverity severity, string message)
         {
+            if (bytes < 0) throw new ArgumentOutOfRangeException(nameof(bytes));
+            if (!double.IsFinite(operations) || operations < 0d)
+                throw new ArgumentOutOfRangeException(nameof(operations));
             Label = label ?? string.Empty;
             Bytes = bytes;
             Operations = operations;
@@ -100,24 +107,48 @@ namespace RMC.TotalRisk.Analyses
         /// <param name="integrandEvaluationFloor">The lower bound on integrand evaluations for the run.</param>
         /// <param name="genzEvaluations">The estimated multivariate-normal rectangle evaluations for the run.</param>
         /// <exception cref="ArgumentNullException">Thrown when the item list is null.</exception>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown when the evaluation floor is invalid.</exception>
         public ResourceEstimate(IReadOnlyList<ResourceEstimateItem> items, int concurrency,
             double integrandEvaluationFloor, double genzEvaluations)
+            : this(items, concurrency, integrandEvaluationFloor, integrandEvaluationFloor, genzEvaluations)
         {
-            Items = items ?? throw new ArgumentNullException(nameof(items));
+        }
+
+        /// <summary>Initializes an estimate with an explicit adaptive-work range.</summary>
+        /// <param name="items">The estimate lines.</param>
+        /// <param name="concurrency">The number of realizations expected to be in flight at once.</param>
+        /// <param name="integrandEvaluationFloor">The lower bound on integrand evaluations.</param>
+        /// <param name="integrandEvaluationCeiling">The upper bound on integrand evaluations.</param>
+        /// <param name="genzEvaluations">The estimated multivariate-normal rectangle evaluations.</param>
+        /// <exception cref="ArgumentNullException">Thrown when the item list is null.</exception>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown when an evaluation bound is invalid.</exception>
+        public ResourceEstimate(IReadOnlyList<ResourceEstimateItem> items, int concurrency,
+            double integrandEvaluationFloor, double integrandEvaluationCeiling, double genzEvaluations)
+        {
+            if (items == null) throw new ArgumentNullException(nameof(items));
+            if (concurrency < 1) throw new ArgumentOutOfRangeException(nameof(concurrency));
+            if (!double.IsFinite(integrandEvaluationFloor) || integrandEvaluationFloor < 0d)
+                throw new ArgumentOutOfRangeException(nameof(integrandEvaluationFloor));
+            if (!double.IsFinite(integrandEvaluationCeiling) || integrandEvaluationCeiling < integrandEvaluationFloor)
+                throw new ArgumentOutOfRangeException(nameof(integrandEvaluationCeiling));
+            if (!double.IsFinite(genzEvaluations) || genzEvaluations < 0d)
+                throw new ArgumentOutOfRangeException(nameof(genzEvaluations));
+            Items = Array.AsReadOnly(new List<ResourceEstimateItem>(items).ToArray());
             Concurrency = concurrency;
             EstimatedIntegrandEvaluationFloor = integrandEvaluationFloor;
+            EstimatedIntegrandEvaluationCeiling = integrandEvaluationCeiling;
             EstimatedGenzEvaluations = genzEvaluations;
 
             long retained = 0;
             long transient = 0;
             for (int i = 0; i < items.Count; i++)
             {
-                if (items[i].IsRetained) retained += items[i].Bytes;
-                else transient += items[i].Bytes;
+                if (items[i].IsRetained) retained = SaturatingAdd(retained, items[i].Bytes);
+                else transient = SaturatingAdd(transient, items[i].Bytes);
             }
             RetainedBytes = retained;
             PeakTransientBytes = transient;
-            PeakLiveBytes = retained + transient;
+            PeakLiveBytes = SaturatingAdd(retained, transient);
         }
 
         /// <summary>The estimate lines, in reporting order.</summary>
@@ -140,6 +171,12 @@ namespace RMC.TotalRisk.Analyses
         /// refinement is limited only by <see cref="RiskAnalysisOptions.MaxEvaluations"/>.
         /// </summary>
         public double EstimatedIntegrandEvaluationFloor { get; }
+
+        /// <summary>
+        /// The upper bound on integrand evaluations after adaptive caps and fixed endpoint work.
+        /// Equal to the floor when the integration schedule is fixed.
+        /// </summary>
+        public double EstimatedIntegrandEvaluationCeiling { get; }
 
         /// <summary>
         /// The estimated multivariate-normal rectangle evaluations, which dependent competing-risk
@@ -176,6 +213,16 @@ namespace RMC.TotalRisk.Analyses
                 if (Items[i].Severity >= minimum) messages.Add(Items[i].Message);
             }
             return messages;
+        }
+
+        /// <summary>Adds nonnegative byte estimates without wrapping.</summary>
+        /// <param name="left">The first byte count.</param>
+        /// <param name="right">The second byte count.</param>
+        /// <returns>The sum, saturated at <see cref="long.MaxValue"/>.</returns>
+        private static long SaturatingAdd(long left, long right)
+        {
+            if (left < 0 || right < 0) return long.MaxValue;
+            return left > long.MaxValue - right ? long.MaxValue : left + right;
         }
     }
 }

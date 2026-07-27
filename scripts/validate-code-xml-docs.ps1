@@ -36,6 +36,36 @@ $sourceFiles = @(foreach ($root in $codeRoots) {
     }
 })
 
+# Every public reference type receives a discoverable, dedicated unit-test file. This is a
+# filename gate, not a coverage substitute: <TypeName>Tests.cs makes a new public API omission
+# fail during the same mandatory validation command that checks documentation and dependencies.
+$librarySourceFiles = @($sourceFiles | Where-Object {
+    (Get-RelativePath $_.FullName).StartsWith("src/RMC.TotalRisk/", [System.StringComparison]::OrdinalIgnoreCase)
+})
+$testTypeNames = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+$testRoot = Join-Path $repoRoot "src/RMC.TotalRisk.Tests"
+if (Test-Path $testRoot) {
+    Get-ChildItem -Path $testRoot -Recurse -Filter *Tests.cs -File |
+        Where-Object { $_.FullName -notmatch '[\\/](bin|obj)[\\/]' } |
+        ForEach-Object { [void]$testTypeNames.Add($_.BaseName) }
+}
+
+$publicClassDeclaration = [regex]'^\s*public\s+(?:(?:abstract|sealed|static|partial|readonly)\s+)*(?:class|record(?!\s+struct)(?:\s+class)?)\s+(?<Name>[A-Za-z_][A-Za-z0-9_]*)'
+foreach ($file in $librarySourceFiles) {
+    $lines = [System.IO.File]::ReadAllLines($file.FullName)
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        $match = $publicClassDeclaration.Match($lines[$i])
+        if (-not $match.Success) {
+            continue
+        }
+        $typeName = $match.Groups["Name"].Value
+        if (-not $testTypeNames.Contains("${typeName}Tests")) {
+            $relative = Get-RelativePath $file.FullName
+            Add-Failure "${relative}:$($i + 1) declares public class '$typeName' without a matching ${typeName}Tests.cs in RMC.TotalRisk.Tests."
+        }
+    }
+}
+
 $exactRootNamespace = [regex]'^\s*namespace\s+RMC\.TotalRisk\s*(?:[;{]\s*)?$'
 $rootUsing = [regex]'^\s*using\s+RMC\.TotalRisk\s*;'
 $legacyFlatNamespace = [regex]'^\s*(?:namespace|using)\s+TotalRisk\s*[;{]?\s*$'
@@ -175,4 +205,4 @@ if ($failures.Count -gt 0) {
     exit 1
 }
 
-Write-Host "Code namespace and XML documentation validation passed."
+Write-Host "Code namespace, public-class test coverage, and XML documentation validation passed."

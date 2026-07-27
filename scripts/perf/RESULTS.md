@@ -343,3 +343,23 @@ fold through it re-bins the running result at a step that changes on every fold,
 two-node atom deposit smears once per re-bin. The engine bins every component once onto a single
 lattice sized to the summed support and folds by integer shift, which is exact by comparison. The
 reason is recorded in the type's remarks so the next sweep does not re-litigate it.
+## Phase 8.6 — endpoint mass, lazy enumeration, and allocation recovery (2026-07-27)
+
+The approved endpoint rectangles and result manifest deliberately move result bytes; the scalar
+risk-point storage and curve-workspace reductions that follow are representation-only and reproduce
+the Phase 8.6 hashes exactly. Final runs were isolated, Release, three repetitions per fixture on
+HADEN (22 logical processors):
+
+| Fixture | Full median (s) | Allocated (GB) | Pre-ledger allocation (GB) | Phase 8.6 SHA-256 |
+|---|---:|---:|---:|---|
+| F1 | 5.669 | **3.09** | 3.88 | `4c1472d2a3c1c1abdb5b01f05db91bba00b5867b23776fee170ac8372d100d00` |
+| F2 | 34.183 | **12.22** | 16.52 | `d19f56c5bcb4c8dcc0b9ab13e724d2fd1568ae9f8a65d91a9d2478adb8c72852` |
+| F3 | 10.757 | **6.03** | 7.64 | `6469666ef207b436263434e793dc5bd8ec2990e2b26f9cf822de961019206281` |
+
+Allocation recovery came from pooled ledger/thinning storage, in-place equal-abscissa and
+exact-ordinate workspaces, eliminating redundant adopted-list construction, and an inline
+single-entry `RiskPoint` representation whose public list surface materializes only when inspected.
+The general multi-entry path and every numerical reduction retain their existing order. F1 is 20.4%
+below its pre-ledger allocation and its 5.669 s median is within 5% of the recorded 5.4 s reference;
+wall-clock variation on this workstation remains materially noisier than the deterministic allocation
+and hash signals.

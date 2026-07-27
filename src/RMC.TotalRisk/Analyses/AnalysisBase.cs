@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Threading;
 using System.Threading.Tasks;
 using Numerics.Utilities;
+using RMC.TotalRisk.Core;
 using RMC.TotalRisk.Core.Interfaces;
 
 namespace RMC.TotalRisk.Analyses
@@ -40,6 +41,11 @@ namespace RMC.TotalRisk.Analyses
         /// </summary>
         protected CancellationTokenSource? _cancellationTokenSource;
 
+        /// <summary>
+        /// Atomic execution-slot state: zero when idle, one while a run owns the analysis.
+        /// </summary>
+        private int _runState;
+
         /// <inheritdoc/>
         public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -71,6 +77,38 @@ namespace RMC.TotalRisk.Analyses
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         }
+        /// <inheritdoc/>
+        public bool IsRunning => Volatile.Read(ref _runState) != 0;
+
+        /// <summary>
+        /// Atomically acquires the single-run execution slot.
+        /// </summary>
+        /// <returns>True when the caller acquired the slot; false when another run owns it.</returns>
+        protected bool TryBeginRun()
+        {
+            if (Interlocked.CompareExchange(ref _runState, 1, 0) != 0)
+            {
+                return false;
+            }
+            RaisePropertyChange(nameof(IsRunning));
+            return true;
+        }
+
+        /// <summary>
+        /// Releases the single-run execution slot.
+        /// </summary>
+        /// <exception cref="InvalidOperationException">
+        /// Thrown when no run owned the slot, which indicates an analysis lifecycle defect.
+        /// </exception>
+        protected void EndRun()
+        {
+            if (Interlocked.Exchange(ref _runState, 0) == 0)
+            {
+                throw new InvalidOperationException("The analysis execution slot was released while idle.");
+            }
+            RaisePropertyChange(nameof(IsRunning));
+        }
+
 
         /// <summary>
         /// Raises the <see cref="AnalysisStarting"/> event.
@@ -112,6 +150,9 @@ namespace RMC.TotalRisk.Analyses
 
         /// <inheritdoc/>
         public abstract Task RunAsync(SafeProgressReporter? progressReporter = null, CancellationToken cancellationToken = default);
+
+        /// <inheritdoc/>
+        public abstract IReadOnlyList<ValidationIssue> ValidateIssues();
 
         /// <inheritdoc/>
         public abstract (bool IsValid, List<string> ValidationMessages) Validate();

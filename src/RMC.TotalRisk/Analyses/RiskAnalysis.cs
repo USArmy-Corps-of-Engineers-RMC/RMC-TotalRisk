@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Globalization;
 using System.Threading;
@@ -118,7 +119,14 @@ namespace RMC.TotalRisk.Analyses
                 _components.Add(component);
             }
             _options = new RiskAnalysisOptions();
+            _authorComponents = _components;
+            _authorComponentsView = _authorComponents.AsReadOnly();
+            _computationWarningsView = _computationWarnings.AsReadOnly();
+            _computationDiagnosticsView = _computationDiagnostics.AsReadOnly();
+            _options.SetDefaultComponentCount(_components.Count);
             _options.PropertyChanged += OptionsPropertyChanged;
+            _authorOptions = _options;
+            _additionalConsequenceTypes.CollectionChanged += AdditionalConsequenceTypesChanged;
         }
 
         /// <summary>
@@ -216,7 +224,15 @@ namespace RMC.TotalRisk.Analyses
         /// <summary>
         /// The owned components, in declared order.
         /// </summary>
-        private readonly List<SystemComponent> _components;
+        private List<SystemComponent> _components;
+
+        /// <summary>
+        /// The mutable authoring components exposed to callers; never replaced by a run snapshot.
+        /// </summary>
+        private readonly List<SystemComponent> _authorComponents;
+
+        /// <summary>The immutable public view over the owned authoring components.</summary>
+        private readonly ReadOnlyCollection<SystemComponent> _authorComponentsView;
 
         /// <summary>
         /// The correlated component-hazard latent structure for the joint method (v1.0
@@ -293,11 +309,66 @@ namespace RMC.TotalRisk.Analyses
         /// <summary>Backing field for <see cref="Options"/>.</summary>
         private RiskAnalysisOptions _options;
 
+        /// <summary>
+        /// The mutable authoring options exposed to callers; the active engine field points to a
+        /// deep snapshot while a run is in progress.
+        /// </summary>
+        private RiskAnalysisOptions _authorOptions;
+        /// <summary>The immutable consequence declarations captured for the active run.</summary>
+        private IReadOnlyList<ConsequenceTypeDescriptor>? _runAdditionalConsequenceTypes;
+
+        /// <summary>The primary consequence label captured for the active run.</summary>
+        private string? _runSpecifiedConsequence;
+
+        /// <summary>The primary consequence unit captured for the active run.</summary>
+        private string? _runConsequenceUnit;
+
+        /// <summary>
+        /// Gets the active run's declarations, or the authoring collection while idle.
+        /// </summary>
+        private IReadOnlyList<ConsequenceTypeDescriptor> RunAdditionalConsequenceTypes =>
+            _runAdditionalConsequenceTypes ?? _additionalConsequenceTypes;
+
+        /// <summary>Gets the active run's primary consequence label.</summary>
+        private string RunSpecifiedConsequence => _runSpecifiedConsequence ?? _specifiedConsequence;
+
+        /// <summary>Gets the active run's primary consequence unit.</summary>
+        private string RunConsequenceUnit => _runConsequenceUnit ?? _consequenceUnit;
+
+
+
         /// <summary>Backing field for <see cref="Name"/>.</summary>
         private string _name = "Risk Analysis";
 
         /// <summary>Backing field for <see cref="Description"/>.</summary>
         private string _description = string.Empty;
+
+        /// <summary>
+        /// A complete successful run staged off the public result surface until publication.
+        /// </summary>
+        private sealed class AnalysisRunPublication
+        {
+            /// <summary>Gets or sets the persisted ensemble results.</summary>
+            internal EnsembleResults Results { get; set; } = null!;
+
+            /// <summary>Gets or sets the mean realization.</summary>
+            internal SystemRealization? Mean { get; set; }
+
+            /// <summary>Gets or sets the median realization.</summary>
+            internal SystemRealization? Median { get; set; }
+
+            /// <summary>Gets or sets the lower confidence realization.</summary>
+            internal SystemRealization? Lower { get; set; }
+
+            /// <summary>Gets or sets the upper confidence realization.</summary>
+            internal SystemRealization? Upper { get; set; }
+
+            /// <summary>Gets or sets the captured sampler seed map.</summary>
+            internal SamplerSeedMap CapturedSeeds { get; set; } = null!;
+
+            /// <summary>Gets the structured computation diagnostics staged with the result.</summary>
+            internal List<ComputationDiagnostic> Diagnostics { get; } = new List<ComputationDiagnostic>();
+        }
 
         /// <summary>Backing field for <see cref="SpecifiedConsequence"/>.</summary>
         private string _specifiedConsequence = string.Empty;
@@ -326,6 +397,15 @@ namespace RMC.TotalRisk.Analyses
 
         /// <summary>Backing field for <see cref="ComputationWarnings"/>.</summary>
         private readonly List<string> _computationWarnings = new List<string>();
+
+        /// <summary>Backing field for <see cref="ComputationDiagnostics"/>.</summary>
+        private readonly List<ComputationDiagnostic> _computationDiagnostics = new List<ComputationDiagnostic>();
+
+        /// <summary>The immutable public view over the last run's structured diagnostics.</summary>
+        private readonly ReadOnlyCollection<ComputationDiagnostic> _computationDiagnosticsView;
+
+        /// <summary>The immutable public view over the last run's warnings.</summary>
+        private readonly ReadOnlyCollection<string> _computationWarningsView;
 
         /// <summary>
         /// The analysis display name. Metadata â€” serialized, stripped from the canonical hash.
@@ -407,13 +487,15 @@ namespace RMC.TotalRisk.Analyses
         /// </summary>
         public RiskAnalysisOptions Options
         {
-            get { return _options; }
+            get { return _authorOptions; }
             set
             {
-                if (ReferenceEquals(_options, value)) return;
-                if (_options != null) _options.PropertyChanged -= OptionsPropertyChanged;
-                _options = value ?? new RiskAnalysisOptions();
-                _options.PropertyChanged += OptionsPropertyChanged;
+                if (ReferenceEquals(_authorOptions, value)) return;
+                if (_authorOptions != null) _authorOptions.PropertyChanged -= OptionsPropertyChanged;
+                _authorOptions = value ?? new RiskAnalysisOptions();
+                _authorOptions.SetDefaultComponentCount(_authorComponents.Count);
+                _authorOptions.PropertyChanged += OptionsPropertyChanged;
+                if (!IsRunning) _options = _authorOptions;
                 IsEstimated = false;
                 RaisePropertyChange(nameof(Options));
             }
@@ -422,7 +504,7 @@ namespace RMC.TotalRisk.Analyses
         /// <summary>
         /// The owned system components, in declared order.
         /// </summary>
-        public IReadOnlyList<SystemComponent> Components => _components;
+        public IReadOnlyList<SystemComponent> Components => _authorComponentsView;
 
         /// <summary>
         /// The per-realization summary ensemble from the last run (one entry per realization; a
@@ -498,13 +580,48 @@ namespace RMC.TotalRisk.Analyses
         /// mutually-exclusive probabilities normalized, exhaustive mass-balance drift) â€” the
         /// headless replacement for the v1.0 messenger surface.
         /// </summary>
-        public IReadOnlyList<string> ComputationWarnings => _computationWarnings;
+        public IReadOnlyList<string> ComputationWarnings => _computationWarningsView;
+
+        /// <summary>
+        /// The machine-readable computation diagnostics from the last successful run.
+        /// </summary>
+        public IReadOnlyList<ComputationDiagnostic> ComputationDiagnostics => _computationDiagnosticsView;
 
         #endregion
 
         #region IAnalysis Methods
 
         /// <inheritdoc/>
+        public override IReadOnlyList<ValidationIssue> ValidateIssues()
+        {
+            var raw = ValidateMessages();
+            var issues = new List<ValidationIssue>(raw.ValidationMessages.Count);
+            for (int i = 0; i < raw.ValidationMessages.Count; i++)
+            {
+                issues.Add(ValidationIssue.FromLegacyMessage(raw.ValidationMessages[i]));
+            }
+            return issues.AsReadOnly();
+        }
+
+        /// <inheritdoc/>
+        public override (bool IsValid, List<string> ValidationMessages) Validate()
+        {
+            var issues = ValidateIssues();
+            var messages = new List<string>(issues.Count);
+            bool isValid = true;
+            for (int i = 0; i < issues.Count; i++)
+            {
+                messages.Add(issues[i].ToLegacyMessage());
+                if (issues[i].Severity == DiagnosticSeverity.Error) isValid = false;
+            }
+            return (isValid, messages);
+        }
+
+        /// <summary>
+        /// Executes the established validation rules and gathers their compatibility messages.
+        /// Structured conversion is centralized in <see cref="ValidateIssues"/>.
+        /// </summary>
+        /// <returns>The validity flag and established validation messages.</returns>
         /// <remarks>
         /// Errors: no components; the additive method with a component-hazard dependence (the
         /// ratified v0.13 strict-independence redefinition â€” dependence belongs to the joint
@@ -520,7 +637,7 @@ namespace RMC.TotalRisk.Analyses
         /// whose driving hazards disagree on non-blank axis labels warn â€” one analysis models one
         /// hazard axis.
         /// </remarks>
-        public override (bool IsValid, List<string> ValidationMessages) Validate()
+        private (bool IsValid, List<string> ValidationMessages) ValidateMessages()
         {
             var messages = new List<string>();
 
@@ -625,7 +742,8 @@ namespace RMC.TotalRisk.Analyses
 
                 long cap = Math.Max(1, _options.MaxSystemCombinations);
                 long enumerated = componentCount >= 62 ? cap : Math.Min(cap, (1L << componentCount));
-                long bytes = enumerated * (bytesPerDouble + componentCount * bytesPerInt + 24) * concurrency;
+                long entryBytes = SaturatingAdd(32L, SaturatingProduct(componentCount, bytesPerInt));
+                long bytes = SaturatingProduct(enumerated, entryBytes, concurrency);
 
                 // An upper bound only. The inclusion-exclusion bracket normally closes far short
                 // of the cap, and whether it does depends on the failure probabilities the run
@@ -635,8 +753,8 @@ namespace RMC.TotalRisk.Analyses
                     $"The joint system enumerates at most {enumerated:N0} exclusive component combinations per evaluation, holding about {FormatBytes(bytes)}."));
             }
 
-            // Per-component structures: the joint method's 2^U indicator matrix, the correlation
-            // matrix, and the dependent competing-risk pre-processing.
+            // Per-component structures: lazy joint-failure output buffers, correlation matrices,
+            // and dependent competing-risk pre-processing.
             double genzEvaluations = 0d;
             for (int i = 0; i < componentCount; i++)
             {
@@ -646,28 +764,29 @@ namespace RMC.TotalRisk.Analyses
 
                 if (component.FailureModeMethod == FailureModeMethod.JointFailures)
                 {
-                    if (units >= 31)
-                    {
-                        items.Add(new ResourceEstimateItem($"Combination matrix — {component.Name}", 0, 0, false, ResourceSeverity.Error,
-                            $"Error: System component '{component.Name}' combines {units} failure paths under the joint failure-mode method, which enumerates every subset of them and cannot exceed 30. Use the Common Cause, Mutually Exclusive, or Competing method, which combine marginally and carry no such limit, or group the failure paths."));
-                    }
-                    else
-                    {
-                        long matrixBytes = (long)units * ((1L << units) - 1) * bytesPerInt;
-                        var severity = matrixBytes > 512L * 1024 * 1024 ? ResourceSeverity.Error
-                            : matrixBytes > 64L * 1024 * 1024 ? ResourceSeverity.Warning
-                            : ResourceSeverity.Informational;
-                        items.Add(new ResourceEstimateItem($"Combination matrix — {component.Name}", matrixBytes, 0, true, severity,
-                            severity == ResourceSeverity.Informational
-                                ? $"System component '{component.Name}' holds a {FormatBytes(matrixBytes)} combination matrix over {units} failure paths."
-                                : $"{(severity == ResourceSeverity.Error ? "Error" : "Warning")}: System component '{component.Name}' combines {units} failure paths under the joint failure-mode method, whose combination matrix needs {FormatBytes(matrixBytes)}. Use the Common Cause, Mutually Exclusive, or Competing method, which combine marginally and allocate nothing here, or group the failure paths."));
-                    }
-                }
+                    long singles = units;
+                    long pairs = units >= 2 ? SaturatingProduct(units, units - 1L) / 2L : 0L;
+                    long triples = units >= 3 ? SaturatingProduct(units, units - 1L, units - 2L) / 6L : 0L;
+                    long firstConvergenceRows = SaturatingAdd(
+                        SaturatingAdd(singles, pairs),
+                        SaturatingAdd(triples, 1L));
+                    long completeRows = units >= 63 ? long.MaxValue : (1L << units) - 1L;
+                    firstConvergenceRows = Math.Min(firstConvergenceRows, completeRows);
 
+                    long bytesPerRow = SaturatingAdd(32L, SaturatingProduct(units, bytesPerInt));
+                    long bufferBytes = SaturatingProduct(firstConvergenceRows, bytesPerRow, concurrency);
+                    var severity = units > 20 ? ResourceSeverity.Warning : ResourceSeverity.Informational;
+                    string prefix = severity == ResourceSeverity.Warning ? "Warning: " : string.Empty;
+                    items.Add(new ResourceEstimateItem($"Lazy combination buffers — {component.Name}",
+                        bufferBytes, firstConvergenceRows, false, severity,
+                        $"{prefix}System component '{component.Name}' lazily enumerates {units} failure paths. " +
+                        $"If the inclusion-exclusion bracket closes at its first eligible check, its in-flight output buffers hold about {firstConvergenceRows:N0} rows ({FormatBytes(bufferBytes)} at current concurrency); " +
+                        $"if convergence is slow, enumeration can grow toward {completeRows:N0} rows and compute remains combinatorial. No dense U×(2^U−1) matrix is allocated."));
+                }
                 if (component.FailureModeDependency != DependencyType.Independent)
                 {
                     items.Add(new ResourceEstimateItem($"Correlation matrix — {component.Name}",
-                        (long)units * units * bytesPerDouble, 0, true, ResourceSeverity.Informational,
+                        SaturatingProduct(units, units, bytesPerDouble), 0, true, ResourceSeverity.Informational,
                         $"System component '{component.Name}' holds a {units}×{units} correlation matrix."));
                 }
 
@@ -681,8 +800,8 @@ namespace RMC.TotalRisk.Analyses
                 if (dependentCompeting)
                 {
                     double passes = component.IsDeterministic ? 1d : realizations;
-                    double evaluations = passes * units * (CompetingIncidenceBins + 1d);
-                    genzEvaluations += evaluations;
+                    double evaluations = SaturatingProductDouble(passes, units, CompetingIncidenceBins + 1d);
+                    genzEvaluations = SaturatingAddDouble(genzEvaluations, evaluations);
                     var severity = evaluations > 5e6 ? ResourceSeverity.Warning : ResourceSeverity.Informational;
                     items.Add(new ResourceEstimateItem($"Competing-risk pre-processing — {component.Name}", 0, evaluations, false, severity,
                         severity == ResourceSeverity.Informational
@@ -691,32 +810,95 @@ namespace RMC.TotalRisk.Analyses
                 }
             }
 
-            // Recorded risk points per realization in flight, and the stored ensemble.
-            double evaluationFloor = (double)realizations * componentCount * HazardBinCount * GaussKronrodNodes
-                * (1L << (_options.EnsembleMinDepth + 1));
-            long streams = 5 + 2L * MaxFailureModeCount();
-            long pointBytes = (long)(HazardBinCount * GaussKronrodNodes) * streams * typeCount * 96 * concurrency;
-            items.Add(new ResourceEstimateItem("Recorded risk points", pointBytes, evaluationFloor, false, ResourceSeverity.Informational,
-                $"Realizations in flight hold about {FormatBytes(pointBytes)} of recorded risk points."));
+            // Integration-work range. The lower bound is the forced subdivision depth plus the
+            // two Appendix-D endpoint evaluations; the upper bound is the configured AGK cap
+            // plus endpoints. Joint VEGAS has a fixed production schedule, with an adaptive
+            // mean-function probe range added only for automatic tail focus.
+            int minimumDepth = _options.EstimateMeanRiskOnly ? 2 : _options.EnsembleMinDepth;
+            long leafPanelsPerBin = 1L << Math.Min(30, minimumDepth);
+            long evaluatedPanelsPerBin = SaturatingProduct(2L, leafPanelsPerBin) - 1L;
+            long minimumRecordedInteriorNodes = SaturatingProduct(HazardBinCount, GaussKronrodNodes,
+                leafPanelsPerBin);
+            long minimumFunctionEvaluations = SaturatingAdd(
+                SaturatingProduct(HazardBinCount, GaussKronrodNodes, evaluatedPanelsPerBin), 2L);
+            long panelOverhead = SaturatingProduct(HazardBinCount + 1L, GaussKronrodNodes);
+            long maximumFunctionEvaluations = SaturatingAdd(
+                SaturatingAdd(_options.MaxEvaluations, panelOverhead), 2L);
+            long minimumNodesPerComponent = SaturatingAdd(minimumRecordedInteriorNodes, 2L);
+            long maximumNodesPerComponent = maximumFunctionEvaluations;
+            double evaluationFloor;
+            double evaluationCeiling;
+            if (joint)
+            {
+                double fixedVegas = SaturatingProductDouble(realizations,
+                    SaturatingAdd(SaturatingProduct(_options.WarmupEvaluations, _options.WarmupCycles),
+                        SaturatingProduct(_options.FinalEvaluations, VegasRecordingPasses)));
+                bool automaticProbe = _options.VegasTailFocusMode == VegasTailFocusMode.Automatic;
+                double probeFloor = automaticProbe ? SaturatingProductDouble(componentCount, minimumFunctionEvaluations) : 0d;
+                double probeCeiling = automaticProbe ? SaturatingProductDouble(componentCount, maximumFunctionEvaluations) : 0d;
+                evaluationFloor = SaturatingAddDouble(fixedVegas, probeFloor);
+                evaluationCeiling = SaturatingAddDouble(fixedVegas, probeCeiling);
+            }
+            else
+            {
+                evaluationFloor = SaturatingProductDouble(realizations, componentCount, minimumFunctionEvaluations);
+                evaluationCeiling = SaturatingProductDouble(realizations, componentCount, maximumFunctionEvaluations);
+            }
 
-            long ensembleBytes = (long)realizations * componentCount * typeCount * streams
-                * _options.LECOutputLength * bytesPerDouble * 2;
+            long streams = SaturatingAdd(5L, SaturatingProduct(2L, MaxFailureModeCount()));
+            long pointBytesLower = SaturatingProduct(minimumNodesPerComponent, streams, typeCount, 96L,
+                componentCount, concurrency);
+            long pointBytesUpper = SaturatingProduct(maximumNodesPerComponent, streams, typeCount, 96L,
+                componentCount, concurrency);
+            items.Add(new ResourceEstimateItem("Recorded risk-point workspaces", pointBytesUpper,
+                evaluationCeiling, false, ResourceSeverity.Informational,
+                $"Realizations in flight hold approximately {FormatBytes(pointBytesLower)} to {FormatBytes(pointBytesUpper)} of recorded risk points; peak sizing uses the upper bound."));
+
+            if (!joint && componentCount > 0)
+            {
+                long ledgerCapacity = Math.Min(maximumNodesPerComponent,
+                    Math.Max(256L, SaturatingProduct(_options.LECOutputLength, 16L)));
+                long ledgerBytes = SaturatingProduct(ledgerCapacity, 3L, bytesPerDouble, concurrency);
+                items.Add(new ResourceEstimateItem("Pooled quadrature mass ledgers", ledgerBytes,
+                    0d, false, ResourceSeverity.Informational,
+                    $"The in-flight pooled quadrature ledgers reserve at most {FormatBytes(ledgerBytes)} and are returned immediately after curve and contribution assembly."));
+            }
+
+            long ensembleBytes = SaturatingProduct(realizations, componentCount, typeCount, streams,
+                _options.LECOutputLength, bytesPerDouble, 2L);
             var ensembleSeverity = ensembleBytes > 8L * 1024 * 1024 * 1024 ? ResourceSeverity.Error
                 : ensembleBytes > 2L * 1024 * 1024 * 1024 ? ResourceSeverity.Warning
                 : ResourceSeverity.Informational;
-            items.Add(new ResourceEstimateItem("Stored ensemble", ensembleBytes, 0, true, ensembleSeverity,
+            items.Add(new ResourceEstimateItem("Curve workspaces and percentile inputs", ensembleBytes, 0, true, ensembleSeverity,
                 ensembleSeverity == ResourceSeverity.Informational
-                    ? $"The stored ensemble holds about {FormatBytes(ensembleBytes)}."
-                    : $"{(ensembleSeverity == ResourceSeverity.Error ? "Error" : "Warning")}: The stored ensemble needs about {FormatBytes(ensembleBytes)} for {realizations:N0} realizations at an output length of {_options.LECOutputLength}. Reduce Realizations or LECOutputLength, or set EstimateMeanRiskOnly."));
+                    ? $"The retained curve workspaces hold up to about {FormatBytes(ensembleBytes)} before percentile reduction."
+                    : $"{(ensembleSeverity == ResourceSeverity.Error ? "Error" : "Warning")}: Curve workspaces need up to about {FormatBytes(ensembleBytes)} for {realizations:N0} realizations at an output length of {_options.LECOutputLength}. Reduce Realizations or LECOutputLength, or set EstimateMeanRiskOnly."));
+
+            if ((_options.RiskMeasures & RiskMeasureOptions.RiskProfiles) != 0)
+            {
+                long profileArrays = SaturatingProduct(componentCount, SaturatingAdd(SaturatingProduct(5L, typeCount), 2L));
+                if (_options.EstimateMeanRiskOnly)
+                {
+                    profileArrays = SaturatingAdd(profileArrays,
+                        SaturatingProduct(componentCount, MaxFailureModeCount(),
+                            SaturatingAdd(SaturatingProduct(5L, typeCount), 2L)));
+                }
+                long profileBytes = SaturatingProduct(realizations, maximumNodesPerComponent,
+                    profileArrays, bytesPerDouble);
+                items.Add(new ResourceEstimateItem("Risk profile arrays", profileBytes, 0d, true,
+                    ResourceSeverity.Informational,
+                    $"Enabled risk profiles can retain up to about {FormatBytes(profileBytes)} across component and mean-pass failure-mode scopes."));
+            }
 
             if (componentCount > 1 && _options.SystemRiskMethod == SystemRiskType.AdditiveRiskMethod)
             {
-                long latticeBytes = (long)_options.SystemConvolutionPoints * (componentCount + 1) * bytesPerDouble * concurrency;
+                long latticeBytes = SaturatingProduct(_options.SystemConvolutionPoints,
+                    SaturatingAdd(componentCount, 1L), bytesPerDouble, concurrency);
                 items.Add(new ResourceEstimateItem("System convolution lattice", latticeBytes, 0, false, ResourceSeverity.Informational,
                     $"The additive system convolution holds about {FormatBytes(latticeBytes)} of lattice."));
             }
 
-            return new ResourceEstimate(items, concurrency, evaluationFloor, genzEvaluations);
+            return new ResourceEstimate(items, concurrency, evaluationFloor, evaluationCeiling, genzEvaluations);
         }
 
         /// <summary>
@@ -774,6 +956,72 @@ namespace RMC.TotalRisk.Analyses
             if (bytes >= 1024L * 1024) return $"{bytes / (1024d * 1024d):F0} MB";
             if (bytes >= 1024) return $"{bytes / 1024d:F0} KB";
             return $"{bytes} bytes";
+        }
+
+        /// <summary>Multiplies nonnegative integer estimates without wrapping.</summary>
+        /// <param name="factors">The factors.</param>
+        /// <returns>The product, saturated at <see cref="long.MaxValue"/>.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when the factor array is null.</exception>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown when a factor is negative.</exception>
+        private static long SaturatingProduct(params long[] factors)
+        {
+            if (factors == null) throw new ArgumentNullException(nameof(factors));
+            long product = 1L;
+            for (int i = 0; i < factors.Length; i++)
+            {
+                if (factors[i] < 0L) throw new ArgumentOutOfRangeException(nameof(factors));
+                if (factors[i] == 0L) return 0L;
+                if (product > long.MaxValue / factors[i]) return long.MaxValue;
+                product *= factors[i];
+            }
+            return product;
+        }
+
+        /// <summary>Adds nonnegative integer estimates without wrapping.</summary>
+        /// <param name="left">The first estimate.</param>
+        /// <param name="right">The second estimate.</param>
+        /// <returns>The sum, saturated at <see cref="long.MaxValue"/>.</returns>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown when either value is negative.</exception>
+        private static long SaturatingAdd(long left, long right)
+        {
+            if (left < 0L) throw new ArgumentOutOfRangeException(nameof(left));
+            if (right < 0L) throw new ArgumentOutOfRangeException(nameof(right));
+            return left > long.MaxValue - right ? long.MaxValue : left + right;
+        }
+
+        /// <summary>Multiplies nonnegative floating-point work estimates without overflowing.</summary>
+        /// <param name="factors">The factors.</param>
+        /// <returns>The finite product, saturated at <see cref="double.MaxValue"/>.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when the factor array is null.</exception>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown when a factor is negative or NaN.</exception>
+        private static double SaturatingProductDouble(params double[] factors)
+        {
+            if (factors == null) throw new ArgumentNullException(nameof(factors));
+            double product = 1d;
+            for (int i = 0; i < factors.Length; i++)
+            {
+                if (double.IsNaN(factors[i]) || factors[i] < 0d)
+                    throw new ArgumentOutOfRangeException(nameof(factors));
+                if (factors[i] == 0d) return 0d;
+                if (double.IsPositiveInfinity(factors[i]) || product > double.MaxValue / factors[i])
+                    return double.MaxValue;
+                product *= factors[i];
+            }
+            return product;
+        }
+
+        /// <summary>Adds nonnegative floating-point work estimates without overflowing.</summary>
+        /// <param name="left">The first estimate.</param>
+        /// <param name="right">The second estimate.</param>
+        /// <returns>The finite sum, saturated at <see cref="double.MaxValue"/>.</returns>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown when either value is negative or NaN.</exception>
+        private static double SaturatingAddDouble(double left, double right)
+        {
+            if (double.IsNaN(left) || left < 0d) throw new ArgumentOutOfRangeException(nameof(left));
+            if (double.IsNaN(right) || right < 0d) throw new ArgumentOutOfRangeException(nameof(right));
+            if (double.IsPositiveInfinity(left) || double.IsPositiveInfinity(right) || left > double.MaxValue - right)
+                return double.MaxValue;
+            return left + right;
         }
 
         /// <summary>
@@ -920,54 +1168,70 @@ namespace RMC.TotalRisk.Analyses
         /// validation gate (which throws â€” an invalid analysis is a caller error, not a run
         /// outcome); a fresh cancellation source linked with the caller's token; occurrence-index
         /// assignment and the content-based per-component seed walk; then the mean-only pass or
-        /// the parallel full-uncertainty ensemble with percentile post-processing. Runtime
-        /// faults and cancellation surface through <see cref="IAnalysis.AnalysisCompleted"/>
-        /// rather than propagating (the BestFit convention).
+        /// the parallel full-uncertainty ensemble with percentile post-processing. Validation,
+        /// runtime faults, and cancellation propagate through the returned task after
+        /// <see cref="IAnalysis.AnalysisCompleted"/> has notified observers.
         /// </remarks>
         public override async Task RunAsync(SafeProgressReporter? progressReporter = null, CancellationToken cancellationToken = default)
         {
             var startingArgs = new CancelEventArgs();
+            if (!TryBeginRun())
+            {
+                var concurrentError = new InvalidOperationException("This analysis is already running.");
+                OnAnalysisCompleted(new AnalysisRunCompletedEventArgs(wasCanceled: false, succeeded: false, error: concurrentError));
+                throw concurrentError;
+            }
+
+            AnalysisRunCompletedEventArgs? completion = null;
+            try
+            {
             OnAnalysisStarting(startingArgs);
             if (startingArgs.Cancel)
             {
-                OnAnalysisCompleted(new AnalysisRunCompletedEventArgs(wasCanceled: true, succeeded: false, error: null));
-                return;
+                throw new OperationCanceledException("The analysis was canceled by an AnalysisStarting handler.");
             }
+
+            ClearPublishedState();
 
             var (isValid, validationMessages) = Validate();
             if (!isValid)
             {
                 throw new InvalidOperationException(string.Join(Environment.NewLine, validationMessages));
             }
-            if (PinnedSamplerSeeds != null && PinnedSamplerSeeds.ComponentCount != _components.Count)
+            var pinned = CloneSeedMap(PinnedSamplerSeeds);
+            if (pinned != null && pinned.ComponentCount != _authorComponents.Count)
             {
                 throw new InvalidOperationException(
                     "The pinned sampler seed map was captured from a different component count. The seed-stable perturbation mode fits the model shape it was captured from — re-capture from a baseline run of the current structure.");
             }
 
-            var token = ResetCancellationToken(cancellationToken);
-            IsEstimated = false;
-            RiskResults = null;
-            MeanRiskResults = null;
-            MedianRiskResults = null;
-            LowerRiskResults = null;
-            UpperRiskResults = null;
-            _computationWarnings.Clear();
-
-            try
+            var componentSnapshot = new List<SystemComponent>(_authorComponents.Count);
+            for (int i = 0; i < _authorComponents.Count; i++)
             {
+                componentSnapshot.Add(_authorComponents[i].Clone());
+            }
+            var optionsSnapshot = new RiskAnalysisOptions(_authorOptions.ToXElement());
+            optionsSnapshot.SetDefaultComponentCount(componentSnapshot.Count);
+            var declarations = new List<ConsequenceTypeDescriptor>(_additionalConsequenceTypes.Count);
+            for (int i = 0; i < _additionalConsequenceTypes.Count; i++)
+            {
+                declarations.Add(new ConsequenceTypeDescriptor(_additionalConsequenceTypes[i].ToXElement()));
+            }
+            _components = componentSnapshot;
+            _options = optionsSnapshot;
+            _runAdditionalConsequenceTypes = declarations.AsReadOnly();
+            _runSpecifiedConsequence = _specifiedConsequence;
+            _runConsequenceUnit = _consequenceUnit;
+
+            var token = ResetCancellationToken(cancellationToken);
+            AnalysisRunPublication? publication = null;
+
                 await Task.Run(() =>
                 {
-                    if (_options.UseDefaults)
-                    {
-                        _options.SetIntegrationDefaults(_components.Count);
-                    }
-
                     // The content-based seed walk (architecture doc Â§5.5.4): occurrence indices
                     // disambiguate identical-content components, and each component's functions
                     // are seeded from (analysis seed, component hash, occurrence index).
                     SystemComponent.AssignOccurrenceIndices(_components);
-                    var pinned = PinnedSamplerSeeds;
                     var capturedSeeds = new List<int[]>(_components.Count);
                     var contentHashes = new byte[_components.Count][];
                     for (int i = 0; i < _components.Count; i++)
@@ -984,7 +1248,13 @@ namespace RMC.TotalRisk.Analyses
                     // stream identity.
                     var order = new int[_components.Count];
                     for (int i = 0; i < order.Length; i++) order[i] = i;
-                    Array.Sort(order, (a, b) => ByteArrayComparer.Instance.Compare(contentHashes[a], contentHashes[b]));
+                    Array.Sort(order, (a, b) =>
+                    {
+                        int hashComparison = ByteArrayComparer.Instance.Compare(contentHashes[a], contentHashes[b]);
+                        return hashComparison != 0
+                            ? hashComparison
+                            : _components[a].OccurrenceIndex.CompareTo(_components[b].OccurrenceIndex);
+                    });
                     _additiveConvolutionOrder = order;
 
                     int systemSeed = _options.PRNGSeed;
@@ -997,38 +1267,52 @@ namespace RMC.TotalRisk.Analyses
                     // Every run captures its effective seed map (§5.5.8) — the baseline a
                     // perturbation study pins onto its perturbed runs. Capturing an applied map
                     // reproduces it, so capture(apply(map)) is the map itself.
-                    CapturedSamplerSeeds = new SamplerSeedMap(capturedSeeds, _jointSeedBase);
+                    var captured = new SamplerSeedMap(capturedSeeds, _jointSeedBase);
 
                     // The declared per-type consequence thresholds (Phase 6.6): entry k applies
                     // to additional consequence type k at every measure site this run.
-                    _runAdditionalThresholds = new double[_additionalConsequenceTypes.Count];
+                    _runAdditionalThresholds = new double[RunAdditionalConsequenceTypes.Count];
                     for (int i = 0; i < _runAdditionalThresholds.Length; i++)
                     {
-                        _runAdditionalThresholds[i] = _additionalConsequenceTypes[i].ConsequenceThreshold;
+                        _runAdditionalThresholds[i] = RunAdditionalConsequenceTypes[i].ConsequenceThreshold;
                     }
 
                     PrepareJointSystem(token);
 
-                    if (_options.EstimateMeanRiskOnly)
-                    {
-                        RunMeanOnly(progressReporter, token);
-                    }
-                    else
-                    {
-                        RunFullUncertainty(progressReporter, token);
-                    }
+                    publication = _options.EstimateMeanRiskOnly
+                        ? RunMeanOnly(progressReporter, token)
+                        : RunFullUncertainty(progressReporter, token);
+                    publication.CapturedSeeds = captured;
+                    var manifest = AnalysisRunManifest.Create(_options, _components, contentHashes, order,
+                        RunSpecifiedConsequence, RunConsequenceUnit, RunAdditionalConsequenceTypes,
+                        captured);
+                    AttachManifest(publication, manifest);
                 }, token).ConfigureAwait(false);
 
-                IsEstimated = true;
-                OnAnalysisCompleted(new AnalysisRunCompletedEventArgs(wasCanceled: false, succeeded: true, error: null));
+                Publish(publication ?? throw new InvalidOperationException("The analysis completed without a staged result."));
+                completion = new AnalysisRunCompletedEventArgs(wasCanceled: false, succeeded: true, error: null);
             }
             catch (OperationCanceledException)
             {
-                OnAnalysisCompleted(new AnalysisRunCompletedEventArgs(wasCanceled: true, succeeded: false, error: null));
+                completion = new AnalysisRunCompletedEventArgs(wasCanceled: true, succeeded: false, error: null);
+                ClearPublishedState();
+                throw;
             }
             catch (Exception ex)
             {
-                OnAnalysisCompleted(new AnalysisRunCompletedEventArgs(wasCanceled: false, succeeded: false, error: ex));
+                completion = new AnalysisRunCompletedEventArgs(wasCanceled: false, succeeded: false, error: ex);
+                ClearPublishedState();
+                throw;
+        }
+            finally
+            {
+                _components = _authorComponents;
+                _options = _authorOptions;
+                _runAdditionalConsequenceTypes = null;
+                _runSpecifiedConsequence = null;
+                _runConsequenceUnit = null;
+                EndRun();
+                OnAnalysisCompleted(completion ?? new AnalysisRunCompletedEventArgs(wasCanceled: false, succeeded: false, error: new InvalidOperationException("The analysis exited without a completion state.")));
             }
         }
 
@@ -1050,7 +1334,7 @@ namespace RMC.TotalRisk.Analyses
             element.SetAttributeValue(nameof(SpecifiedConsequence), _specifiedConsequence);
             element.SetAttributeValue(nameof(ConsequenceUnit), _consequenceUnit);
             element.SetAttributeValue(nameof(IsEstimated), _isEstimated);
-            element.Add(_options.ToXElement());
+            element.Add(_authorOptions.ToXElement());
             var typesElement = new XElement(nameof(AdditionalConsequenceTypes));
             for (int i = 0; i < _additionalConsequenceTypes.Count; i++)
             {
@@ -1065,6 +1349,87 @@ namespace RMC.TotalRisk.Analyses
         #region Private Helpers â€” Run Paths
 
         /// <summary>
+        /// Clears every publicly visible artifact from a prior or failed run.
+        /// </summary>
+        private void ClearPublishedState()
+        {
+            _riskResults = null;
+            _meanRiskResults = null;
+            _medianRiskResults = null;
+            _lowerRiskResults = null;
+            _upperRiskResults = null;
+            CapturedSamplerSeeds = null;
+            _computationWarnings.Clear();
+            _computationDiagnostics.Clear();
+            IsEstimated = false;
+            RaisePropertyChange(nameof(RiskResults));
+            RaisePropertyChange(nameof(MeanRiskResults));
+            RaisePropertyChange(nameof(MedianRiskResults));
+            RaisePropertyChange(nameof(LowerRiskResults));
+            RaisePropertyChange(nameof(UpperRiskResults));
+            RaisePropertyChange(nameof(ComputationWarnings));
+            RaisePropertyChange(nameof(ComputationDiagnostics));
+        }
+
+        /// <summary>
+        /// Publishes a complete successful run after every computation and invariant has passed.
+        /// All backing references are assigned before any result notification is raised.
+        /// </summary>
+        /// <param name="publication">The staged result envelope.</param>
+        private void Publish(AnalysisRunPublication publication)
+        {
+            _riskResults = publication.Results;
+            _meanRiskResults = publication.Mean;
+            _medianRiskResults = publication.Median;
+            _lowerRiskResults = publication.Lower;
+            _upperRiskResults = publication.Upper;
+            CapturedSamplerSeeds = publication.CapturedSeeds;
+            _computationWarnings.Clear();
+            _computationDiagnostics.Clear();
+            _computationDiagnostics.AddRange(publication.Diagnostics);
+            for (int i = 0; i < publication.Diagnostics.Count; i++)
+            {
+                _computationWarnings.Add(publication.Diagnostics[i].ToLegacyMessage());
+            }
+            IsEstimated = true;
+            RaisePropertyChange(nameof(RiskResults));
+            RaisePropertyChange(nameof(MeanRiskResults));
+            RaisePropertyChange(nameof(MedianRiskResults));
+            RaisePropertyChange(nameof(LowerRiskResults));
+            RaisePropertyChange(nameof(UpperRiskResults));
+            RaisePropertyChange(nameof(ComputationWarnings));
+            RaisePropertyChange(nameof(ComputationDiagnostics));
+        }
+
+        /// <summary>Attaches one immutable manifest to every persisted root in a staged run.</summary>
+        /// <param name="publication">The staged successful run.</param>
+        /// <param name="manifest">The deterministic run manifest.</param>
+        private static void AttachManifest(AnalysisRunPublication publication, AnalysisRunManifest manifest)
+        {
+            publication.Results.Manifest = manifest;
+            if (publication.Mean != null) publication.Mean.Manifest = manifest;
+            if (publication.Median != null) publication.Median.Manifest = manifest;
+            if (publication.Lower != null) publication.Lower.Manifest = manifest;
+            if (publication.Upper != null) publication.Upper.Manifest = manifest;
+        }
+
+        /// <summary>
+        /// Creates an isolated copy of a pinned sampler-seed map.
+        /// </summary>
+        /// <param name="source">The authoring map, or null.</param>
+        /// <returns>The isolated map, or null.</returns>
+        private static SamplerSeedMap? CloneSeedMap(SamplerSeedMap? source)
+        {
+            if (source == null) return null;
+            var components = new List<int[]>(source.ComponentSeeds.Count);
+            for (int i = 0; i < source.ComponentSeeds.Count; i++)
+            {
+                components.Add((int[])source.ComponentSeeds[i].Clone());
+            }
+            return new SamplerSeedMap(components, source.JointSeedBase);
+        }
+
+        /// <summary>
         /// Invalidates the results when any option changes.
         /// </summary>
         /// <param name="sender">The options instance.</param>
@@ -1074,25 +1439,38 @@ namespace RMC.TotalRisk.Analyses
             IsEstimated = false;
         }
 
+        /// <summary>Invalidates results when the mutable consequence declaration axis changes.</summary>
+        /// <param name="sender">The declaration collection.</param>
+        /// <param name="e">The collection change.</param>
+        private void AdditionalConsequenceTypesChanged(object? sender, NotifyCollectionChangedEventArgs e)
+        {
+            IsEstimated = false;
+        }
+
         /// <summary>
         /// The mean-only pass: one realization on the expected input functions (mixture
         /// exposure branches enumerated, never flattened â€” Â§6.4.1), published as the mean
-        /// results and a single-entry summary ensemble.
+        /// results and a single-entry summary ensemble, staged for atomic publication.
         /// </summary>
         /// <param name="progressReporter">The optional progress sink.</param>
         /// <param name="token">The run cancellation token.</param>
-        private void RunMeanOnly(SafeProgressReporter? progressReporter, CancellationToken token)
+        /// <returns>The complete staged run output.</returns>
+        private AnalysisRunPublication RunMeanOnly(SafeProgressReporter? progressReporter, CancellationToken token)
         {
             var flags = new RiskComputeFlags();
             var realization = ComputeRealization(-1, flags, token);
             realization.Name = "Mean";
-            CollectWarnings(flags);
 
-            MeanRiskResults = realization;
             var ensemble = new EnsembleResults(1);
             ensemble[0] = new SystemRiskResults(realization);
-            RiskResults = ensemble;
+            var publication = new AnalysisRunPublication
+            {
+                Results = ensemble,
+                Mean = realization,
+            };
+            CollectDiagnostics(flags, publication.Diagnostics, realization);
             progressReporter?.ReportProgress(100d);
+            return publication;
         }
 
         /// <summary>
@@ -1102,7 +1480,8 @@ namespace RMC.TotalRisk.Analyses
         /// </summary>
         /// <param name="progressReporter">The optional progress sink.</param>
         /// <param name="token">The run cancellation token.</param>
-        private void RunFullUncertainty(SafeProgressReporter? progressReporter, CancellationToken token)
+        /// <returns>The complete staged run output.</returns>
+        private AnalysisRunPublication RunFullUncertainty(SafeProgressReporter? progressReporter, CancellationToken token)
         {
             int realizationCount = _options.Realizations;
             var realizations = new SystemRealization[realizationCount];
@@ -1128,9 +1507,8 @@ namespace RMC.TotalRisk.Analyses
             {
                 mergedFlags.MergeWith(flagsPerRealization[i]);
             }
-            CollectWarnings(mergedFlags);
 
-            PostProcessUncertainty(realizations, token);
+            var percentiles = PostProcessUncertainty(realizations, token);
 
             var ensemble = new EnsembleResults(realizationCount);
             for (int i = 0; i < realizationCount; i++)
@@ -1142,59 +1520,114 @@ namespace RMC.TotalRisk.Analyses
             // curves carry bands through the percentile realizations; the scalar catalog gets
             // its intervals here, reduced from the stored per-realization summaries.
             ensemble.Summary = ensemble.ComputeSummary(_options.ConfidenceIntervalWidth);
-            RiskResults = ensemble;
+            var publication = new AnalysisRunPublication
+            {
+                Results = ensemble,
+                Mean = percentiles.Mean,
+                Median = percentiles.Median,
+                Lower = percentiles.Lower,
+                Upper = percentiles.Upper,
+            };
+            CollectDiagnostics(mergedFlags, publication.Diagnostics, publication.Mean);
+            return publication;
         }
 
         /// <summary>
-        /// Translates the merged computational flags into the run's warning surface.
+        /// Translates merged computational flags into structured diagnostics and validates the
+        /// mean realization's exhaustive mass.
         /// </summary>
         /// <param name="flags">The merged flags.</param>
-        private void CollectWarnings(RiskComputeFlags flags)
+        /// <param name="diagnostics">The staged diagnostic sink.</param>
+        /// <param name="mean">The staged mean realization, or null when unavailable.</param>
+        /// <exception cref="InvalidOperationException">Thrown when a computation diagnostic is an error.</exception>
+        private void CollectDiagnostics(RiskComputeFlags flags, List<ComputationDiagnostic> diagnostics,
+            SystemRealization? mean)
         {
             if (flags.HasNegativeFailureConsequence)
-                _computationWarnings.Add("Warning: Negative failure consequences were computed and set to zero.");
+                diagnostics.Add(new ComputationDiagnostic("TRC1001", DiagnosticSeverity.Warning,
+                    "Negative failure consequences were computed and set to zero.", "/Consequences/Failure"));
             if (flags.HasNegativeNonFailureConsequence)
-                _computationWarnings.Add("Warning: Negative non-failure consequences were computed and set to zero.");
+                diagnostics.Add(new ComputationDiagnostic("TRC1002", DiagnosticSeverity.Warning,
+                    "Negative non-failure consequences were computed and set to zero.", "/Consequences/NonFailure"));
             if (flags.HasNegativeExcessConsequence)
-                _computationWarnings.Add("Warning: Negative excess consequences were computed and set to zero.");
+                diagnostics.Add(new ComputationDiagnostic("TRC1003", DiagnosticSeverity.Warning,
+                    "Negative excess consequences were computed and set to zero.", "/Consequences/Excess"));
             if (flags.HasProbabilityGreaterThanOne)
-                _computationWarnings.Add("Warning: Mutually exclusive failure mode probabilities summed above one and were normalized.");
+                diagnostics.Add(new ComputationDiagnostic("TRC1004", DiagnosticSeverity.Warning,
+                    "Mutually exclusive failure mode probabilities summed above one and were normalized.",
+                    "/Components/FailureModes"));
             if (flags.HasExcessiveTruncatedMass)
-                _computationWarnings.Add($"Error: The joint system's combination enumeration reached the {_options.MaxSystemCombinations:N0}-combination cap and dropped more than {TruncatedCombinationResidualLimit:P1} of the exclusive probability mass onto the all-components-fail combination, which distorts the system tail. Raise MaxSystemCombinations, or model fewer components under the joint method.");
+                diagnostics.Add(new ComputationDiagnostic("TRC1005", DiagnosticSeverity.Error,
+                    $"The joint system's combination enumeration reached the {_options.MaxSystemCombinations:N0}-combination cap and dropped more than {TruncatedCombinationResidualLimit:P1} of the exclusive probability mass onto the all-components-fail combination, which distorts the system tail. Raise MaxSystemCombinations, or model fewer components under the joint method.",
+                    "/System/CombinationEnumeration"));
             else if (flags.HasTruncatedCombinationEnumeration)
-                _computationWarnings.Add($"Warning: The joint system's combination enumeration reached the {_options.MaxSystemCombinations:N0}-combination cap on some evaluations; the deepest combinations were not enumerated and their mass was attributed to the all-components-fail combination. Raise MaxSystemCombinations to enumerate further.");
-            RaisePropertyChange(nameof(ComputationWarnings));
-
-            // Exhaustive mass-balance drift surfaces here instead of a silent clamp (Â§7.7).
-            var mean = _meanRiskResults ?? null;
+                diagnostics.Add(new ComputationDiagnostic("TRC1006", DiagnosticSeverity.Warning,
+                    $"The joint system's combination enumeration reached the {_options.MaxSystemCombinations:N0}-combination cap on some evaluations; the deepest combinations were not enumerated and their mass was attributed to the all-components-fail combination. Raise MaxSystemCombinations to enumerate further.",
+                    "/System/CombinationEnumeration"));
             if (mean != null)
             {
                 CheckMassBalance(mean);
             }
+            for (int i = 0; i < diagnostics.Count; i++)
+            {
+                if (diagnostics[i].Severity == DiagnosticSeverity.Error)
+                {
+                    throw new InvalidOperationException(diagnostics[i].ToLegacyMessage());
+                }
+            }
         }
 
         /// <summary>
-        /// Raises a warning when an exhaustive curve's recorded mass drifted more than 1e-6 from
-        /// one (the silent v1.0 clamp made leaks invisible), on every consequence type.
-        /// Reliability mode skips the check â€” a consequence-free model's total stream is
-        /// degenerate at zero consequence by design, so its recorded mass measures the failure
-        /// probability, not a leak.
+        /// Enforces exact unit mass on every populated exhaustive Total stream, including
+        /// reliability-mode zero-consequence streams and every declared consequence type.
         /// </summary>
         /// <param name="realization">The realization to inspect.</param>
         private void CheckMassBalance(SystemRealization realization)
         {
-            if (_options.Mode == RiskAnalysisMode.Reliability) return;
-            if (realization.Curves.Total.LECConsequences.Length > 0 && Math.Abs(realization.Curves.Total.MassBalance - 1d) > 1e-6)
-            {
-                _computationWarnings.Add($"Warning: The total risk curve's recorded probability mass was {realization.Curves.Total.MassBalance:G6} instead of 1.");
-            }
+            ValidateTotalMass(realization.Curves.Total, "System/Total", required: true);
             for (int k = 0; k < realization.AdditionalCurves.Count; k++)
             {
-                var total = realization.AdditionalCurves[k].Total;
-                if (total.LECConsequences.Length > 0 && Math.Abs(total.MassBalance - 1d) > 1e-6)
+                ValidateTotalMass(realization.AdditionalCurves[k].Total, $"System/Consequence[{k + 1}]/Total", required: true);
+            }
+
+            for (int i = 0; i < realization.Components.Count; i++)
+            {
+                var component = realization.Components[i];
+                ValidateTotalMass(component.Curves.Total, $"Component[{i}]/Total", required: true);
+                for (int k = 0; k < component.AdditionalCurves.Count; k++)
                 {
-                    _computationWarnings.Add($"Warning: The total risk curve's recorded probability mass for consequence type {k + 1} was {total.MassBalance:G6} instead of 1.");
+                    ValidateTotalMass(component.AdditionalCurves[k].Total, $"Component[{i}]/Consequence[{k + 1}]/Total", required: true);
                 }
+                for (int j = 0; j < component.FailureModes.Count; j++)
+                {
+                    var failureMode = component.FailureModes[j];
+                    ValidateTotalMass(failureMode.Curves.Total, $"Component[{i}]/FailureMode[{j}]/Total", required: false);
+                    for (int k = 0; k < failureMode.AdditionalCurves.Count; k++)
+                    {
+                        ValidateTotalMass(failureMode.AdditionalCurves[k].Total,
+                            $"Component[{i}]/FailureMode[{j}]/Consequence[{k + 1}]/Total", required: false);
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Validates one exhaustive Total stream.
+        /// </summary>
+        /// <param name="total">The Total curve.</param>
+        /// <param name="path">The diagnostic object path.</param>
+        /// <param name="required">Whether an empty stream is an error.</param>
+        /// <exception cref="InvalidOperationException">Thrown when the stream violates exhaustive mass.</exception>
+        private static void ValidateTotalMass(Curve total, string path, bool required)
+        {
+            if (total.LECConsequences.Length == 0)
+            {
+                if (required) throw new InvalidOperationException($"The exhaustive stream '{path}' has no recorded distribution.");
+                return;
+            }
+            if (!double.IsFinite(total.MassBalance) || total.MassBalance != 1d || total.TotalProbability != 1d)
+            {
+                throw new InvalidOperationException($"The exhaustive stream '{path}' carries recorded mass {total.MassBalance:R} and published probability {total.TotalProbability:R} instead of exactly one.");
             }
         }
 
@@ -1345,7 +1778,7 @@ namespace RMC.TotalRisk.Analyses
             {
                 throw new ArgumentOutOfRangeException(nameof(realizations), "The sensitivity design needs at least three realizations.");
             }
-            if (consequenceType < 0 || consequenceType > _additionalConsequenceTypes.Count)
+            if (consequenceType < 0 || consequenceType > RunAdditionalConsequenceTypes.Count)
             {
                 throw new ArgumentOutOfRangeException(nameof(consequenceType), "The consequence-type position is not declared.");
             }
@@ -1432,7 +1865,7 @@ namespace RMC.TotalRisk.Analyses
             {
                 throw new ArgumentException("Failure-mode summaries carry the Excess and Fail streams only.", nameof(riskType));
             }
-            if (consequenceType < 0 || consequenceType > _additionalConsequenceTypes.Count)
+            if (consequenceType < 0 || consequenceType > RunAdditionalConsequenceTypes.Count)
             {
                 throw new ArgumentOutOfRangeException(nameof(consequenceType), "The consequence-type position is not declared.");
             }
@@ -1677,7 +2110,7 @@ namespace RMC.TotalRisk.Analyses
             for (int i = 0; i < _components.Count; i++)
             {
                 token.ThrowIfCancellationRequested();
-                var ledger = IntegrateComponent(sampledComponents[i], componentRealizations[i], realization, flags, realizationIndex);
+                using var ledger = IntegrateComponent(sampledComponents[i], componentRealizations[i], realization, flags, realizationIndex);
                 componentRealizations[i].ApplyRecordedMass(ledger);
                 componentRealizations[i].FinalizeContributions(ledger);
                 componentRealizations[i].CreateCurves(_options.LECOutputLength);
@@ -1754,10 +2187,10 @@ namespace RMC.TotalRisk.Analyses
             var failureProbabilities = new double[componentRealizations.Count];
             for (int i = 0; i < componentRealizations.Count; i++)
             {
-                failureProbabilities[i] = componentRealizations[order[i]].Curves.Fail.TotalProbability;
+                failureProbabilities[i] = Tools.Clamp(componentRealizations[order[i]].Curves.Fail.TotalProbability, 0d, 1d);
             }
-            double failureUnion = Probability.IndependentUnion(failureProbabilities);
-            double nonFailureComplement = Math.Max(0d, 1d - failureUnion);
+            double failureUnion = Tools.Clamp(Probability.IndependentUnion(failureProbabilities), 0d, 1d);
+            double nonFailureComplement = Tools.Clamp(1d - failureUnion, 0d, 1d);
             realization.Curves.Fail.TotalProbability = failureUnion;
             realization.Curves.Excess.TotalProbability = failureUnion;
             realization.Curves.NonFail.TotalProbability = nonFailureComplement;
@@ -1920,7 +2353,14 @@ namespace RMC.TotalRisk.Analyses
             }
 
             var (pmf, step) = SystemConvolution.Convolve(componentPairs, _options.SystemConvolutionPoints);
-            if (step <= 0d) return;
+            if (step <= 0d)
+            {
+                if (target.IsExhaustive)
+                {
+                    target.CreateCurve(new[] { (Mass: 1d, Consequence: 0d) }, _options.LECOutputLength);
+                }
+                return;
+            }
 
             var pairs = new List<(double Mass, double Consequence)>(pmf.Length);
             for (int k = target.IsExhaustive ? 0 : 1; k < pmf.Length; k++)
@@ -1965,43 +2405,82 @@ namespace RMC.TotalRisk.Analyses
             // One stratification build serves the balanced-objective scales and the integrator
             // seeding alike (the probes run before the integrator touches the list).
             var bins = BuildStratificationBins(sampled, flags);
+            var (lowerProbability, upperProbability) = ProbabilitySupport(bins);
             var objective = BuildObjective(sampled, componentRealization, flags, bins);
             bool ensemble = realizationIndex >= 0;
-            var ledger = new QuadratureMassLedger();
-            var integrator = new AdaptiveGaussKronrod(objective, ProbabilityFloor, 1d - ProbabilityFloor)
+            int expectedNodes = Math.Min(_options.MaxEvaluations + 2, Math.Max(256, _options.LECOutputLength * 16));
+            var ledger = new QuadratureMassLedger(expectedNodes);
+
+            int interiorEvaluations = 0;
+            double standardError = 0d;
+            if (upperProbability > lowerProbability)
             {
-                ReportFailure = false,
-                MaxFunctionEvaluations = _options.MaxEvaluations,
-                MaxDepth = _options.MaxDepth,
-                RelativeTolerance = ensemble ? _options.EnsembleTolerance : _options.Tolerance,
-                MinDepth = ensemble ? _options.EnsembleMinDepth : 2,
-                Recorder = ledger.Record,
-            };
-            integrator.Integrate(bins);
-            if (integrator.Status == IntegrationStatus.Failure)
-            {
-                throw new InvalidOperationException($"The risk integration failed for system component '{sampled.Name}': an integrand evaluation threw and the recorded curves are incomplete. The analysis cannot publish results for this run.");
+                var integrator = new AdaptiveGaussKronrod(objective, lowerProbability, upperProbability)
+                {
+                    ReportFailure = false,
+                    MaxFunctionEvaluations = _options.MaxEvaluations,
+                    MaxDepth = _options.MaxDepth,
+                    RelativeTolerance = ensemble ? _options.EnsembleTolerance : _options.Tolerance,
+                    MinDepth = ensemble ? _options.EnsembleMinDepth : 2,
+                    Recorder = ledger.Record,
+                };
+                integrator.Integrate(bins);
+                if (integrator.Status == IntegrationStatus.Failure)
+                {
+
+                    throw new InvalidOperationException($"The risk integration failed for system component '{sampled.Name}': an integrand evaluation threw and the recorded curves are incomplete. The analysis cannot publish results for this run.");
+                }
+                interiorEvaluations = integrator.FunctionEvaluations;
+                standardError = integrator.StandardError;
             }
 
-            realization.FunctionEvaluations += integrator.FunctionEvaluations;
-            realization.StandardError += integrator.StandardError / _components.Count;
-
-            ledger.Seal();
-
-            // The accepted intervals partition the integrated region exactly, so their weights sum
-            // to the total width of the stratification bins. A double-counted interval would
-            // overshoot by that interval's width, which is macroscopic rather than a rounding
-            // difference.
-            double binWidth = 0d;
-            for (int i = 0; i < bins.Count; i++)
-            {
-                binWidth += bins[i].UpperBound - bins[i].LowerBound;
-            }
-            if (Math.Abs(ledger.TotalWeight - binWidth) > 1e-9 * Math.Max(binWidth, 1e-12))
+            double expectedInteriorMass = upperProbability - lowerProbability;
+            double recordedInteriorMass = ledger.RunningTotalWeight;
+            if (Math.Abs(recordedInteriorMass - expectedInteriorMass) > 1e-9 * Math.Max(expectedInteriorMass, 1e-12))
             {
                 throw new InvalidOperationException(
-                    $"The quadrature weights recorded for system component '{sampled.Name}' sum to {ledger.TotalWeight:R} instead of the integrated width {binWidth:R}. The recorded risk-point set cannot be trusted.");
+                    $"The interior quadrature weights recorded for system component '{sampled.Name}' sum to {recordedInteriorMass:R} instead of the natural support width {expectedInteriorMass:R}. The recorded risk-point set cannot be trusted.");
             }
+
+            // Appendix D's K + 2 construction: the finite-support tails are endpoint rectangles,
+            // not stretched adaptive panels. The final upper mass is the exact residual after the
+            // lower rectangle and accepted interior weights, so the ledger itself is exhaustive.
+            int endpointEvaluations = 0;
+            bool lowerEvaluated = false;
+            double lowerValue = 0d;
+            if (lowerProbability > 0d)
+            {
+                lowerValue = objective(lowerProbability);
+                lowerEvaluated = true;
+                endpointEvaluations++;
+                ledger.Record(lowerProbability, lowerProbability, lowerValue);
+            }
+
+            double expectedUpperMass = 1d - upperProbability;
+            if (expectedUpperMass > 0d)
+            {
+                double upperMass = 1d - ledger.RunningTotalWeight;
+                if (Math.Abs(upperMass - expectedUpperMass) > 1e-12)
+                {
+                    throw new InvalidOperationException(
+                        $"The upper endpoint mass for system component '{sampled.Name}' is {upperMass:R} instead of {expectedUpperMass:R}. The exhaustive probability budget cannot be trusted.");
+                }
+
+                double upperValue;
+                if (lowerEvaluated && upperProbability == lowerProbability)
+                {
+                    upperValue = lowerValue;
+                }
+                else
+                {
+                    upperValue = objective(upperProbability);
+                    endpointEvaluations++;
+                }
+                ledger.Record(upperProbability, upperMass, upperValue);
+            }
+            ledger.SealExhaustive();
+            realization.FunctionEvaluations += interiorEvaluations + endpointEvaluations;
+            realization.StandardError += standardError / _components.Count;
             return ledger;
         }
 
@@ -2018,7 +2497,7 @@ namespace RMC.TotalRisk.Analyses
         /// <summary>
         /// Builds the integrand for the selected refinement objective (architecture doc Â§7.7).
         /// Every evaluation computes and records the full component risk regardless of the
-        /// objective â€” the objective changes only where the adaptive refinement concentrates.
+        /// objective — the objective changes only where the adaptive refinement concentrates.
         /// </summary>
         /// <param name="sampled">The sampled component.</param>
         /// <param name="componentRealization">The component's realization sink.</param>
@@ -2192,28 +2671,43 @@ namespace RMC.TotalRisk.Analyses
         {
             var bins = Stratify.XValues(new StratificationOptions(
                 sampled.Hazard.InverseCDF(ProbabilityFloor), sampled.Hazard.InverseCDF(1d - ProbabilityFloor), HazardBinCount), true);
-            var probabilityBins = Stratify.XToProbability(bins, sampled.Hazard.CDF, false);
+            return Stratify.XToProbability(bins, sampled.Hazard.CDF, false);
+        }
 
-            // Extend the end bins to the integration domain. A hazard defined over a finite table
-            // reaches neither zero nor one, so mapping its support back through the CDF leaves
-            // slivers at both ends uncovered — for a table spanning [0.001, 0.999] that is 0.2% of
-            // the probability mass, and it sits at the extremes where the consequences are
-            // largest. Beyond the support the sampled hazard is constant at its end value, so the
-            // slivers integrate correctly at the end bins' own integrand.
-            if (probabilityBins.Count > 0)
+        /// <summary>
+        /// Reads and validates the natural probability support spanned by a stratification.
+        /// </summary>
+        /// <param name="bins">The ordered probability-space bins.</param>
+        /// <returns>The inclusive lower and upper probability bounds.</returns>
+        /// <exception cref="InvalidOperationException">
+        /// Thrown when the bins are empty, non-finite, outside [0, 1], or reverse direction.
+        /// </exception>
+        private static (double Lower, double Upper) ProbabilitySupport(IReadOnlyList<StratificationBin> bins)
+        {
+            if (bins == null || bins.Count == 0)
             {
-                var first = probabilityBins[0];
-                if (first.LowerBound > ProbabilityFloor)
-                {
-                    probabilityBins[0] = new StratificationBin(ProbabilityFloor, first.UpperBound);
-                }
-                var last = probabilityBins[probabilityBins.Count - 1];
-                if (last.UpperBound < 1d - ProbabilityFloor)
-                {
-                    probabilityBins[probabilityBins.Count - 1] = new StratificationBin(last.LowerBound, 1d - ProbabilityFloor);
-                }
+                throw new InvalidOperationException("The sampled hazard produced no probability-space stratification bins.");
             }
-            return probabilityBins;
+
+            double lower = bins[0].LowerBound;
+            double upper = bins[bins.Count - 1].UpperBound;
+            if (!double.IsFinite(lower) || !double.IsFinite(upper) || lower < 0d || upper > 1d || upper < lower)
+            {
+                throw new InvalidOperationException($"The sampled hazard probability support [{lower:R}, {upper:R}] is invalid.");
+            }
+
+            double previousUpper = lower;
+            for (int i = 0; i < bins.Count; i++)
+            {
+                if (!double.IsFinite(bins[i].LowerBound) || !double.IsFinite(bins[i].UpperBound)
+                    || bins[i].LowerBound < lower || bins[i].UpperBound > upper
+                    || bins[i].UpperBound < bins[i].LowerBound || bins[i].LowerBound < previousUpper)
+                {
+                    throw new InvalidOperationException($"Probability stratification bin {i} is invalid or out of order.");
+                }
+                previousUpper = bins[i].UpperBound;
+            }
+            return (lower, upper);
         }
 
         /// <summary>
@@ -2349,22 +2843,53 @@ namespace RMC.TotalRisk.Analyses
             var sampled = component.Sample(-1);
             var scratch = new ComponentRealization(sampled.FailureModeCount);
             var flags = new RiskComputeFlags();
-            var integrator = new AdaptiveGaussKronrod(
-                p => sampled.ComputeRisk(p, sampled.Hazard.InverseCDF(p), flags, scratch).ProbabilityOfFailure,
-                ProbabilityFloor, 1d - ProbabilityFloor)
+            var bins = BuildHazardBins(sampled);
+            var (lowerProbability, upperProbability) = ProbabilitySupport(bins);
+            double FailureProbability(double probability)
             {
-                ReportFailure = false,
-                MaxFunctionEvaluations = _options.MaxEvaluations,
-                MaxDepth = _options.MaxDepth,
-                RelativeTolerance = _options.Tolerance,
-                MinDepth = 2,
-            };
-            integrator.Integrate(BuildHazardBins(sampled));
-            if (integrator.Status == IntegrationStatus.Failure)
-            {
-                throw new InvalidOperationException($"The failure-probability probe failed for system component '{sampled.Name}': an integrand evaluation threw, so the tail-focus target cannot be derived.");
+                return Tools.Clamp(sampled.ComputeRisk(probability, sampled.Hazard.InverseCDF(probability), flags, scratch).ProbabilityOfFailure, 0d, 1d);
             }
-            return Tools.Clamp(integrator.Result, 0d, 1d);
+
+            double result = 0d;
+            if (upperProbability > lowerProbability)
+            {
+                var integrator = new AdaptiveGaussKronrod(FailureProbability, lowerProbability, upperProbability)
+                {
+                    ReportFailure = false,
+                    MaxFunctionEvaluations = _options.MaxEvaluations,
+                    MaxDepth = _options.MaxDepth,
+                    RelativeTolerance = _options.Tolerance,
+                    MinDepth = 2,
+                };
+                integrator.Integrate(bins);
+                if (integrator.Status == IntegrationStatus.Failure)
+                {
+                    throw new InvalidOperationException($"The failure-probability probe failed for system component '{sampled.Name}': an integrand evaluation threw, so the tail-focus target cannot be derived.");
+                }
+                result = integrator.Result;
+            }
+
+            bool lowerEvaluated = false;
+            double lowerValue = 0d;
+            if (lowerProbability > 0d)
+            {
+                lowerValue = FailureProbability(lowerProbability);
+                lowerEvaluated = true;
+                result += lowerProbability * lowerValue;
+            }
+            double upperMass = Tools.Clamp(1d - upperProbability, 0d, 1d);
+            if (upperMass > 0d)
+            {
+                double upperValue = lowerEvaluated && upperProbability == lowerProbability
+                    ? lowerValue
+                    : FailureProbability(upperProbability);
+                result += upperMass * upperValue;
+            }
+            if (!double.IsFinite(result) || result < -1e-12 || result > 1d + 1e-12)
+            {
+                throw new InvalidOperationException($"The failure-probability probe produced the invalid exhaustive result {result:R} for system component '{sampled.Name}'.");
+            }
+            return Tools.Clamp(result, 0d, 1d);
         }
 
         /// <summary>
@@ -2533,7 +3058,7 @@ namespace RMC.TotalRisk.Analyses
                         outputs[i] = sampledComponents[i].ComputeRisk(weight, hazardLevels[i], flags, componentRealizations[i], recording);
                         outputsByType[i][0] = outputs[i];
                     }
-                    failureProbabilities[i] = outputs[i].ProbabilityOfFailure;
+                    failureProbabilities[i] = Tools.Clamp(outputs[i].ProbabilityOfFailure, 0d, 1d);
                     nonFailureValuesByType[0][i] = outputs[i].NonFailureConsequences;
                     for (int k = 1; k < (recordSecondary ? typeCount : 1); k++)
                     {
@@ -2575,7 +3100,7 @@ namespace RMC.TotalRisk.Analyses
                     double emitted = 0d;
                     for (int c = 0; c < exclusiveProbabilities.Count - 1; c++) emitted += exclusiveProbabilities[c];
                     cappedEvaluations++;
-                    cappedResidual += Math.Max(0d, 1d - emitted);
+                    cappedResidual += Tools.Clamp(1d - emitted, 0d, 1d);
                 }
 
                 double expectedFailure = 0d;
@@ -2583,7 +3108,7 @@ namespace RMC.TotalRisk.Analyses
                 double secondaryDiscard = 0d;
                 for (int c = 0; c < exclusiveIndicators.Count; c++)
                 {
-                    double combinationProbability = exclusiveProbabilities[c];
+                    double combinationProbability = Tools.Clamp(exclusiveProbabilities[c], 0d, 1d);
                     if (combinationProbability <= 0d) continue;
                     var combination = exclusiveIndicators[c];
 
@@ -2877,7 +3402,7 @@ namespace RMC.TotalRisk.Analyses
 
                 if (tupleWeight > 0d)
                 {
-                    double entryProbability = combinationProbability * tupleWeight;
+                    double entryProbability = Tools.Clamp(combinationProbability * tupleWeight, 0d, 1d);
                     expectedFailure += entryProbability * combinedFailure;
                     if (recording)
                     {
@@ -3027,10 +3552,14 @@ namespace RMC.TotalRisk.Analyses
         /// </summary>
         /// <param name="realizations">The realization ensemble.</param>
         /// <param name="token">The run cancellation token.</param>
-        private void PostProcessUncertainty(SystemRealization[] realizations, CancellationToken token)
+        /// <returns>
+        /// The staged lower, upper, median, and mean realizations; null entries when no valid
+        /// percentile grid can be formed.
+        /// </returns>
+        private (SystemRealization? Lower, SystemRealization? Upper, SystemRealization? Median, SystemRealization? Mean) PostProcessUncertainty(SystemRealization[] realizations, CancellationToken token)
         {
             int realizationCount = realizations.Length;
-            if (realizationCount == 0) return;
+            if (realizationCount == 0) return (null, null, null, null);
             int componentCount = _components.Count;
             int additionalTypes = realizations[0].AdditionalCurves.Count;
             double tail = (1d - _options.ConfidenceIntervalWidth) / 2d;
@@ -3067,7 +3596,8 @@ namespace RMC.TotalRisk.Analyses
                     maxH[d] = Math.Max(maxH[d], realizations[i].MaxH[d]);
                 }
             }
-            if (!(maxN > minN) || double.IsInfinity(minN) || double.IsInfinity(maxN)) return;
+            if (minN == double.MaxValue || maxN == double.MinValue
+                || !double.IsFinite(minN) || !double.IsFinite(maxN)) return (null, null, null, null);
 
             var lower = CreatePercentileRealization("Lower", componentCount, additionalTypes, realizations[0]);
             var upper = CreatePercentileRealization("Upper", componentCount, additionalTypes, realizations[0]);
@@ -3078,14 +3608,15 @@ namespace RMC.TotalRisk.Analyses
             // The shared consequence grid, descending (v1.0 orientation), per consequence type â€”
             // types live on their own magnitude scales.
             double gridMin = minN < 1d ? 0d : minN;
-            var consequenceGrid = BuildDescendingGrid(gridMin, maxN, _options.LECOutputLength);
+            var consequenceGrid = maxN > gridMin ? RiskPercentileAssembler.BuildDescendingGrid(gridMin, maxN, _options.LECOutputLength)
+                : new[] { maxN };
 
             // System and component LEC percentile curves for the five risk types, primary type.
-            AssembleLecPercentiles(realizations, r => r.Curves, c => targets[c].Curves, consequenceGrid, tail, token);
+            RiskPercentileAssembler.AssembleLecPercentiles(realizations, r => r.Curves, c => targets[c].Curves, consequenceGrid, tail, token);
             for (int d = 0; d < componentCount; d++)
             {
                 int componentIndex = d;
-                AssembleLecPercentiles(realizations,
+                RiskPercentileAssembler.AssembleLecPercentiles(realizations,
                     r => r.Components[componentIndex].Curves,
                     c => targets[c].Components[componentIndex].Curves,
                     consequenceGrid, tail, token);
@@ -3094,7 +3625,7 @@ namespace RMC.TotalRisk.Analyses
                 for (int m = 0; m < modeCount; m++)
                 {
                     int modeIndex = m;
-                    AssembleLecPercentiles(realizations,
+                    RiskPercentileAssembler.AssembleLecPercentiles(realizations,
                         r => r.Components[componentIndex].FailureModes[modeIndex].Curves,
                         c => targets[c].Components[componentIndex].FailureModes[modeIndex].Curves,
                         consequenceGrid, tail, token);
@@ -3104,13 +3635,13 @@ namespace RMC.TotalRisk.Analyses
                 // type (the hazard grid is type-independent).
                 if (maxH[d] > minH[d])
                 {
-                    var hazardGrid = BuildDescendingGrid(minH[d], maxH[d], _options.LECOutputLength);
-                    AssembleProfilePercentiles(realizations, componentIndex, c => c.Curves, hazardGrid, tail, targets,
+                    var hazardGrid = RiskPercentileAssembler.BuildDescendingGrid(minH[d], maxH[d], _options.LECOutputLength);
+                    RiskPercentileAssembler.AssembleProfilePercentiles(realizations, componentIndex, c => c.Curves, hazardGrid, tail, targets,
                         primaryType: true, _options.LECOutputLength, token);
                     for (int k = 0; k < additionalTypes; k++)
                     {
                         int typeIndex = k;
-                        AssembleProfilePercentiles(realizations, componentIndex, c => c.AdditionalCurves[typeIndex], hazardGrid, tail, targets,
+                        RiskPercentileAssembler.AssembleProfilePercentiles(realizations, componentIndex, c => c.AdditionalCurves[typeIndex], hazardGrid, tail, targets,
                             primaryType: false, _options.LECOutputLength, token);
                     }
                 }
@@ -3120,18 +3651,19 @@ namespace RMC.TotalRisk.Analyses
             for (int k = 0; k < additionalTypes; k++)
             {
                 int typeIndex = k;
-                if (!(additionalMaxN[k] > additionalMinN[k]) || double.IsInfinity(additionalMinN[k]) || double.IsInfinity(additionalMaxN[k]))
+                if (!double.IsFinite(additionalMinN[k]) || !double.IsFinite(additionalMaxN[k]))
                 {
                     continue;
                 }
                 double typeGridMin = additionalMinN[k] < 1d ? 0d : additionalMinN[k];
-                var typeGrid = BuildDescendingGrid(typeGridMin, additionalMaxN[k], _options.LECOutputLength);
+                var typeGrid = additionalMaxN[k] > typeGridMin ? RiskPercentileAssembler.BuildDescendingGrid(typeGridMin, additionalMaxN[k], _options.LECOutputLength)
+                    : new[] { additionalMaxN[k] };
 
-                AssembleLecPercentiles(realizations, r => r.AdditionalCurves[typeIndex], c => targets[c].AdditionalCurves[typeIndex], typeGrid, tail, token);
+                RiskPercentileAssembler.AssembleLecPercentiles(realizations, r => r.AdditionalCurves[typeIndex], c => targets[c].AdditionalCurves[typeIndex], typeGrid, tail, token);
                 for (int d = 0; d < componentCount; d++)
                 {
                     int componentIndex = d;
-                    AssembleLecPercentiles(realizations,
+                    RiskPercentileAssembler.AssembleLecPercentiles(realizations,
                         r => r.Components[componentIndex].AdditionalCurves[typeIndex],
                         c => targets[c].Components[componentIndex].AdditionalCurves[typeIndex],
                         typeGrid, tail, token);
@@ -3140,7 +3672,7 @@ namespace RMC.TotalRisk.Analyses
                     for (int m = 0; m < modeCount; m++)
                     {
                         int modeIndex = m;
-                        AssembleLecPercentiles(realizations,
+                        RiskPercentileAssembler.AssembleLecPercentiles(realizations,
                             r => r.Components[componentIndex].FailureModes[modeIndex].AdditionalCurves[typeIndex],
                             c => targets[c].Components[componentIndex].FailureModes[modeIndex].AdditionalCurves[typeIndex],
                             typeGrid, tail, token);
@@ -3148,10 +3680,7 @@ namespace RMC.TotalRisk.Analyses
                 }
             }
 
-            LowerRiskResults = lower;
-            UpperRiskResults = upper;
-            MedianRiskResults = median;
-            MeanRiskResults = mean;
+            return (lower, upper, median, mean);
         }
 
         /// <summary>
@@ -3200,13 +3729,13 @@ namespace RMC.TotalRisk.Analyses
             {
                 if (k == 0)
                 {
-                    realization.ConsequenceLabels.Add(_specifiedConsequence);
-                    realization.ConsequenceUnits.Add(_consequenceUnit);
+                    realization.ConsequenceLabels.Add(RunSpecifiedConsequence);
+                    realization.ConsequenceUnits.Add(RunConsequenceUnit);
                 }
-                else if (k - 1 < _additionalConsequenceTypes.Count)
+                else if (k - 1 < RunAdditionalConsequenceTypes.Count)
                 {
-                    realization.ConsequenceLabels.Add(_additionalConsequenceTypes[k - 1].SpecifiedConsequence);
-                    realization.ConsequenceUnits.Add(_additionalConsequenceTypes[k - 1].ConsequenceUnit);
+                    realization.ConsequenceLabels.Add(RunAdditionalConsequenceTypes[k - 1].SpecifiedConsequence);
+                    realization.ConsequenceUnits.Add(RunAdditionalConsequenceTypes[k - 1].ConsequenceUnit);
                 }
                 else
                 {
@@ -3251,245 +3780,6 @@ namespace RMC.TotalRisk.Analyses
         {
             var thresholds = _runAdditionalThresholds;
             return thresholds != null && typeIndex < thresholds.Length ? thresholds[typeIndex] : double.NaN;
-        }
-
-        /// <summary>
-        /// Builds a descending linear grid over [minimum, maximum] with the given ordinate count.
-        /// </summary>
-        /// <param name="minimum">The grid minimum.</param>
-        /// <param name="maximum">The grid maximum.</param>
-        /// <param name="count">The ordinate count (at least two).</param>
-        /// <returns>The descending grid.</returns>
-        /// <remarks>
-        /// Not <c>Tools.Sequence</c>: that form accumulates its step and derives its length from
-        /// it, where the percentile assembly needs exactly <paramref name="count"/> ordinates.
-        /// </remarks>
-        private static double[] BuildDescendingGrid(double minimum, double maximum, int count)
-        {
-            var grid = new double[count];
-            double step = (maximum - minimum) / (count - 1);
-            for (int i = 0; i < count; i++)
-            {
-                grid[i] = maximum - i * step;
-            }
-            return grid;
-        }
-
-        /// <summary>
-        /// Assembles the five risk-type LEC percentile curves onto the target curve sets: at
-        /// each grid consequence, the realizations' exceedance probabilities are interpolated
-        /// (log-log â€” v1.0 behavior), sorted for the percentile levels, and summed sequentially
-        /// for the mean.
-        /// </summary>
-        /// <param name="realizations">The realization ensemble.</param>
-        /// <param name="source">Selects the source curve set from a realization.</param>
-        /// <param name="target">Selects the target curve set by percentile slot (0 lower, 1 upper, 2 median, 3 mean).</param>
-        /// <param name="consequenceGrid">The shared descending consequence grid.</param>
-        /// <param name="tail">The percentile tail level, (1 âˆ’ width)/2.</param>
-        /// <param name="token">The run cancellation token.</param>
-        private static void AssembleLecPercentiles(SystemRealization[] realizations,
-            Func<SystemRealization, Curves> source, Func<int, Curves> target,
-            double[] consequenceGrid, double tail, CancellationToken token)
-        {
-            AssemblePercentileCurve(realizations, r => { var c = source(r).Excess; return (c.LECConsequences, c.LECProbabilities); }, consequenceGrid, tail, token,
-                (slot, x, y) => { target(slot).Excess.LECConsequences = x; target(slot).Excess.LECProbabilities = y; });
-            AssemblePercentileCurve(realizations, r => { var c = source(r).Background; return (c.LECConsequences, c.LECProbabilities); }, consequenceGrid, tail, token,
-                (slot, x, y) => { target(slot).Background.LECConsequences = x; target(slot).Background.LECProbabilities = y; });
-            AssemblePercentileCurve(realizations, r => { var c = source(r).Total; return (c.LECConsequences, c.LECProbabilities); }, consequenceGrid, tail, token,
-                (slot, x, y) => { target(slot).Total.LECConsequences = x; target(slot).Total.LECProbabilities = y; });
-            AssemblePercentileCurve(realizations, r => { var c = source(r).Fail; return (c.LECConsequences, c.LECProbabilities); }, consequenceGrid, tail, token,
-                (slot, x, y) => { target(slot).Fail.LECConsequences = x; target(slot).Fail.LECProbabilities = y; });
-            AssemblePercentileCurve(realizations, r => { var c = source(r).NonFail; return (c.LECConsequences, c.LECProbabilities); }, consequenceGrid, tail, token,
-                (slot, x, y) => { target(slot).NonFail.LECConsequences = x; target(slot).NonFail.LECProbabilities = y; });
-        }
-
-        /// <summary>
-        /// Assembles one percentile curve family: each realization merge-walks the shared
-        /// descending grid once with the monotone-cursor log-log interpolator
-        /// (<see cref="Curve.InterpolateLogLogDescending"/> â€” bit-identical to the per-query
-        /// Numerics interpolation it replaces, O(n + m) per realization instead of a binary
-        /// search per ordinate, in parallel over realizations); then per grid ordinate
-        /// (parallel, index-owned) the values are compacted in realization order, summed
-        /// sequentially for the mean, and sorted for the lower/upper/median levels.
-        /// Realizations whose source curve is empty are skipped, and an all-empty family leaves
-        /// the targets empty.
-        /// </summary>
-        /// <param name="realizations">The realization ensemble.</param>
-        /// <param name="curve">Selects the source curve's serialized arrays from a realization (X descending).</param>
-        /// <param name="grid">The descending X grid.</param>
-        /// <param name="tail">The percentile tail level.</param>
-        /// <param name="token">The run cancellation token.</param>
-        /// <param name="assign">Assigns the assembled arrays per percentile slot (0 lower, 1 upper, 2 median, 3 mean).</param>
-        private static void AssemblePercentileCurve(SystemRealization[] realizations,
-            Func<SystemRealization, (double[] Xs, double[] Ys)> curve, double[] grid, double tail, CancellationToken token,
-            Action<int, double[], double[]> assign)
-        {
-            int realizationCount = realizations.Length;
-            bool anySource = false;
-            for (int i = 0; i < realizationCount; i++)
-            {
-                if (curve(realizations[i]).Xs.Length > 1)
-                {
-                    anySource = true;
-                    break;
-                }
-            }
-            if (!anySource) return;
-
-            // Transposed fill: values[ordinate][realization], NaN marking skipped realizations.
-            var values = new double[grid.Length][];
-            for (int g = 0; g < grid.Length; g++)
-            {
-                values[g] = new double[realizationCount];
-            }
-            Parallel.For(0, realizationCount, new ParallelOptions { CancellationToken = token }, r =>
-            {
-                var (xs, ys) = curve(realizations[r]);
-                if (xs.Length < 2)
-                {
-                    for (int g = 0; g < grid.Length; g++)
-                    {
-                        values[g][r] = double.NaN;
-                    }
-                    return;
-                }
-                int cursor = 1;
-                for (int g = 0; g < grid.Length; g++)
-                {
-                    values[g][r] = Curve.InterpolateLogLogDescending(xs, ys, grid[g], ref cursor);
-                }
-            });
-
-            var lowerValues = new double[grid.Length];
-            var upperValues = new double[grid.Length];
-            var medianValues = new double[grid.Length];
-            var meanValues = new double[grid.Length];
-
-            Parallel.For(0, grid.Length, new ParallelOptions { CancellationToken = token }, g =>
-            {
-                var row = values[g];
-                var window = new double[realizationCount];
-                double sum = 0d;
-                int used = 0;
-                for (int r = 0; r < realizationCount; r++)
-                {
-                    double value = row[r];
-                    if (double.IsNaN(value)) continue;
-                    window[used] = value;
-                    sum += value;
-                    used++;
-                }
-                if (used == 0) return;
-                Array.Sort(window, 0, used);
-                var trimmed = new double[used];
-                Array.Copy(window, trimmed, used);
-                lowerValues[g] = Statistics.Percentile(trimmed, tail, true);
-                upperValues[g] = Statistics.Percentile(trimmed, 1d - tail, true);
-                medianValues[g] = Statistics.Percentile(trimmed, 0.5d, true);
-                meanValues[g] = sum / used;
-            });
-
-            assign(0, (double[])grid.Clone(), lowerValues);
-            assign(1, (double[])grid.Clone(), upperValues);
-            assign(2, (double[])grid.Clone(), medianValues);
-            assign(3, (double[])grid.Clone(), meanValues);
-        }
-
-        /// <summary>
-        /// Assembles the risk-profile percentiles for one component and one consequence type
-        /// onto the four percentile realizations: the hazard-frequency, conditional-consequence,
-        /// and cumulative-expected-consequence profiles on all five risk-type streams (v1.0
-        /// banded all five â€” the Total-only interim was a parity gap, restored Phase 6.6), plus
-        /// â€” for the primary consequence type â€” the Fail stream's cumulative failure probability
-        /// on the hazard grid and the system response profile on its own log-spaced
-        /// exceedance-probability grid.
-        /// </summary>
-        /// <param name="realizations">The realization ensemble.</param>
-        /// <param name="componentIndex">The component index.</param>
-        /// <param name="scope">Selects the consequence type's curve set from a component realization.</param>
-        /// <param name="hazardGrid">The component's descending hazard grid.</param>
-        /// <param name="tail">The percentile tail level.</param>
-        /// <param name="targets">The percentile realizations (0 lower, 1 upper, 2 median, 3 mean).</param>
-        /// <param name="primaryType">True when the scope selects the primary consequence type (enables the failure-stream profiles).</param>
-        /// <param name="outputLength">The banded profile resolution (the LEC output length).</param>
-        /// <param name="token">The run cancellation token.</param>
-        private static void AssembleProfilePercentiles(SystemRealization[] realizations, int componentIndex,
-            Func<ComponentRealization, Curves> scope, double[] hazardGrid, double tail, SystemRealization[] targets,
-            bool primaryType, int outputLength, CancellationToken token)
-        {
-            Span<RiskType> streams = stackalloc RiskType[]
-            {
-                RiskType.Excess, RiskType.Background, RiskType.Total, RiskType.Fail, RiskType.NonFail,
-            };
-            foreach (RiskType stream in streams)
-            {
-                RiskType riskType = stream;
-                AssemblePercentileCurve(realizations,
-                    r => { var c = scope(r.Components[componentIndex]).GetCurve(riskType); return (c.HazardFrequencyHazards, c.HazardFrequencyProbabilities); }, hazardGrid, tail, token,
-                    (slot, x, y) =>
-                    {
-                        var target = scope(targets[slot].Components[componentIndex]).GetCurve(riskType);
-                        target.HazardFrequencyHazards = x;
-                        target.HazardFrequencyProbabilities = y;
-                    });
-                AssemblePercentileCurve(realizations,
-                    r => { var c = scope(r.Components[componentIndex]).GetCurve(riskType); return (c.HazardVsCenHazards, c.HazardVsCenConsequences); }, hazardGrid, tail, token,
-                    (slot, x, y) =>
-                    {
-                        var target = scope(targets[slot].Components[componentIndex]).GetCurve(riskType);
-                        target.HazardVsCenHazards = x;
-                        target.HazardVsCenConsequences = y;
-                    });
-                AssemblePercentileCurve(realizations,
-                    r => { var c = scope(r.Components[componentIndex]).GetCurve(riskType); return (c.HazardFrequencyHazards, c.CumulativeExpectedConsequences); }, hazardGrid, tail, token,
-                    (slot, x, y) =>
-                    {
-                        // Y-only: the banded X axis is the hazard grid the frequency assembly
-                        // already stamped on the target's HazardFrequencyHazards.
-                        scope(targets[slot].Components[componentIndex]).GetCurve(riskType).CumulativeExpectedConsequences = y;
-                    });
-            }
-
-            if (!primaryType) return;
-
-            // The failure-stream profiles (primary type only): the cumulative failure
-            // probability rides the hazard grid; the system response profile bands on its own
-            // log-spaced exceedance grid spanning the engine's recorded probability domain.
-            AssemblePercentileCurve(realizations,
-                r => { var c = scope(r.Components[componentIndex]).Fail; return (c.HazardFrequencyHazards, c.CumulativeFailureProbabilities); }, hazardGrid, tail, token,
-                (slot, x, y) =>
-                {
-                    scope(targets[slot].Components[componentIndex]).Fail.CumulativeFailureProbabilities = y;
-                });
-            var exceedanceGrid = BuildLogDescendingGrid(ProbabilityFloor, 1d - ProbabilityFloor, outputLength);
-            AssemblePercentileCurve(realizations,
-                r => { var c = scope(r.Components[componentIndex]).Fail; return (c.SystemResponseExceedanceProbabilities, c.SystemResponseProbabilities); }, exceedanceGrid, tail, token,
-                (slot, x, y) =>
-                {
-                    var target = scope(targets[slot].Components[componentIndex]).Fail;
-                    target.SystemResponseExceedanceProbabilities = x;
-                    target.SystemResponseProbabilities = y;
-                });
-        }
-
-        /// <summary>
-        /// Builds a descending log-spaced grid over [minimum, maximum] with the given ordinate
-        /// count â€” the system response profile's exceedance-probability ladder.
-        /// </summary>
-        /// <param name="minimum">The positive grid minimum.</param>
-        /// <param name="maximum">The grid maximum (greater than the minimum).</param>
-        /// <param name="count">The ordinate count (at least two).</param>
-        /// <returns>The descending grid.</returns>
-        private static double[] BuildLogDescendingGrid(double minimum, double maximum, int count)
-        {
-            var grid = new double[count];
-            double logMaximum = Math.Log(maximum);
-            double logStep = Math.Log(maximum / minimum) / (count - 1);
-            for (int i = 0; i < count; i++)
-            {
-                grid[i] = Math.Exp(logMaximum - i * logStep);
-            }
-            return grid;
         }
 
         #endregion

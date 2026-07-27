@@ -40,7 +40,8 @@ namespace RMC.TotalRisk.Results
             RiskType = riskType;
             Measure = measure;
             Realizations = realizations;
-            Entries = entries ?? throw new ArgumentNullException(nameof(entries));
+            if (entries == null) throw new ArgumentNullException(nameof(entries));
+            Entries = Array.AsReadOnly(new List<SensitivityEntry>(entries).ToArray());
         }
 
         /// <summary>
@@ -89,7 +90,7 @@ namespace RMC.TotalRisk.Results
             {
                 ranked[i] = snapshot[indices[i]];
             }
-            return ranked;
+            return ranked.AsReadOnly();
         }
     }
 }

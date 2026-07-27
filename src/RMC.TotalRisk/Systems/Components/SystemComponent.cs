@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
@@ -326,7 +326,7 @@ namespace RMC.TotalRisk.Systems.Components
         /// </summary>
         public IReadOnlyList<FailureMode> FailureModes
         {
-            get { return ProjectFailureModes(); }
+            get { return ProjectFailureModes().AsReadOnly(); }
         }
 
         /// <summary>
@@ -394,10 +394,10 @@ namespace RMC.TotalRisk.Systems.Components
         /// </summary>
         public double[,]? CorrelationMatrix
         {
-            get { return _correlationMatrix; }
+            get { return _correlationMatrix == null ? null : (double[,])_correlationMatrix.Clone(); }
             set
             {
-                _correlationMatrix = value;
+                _correlationMatrix = value == null ? null : (double[,])value.Clone();
                 _mvnStale = true;
                 RaisePropertyChange(nameof(CorrelationMatrix));
             }
@@ -511,13 +511,19 @@ namespace RMC.TotalRisk.Systems.Components
         }
 
         /// <summary>
-        /// The failure on/off indicator combinations over the combination units
-        /// (<c>Factorial.AllCombinations</c>), cached per unit count; null while the component
-        /// has no failure paths. Capture before a realization loop. Units are the entities the
-        /// failure-mode combination method operates over (arch doc §7.9): exclusive state groups
-        /// plus standalone failure states — the failure-path count for every pre-6.7 layout.
+        /// The compatibility inspection matrix of failure on/off combinations over the current
+        /// combination units. The matrix is materialized only when this property is requested and
+        /// returned as a defensive clone. The engine uses lazy enumeration and never reads or
+        /// populates this dense cache. Null while the component has no failure paths.
         /// </summary>
-        public int[,]? FailureModeIndicators => FailureModeIndicatorsFor(CombinationUnitCount());
+        public int[,]? FailureModeIndicators
+        {
+            get
+            {
+                var indicators = FailureModeIndicatorsFor(CombinationUnitCount());
+                return indicators == null ? null : (int[,])indicators.Clone();
+            }
+        }
 
         /// <summary>
         /// The seed for this run's competing-risks quadrature randomizer, derived from the
@@ -577,14 +583,14 @@ namespace RMC.TotalRisk.Systems.Components
         }
 
         /// <summary>
-        /// The combination-unit indicator cache for a known unit count — the compute path's
-        /// accessor, avoiding the property's re-projection of the graph.
+        /// Materializes the legacy dense indicator matrix for explicit compatibility inspection.
+        /// The engine does not call this accessor.
         /// </summary>
-        /// <param name="unitCount">The combination-unit count, from the caller's frozen layout.</param>
-        /// <returns>The indicator matrix, or null when the component has no failure paths.</returns>
+        /// <param name="unitCount">The combination-unit count.</param>
+        /// <returns>The dense indicator matrix, or null when the component has no failure paths.</returns>
         /// <remarks>
-        /// Populate once at the <c>SetupSamplers</c> freeze point: the cache fields are shared
-        /// component state and realizations read them from inside a parallel loop.
+        /// Callers should prefer the Numerics lazy enumeration APIs for wide components; this
+        /// compatibility surface intentionally retains the dense allocation behavior of v1.0.
         /// </remarks>
         internal int[,]? FailureModeIndicatorsFor(int unitCount)
         {
@@ -597,17 +603,25 @@ namespace RMC.TotalRisk.Systems.Components
         }
 
         /// <summary>
-        /// The binomial subset counts over the combination units (how many combinations fail
-        /// exactly k units), cached per unit count; null while the component has no failure
-        /// paths. Capture before a realization loop.
+        /// The compatibility inspection vector of binomial subset counts over the current
+        /// combination units. It is materialized only when this property is requested and returned
+        /// as a defensive clone. The engine uses lazy enumeration and never populates this cache.
+        /// Null while the component has no failure paths.
         /// </summary>
-        public int[]? FailureModeBinomialCombinations => FailureModeBinomialCombinationsFor(CombinationUnitCount());
+        public int[]? FailureModeBinomialCombinations
+        {
+            get
+            {
+                var combinations = FailureModeBinomialCombinationsFor(CombinationUnitCount());
+                return combinations == null ? null : (int[])combinations.Clone();
+            }
+        }
 
         /// <summary>
-        /// The binomial subset-count cache for a known unit count — the compute path's accessor
-        /// (see <see cref="FailureModeIndicatorsFor"/>).
+        /// Materializes the legacy binomial subset-count vector for explicit compatibility
+        /// inspection. The engine does not call this accessor.
         /// </summary>
-        /// <param name="unitCount">The combination-unit count, from the caller's frozen layout.</param>
+        /// <param name="unitCount">The combination-unit count.</param>
         /// <returns>The subset counts, or null when the component has no failure paths.</returns>
         internal int[]? FailureModeBinomialCombinationsFor(int unitCount)
         {
@@ -1186,15 +1200,6 @@ namespace RMC.TotalRisk.Systems.Components
             _sampledModes = modes;
             _sampledLayout = EndStateGroupLayout.Build(modes);
 
-            // Populate the combination caches at this single-threaded freeze point so the parallel
-            // realization loop only reads them. Only the joint method consumes them, and they cost
-            // 4·U·(2^U − 1) bytes, so the per-mode methods never build them.
-            if (_failureModeMethod == FailureModeMethod.JointFailures)
-            {
-                int unitCount = _sampledLayout.CombinationUnitCount;
-                FailureModeIndicatorsFor(unitCount);
-                FailureModeBinomialCombinationsFor(unitCount);
-            }
 
             // Arm the competing-risks pre-processing cache for this run and drop the previous
             // run's, which the re-seeding has just invalidated.

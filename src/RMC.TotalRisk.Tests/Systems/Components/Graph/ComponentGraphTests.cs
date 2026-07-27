@@ -567,20 +567,19 @@ public class ComponentGraphTests
         Assert.AreEqual(xml.ToString(), restored.ToXElement().ToString());
     }
 
-    /// <summary>Verifies unknown element types are skipped on load (forward compatibility).</summary>
+    /// <summary>Verifies unknown element types fail closed with their name and serialized path.</summary>
     [TestMethod]
-    public void Test_Serialization_UnknownElementSkipped()
+    public void Test_Serialization_UnknownElementThrows()
     {
         // Arrange
         var (graph, _, _, _, _, _) = LeveeGraph();
         var xml = graph.ToXElement();
         xml.Element("Elements")!.Add(new XElement("FutureElementType"));
 
-        // Act
-        var restored = new ComponentGraph(xml);
-
-        // Assert
-        Assert.AreEqual(graph.Elements.Count, restored.Elements.Count);
+        // Act / Assert
+        var error = Assert.ThrowsException<InvalidOperationException>(() => new ComponentGraph(xml));
+        StringAssert.Contains(error.Message, "FutureElementType");
+        StringAssert.Contains(error.Message, "/ComponentGraph/Elements[");
     }
 
     /// <summary>Verifies a stale serialized connection Id throws on load.</summary>

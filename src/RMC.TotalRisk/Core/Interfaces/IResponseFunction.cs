@@ -32,6 +32,13 @@ namespace RMC.TotalRisk.Core.Interfaces
         ResponseFunctionType FunctionType { get; }
 
         /// <summary>
+        /// Gets whether the three <c>SampleResponseFunction</c> overloads can emit an ordered
+        /// hazard/failure-probability curve. Callers can inspect this capability without using an
+        /// exception as feature discovery.
+        /// </summary>
+        bool SupportsOrderedCurveSampling { get; }
+
+        /// <summary>
         /// Samples the mean response curve — each ordinate at its mean failure probability.
         /// </summary>
         /// <returns>The mean response curve (hazard vs. failure probability).</returns>

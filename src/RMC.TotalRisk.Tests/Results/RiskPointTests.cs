@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using RMC.TotalRisk.Results;
 
@@ -40,5 +40,19 @@ public class RiskPointTests
         Assert.AreEqual(0, point.ResponseProbabilities.Count);
         Assert.AreEqual(8, point.ResponseProbabilities.Capacity);
         Assert.ThrowsException<ArgumentOutOfRangeException>(() => new RiskPoint(-1));
+    }
+
+    /// <summary>Verifies finite recorded response probabilities are clipped while NaN remains diagnostic.</summary>
+    [TestMethod]
+    public void Test_Add_ClipsFiniteProbabilityAndPreservesNaN()
+    {
+        var point = new RiskPoint();
+        point.Add(-0.1d, 1d);
+        point.Add(1.1d, 2d);
+        point.Add(double.NaN, 3d);
+
+        Assert.AreEqual(0d, point.ResponseProbabilities[0]);
+        Assert.AreEqual(1d, point.ResponseProbabilities[1]);
+        Assert.IsTrue(double.IsNaN(point.ResponseProbabilities[2]));
     }
 }

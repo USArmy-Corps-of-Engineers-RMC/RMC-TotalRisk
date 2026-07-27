@@ -1,4 +1,4 @@
-# Loss Exceedance Curves and Risk Measures
+﻿# Loss Exceedance Curves and Risk Measures
 
 > Technical reference for how the `RMC.TotalRisk` engine builds loss exceedance curves (LECs, a.k.a.
 > F-N curves) and the risk measures derived from them (Phase 4 / 4b). Companion:
@@ -36,18 +36,16 @@ VEGAS path already does this: it uses `wgt` directly (legacy `RiskAnalysis.vb:30
 and *re-derives* mass by sorting risk points on `p` and midpoint-partitioning the gaps between them —
 a trapezoidal `dF` heuristic that is only as good as the point spacing and breaks on any duplicate `p`.
 
-**Current state (N7 adopted, Phase 8.5):** the 1D path takes exact weights like the VEGAS path.
-`AdaptiveGaussKronrod.Recorder` flushes `(x, weight, f)` for **accepted** intervals only;
-`QuadratureMassLedger` seals that flush into a sorted array keyed on the exact abscissa with a
-Neumaier-compensated total, and `Curve.ApplyRecordedMass` credits each risk point from it. Duplicate
-abscissas are **summed**, which is what makes the degenerate zero-width bin correct (v1.0 concatenated
-the 21 duplicate entries and gave them one full trapezoid mass — a 21× overcount). Points at abscissas
-the refinement superseded carry no mass and are compacted away. The mass budget is checked against the
-integration domain, not against 1: see [risk-integration.md](risk-integration.md) for the two gates.
+**Current state:** the 1D path records exact accepted AGK weights on the hazard's natural probability
+support. An internal pooled ledger adds the lower and upper endpoint rectangles required by Appendix D,
+coalesces duplicate abscissas with compensated summation, and seals the exhaustive mass to exactly one.
+Endpoint evaluations travel through the same component-risk recording path as interior nodes. The
+published `TotalProbability` is always the recorded compensated mass; `Curve` never substitutes one
+because a curve is marked exhaustive.
 
-The comparison against a 4,000,000-point dense reference: **5.7e-7** relative for the midpoint
-trapezoid, **4.0e-11** for the ledger.
-
+The mass correction is structural rather than proportional: the AGK interior weights remain unchanged.
+A lower atom of mass `p_min` and an upper residual atom complete the distribution. Invalid negative,
+non-finite, or materially excessive mass faults the run.
 ## Building the exceedance curve
 
 ### The v1.0 histogram (dropped)
@@ -79,8 +77,8 @@ Build the curve **exactly** from the pairs, then thin for output:
 2. Sort by consequence DESCENDING.
 3. Accumulate exactly:  the exceedance probability at consequence c[i]
    is the running sum of mass for all pairs with consequence ≥ c[i].
-4. Thin to LECOutputLength ordinates by quantile-preserving selection,
-   ALWAYS retaining the extreme-tail points (the largest few consequences).
+4. Thin to `LECOutputLength` by repeatedly retaining the original ordinate with the largest log-log interpolation error,
+   retaining required anchors and breaking equal-error ties by original index.
 ```
 
 This is `O(n log n)` (the sort), carries no binning bias, and — crucially — makes `LECOutputLength` an
@@ -112,10 +110,11 @@ kurtosis = `M4 / M2²`.
 ## Mass leakage
 
 `Fail`, `Excess`, and `NonFail` are **defective** distributions (`IsExhaustive = false`,
-`TotalProbability < 1`); `Background` and `Total` are exhaustive (`TotalProbability = 1`). v1.0 forces
-`totalProbability = If(IsExhaustive, 1, Math.Min(Σ mass, 1))` (`Curve.vb:380`), silently hiding a mass
-budget that came out wrong. Keep the clamp for numerical noise, but **raise a validation Warning when
-`|Σ mass − 1| > 1e-6` on an exhaustive curve** — a real leak is a bug, not something to round away.
+`TotalProbability < 1`); `Background` and `Total` are exhaustive (`TotalProbability = 1`). v1.0 forced
+`totalProbability = If(IsExhaustive, 1, Math.Min(Σ mass, 1))`, silently hiding a mass
+budget that came out wrong. v1.1 publishes the compensated recorded mass directly. An exhaustive
+stream must equal one exactly after the endpoint-ledger construction; non-finite, negative, or
+materially excessive mass faults the run rather than being masked.
 
 ## Risk-measure catalog
 

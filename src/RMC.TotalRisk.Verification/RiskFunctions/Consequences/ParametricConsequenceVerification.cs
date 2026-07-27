@@ -343,4 +343,38 @@ public class ParametricConsequenceVerification
                 "Metadata edits must never move Monte Carlo results.");
         }
     }
+
+    /// <summary>
+    /// Verifies the 10,000-realization parametric uncertainty summary is deterministic,
+    /// content-seeded, grid-aligned, and exact when coefficient uncertainty is absent.
+    /// </summary>
+    [TestMethod]
+    public void Test_UncertaintySummary_DeterministicAndGridAligned()
+    {
+        var function = Build(SigmaAlpha, SigmaBeta, 200d);
+
+        var first = function.ComputeUncertaintyResults(0.90d)!;
+        var second = function.ComputeUncertaintyResults(0.90d)!;
+
+        CollectionAssert.AreEqual(first.MeanCurve, second.MeanCurve);
+        CollectionAssert.AreEqual(first.ModeCurve, second.ModeCurve);
+        double[] grid = function.UncertaintySummaryHazards();
+        Assert.AreEqual(grid.Length, first.MeanCurve!.Length);
+        Assert.AreEqual(Threshold, grid[0], 0d);
+        Assert.AreEqual(0d, first.MeanCurve[0], 0d);
+
+        function.Name = "Renamed";
+        function.AssignNewId();
+        CollectionAssert.AreEqual(first.MeanCurve, function.ComputeUncertaintyResults(0.90d)!.MeanCurve);
+
+        var deterministic = Build(0d, 0d, 200d);
+        var exact = deterministic.ComputeUncertaintyResults(0.90d)!;
+        var nominal = deterministic.SampleFunction();
+        double[] deterministicGrid = deterministic.UncertaintySummaryHazards();
+        for (int i = 0; i < deterministicGrid.Length; i++)
+        {
+            Assert.AreEqual(nominal.Function(deterministicGrid[i]), exact.MeanCurve![i], 0d);
+            Assert.AreEqual(exact.MeanCurve[i], exact.ConfidenceIntervals![i, 0], 0d);
+        }
+    }
 }

@@ -1,4 +1,5 @@
-﻿using System;
+using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
 using Numerics;
@@ -544,6 +545,45 @@ namespace RMC.TotalRisk.Results
             point.Add(responseProbability, consequence);
             RiskPoints.Add(point);
         }
+        /// <summary>Records one inline entry including its exceedance-probability profile coordinate.</summary>
+        /// <param name="hazardLevel">The hazard level where the risk was evaluated.</param>
+        /// <param name="hazardProbability">The hazard non-exceedance probability.</param>
+        /// <param name="responseProbability">The response probability.</param>
+        /// <param name="consequence">The consequence.</param>
+        /// <param name="hazardExceedanceProbability">The hazard exceedance probability.</param>
+        internal void AddRiskPoint(double hazardLevel, double hazardProbability, double responseProbability,
+            double consequence, double hazardExceedanceProbability)
+        {
+            var point = new RiskPoint(1)
+            {
+                HazardLevel = hazardLevel,
+                HazardProbability = hazardProbability,
+                HazardProbabilityMass = hazardProbability,
+                HazardExceedanceProbability = hazardExceedanceProbability,
+            };
+            point.Add(responseProbability, consequence);
+            RiskPoints.Add(point);
+        }
+        /// <summary>Records a two-entry point without caller-side temporary lists.</summary>
+        /// <param name="hazardLevel">The hazard level where the risk was evaluated.</param>
+        /// <param name="hazardProbability">The hazard non-exceedance probability.</param>
+        /// <param name="firstProbability">The first response probability.</param>
+        /// <param name="firstConsequence">The first consequence.</param>
+        /// <param name="secondProbability">The second response probability.</param>
+        /// <param name="secondConsequence">The second consequence.</param>
+        internal void AddTwoEntryRiskPoint(double hazardLevel, double hazardProbability,
+            double firstProbability, double firstConsequence, double secondProbability, double secondConsequence)
+        {
+            var point = new RiskPoint(2)
+            {
+                HazardLevel = hazardLevel,
+                HazardProbability = hazardProbability,
+                HazardProbabilityMass = hazardProbability,
+            };
+            point.Add(firstProbability, firstConsequence);
+            point.Add(secondProbability, secondConsequence);
+            RiskPoints.Add(point);
+        }
 
         /// <summary>
         /// Records a risk evaluation point carrying parallel entry lists (one entry per exposure
@@ -563,14 +603,16 @@ namespace RMC.TotalRisk.Results
         {
             if (responseProbabilities == null) throw new ArgumentNullException(nameof(responseProbabilities));
             if (consequences == null) throw new ArgumentNullException(nameof(consequences));
-            RiskPoints.Add(new RiskPoint
+            for (int i = 0; i < responseProbabilities.Count; i++)
+            {
+                responseProbabilities[i] = Tools.Clamp(responseProbabilities[i], 0d, 1d);
+            }
+            RiskPoints.Add(new RiskPoint(responseProbabilities, consequences)
             {
                 HazardLevel = hazardLevel,
                 HazardProbability = hazardProbability,
                 HazardProbabilityMass = hazardProbability,
                 HazardExceedanceProbability = hazardExceedanceProbability,
-                ResponseProbabilities = responseProbabilities,
-                Consequences = consequences,
             });
         }
 
@@ -594,7 +636,7 @@ namespace RMC.TotalRisk.Results
         /// deterministic function of its argument, so repeated evaluations at one point are
         /// content-identical and keeping the first is exact.
         /// </remarks>
-        public void ApplyRecordedMass(QuadratureMassLedger ledger)
+        internal void ApplyRecordedMass(QuadratureMassLedger ledger)
         {
             if (ledger == null) throw new ArgumentNullException(nameof(ledger));
             if (RiskPoints.Count == 0) return;
@@ -643,15 +685,21 @@ namespace RMC.TotalRisk.Results
         /// <exception cref="ArgumentOutOfRangeException">Thrown when the output length is less than two.</exception>
         public void CreateCurve(int outputLength)
         {
-            if (RiskPoints.Count < 2) return;
-            CreateCurve(CollectRecordedPairs(), outputLength);
+            if (outputLength < 2) throw new ArgumentOutOfRangeException(nameof(outputLength), "The output length must be at least two.");
+            if (RiskPoints.Count == 0)
+            {
+                ResetCurveState();
+                return;
+            }
+            var pairs = CollectRecordedPairs();
+            CreateCurveCore(pairs, outputLength, ownsPairs: true);
         }
 
         /// <summary>
         /// Collects the recorded weighted (mass, consequence) pairs from the risk points — the
         /// exact empirical loss distribution the curve is built from, and the input the additive
         /// system convolution consumes per component. Only meaningful after the masses are final
-        /// (post <see cref="ProcessHazardProbabilities"/> on the one-dimensional path); available
+        /// (after <see cref="ApplyRecordedMass"/> on the one-dimensional path); available
         /// until <see cref="DumpMemory"/> clears the points.
         /// </summary>
         /// <returns>The weighted pairs, one per recorded entry, in recording order.</returns>
@@ -660,16 +708,49 @@ namespace RMC.TotalRisk.Results
             int entries = 0;
             for (int i = 0; i < RiskPoints.Count; i++)
             {
-                entries += RiskPoints[i].ResponseProbabilities.Count;
+                ValidateRiskPoint(RiskPoints[i], i);
+                entries += RiskPoints[i].EntryCount;
             }
 
-            var pairs = new List<(double Mass, double Consequence)>(entries);
+            var pairs = new List<(double Mass, double Consequence)>(entries + 2);
             for (int i = 0; i < RiskPoints.Count; i++)
             {
                 var point = RiskPoints[i];
-                for (int j = 0; j < point.ResponseProbabilities.Count; j++)
+                double responseTotal = 0d;
+                double responseCompensation = 0d;
+                for (int j = 0; j < point.EntryCount; j++)
                 {
-                    pairs.Add((point.HazardProbabilityMass * point.ResponseProbabilities[j], point.Consequences[j]));
+                    AddCompensated(ref responseTotal, ref responseCompensation, point.ResponseProbabilityAt(j));
+                }
+                responseTotal += responseCompensation;
+                if (responseTotal > 1d + 1e-12 || IsExhaustive && Math.Abs(responseTotal - 1d) > 1e-12)
+                {
+                    throw new InvalidOperationException($"Recorded risk point {i} carries response probability {responseTotal:R}, which is invalid for {(IsExhaustive ? "an exhaustive" : "a defective")} curve.");
+                }
+
+                double allocatedMass = 0d;
+                double massCompensation = 0d;
+                for (int j = 0; j < point.EntryCount; j++)
+                {
+                    double mass;
+                    if (IsExhaustive && j == point.EntryCount - 1)
+                    {
+                        mass = point.HazardProbabilityMass - (allocatedMass + massCompensation);
+                        if (mass < 0d && mass > -1e-15)
+                        {
+                            mass = 0d;
+                        }
+                    }
+                    else
+                    {
+                        mass = point.HazardProbabilityMass * point.ResponseProbabilityAt(j);
+                    }
+                    if (!double.IsFinite(mass) || mass < 0d)
+                    {
+                        throw new InvalidOperationException($"Recorded risk point {i}, response entry {j}, produced invalid probability mass {mass:R}.");
+                    }
+                    pairs.Add((mass, point.ConsequenceAt(j)));
+                    AddCompensated(ref allocatedMass, ref massCompensation, mass);
                 }
             }
             return pairs;
@@ -718,70 +799,153 @@ namespace RMC.TotalRisk.Results
         /// </remarks>
         public void CreateCurve(IReadOnlyList<(double Mass, double Consequence)> pairs, int outputLength)
         {
+            CreateCurveCore(pairs, outputLength, ownsPairs: false);
+        }
+
+        /// <summary>
+        /// Builds a curve from weighted pairs, optionally reusing an internally owned pair list as
+        /// the sort workspace so the recording path does not retain a duplicate full-size buffer.
+        /// </summary>
+        /// <param name="pairs">The weighted pairs.</param>
+        /// <param name="outputLength">The output resolution.</param>
+        /// <param name="ownsPairs">True only when the list was created internally and may be compacted and sorted in place.</param>
+        private void CreateCurveCore(IReadOnlyList<(double Mass, double Consequence)> pairs, int outputLength, bool ownsPairs)
+        {
             if (pairs == null) throw new ArgumentNullException(nameof(pairs));
             if (outputLength < 2) throw new ArgumentOutOfRangeException(nameof(outputLength), "The output length must be at least two.");
+            ResetCurveState();
 
             // Gather the reachable pairs, sorted by consequence descending, merging equal
             // consequences so the stored X axis is strictly descending.
-            var sorted = new List<(double Mass, double Consequence)>(pairs.Count);
-            for (int i = 0; i < pairs.Count; i++)
+            List<(double Mass, double Consequence)> sorted;
+            if (ownsPairs)
             {
-                if (pairs[i].Mass > 0d) sorted.Add(pairs[i]);
+                sorted = (List<(double Mass, double Consequence)>)pairs;
+                int retained = 0;
+                for (int i = 0; i < pairs.Count; i++)
+                {
+                    var pair = pairs[i];
+                    if (!double.IsFinite(pair.Mass) || pair.Mass < 0d)
+                        throw new ArgumentException($"Pair {i} carries invalid probability mass {pair.Mass:R}.", nameof(pairs));
+                    if (!double.IsFinite(pair.Consequence) || pair.Consequence < 0d)
+                        throw new ArgumentException($"Pair {i} carries invalid consequence {pair.Consequence:R}.", nameof(pairs));
+                    if (pair.Mass > 0d) sorted[retained++] = pair;
+                }
+                if (retained < sorted.Count)
+                {
+                    sorted.RemoveRange(retained, sorted.Count - retained);
+                }
             }
-            if (sorted.Count == 0) return;
+            else
+            {
+                sorted = new List<(double Mass, double Consequence)>(pairs.Count);
+                for (int i = 0; i < pairs.Count; i++)
+                {
+                    if (!double.IsFinite(pairs[i].Mass) || pairs[i].Mass < 0d)
+                        throw new ArgumentException($"Pair {i} carries invalid probability mass {pairs[i].Mass:R}.", nameof(pairs));
+                    if (!double.IsFinite(pairs[i].Consequence) || pairs[i].Consequence < 0d)
+                        throw new ArgumentException($"Pair {i} carries invalid consequence {pairs[i].Consequence:R}.", nameof(pairs));
+                    if (pairs[i].Mass > 0d) sorted.Add(pairs[i]);
+                }
+            }
+            if (sorted.Count == 0)
+            {
+                if (IsExhaustive) throw new InvalidOperationException("An exhaustive curve cannot be built from zero probability mass.");
+                return;
+            }
             sorted.Sort((x, y) => y.Consequence.CompareTo(x.Consequence));
 
-            var mergedMass = new List<double>(sorted.Count);
-            var mergedConsequence = new List<double>(sorted.Count);
-            mergedMass.Add(sorted[0].Mass);
-            mergedConsequence.Add(sorted[0].Consequence);
+            int mergedCount = 0;
+            double currentConsequence = sorted[0].Consequence;
+            double currentMass = sorted[0].Mass;
+            double currentCompensation = 0d;
             for (int i = 1; i < sorted.Count; i++)
             {
-                if (sorted[i].Consequence == mergedConsequence[mergedConsequence.Count - 1])
+                if (sorted[i].Consequence == currentConsequence)
                 {
-                    mergedMass[mergedMass.Count - 1] += sorted[i].Mass;
+                    AddCompensated(ref currentMass, ref currentCompensation, sorted[i].Mass);
                 }
                 else
                 {
-                    mergedMass.Add(sorted[i].Mass);
-                    mergedConsequence.Add(sorted[i].Consequence);
+                    sorted[mergedCount++] = (currentMass + currentCompensation, currentConsequence);
+                    currentConsequence = sorted[i].Consequence;
+                    currentMass = sorted[i].Mass;
+                    currentCompensation = 0d;
                 }
+            }
+            sorted[mergedCount++] = (currentMass + currentCompensation, currentConsequence);
+            if (mergedCount < sorted.Count)
+            {
+                sorted.RemoveRange(mergedCount, sorted.Count - mergedCount);
             }
 
             // Total probability and the mass-balance witness.
             double recordedMass = 0d;
-            for (int i = 0; i < mergedMass.Count; i++)
+            double recordedCompensation = 0d;
+            for (int i = 0; i < sorted.Count; i++)
             {
-                recordedMass += mergedMass[i];
+                AddCompensated(ref recordedMass, ref recordedCompensation, sorted[i].Mass);
+            }
+            recordedMass += recordedCompensation;
+            if (recordedMass > 1d + 1e-12)
+                throw new InvalidOperationException($"The curve carries probability mass {recordedMass:R}, which exceeds one.");
+            if (IsExhaustive && Math.Abs(recordedMass - 1d) > 1e-12)
+                throw new InvalidOperationException($"The exhaustive curve carries probability mass {recordedMass:R} instead of one.");
+
+            if (Math.Abs(recordedMass - 1d) <= 1e-12)
+            {
+                double residual = 1d - recordedMass;
+                int correctionIndex = 0;
+                for (int i = 1; i < sorted.Count; i++)
+                {
+                    if (sorted[i].Mass > sorted[correctionIndex].Mass)
+                    {
+                        correctionIndex = i;
+                    }
+                }
+                var corrected = sorted[correctionIndex];
+                corrected.Mass += residual;
+                sorted[correctionIndex] = corrected;
+                if (sorted[correctionIndex].Mass < 0d)
+                    throw new InvalidOperationException("The unit-mass rounding correction would make the largest consequence atom negative.");
+                recordedMass = 1d;
             }
             MassBalance = recordedMass;
-            TotalProbability = IsExhaustive ? 1d : Math.Min(recordedMass, 1d);
+            TotalProbability = recordedMass;
 
             // Two-pass weighted central moments, including the implicit zero-consequence atom for
             // any unrecorded mass (weight budget one). Pass one: the exact weighted mean.
             double atom = Math.Max(0d, 1d - recordedMass);
             double mean = 0d;
-            for (int i = 0; i < mergedMass.Count; i++)
+            double meanCompensation = 0d;
+            for (int i = 0; i < sorted.Count; i++)
             {
-                mean += mergedMass[i] * mergedConsequence[i];
+                AddCompensated(ref mean, ref meanCompensation, sorted[i].Mass * sorted[i].Consequence);
             }
+            mean += meanCompensation;
 
             // Pass two: central sums about the mean — no raw power sums, no cancellation.
             bool higherMoments = (MeasureOptions & RiskMeasureOptions.HigherMoments) != 0;
             double m2 = atom * mean * mean;
             double m3 = higherMoments ? atom * -(mean * mean * mean) : 0d;
             double m4 = higherMoments ? atom * mean * mean * mean * mean : 0d;
-            for (int i = 0; i < mergedMass.Count; i++)
+            double m2Compensation = 0d;
+            double m3Compensation = 0d;
+            double m4Compensation = 0d;
+            for (int i = 0; i < sorted.Count; i++)
             {
-                double delta = mergedConsequence[i] - mean;
+                double delta = sorted[i].Consequence - mean;
                 double delta2 = delta * delta;
-                m2 += mergedMass[i] * delta2;
+                AddCompensated(ref m2, ref m2Compensation, sorted[i].Mass * delta2);
                 if (!higherMoments) continue;
-                m3 += mergedMass[i] * delta2 * delta;
-                m4 += mergedMass[i] * delta2 * delta2;
+                AddCompensated(ref m3, ref m3Compensation, sorted[i].Mass * delta2 * delta);
+                AddCompensated(ref m4, ref m4Compensation, sorted[i].Mass * delta2 * delta2);
             }
+            m2 += m2Compensation;
+            m3 += m3Compensation;
+            m4 += m4Compensation;
             Mean = mean;
-            StandardDeviation = Math.Sqrt(m2);
+            StandardDeviation = Math.Sqrt(Math.Max(0d, m2));
             Skewness = higherMoments && m2 > 0d ? m3 / (m2 * Math.Sqrt(m2)) : double.NaN;
             Kurtosis = higherMoments && m2 > 0d ? m4 / (m2 * m2) : double.NaN;
 
@@ -789,29 +953,27 @@ namespace RMC.TotalRisk.Results
             // consequence (the v1.0 interpolation anchor), the exact reverse-cumulative points,
             // and a zero-consequence anchor carrying the total probability when the recorded
             // consequences stay positive.
-            double largest = mergedConsequence[0];
-            double smallest = mergedConsequence[mergedConsequence.Count - 1];
-            var consequences = new List<double>(mergedMass.Count + 2);
-            var probabilities = new List<double>(mergedMass.Count + 2);
+            double largest = sorted[0].Consequence;
+            double smallest = sorted[sorted.Count - 1].Consequence;
+            double cumulative = 0d;
+            double cumulativeCompensation = 0d;
+            for (int i = 0; i < sorted.Count; i++)
+            {
+                AddCompensated(ref cumulative, ref cumulativeCompensation, sorted[i].Mass);
+                var ordinate = sorted[i];
+                ordinate.Mass = i == sorted.Count - 1 ? TotalProbability : cumulative + cumulativeCompensation;
+                sorted[i] = ordinate;
+            }
             if (largest > 0d)
             {
-                consequences.Add(largest * (1d + 1e-8));
-                probabilities.Add(0d);
-            }
-            double cumulative = 0d;
-            for (int i = 0; i < mergedMass.Count; i++)
-            {
-                cumulative += mergedMass[i];
-                consequences.Add(mergedConsequence[i]);
-                probabilities.Add(cumulative);
+                sorted.Insert(0, (0d, largest * (1d + 1e-8)));
             }
             if (smallest > 0d)
             {
-                consequences.Add(0d);
-                probabilities.Add(Math.Max(TotalProbability, cumulative));
+                sorted.Add((TotalProbability, 0d));
             }
 
-            ThinAndStore(consequences, probabilities, outputLength);
+            ThinAndStore(sorted, outputLength);
         }
 
         /// <summary>
@@ -1237,6 +1399,84 @@ namespace RMC.TotalRisk.Results
         #region Private Helpers
 
         /// <summary>
+        /// Clears every value derived from previously recorded pairs while retaining curve
+        /// configuration and the current risk-point workspace.
+        /// </summary>
+        private void ResetCurveState()
+        {
+            TotalProbability = 0d;
+            MassBalance = 0d;
+            Mean = 0d;
+            StandardDeviation = 0d;
+            Skewness = double.NaN;
+            Kurtosis = double.NaN;
+            ConsequenceThresholdProbability = double.NaN;
+            HazardThresholdProbability = double.NaN;
+            ValueAtRisk = double.NaN;
+            ConditionalValueAtRisk = double.NaN;
+            _lecConsequences = Array.Empty<double>();
+            _lecProbabilities = Array.Empty<double>();
+            _hazardFrequencyHazards = Array.Empty<double>();
+            _hazardFrequencyProbabilities = Array.Empty<double>();
+            _hazardVsCenHazards = Array.Empty<double>();
+            _hazardVsCenConsequences = Array.Empty<double>();
+            _cumulativeFailureProbabilities = Array.Empty<double>();
+            _cumulativeExpectedConsequences = Array.Empty<double>();
+            _systemResponseExceedanceProbabilities = Array.Empty<double>();
+            _systemResponseProbabilities = Array.Empty<double>();
+            _lecView = null;
+            _hazardFrequencyView = null;
+            _hazardVsCenView = null;
+            _cumulativeFailureView = null;
+            _cumulativeConsequenceView = null;
+            _systemResponseView = null;
+        }
+
+        /// <summary>
+        /// Validates one recorded risk point before it becomes a persisted probability pair.
+        /// </summary>
+        /// <param name="point">The point to validate.</param>
+        /// <param name="index">The point's zero-based recording position.</param>
+        /// <exception cref="InvalidOperationException">
+        /// Thrown when its hazard mass, response probabilities, or consequences are incomplete
+        /// or non-finite.
+        /// </exception>
+        private static void ValidateRiskPoint(RiskPoint point, int index)
+        {
+            if (point == null) throw new InvalidOperationException($"Recorded risk point {index} is null.");
+            if (!double.IsFinite(point.HazardProbability) || point.HazardProbability < 0d || point.HazardProbability > 1d)
+                throw new InvalidOperationException($"Recorded risk point {index} has invalid hazard probability {point.HazardProbability:R}.");
+            if (!double.IsFinite(point.HazardProbabilityMass) || point.HazardProbabilityMass < 0d)
+                throw new InvalidOperationException($"Recorded risk point {index} has invalid hazard mass {point.HazardProbabilityMass:R}.");
+            if (!point.HasParallelEntries)
+                throw new InvalidOperationException($"Recorded risk point {index} has mismatched response-probability and consequence entries.");
+            for (int j = 0; j < point.EntryCount; j++)
+            {
+                double probability = point.ResponseProbabilityAt(j);
+                double consequence = point.ConsequenceAt(j);
+                if (!double.IsFinite(probability) || probability < 0d)
+                    throw new InvalidOperationException($"Recorded risk point {index}, response entry {j}, has invalid probability {probability:R}.");
+                if (!double.IsFinite(consequence) || consequence < 0d)
+                    throw new InvalidOperationException($"Recorded risk point {index}, consequence entry {j}, has invalid value {consequence:R}.");
+            }
+        }
+
+        /// <summary>
+        /// Adds one value using Neumaier compensated summation.
+        /// </summary>
+        /// <param name="sum">The running ordinary sum.</param>
+        /// <param name="compensation">The running low-order compensation.</param>
+        /// <param name="value">The value to add.</param>
+        private static void AddCompensated(ref double sum, ref double compensation, double value)
+        {
+            double next = sum + value;
+            compensation += Math.Abs(sum) >= Math.Abs(value)
+                ? (sum - next) + value
+                : (value - next) + sum;
+            sum = next;
+        }
+
+        /// <summary>
         /// Builds a self-normalized profile view: each ordinate divided by the profile's own
         /// terminal (index 0 — the largest hazard in the descending storage). Empty when the
         /// arrays are absent or the terminal is not positive.
@@ -1278,82 +1518,174 @@ namespace RMC.TotalRisk.Results
         }
 
         /// <summary>
-        /// Thins the exact ordinates to the output length with a hybrid target ladder — half the
-        /// targets log-spaced in exceedance probability (dense where the extreme tail lives),
-        /// half linear in consequence (bounding the interpolation gap across the flat bulk of
-        /// the curve, where whole decades of consequence can share nearly one exceedance value)
-        /// — always retaining the first and last ordinates, and stores the result.
+        /// One candidate segment in the deterministic log-log curve-thinning queue.
         /// </summary>
-        /// <param name="consequences">The exact consequence ordinates, descending.</param>
-        /// <param name="probabilities">The exact exceedance ordinates, ascending.</param>
-        /// <param name="outputLength">The output resolution.</param>
-        private void ThinAndStore(List<double> consequences, List<double> probabilities, int outputLength)
+        private readonly struct ThinningSegment
         {
-            if (consequences.Count <= outputLength)
+            /// <summary>
+            /// Initializes a segment and its greatest-error interior split.
+            /// </summary>
+            /// <param name="left">The retained left endpoint index.</param>
+            /// <param name="right">The retained right endpoint index.</param>
+            /// <param name="split">The greatest-error interior index, or -1 when none exists.</param>
+            /// <param name="error">The absolute base-10 logarithmic probability error.</param>
+            internal ThinningSegment(int left, int right, int split, double error)
             {
-                _lecConsequences = consequences.ToArray();
-                _lecProbabilities = probabilities.ToArray();
+                Left = left;
+                Right = right;
+                Split = split;
+                Error = error;
+            }
+
+            /// <summary>Gets the retained left endpoint index.</summary>
+            internal int Left { get; }
+
+            /// <summary>Gets the retained right endpoint index.</summary>
+            internal int Right { get; }
+
+            /// <summary>Gets the greatest-error interior index, or -1.</summary>
+            internal int Split { get; }
+
+            /// <summary>Gets the absolute log-probability interpolation error.</summary>
+            internal double Error { get; }
+        }
+
+        /// <summary>
+        /// Finds the interior ordinate with the greatest log-log interpolation error in one
+        /// candidate segment.
+        /// </summary>
+        /// <param name="logConsequences">The precomputed, scale-normalized logarithmic consequence ordinates.</param>
+        /// <param name="logProbabilities">The precomputed logarithmic exceedance ordinates.</param>
+        /// <param name="left">The retained left endpoint index.</param>
+        /// <param name="right">The retained right endpoint index.</param>
+        /// <returns>The candidate segment and its deterministic split.</returns>
+        private static ThinningSegment CreateThinningSegment(IReadOnlyList<double> logConsequences,
+            IReadOnlyList<double> logProbabilities, int left, int right)
+        {
+            if (right - left <= 1)
+            {
+                return new ThinningSegment(left, right, -1, -1d);
+            }
+
+            double leftX = logConsequences[left];
+            double rightX = logConsequences[right];
+            double leftY = logProbabilities[left];
+            double rightY = logProbabilities[right];
+            int split = -1;
+            double greatestError = -1d;
+            for (int i = left + 1; i < right; i++)
+            {
+                double x = logConsequences[i];
+                double expected = leftX == rightX
+                    ? leftY
+                    : leftY + (rightY - leftY) * (x - leftX) / (rightX - leftX);
+                double actual = logProbabilities[i];
+                double error = Math.Abs(actual - expected);
+                if (error > greatestError)
+                {
+                    greatestError = error;
+                    split = i;
+                }
+            }
+            return new ThinningSegment(left, right, split, greatestError);
+        }
+
+        /// <summary>
+        /// Thins the exact ordinates to the output length by repeatedly retaining the point with
+        /// the greatest base-10 log-probability error under log-log interpolation. The first and
+        /// last ordinates and the actual maximum- and minimum-loss atoms are retained whenever
+        /// the requested length permits; equal errors select the lower original index, so the
+        /// stored curve is deterministic.
+        /// </summary>
+        /// <param name="ordinates">The exact (exceedance probability, consequence) ordinates.</param>
+        /// <param name="outputLength">The output resolution.</param>
+        private void ThinAndStore(List<(double Mass, double Consequence)> ordinates, int outputLength)
+        {
+            if (ordinates.Count <= outputLength)
+            {
+                _lecConsequences = new double[ordinates.Count];
+                _lecProbabilities = new double[ordinates.Count];
+                for (int i = 0; i < ordinates.Count; i++)
+                {
+                    _lecConsequences[i] = ordinates[i].Consequence;
+                    _lecProbabilities[i] = ordinates[i].Mass;
+                }
                 _lecView = null;
                 return;
             }
 
-            var keep = new SortedSet<int> { 0, consequences.Count - 1 };
-            int half = Math.Max(2, outputLength / 2);
-
-            // The tail ladder: log-spaced exceedance targets from the smallest positive
-            // exceedance up to the terminal exceedance.
-            double smallest = double.NaN;
-            for (int i = 0; i < probabilities.Count; i++)
+            int exactCount = ordinates.Count;
+            double[] logConsequences = ArrayPool<double>.Shared.Rent(exactCount);
+            double[] logProbabilities = ArrayPool<double>.Shared.Rent(exactCount);
+            bool[] keep = ArrayPool<bool>.Shared.Rent(exactCount);
+            Array.Clear(keep, 0, exactCount);
+            try
             {
-                if (probabilities[i] > 0d) { smallest = probabilities[i]; break; }
-            }
-            double largest = probabilities[probabilities.Count - 1];
-            if (!double.IsNaN(smallest) && largest > smallest)
-            {
-                double logSmallest = Math.Log(smallest);
-                double logRatio = Math.Log(largest / smallest);
-                int cursor = 0;
-                for (int j = 0; j < half; j++)
+                double consequenceScale = ordinates[0].Consequence > 0d ? ordinates[0].Consequence : 1d;
+                for (int i = 0; i < exactCount; i++)
                 {
-                    double target = Math.Exp(logSmallest + logRatio * j / (half - 1d));
-                    while (cursor < probabilities.Count - 1 && probabilities[cursor] < target)
-                    {
-                        cursor++;
-                    }
-                    keep.Add(cursor);
+                    logConsequences[i] = Tools.Log10(Math.Max(ordinates[i].Consequence / consequenceScale, ProbabilityFloor));
+                    logProbabilities[i] = Tools.Log10(Math.Max(ordinates[i].Mass, ProbabilityFloor));
                 }
-            }
 
-            // The bulk ladder: linear consequence targets from the largest down to the smallest
-            // recorded consequence.
-            double largestConsequence = consequences[0];
-            double smallestConsequence = consequences[consequences.Count - 1];
-            if (largestConsequence > smallestConsequence)
-            {
-                int cursor = 0;
-                for (int j = 0; j < half; j++)
+                var anchors = new List<int>(4) { 0 };
+                if (exactCount > 2 && outputLength > 2)
                 {
-                    double target = largestConsequence - (largestConsequence - smallestConsequence) * j / (half - 1d);
-                    while (cursor < consequences.Count - 1 && consequences[cursor] > target)
-                    {
-                        cursor++;
-                    }
-                    keep.Add(cursor);
+                    anchors.Add(1);
                 }
-            }
+                if (exactCount > 3 && outputLength > anchors.Count + 1)
+                {
+                    anchors.Add(exactCount - 2);
+                }
+                anchors.Add(exactCount - 1);
+                int keepCount = anchors.Count;
+                for (int i = 0; i < anchors.Count; i++)
+                {
+                    keep[anchors[i]] = true;
+                }
+                var queue = new PriorityQueue<ThinningSegment, (double NegativeError, int Split)>();
 
-            var thinnedConsequences = new double[keep.Count];
-            var thinnedProbabilities = new double[keep.Count];
-            int index = 0;
-            foreach (int i in keep)
-            {
-                thinnedConsequences[index] = consequences[i];
-                thinnedProbabilities[index] = probabilities[i];
-                index++;
+                void Enqueue(ThinningSegment segment)
+                {
+                    if (segment.Split >= 0)
+                    {
+                        queue.Enqueue(segment, (-segment.Error, segment.Split));
+                    }
+                }
+
+                for (int i = 1; i < anchors.Count; i++)
+                {
+                    Enqueue(CreateThinningSegment(logConsequences, logProbabilities, anchors[i - 1], anchors[i]));
+                }
+                while (keepCount < outputLength && queue.TryDequeue(out ThinningSegment segment, out _))
+                {
+                    if (keep[segment.Split]) continue;
+                    keep[segment.Split] = true;
+                    keepCount++;
+                    Enqueue(CreateThinningSegment(logConsequences, logProbabilities, segment.Left, segment.Split));
+                    Enqueue(CreateThinningSegment(logConsequences, logProbabilities, segment.Split, segment.Right));
+                }
+
+                var thinnedConsequences = new double[keepCount];
+                var thinnedProbabilities = new double[keepCount];
+                int outputIndex = 0;
+                for (int i = 0; i < exactCount; i++)
+                {
+                    if (!keep[i]) continue;
+                    thinnedConsequences[outputIndex] = ordinates[i].Consequence;
+                    thinnedProbabilities[outputIndex] = ordinates[i].Mass;
+                    outputIndex++;
+                }
+                _lecConsequences = thinnedConsequences;
+                _lecProbabilities = thinnedProbabilities;
+                _lecView = null;
             }
-            _lecConsequences = thinnedConsequences;
-            _lecProbabilities = thinnedProbabilities;
-            _lecView = null;
+            finally
+            {
+                ArrayPool<double>.Shared.Return(logConsequences, clearArray: false);
+                ArrayPool<double>.Shared.Return(logProbabilities, clearArray: false);
+                ArrayPool<bool>.Shared.Return(keep, clearArray: false);
+            }
         }
 
         #endregion

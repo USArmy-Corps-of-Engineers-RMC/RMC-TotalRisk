@@ -107,9 +107,10 @@ public class ParametricResponseTests
         r.Estimate();
 
         // Act / Assert
-        Assert.ThrowsException<NotImplementedException>(() => r.SampleResponseFunction());
-        Assert.ThrowsException<NotImplementedException>(() => r.SampleResponseFunction(0.5d));
-        Assert.ThrowsException<NotImplementedException>(() => r.SampleResponseFunction(0));
+        Assert.IsFalse(r.SupportsOrderedCurveSampling);
+        Assert.ThrowsException<NotSupportedException>(() => r.SampleResponseFunction());
+        Assert.ThrowsException<NotSupportedException>(() => r.SampleResponseFunction(0.5d));
+        Assert.ThrowsException<NotSupportedException>(() => r.SampleResponseFunction(0));
         var byIndex = r.SampleFunction(100);
         var byPercentile = r.SampleFunction(0.5d);
         Assert.AreEqual(((Normal)byIndex).Mean, ((Normal)byPercentile).Mean, 1e-12);

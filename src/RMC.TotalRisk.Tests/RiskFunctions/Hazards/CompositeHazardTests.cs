@@ -775,43 +775,6 @@ public class CompositeHazardTests
     }
 
     /// <summary>
-    /// Verifies the uncertainty summary is deterministic, brackets the mean curve, and leaves the
-    /// live instance's engine sampler untouched (it runs on a clone).
-    /// </summary>
-    [TestMethod]
-    public void Test_ComputeUncertaintyResults_DeterministicAndDoesNotDisturbLiveSampler()
-    {
-        // Arrange
-        var composite = Composite(CompositeCombinationType.Mixture,
-            (TabularChild("A", 10d, 100d, 5d), 0.45d), (TabularChild("B", 5d, 60d, 4d), 0.55d));
-        composite.SetupSampler(64, 777, SamplingScheme.LatinHypercube);
-        double beforeDraw = composite.SampleFunction(5).CDF(90d);
-
-        // Act
-        var results = composite.ComputeUncertaintyResults();
-        var repeat = composite.ComputeUncertaintyResults();
-
-        // Assert — deterministic across calls.
-        Assert.IsNotNull(results);
-        double[] probabilities = composite.UncertaintySummaryProbabilities();
-        Assert.AreEqual(probabilities.Length, results!.MeanCurve!.Length);
-        for (int i = 0; i < probabilities.Length; i++)
-        {
-            Assert.AreEqual(results.MeanCurve[i], repeat!.MeanCurve![i], 0d);
-            Assert.IsTrue(results.ConfidenceIntervals![i, 0] <= results.ConfidenceIntervals[i, 1],
-                "The lower confidence bound must not exceed the upper.");
-        }
-
-        // The live sampler is untouched.
-        Assert.AreEqual(beforeDraw, composite.SampleFunction(5).CDF(90d), 0d);
-
-        // Width guards, and an invalid composite reports null.
-        Assert.ThrowsException<ArgumentOutOfRangeException>(() => composite.ComputeUncertaintyResults(0d));
-        Assert.ThrowsException<ArgumentOutOfRangeException>(() => composite.ComputeUncertaintyResults(1d));
-        Assert.IsNull(new CompositeHazard().ComputeUncertaintyResults());
-    }
-
-    /// <summary>
     /// Verifies a deterministic composite's uncertainty summary collapses to the exact mean curve
     /// with no simulation — every band equals the mean.
     /// </summary>

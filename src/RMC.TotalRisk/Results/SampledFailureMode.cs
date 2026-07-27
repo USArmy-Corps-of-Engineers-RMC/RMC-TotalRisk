@@ -341,7 +341,7 @@ namespace RMC.TotalRisk.Results
                 double p = Tools.Clamp(_stageResponses[s].CDF(signal), 0d, 1d);
                 weight *= _stagePolarities[s] == BranchPolarity.Fail ? p : 1d - p;
             }
-            return weight;
+            return Tools.Clamp(weight, 0d, 1d);
         }
 
         /// <summary>
@@ -509,7 +509,7 @@ namespace RMC.TotalRisk.Results
             if (flags == null) throw new ArgumentNullException(nameof(flags));
             if (realization == null) throw new ArgumentNullException(nameof(realization));
 
-            double probabilityOfFailure = SRP(hazardLevel);
+            double probabilityOfFailure = Tools.Clamp(SRP(hazardLevel), 0d, 1d);
             bool record = recordOutput && !IsNonFailureMode && !SuppressModeRecording;
             double recordedLevel = double.IsNaN(recordedHazard) ? hazardLevel : recordedHazard;
 
@@ -589,9 +589,13 @@ namespace RMC.TotalRisk.Results
                 }
             }
 
-            // Failure consequence branches at the bound consequence input signal.
-            var excessProbabilities = record ? new List<double>(failureBranches.Count * nonFailCount) : null;
-            var excessValues = record ? new List<double>(failureBranches.Count * nonFailCount) : null;
+            // Failure consequence branches at the bound consequence input signal. The common
+            // one-by-one case records inline below and therefore needs no temporary entry lists.
+            bool inlineRecord = record && failureBranches.Count == 1 && nonFailCount == 1;
+            var excessProbabilities = record && !inlineRecord ? new List<double>(failureBranches.Count * nonFailCount) : null;
+            var excessValues = record && !inlineRecord ? new List<double>(failureBranches.Count * nonFailCount) : null;
+            double inlineExcessProbability = 0d;
+            double inlineExcessValue = 0d;
             double meanFailure = 0d;
             double meanExcess = 0d;
             for (int i = 0; i < failureBranches.Count; i++)
@@ -618,35 +622,82 @@ namespace RMC.TotalRisk.Results
                     pairedExcess += nonFailWeights[j] * excess;
                     if (record)
                     {
-                        excessProbabilities!.Add(probabilityOfFailure * weight * nonFailWeights[j]);
-                        excessValues!.Add(excess);
+                        double entryProbability = Tools.Clamp(probabilityOfFailure * weight * nonFailWeights[j], 0d, 1d);
+                        if (inlineRecord)
+                        {
+                            inlineExcessProbability = entryProbability;
+                            inlineExcessValue = excess;
+                        }
+                        else
+                        {
+                            excessProbabilities!.Add(entryProbability);
+                            excessValues!.Add(excess);
+                        }
                     }
                 }
                 meanExcess += weight * pairedExcess;
 
-                output.ResponseProbabilities.Add(probabilityOfFailure * weight);
+                output.ResponseProbabilities.Add(Tools.Clamp(probabilityOfFailure * weight, 0d, 1d));
                 output.FailureConsequences.Add(failureValue);
                 output.ExcessConsequences.Add(Math.Max(0d, failureValue - meanNonFail));
             }
 
-            // Record the mode-level risk points on this type's curves: Fail entries per failure
-            // branch, Excess entries per branch pair.
+            // Record the complete mode-level decomposition: failure and excess branches, the
+            // conditional background distribution, the non-failure complement, and their
+            // collectively exhaustive Total union.
             if (record)
             {
                 var target = typeIndex == 0 ? realization.Curves : realization.AdditionalCurves[typeIndex - 1];
-                var failProbabilities = new List<double>(failureBranches.Count);
-                var failValues = new List<double>(failureBranches.Count);
-                for (int i = 0; i < failureBranches.Count; i++)
+                double probabilityOfNonFailure = Tools.Clamp(1d - probabilityOfFailure, 0d, 1d);
+                if (inlineRecord)
                 {
-                    failProbabilities.Add(output.ResponseProbabilities[i]);
-                    failValues.Add(output.FailureConsequences[i]);
+                    double failProbability = output.ResponseProbabilities[0];
+                    double failValue = output.FailureConsequences[0];
+                    double backgroundProbability = Tools.Clamp(nonFailWeights[0], 0d, 1d);
+                    double backgroundValue = nonFailValues[0];
+                    double nonFailProbability = Tools.Clamp(probabilityOfNonFailure * nonFailWeights[0], 0d, 1d);
+                    target.Background.AddRiskPoint(recordedLevel, probability, backgroundProbability, backgroundValue);
+                    target.NonFail.AddRiskPoint(recordedLevel, probability, nonFailProbability, backgroundValue);
+                    target.Total.AddTwoEntryRiskPoint(recordedLevel, probability,
+                        failProbability, failValue, nonFailProbability, backgroundValue);
+                    target.Fail.AddRiskPoint(recordedLevel, probability, failProbability, failValue, hazardExceedanceProbability);
+                    target.Excess.AddRiskPoint(recordedLevel, probability, inlineExcessProbability, inlineExcessValue);
                 }
-                target.Fail.AddRiskPoint(recordedLevel, probability, failProbabilities, failValues, hazardExceedanceProbability);
-                target.Excess.AddRiskPoint(recordedLevel, probability, excessProbabilities!, excessValues!);
+                else
+                {
+                    var failProbabilities = new List<double>(failureBranches.Count);
+                    var failValues = new List<double>(failureBranches.Count);
+                    for (int i = 0; i < failureBranches.Count; i++)
+                    {
+                        failProbabilities.Add(output.ResponseProbabilities[i]);
+                        failValues.Add(output.FailureConsequences[i]);
+                    }
+
+                    var backgroundProbabilities = new List<double>(nonFailCount);
+                    var backgroundValues = new List<double>(nonFailCount);
+                    var nonFailProbabilities = new List<double>(nonFailCount);
+                    var totalProbabilities = new List<double>(failureBranches.Count + nonFailCount);
+                    var totalValues = new List<double>(failureBranches.Count + nonFailCount);
+                    totalProbabilities.AddRange(failProbabilities);
+                    totalValues.AddRange(failValues);
+                    for (int j = 0; j < nonFailCount; j++)
+                    {
+                        backgroundProbabilities.Add(Tools.Clamp(nonFailWeights[j], 0d, 1d));
+                        backgroundValues.Add(nonFailValues[j]);
+                        nonFailProbabilities.Add(Tools.Clamp(probabilityOfNonFailure * nonFailWeights[j], 0d, 1d));
+                        totalProbabilities.Add(Tools.Clamp(probabilityOfNonFailure * nonFailWeights[j], 0d, 1d));
+                        totalValues.Add(nonFailValues[j]);
+                    }
+                    target.Background.AddRiskPoint(recordedLevel, probability, backgroundProbabilities, backgroundValues);
+                    target.NonFail.AddRiskPoint(recordedLevel, probability, nonFailProbabilities, new List<double>(backgroundValues));
+                    target.Total.AddRiskPoint(recordedLevel, probability, totalProbabilities, totalValues);
+                    target.Fail.AddRiskPoint(recordedLevel, probability, failProbabilities, failValues, hazardExceedanceProbability);
+                    target.Excess.AddRiskPoint(recordedLevel, probability, excessProbabilities!, excessValues!);
+                }
             }
 
             output.ProbabilityOfFailure = probabilityOfFailure;
-            output.ProbabilityOfNonFailure = 1d - probabilityOfFailure;
+            output.ProbabilityOfNonFailure = Tools.Clamp(1d - probabilityOfFailure, 0d, 1d);
             output.NonFailureConsequences = meanNonFail;
             output.MeanFailureConsequences = meanFailure;
             output.MeanExcessConsequences = meanExcess;

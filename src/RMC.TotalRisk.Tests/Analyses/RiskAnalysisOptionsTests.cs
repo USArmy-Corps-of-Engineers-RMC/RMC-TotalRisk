@@ -257,13 +257,50 @@ public class RiskAnalysisOptionsTests
         Assert.AreEqual(50_000, options.WarmupEvaluations);
         Assert.AreEqual(100_000, options.FinalEvaluations);
 
-        // Setting UseDefaults true re-applies the single-component defaults (v1.0 behavior).
+        // Setting UseDefaults true re-applies the most recently supplied owning component count.
         options.WarmupEvaluations = 777;
         options.UseDefaults = true;
-        Assert.AreEqual(1000, options.WarmupEvaluations);
-        Assert.AreEqual(10_000, options.FinalEvaluations);
+        Assert.AreEqual(50_000, options.WarmupEvaluations);
+        Assert.AreEqual(100_000, options.FinalEvaluations);
     }
 
+
+    /// <summary>
+    /// Explicit integration assignments disable default tracking, including an assignment of the
+    /// current value, while materialized and explicit effective settings hash identically.
+    /// </summary>
+    [TestMethod]
+    public void Test_UseDefaults_ExplicitAssignmentAndEffectiveHash()
+    {
+        var assigned = new RiskAnalysisOptions();
+        assigned.MaxEvaluations = assigned.MaxEvaluations;
+        Assert.IsFalse(assigned.UseDefaults, "An explicit assignment must opt out even when the numeric value is unchanged.");
+
+        var materialized = new RiskAnalysisOptions();
+        materialized.SetDefaultComponentCount(5);
+        Assert.IsTrue(materialized.UseDefaults);
+        Assert.AreEqual(5000, materialized.WarmupEvaluations);
+        Assert.AreEqual(50_000, materialized.FinalEvaluations);
+
+        var explicitValues = new RiskAnalysisOptions { UseDefaults = false };
+        explicitValues.MaxEvaluations = materialized.MaxEvaluations;
+        explicitValues.MaxDepth = materialized.MaxDepth;
+        explicitValues.Tolerance = materialized.Tolerance;
+        explicitValues.WarmupEvaluations = materialized.WarmupEvaluations;
+        explicitValues.WarmupCycles = materialized.WarmupCycles;
+        explicitValues.FinalEvaluations = materialized.FinalEvaluations;
+        explicitValues.EnsembleTolerance = materialized.EnsembleTolerance;
+        explicitValues.EnsembleMinDepth = materialized.EnsembleMinDepth;
+
+        CollectionAssert.AreEqual(materialized.CanonicalHash(), explicitValues.CanonicalHash(),
+            "UseDefaults may be hash-inert only after both instances carry the same effective settings.");
+        Assert.AreEqual(materialized.WarmupEvaluations, explicitValues.WarmupEvaluations);
+        Assert.AreEqual(materialized.FinalEvaluations, explicitValues.FinalEvaluations);
+
+        materialized.SetDefaultComponentCount(2);
+        CollectionAssert.AreNotEqual(materialized.CanonicalHash(), explicitValues.CanonicalHash(),
+            "Changing an owning component count must materialize and hash the changed computation before execution.");
+    }
     /// <summary>Verifies property change notification across representative fields.</summary>
     [TestMethod]
     public void Test_PropertyChange_Notifies()

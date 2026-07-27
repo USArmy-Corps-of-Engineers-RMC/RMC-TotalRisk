@@ -442,6 +442,33 @@ public class SystemRiskVerification
     }
 
     /// <summary>
+    /// Verifies the additive convolution and one-dimensional component integrations complete for
+    /// a system larger than the former twenty-component ceiling.
+    /// </summary>
+    /// <remarks>
+    /// This computational scalability case is intentionally kept in Verification rather than the
+    /// sub-thirty-second unit gate. Joint-method admission is covered programmatically in the unit
+    /// project because a 24-dimensional joint run is governed by its explicit combination budget.
+    /// </remarks>
+    [TestMethod]
+    public void Test_AdditiveSystem_BeyondTwentyComponents_Completes()
+    {
+        var components = new SystemComponent[24];
+        for (int i = 0; i < components.Length; i++)
+        {
+            components[i] = BuildComponent(ScenarioA());
+            components[i].Name = $"Component {i + 1}";
+        }
+        var analysis = new RiskAnalysis(components);
+        analysis.Options.SystemRiskMethod = SystemRiskType.AdditiveRiskMethod;
+
+        analysis.RunAsync().GetAwaiter().GetResult();
+
+        Assert.IsTrue(analysis.IsEstimated);
+        Assert.AreEqual(24, analysis.MeanRiskResults!.Components.Count);
+    }
+
+    /// <summary>
     /// The joint-method gate: the correlated-hazard VEGAS integration with real combination
     /// enumeration reproduces the correlated brute-force oracle — mean, failure union, and the
     /// tail exceedances — and the per-evaluation additive-combine identity makes the system mean

@@ -80,24 +80,27 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
         }
 
         /// <inheritdoc/>
-        /// <exception cref="NotImplementedException">Always — exact v1.0 behavior; the engine never samples the non-failure response curve.</exception>
+        public override bool SupportsOrderedCurveSampling => false;
+
+        /// <inheritdoc/>
+        /// <exception cref="NotSupportedException">Always — the non-failure response has no ordered response curve.</exception>
         public override OrderedPairedData SampleResponseFunction()
         {
-            throw new NotImplementedException("The non-failure response has no response curve.");
+            throw new NotSupportedException("The non-failure response has no response curve.");
         }
 
         /// <inheritdoc/>
-        /// <exception cref="NotImplementedException">Always — exact v1.0 behavior.</exception>
+        /// <exception cref="NotSupportedException">Always — the non-failure response has no ordered response curve.</exception>
         public override OrderedPairedData SampleResponseFunction(double percentile)
         {
-            throw new NotImplementedException("The non-failure response has no response curve.");
+            throw new NotSupportedException("The non-failure response has no response curve.");
         }
 
         /// <inheritdoc/>
-        /// <exception cref="NotImplementedException">Always — exact v1.0 behavior.</exception>
+        /// <exception cref="NotSupportedException">Always — the non-failure response has no ordered response curve.</exception>
         public override OrderedPairedData SampleResponseFunction(int realizationIndex)
         {
-            throw new NotImplementedException("The non-failure response has no response curve.");
+            throw new NotSupportedException("The non-failure response has no response curve.");
         }
 
         /// <inheritdoc/>

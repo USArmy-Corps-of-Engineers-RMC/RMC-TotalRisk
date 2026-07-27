@@ -1,4 +1,4 @@
-﻿# RMC-TotalRisk v1.1 Roadmap
+# RMC-TotalRisk v1.1 Roadmap
 
 > Phased development of the v1.1 model library, tests, and verification suite. **One phase per working session.** Every phase exits with: a zero-warning build, the fast test suite green (`dotnet test -c Release`), `validate-code-xml-docs.ps1` green, the Ported Types Matrix in CLAUDE.md updated, `docs/PROGRESS.md` updated, and AGENTS.md regenerated if CLAUDE.md changed. **Every ported compute type ships with unit tests in `RMC.TotalRisk.Tests`, and gains verification coverage in `RMC.TotalRisk.Verification` by the phase that converts its legacy oracle scenarios.**
 >
@@ -486,6 +486,37 @@ integer shift. Byte gates re-pinned once; the `RMCTR_LEGACY_MASS` A/B scaffold d
 **Exit criteria:** met — build 0 warnings, fast suite 665/665, doc script green, **all 27
 verification families green run isolated across the stage-3 sweep** (149 tests), byte gates
 re-pinned in [scripts/perf/RESULTS.md](../scripts/perf/RESULTS.md), and the A/B scaffold removed.
+
+## Phase 8.6 — Numerical safety remediation
+
+> Inserted 2026-07-27 as the release safety gate before Phase 9 resumes. **Complete:** implementation,
+> isolated verification, coverage, documentation, and performance gates are green.
+
+**Lazy failure-mode enumeration.** Numerics now exposes pooled lazy independent, perfectly-positive,
+and PCM exclusive APIs plus lazy PCM union. TotalRisk routes every `JointFailures` dependency through
+them and no longer pre-populates `U × (2^U−1)` indicator or binomial caches. Compatibility inspection
+properties remain dense only when explicitly requested. The failure-mode memory ceiling is removed;
+worst-case compute is still combinatorial when the established `1E-4` convergence predicate does not
+stop early. The separate 50-dimensional joint VEGAS limit remains.
+
+**Probability boundary.** Every finite Numerics probability output clips through `Tools.Clamp` while
+NaN signaling is preserved. TotalRisk clips each lazy exclusive partition in deterministic row order
+against the remaining unit budget before consequence entries, expected values, profiles, and
+contributions. Earlier cells are never rescaled, so this is trailing-overshoot clipping, not
+normalization. PCM formulas, correlations, inclusion/exclusion order, convergence rules, seeds, and
+default tolerances are unchanged.
+
+**Mass and LEC correction.** The sampled hazard retains its natural probability support. AGK records
+unchanged accepted interior weights; explicit endpoint rectangles complete the distribution and the
+upper residual makes the exhaustive ledger sum exactly one. `Curve` publishes the recorded
+compensated mass and faults invalid exhaustive or defective streams instead of masking them.
+
+**Exit criteria:** met — Numerics 1,993/1,993 on all four target frameworks; TotalRisk Release build
+zero warnings and fast suite 684/684 in 13.9 s; documentation validator green; unit-only coverage
+91.15%; `JointFailuresVerification` 9/9 with no tolerance widening and all four companion families
+green one at a time; no TotalRisk execution path calls `Factorial.AllCombinations`; three-repetition
+F1/F2/F3 allocations 3.09/12.22/6.03 GB, all below their pre-ledger baselines; final diff audit found
+no unapproved tolerance, correlation, normalization, seed, or probability-formula change.
 
 ## Phase 9 — Composites + RFA hazard + weighted wrappers
 

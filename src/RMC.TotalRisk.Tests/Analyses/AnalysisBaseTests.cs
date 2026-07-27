@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Numerics.Utilities;
 using RMC.TotalRisk.Analyses;
+using RMC.TotalRisk.Core;
 
 namespace RMC.TotalRisk.Tests.Analyses;
 
@@ -42,6 +43,9 @@ public class AnalysisBaseTests
         {
             return (true, new List<string>());
         }
+
+        /// <inheritdoc/>
+        public override IReadOnlyList<ValidationIssue> ValidateIssues() => Array.Empty<ValidationIssue>();
     }
 
     /// <summary>Verifies the estimated flag raises change notification once per transition.</summary>

@@ -1,8 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel;
-using System.Globalization;
-using System.Text;
 using System.Xml.Linq;
 using RMC.TotalRisk.Core;
 using RMC.TotalRisk.Core.Enums;
@@ -74,7 +72,7 @@ namespace RMC.TotalRisk.Analyses
             _systemRiskMethod = SerializationUtilities.ReadEnum(xElement, nameof(SystemRiskMethod), SystemRiskType.AdditiveRiskMethod);
             _jointConsequences = SerializationUtilities.ReadEnum(xElement, nameof(JointConsequences), JointConsequenceType.Additive);
             _componentHazardDependency = SerializationUtilities.ReadEnum(xElement, nameof(ComponentHazardDependency), DependencyType.Independent);
-            _hazardCorrelationMatrix = ParseMatrix(xElement.Attribute(nameof(HazardCorrelationMatrix))?.Value);
+            _hazardCorrelationMatrix = SerializationUtilities.ParseMatrix(xElement.Attribute(nameof(HazardCorrelationMatrix))?.Value);
             _consequenceThreshold = SerializationUtilities.ReadDouble(xElement, nameof(ConsequenceThreshold), 0d);
             _alpha = SerializationUtilities.ReadDouble(xElement, nameof(Alpha), 0.01d);
             _maxEvaluations = SerializationUtilities.ReadInt32(xElement, nameof(MaxEvaluations), 1_000_000);
@@ -161,6 +159,14 @@ namespace RMC.TotalRisk.Analyses
 
         /// <summary>Backing field for <see cref="UseDefaults"/>.</summary>
         private bool _useDefaults = true;
+        /// <summary>Component count used when materializing integration defaults.</summary>
+        private int _defaultComponentCount = 1;
+
+        /// <summary>
+        /// Suppresses explicit-assignment tracking while defaults are materialized internally.
+        /// </summary>
+        private bool _applyingIntegrationDefaults;
+
 
         /// <summary>Backing field for <see cref="VegasTailFocusMode"/>.</summary>
         private VegasTailFocusMode _vegasTailFocusMode = VegasTailFocusMode.Automatic;
@@ -319,10 +325,10 @@ namespace RMC.TotalRisk.Analyses
         /// </summary>
         public double[,]? HazardCorrelationMatrix
         {
-            get { return _hazardCorrelationMatrix; }
+            get { return _hazardCorrelationMatrix == null ? null : (double[,])_hazardCorrelationMatrix.Clone(); }
             set
             {
-                _hazardCorrelationMatrix = value;
+                _hazardCorrelationMatrix = value == null ? null : (double[,])value.Clone();
                 RaisePropertyChange(nameof(HazardCorrelationMatrix));
             }
         }
@@ -352,7 +358,7 @@ namespace RMC.TotalRisk.Analyses
         public int MaxEvaluations
         {
             get { return _maxEvaluations; }
-            set { SetField(ref _maxEvaluations, value, nameof(MaxEvaluations)); }
+            set { SetIntegrationField(ref _maxEvaluations, value, nameof(MaxEvaluations)); }
         }
 
         /// <summary>
@@ -361,7 +367,7 @@ namespace RMC.TotalRisk.Analyses
         public int MaxDepth
         {
             get { return _maxDepth; }
-            set { SetField(ref _maxDepth, value, nameof(MaxDepth)); }
+            set { SetIntegrationField(ref _maxDepth, value, nameof(MaxDepth)); }
         }
 
         /// <summary>
@@ -370,7 +376,7 @@ namespace RMC.TotalRisk.Analyses
         public double Tolerance
         {
             get { return _tolerance; }
-            set { SetField(ref _tolerance, value, nameof(Tolerance)); }
+            set { SetIntegrationField(ref _tolerance, value, nameof(Tolerance)); }
         }
 
         /// <summary>
@@ -385,7 +391,7 @@ namespace RMC.TotalRisk.Analyses
         public double EnsembleTolerance
         {
             get { return _ensembleTolerance; }
-            set { SetField(ref _ensembleTolerance, value, nameof(EnsembleTolerance)); }
+            set { SetIntegrationField(ref _ensembleTolerance, value, nameof(EnsembleTolerance)); }
         }
 
         /// <summary>
@@ -398,7 +404,7 @@ namespace RMC.TotalRisk.Analyses
         public int EnsembleMinDepth
         {
             get { return _ensembleMinDepth; }
-            set { SetField(ref _ensembleMinDepth, value, nameof(EnsembleMinDepth)); }
+            set { SetIntegrationField(ref _ensembleMinDepth, value, nameof(EnsembleMinDepth)); }
         }
 
         /// <summary>
@@ -407,7 +413,7 @@ namespace RMC.TotalRisk.Analyses
         public int WarmupEvaluations
         {
             get { return _warmupEvaluations; }
-            set { SetField(ref _warmupEvaluations, value, nameof(WarmupEvaluations)); }
+            set { SetIntegrationField(ref _warmupEvaluations, value, nameof(WarmupEvaluations)); }
         }
 
         /// <summary>
@@ -416,7 +422,7 @@ namespace RMC.TotalRisk.Analyses
         public int WarmupCycles
         {
             get { return _warmupCycles; }
-            set { SetField(ref _warmupCycles, value, nameof(WarmupCycles)); }
+            set { SetIntegrationField(ref _warmupCycles, value, nameof(WarmupCycles)); }
         }
 
         /// <summary>
@@ -425,29 +431,34 @@ namespace RMC.TotalRisk.Analyses
         public int FinalEvaluations
         {
             get { return _finalEvaluations; }
-            set { SetField(ref _finalEvaluations, value, nameof(FinalEvaluations)); }
+            set { SetIntegrationField(ref _finalEvaluations, value, nameof(FinalEvaluations)); }
         }
 
         /// <summary>
         /// Determines whether the integration settings track the defaults: setting <c>true</c>
-        /// re-applies <see cref="SetIntegrationDefaults"/> (v1.0 behavior), and the analysis
-        /// re-derives the component-count scaling at run start. Convenience metadata — stripped
-        /// from the canonical hash (the settings themselves stay hashed).
+        /// immediately materializes <see cref="SetIntegrationDefaults"/> for the owning
+        /// analysis's component count. Convenience metadata — stripped from the canonical hash
+        /// because the effective settings themselves are already materialized and hashed.
         /// </summary>
         public bool UseDefaults
         {
             get { return _useDefaults; }
             set
             {
-                if (_useDefaults != value)
+                if (!value)
                 {
-                    _useDefaults = value;
                     if (_useDefaults)
                     {
-                        SetIntegrationDefaults();
+                        _useDefaults = false;
+                        RaisePropertyChange(nameof(UseDefaults));
                     }
-                    RaisePropertyChange(nameof(UseDefaults));
+                    return;
                 }
+
+                bool changed = !_useDefaults;
+                _useDefaults = true;
+                ApplyIntegrationDefaults(_defaultComponentCount);
+                if (changed) RaisePropertyChange(nameof(UseDefaults));
             }
         }
 
@@ -555,23 +566,58 @@ namespace RMC.TotalRisk.Analyses
         #region Methods
 
         /// <summary>
-        /// Applies the effective v1.0 integration defaults, with the warm-up and final
-        /// evaluations scaled by the component count (identical to v1.0 at one component; the
-        /// final-evaluation scaling is the ratified 4b extension for multi-dimensional tail
+        /// Enables and materializes the integration defaults, with the warm-up and final
+        /// evaluations scaled by the component count (identical to the one-component defaults;
+        /// multi-component analyses receive proportionate tail-resolution budgets within the
         /// resolution).
         /// </summary>
         /// <param name="componentCount">The analysis component count; values below one are treated as one.</param>
         public void SetIntegrationDefaults(int componentCount = 1)
         {
-            int count = Math.Max(1, componentCount);
-            MaxEvaluations = 1_000_000;
-            MaxDepth = 100;
-            Tolerance = 1e-8;
-            WarmupEvaluations = Math.Min(1000 * count, 50_000);
-            WarmupCycles = 5;
-            FinalEvaluations = Math.Min(10_000 * count, 100_000);
-            EnsembleTolerance = 1e-4;
-            EnsembleMinDepth = 0;
+            _defaultComponentCount = Math.Max(1, componentCount);
+            bool changed = !_useDefaults;
+            _useDefaults = true;
+            ApplyIntegrationDefaults(_defaultComponentCount);
+            if (changed) RaisePropertyChange(nameof(UseDefaults));
+        }
+
+        /// <summary>
+        /// Supplies the owning analysis's component count and materializes defaults immediately
+        /// when default tracking is enabled.
+        /// </summary>
+        /// <param name="componentCount">The owning analysis's component count.</param>
+        internal void SetDefaultComponentCount(int componentCount)
+        {
+            _defaultComponentCount = Math.Max(1, componentCount);
+            if (_useDefaults)
+            {
+                ApplyIntegrationDefaults(_defaultComponentCount);
+            }
+        }
+
+        /// <summary>
+        /// Writes the effective integration defaults without treating those internal writes as
+        /// explicit caller overrides.
+        /// </summary>
+        /// <param name="componentCount">The normalized component count.</param>
+        private void ApplyIntegrationDefaults(int componentCount)
+        {
+            _applyingIntegrationDefaults = true;
+            try
+            {
+                MaxEvaluations = 1_000_000;
+                MaxDepth = 100;
+                Tolerance = 1e-8;
+                WarmupEvaluations = (int)Math.Min(1000L * componentCount, 50_000L);
+                WarmupCycles = 5;
+                FinalEvaluations = (int)Math.Min(10_000L * componentCount, 100_000L);
+                EnsembleTolerance = 1e-4;
+                EnsembleMinDepth = 0;
+            }
+            finally
+            {
+                _applyingIntegrationDefaults = false;
+            }
         }
 
         /// <summary>
@@ -684,7 +730,7 @@ namespace RMC.TotalRisk.Analyses
             element.SetAttributeValue(nameof(JointConsequences), _jointConsequences.ToString());
             element.SetAttributeValue(nameof(ComponentHazardDependency), _componentHazardDependency.ToString());
             element.SetAttributeValue(nameof(HazardCorrelationMatrix),
-                _componentHazardDependency == DependencyType.CorrelationMatrix ? FormatMatrix(_hazardCorrelationMatrix) : string.Empty);
+                _componentHazardDependency == DependencyType.CorrelationMatrix ? SerializationUtilities.FormatMatrix(_hazardCorrelationMatrix) : string.Empty);
             element.SetAttributeValue(nameof(ConsequenceThreshold), SerializationUtilities.FormatDouble(_consequenceThreshold));
             element.SetAttributeValue(nameof(Alpha), SerializationUtilities.FormatDouble(_alpha));
             element.SetAttributeValue(nameof(MaxEvaluations), _maxEvaluations);
@@ -711,6 +757,28 @@ namespace RMC.TotalRisk.Analyses
         #region Private Helpers
 
         /// <summary>
+        /// Applies an integration-setting assignment and disables default tracking when the
+        /// assignment came from a caller rather than internal materialization.
+        /// </summary>
+        /// <typeparam name="T">The field type.</typeparam>
+        /// <param name="field">The backing field.</param>
+        /// <param name="value">The assigned value.</param>
+        /// <param name="propertyName">The property name to report.</param>
+        private void SetIntegrationField<T>(ref T field, T value, string propertyName)
+        {
+            if (!_applyingIntegrationDefaults && _useDefaults)
+            {
+                _useDefaults = false;
+                RaisePropertyChange(nameof(UseDefaults));
+            }
+            if (!EqualityComparer<T>.Default.Equals(field, value))
+            {
+                field = value;
+                RaisePropertyChange(propertyName);
+            }
+        }
+
+        /// <summary>
         /// Sets a backing field and raises the change notification when the value differs.
         /// </summary>
         /// <typeparam name="T">The field type.</typeparam>
@@ -733,54 +801,6 @@ namespace RMC.TotalRisk.Analyses
         private void RaisePropertyChange(string propertyName)
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-        }
-
-        /// <summary>
-        /// Formats a matrix as G17 row-major text (rows ';'-separated, values ','-separated) —
-        /// the shared matrix persistence format.
-        /// </summary>
-        /// <param name="matrix">The matrix, possibly null.</param>
-        /// <returns>The formatted text, or empty for null.</returns>
-        private static string FormatMatrix(double[,]? matrix)
-        {
-            if (matrix == null) return string.Empty;
-            var builder = new StringBuilder();
-            int rows = matrix.GetLength(0);
-            int columns = matrix.GetLength(1);
-            for (int i = 0; i < rows; i++)
-            {
-                if (i > 0) builder.Append(';');
-                for (int j = 0; j < columns; j++)
-                {
-                    if (j > 0) builder.Append(',');
-                    builder.Append(SerializationUtilities.FormatDouble(matrix[i, j]));
-                }
-            }
-            return builder.ToString();
-        }
-
-        /// <summary>
-        /// Parses the matrix persistence format; empty, null, or ragged text yields null.
-        /// </summary>
-        /// <param name="text">The formatted text.</param>
-        /// <returns>The matrix, or null.</returns>
-        private static double[,]? ParseMatrix(string? text)
-        {
-            if (string.IsNullOrEmpty(text)) return null;
-            string[] rows = text.Split(';');
-            string[] first = rows[0].Split(',');
-            var matrix = new double[rows.Length, first.Length];
-            for (int i = 0; i < rows.Length; i++)
-            {
-                string[] values = rows[i].Split(',');
-                if (values.Length != first.Length) return null;
-                for (int j = 0; j < values.Length; j++)
-                {
-                    if (!double.TryParse(values[j], NumberStyles.Any, CultureInfo.InvariantCulture, out double value)) return null;
-                    matrix[i, j] = value;
-                }
-            }
-            return matrix;
         }
 
         #endregion

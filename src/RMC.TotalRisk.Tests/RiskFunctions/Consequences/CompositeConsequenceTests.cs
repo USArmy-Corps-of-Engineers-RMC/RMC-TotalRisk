@@ -589,54 +589,6 @@ public class CompositeConsequenceTests
         }
     }
 
-    /// <summary>
-    /// Verifies the uncertainty summary is deterministic, content-seeded, exact for deterministic
-    /// composites, and never disturbs the live engine sampler state.
-    /// </summary>
-    [TestMethod]
-    public void Test_ComputeUncertaintyResults_Deterministic_AndDoesNotDisturbLiveSampler()
-    {
-        // Arrange — the report's Average scenario: N(10,2), N(20,1), N(100,5) at weights .3/.2/.5.
-        var composite = Composite(CompositeFunctionType.Average,
-            (NormalChild("F1", 10d, 2d), 0.3d), (NormalChild("F2", 20d, 1d), 0.2d), (NormalChild("F3", 100d, 5d), 0.5d));
-        composite.SetupSampler(128, 12345, SamplingScheme.LatinHypercube);
-        double liveDraw = composite.SampleFunction(5).Function(10d);
-
-        // Act
-        var first = composite.ComputeUncertaintyResults(0.90d)!;
-        var second = composite.ComputeUncertaintyResults(0.90d)!;
-
-        // Assert — repeated calls agree bit-for-bit, and the live sampler stream is untouched.
-        CollectionAssert.AreEqual(first.MeanCurve, second.MeanCurve);
-        Assert.AreEqual(liveDraw, composite.SampleFunction(5).Function(10d), 0d,
-            "The uncertainty summary must never disturb the live sampler state.");
-
-        // Metadata edits cannot move the summary (content-based seed).
-        composite.Name = "Renamed";
-        composite.ConsequenceFunctions[0].ConsequenceFunction!.AssignNewId();
-        CollectionAssert.AreEqual(first.MeanCurve, composite.ComputeUncertaintyResults(0.90d)!.MeanCurve);
-
-        // Grid alignment: the union of the child knots {0, 10}; independent-child pooling at
-        // stage 10 gives mean 57 with sd 2.58 — the 10k median-LHS estimate sits well within
-        // ±0.5 of the exact mean.
-        double[] grid = composite.UncertaintySummaryHazards();
-        CollectionAssert.AreEqual(new[] { 0d, 10d }, grid);
-        Assert.AreEqual(grid.Length, first.MeanCurve!.Length);
-        Assert.AreEqual(57d, first.MeanCurve[1], 0.5d);
-        Assert.IsTrue(first.ConfidenceIntervals![1, 0] < first.ConfidenceIntervals[1, 1]);
-
-        // Deterministic composites summarize exactly with no simulation.
-        var deterministic = Composite(CompositeFunctionType.Additive,
-            (DeterministicChild("Day", 100d), 1d), (DeterministicChild("Night", 300d), 1d));
-        var exact = deterministic.ComputeUncertaintyResults(0.90d)!;
-        Assert.AreEqual(400d, exact.MeanCurve![1], 0d);
-        Assert.AreEqual(400d, exact.ConfidenceIntervals![1, 0], 0d);
-
-        // Width bounds are enforced; validation errors return null.
-        Assert.ThrowsException<ArgumentOutOfRangeException>(() => composite.ComputeUncertaintyResults(0d));
-        Assert.IsNull(new CompositeConsequence().ComputeUncertaintyResults(0.90d));
-    }
-
     /// <summary>Verifies entry- and child-level edits surface through the composite's notification.</summary>
     [TestMethod]
     public void Test_PropertyChange_ChildEditReachesComposite()

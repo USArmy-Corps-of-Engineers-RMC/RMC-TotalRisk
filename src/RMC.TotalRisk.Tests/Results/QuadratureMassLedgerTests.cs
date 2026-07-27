@@ -211,4 +211,66 @@ public class QuadratureMassLedgerTests
         // Act / Assert
         Assert.ThrowsException<InvalidOperationException>(() => ledger.Record(0.6d, 1d, 0d));
     }
+
+    /// <summary>
+    /// Reproduces the integration appendix's K + 2 partition: five natural interior bins plus
+    /// one endpoint rectangle at each tail. The edge correction makes the stored mass exactly
+    /// one without changing an interior weight.
+    /// </summary>
+    [TestMethod]
+    public void Test_SealExhaustive_AppendixDWorkedPartition_IsExactlyOne()
+    {
+        // Arrange: 0.001 + 5(0.1996) + 0.001 = 1.
+        using var ledger = new QuadratureMassLedger(7);
+        ledger.Record(0.001d, 0.001d, 30d);
+        for (int i = 0; i < 5; i++)
+        {
+            ledger.Record(0.1008d + i * 0.1996d, 0.1996d, 25d - 5d * i);
+        }
+        double upperAbscissa = 0.999d;
+        double upperMass = 1d - ledger.RunningTotalWeight;
+        ledger.Record(upperAbscissa, upperMass, 0d);
+
+        // Act
+        ledger.SealExhaustive();
+
+        // Assert
+        Assert.AreEqual(1d, ledger.TotalWeight, 0d);
+        Assert.AreEqual(7, ledger.DistinctAbscissaCount);
+        Assert.AreEqual(0.001d, ledger.MassAt(0.001d), 0d);
+        for (int i = 0; i < 5; i++)
+        {
+            Assert.AreEqual(0.1996d, ledger.MassAt(0.1008d + i * 0.1996d), 0d,
+                "Sealing must not proportionally renormalize an interior AGK weight.");
+        }
+        Assert.AreEqual(0.001d, ledger.MassAt(upperAbscissa), 2e-16);
+    }
+
+    /// <summary>
+    /// Non-finite coordinates and non-finite or negative probability weights fail at the
+    /// recording boundary.
+    /// </summary>
+    [TestMethod]
+    public void Test_Record_InvalidInputs_Throw()
+    {
+        using var ledger = new QuadratureMassLedger();
+        Assert.ThrowsException<ArgumentOutOfRangeException>(() => ledger.Record(double.NaN, 1d, 0d));
+        Assert.ThrowsException<ArgumentOutOfRangeException>(() => ledger.Record(0.5d, double.PositiveInfinity, 0d));
+        Assert.ThrowsException<ArgumentOutOfRangeException>(() => ledger.Record(0.5d, -double.Epsilon, 0d));
+    }
+
+    /// <summary>
+    /// Disposing the ledger returns its buffers and prevents any subsequent recording or read.
+    /// </summary>
+    [TestMethod]
+    public void Test_Dispose_ClosesLedger()
+    {
+        var ledger = new QuadratureMassLedger();
+        ledger.Record(0.5d, 1d, 0d);
+        ledger.Seal();
+        ledger.Dispose();
+
+        Assert.ThrowsException<ObjectDisposedException>(() => ledger.TryGetMass(0.5d, out _));
+        Assert.ThrowsException<InvalidOperationException>(() => ledger.Record(0.5d, 1d, 0d));
+    }
 }

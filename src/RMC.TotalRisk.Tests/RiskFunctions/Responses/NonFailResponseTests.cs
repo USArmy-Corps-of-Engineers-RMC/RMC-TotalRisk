@@ -36,9 +36,10 @@ public class NonFailResponseTests
         var nf = new NonFailResponse();
 
         // Act / Assert — exact v1.0 behavior.
-        Assert.ThrowsException<NotImplementedException>(() => nf.SampleResponseFunction());
-        Assert.ThrowsException<NotImplementedException>(() => nf.SampleResponseFunction(0.5d));
-        Assert.ThrowsException<NotImplementedException>(() => nf.SampleResponseFunction(0));
+        Assert.IsFalse(nf.SupportsOrderedCurveSampling);
+        Assert.ThrowsException<NotSupportedException>(() => nf.SampleResponseFunction());
+        Assert.ThrowsException<NotSupportedException>(() => nf.SampleResponseFunction(0.5d));
+        Assert.ThrowsException<NotSupportedException>(() => nf.SampleResponseFunction(0));
         Assert.IsNull(nf.SampleFunction());
         Assert.IsNull(nf.SampleFunction(0.5d));
         Assert.IsNull(nf.SampleFunction(0));

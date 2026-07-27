@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Numerics;
 using Numerics.Data;
 using Numerics.Data.Statistics;
 using Numerics.Distributions;
@@ -260,15 +261,102 @@ public class SampledComponentTests
     }
 
     /// <summary>
-    /// Verifies a per-mode combination method runs past the enumeration ceiling of the joint
-    /// method's 2^U indicator matrix.
+    /// Verifies every joint-failure dependency routes through its lazy Numerics enumerator and
+    /// preserves the exact low-dimensional pathway values when clipping is inactive.
     /// </summary>
-    /// <remarks>
-    /// Only <see cref="FailureModeMethod.JointFailures"/> enumerates failure subsets, so only it
-    /// builds the 2^U indicator matrix and only it is bounded by what
-    /// <c>Factorial.AllCombinations</c> can enumerate. The per-mode methods combine marginally and
-    /// carry no such limit.
-    /// </remarks>
+    /// <param name="dependency">The dependency mode under test.</param>
+    [DataTestMethod]
+    [DataRow(DependencyType.Independent)]
+    [DataRow(DependencyType.PerfectlyPositive)]
+    [DataRow(DependencyType.PerfectlyNegative)]
+    [DataRow(DependencyType.CorrelationMatrix)]
+    public void Test_JointFailures_AllDependencies_MatchLazyEnumeration(DependencyType dependency)
+    {
+        var component = TwoModeComponent(FailureModeMethod.JointFailures);
+        component.FailureModeDependency = dependency;
+        if (dependency == DependencyType.CorrelationMatrix)
+        {
+            component.CorrelationMatrix = new[,] { { 1d, 0.2d }, { 0.2d, 1d } };
+        }
+
+        var sampled = MeanSample(component);
+        var realization = new ComponentRealization(sampled.FailureModeCount);
+        var output = sampled.ComputeRisk(0.6d, 15d, new RiskComputeFlags(), realization);
+
+        var marginals = new List<double> { 0.5d, 0.25d };
+        var expectedProbabilities = new List<double>();
+        var expectedIndicators = new List<int[]>();
+        switch (dependency)
+        {
+            case DependencyType.Independent:
+                Probability.IndependentExclusiveLazy(marginals, expectedProbabilities, expectedIndicators);
+                break;
+            case DependencyType.PerfectlyPositive:
+                Probability.PositivelyDependentExclusiveLazy(marginals, expectedProbabilities, expectedIndicators);
+                break;
+            default:
+                Probability.ExclusivePCMLazy(marginals, component.CorrelationMatrix!,
+                    expectedProbabilities, expectedIndicators);
+                break;
+        }
+
+        double remaining = 1d;
+        var positiveExpected = new List<double>();
+        for (int i = 0; i < expectedProbabilities.Count; i++)
+        {
+            double accepted = Tools.Clamp(expectedProbabilities[i], 0d, remaining);
+            remaining = Tools.Clamp(remaining - accepted, 0d, 1d);
+            if (accepted > 0d) positiveExpected.Add(accepted);
+        }
+
+        Assert.AreEqual(positiveExpected.Count, output.ResponseProbabilities.Count);
+        for (int i = 0; i < positiveExpected.Count; i++)
+        {
+            Assert.AreEqual(BitConverter.DoubleToInt64Bits(positiveExpected[i]),
+                BitConverter.DoubleToInt64Bits(output.ResponseProbabilities[i]),
+                $"{dependency}: pathway {i} changed.");
+        }
+        Assert.AreEqual(positiveExpected.Sum(), output.ProbabilityOfFailure, 1e-15);
+    }
+
+    /// <summary>
+    /// Verifies a 24-mode joint component completes setup and evaluation without materializing the
+    /// dense U×(2^U−1) indicator matrix.
+    /// </summary>
+    [TestMethod]
+    public void Test_JointFailures_TwentyFourModes_ComputesLazily()
+    {
+        const int modeCount = 24;
+        var component = new SystemComponent { Name = "Wide Joint" };
+        component.HazardFunction = StageFrequency();
+        for (int i = 0; i < modeCount; i++)
+        {
+            TabularResponse response = i switch
+            {
+                0 => Fragility($"Mode {i}", 10d, 20d),
+                1 => Fragility($"Mode {i}", 10d, 30d),
+                2 => Fragility($"Mode {i}", 12d, 30d),
+                _ => Fragility($"Mode {i}", 100d, 200d),
+            };
+            component.AddFailureMode(new FailureMode(null, null, response, Consequence($"Loss {i}", 100d)));
+        }
+        component.FailureModeMethod = FailureModeMethod.JointFailures;
+        component.FailureModeDependency = DependencyType.Independent;
+
+        var sampled = MeanSample(component);
+        var realization = new ComponentRealization(sampled.FailureModeCount);
+        var output = sampled.ComputeRisk(0.5d, 15d, new RiskComputeFlags(), realization, recordOutput: true);
+
+        Assert.AreEqual(modeCount, sampled.FailureModeCount);
+        Assert.IsTrue(output.ProbabilityOfFailure > 0d && output.ProbabilityOfFailure <= 1d);
+        Assert.AreEqual(1d, output.ProbabilityOfFailure + output.ProbabilityOfNonFailure, 0d);
+        Assert.AreEqual(1d, realization.Curves.Total.RiskPoints[0].ResponseProbabilities.Sum(), 1e-12);
+    }
+
+    /// <summary>
+    /// Verifies a wide per-mode combination method remains free of subset-enumeration storage.
+    /// The separate wide joint test proves that joint enumeration is now lazy as well.
+    /// </summary>
     [TestMethod]
     public void Test_PerModeMethod_BeyondCombinationEnumerationLimit_Computes()
     {

@@ -22,6 +22,9 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
         public abstract ResponseFunctionType FunctionType { get; }
 
         /// <inheritdoc/>
+        public virtual bool SupportsOrderedCurveSampling => true;
+
+        /// <inheritdoc/>
         public abstract OrderedPairedData SampleResponseFunction();
 
         /// <inheritdoc/>

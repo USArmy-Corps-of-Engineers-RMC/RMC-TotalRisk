@@ -147,7 +147,7 @@ namespace RMC.TotalRisk.Results
         /// scaled by <paramref name="scale"/>).
         /// </param>
         /// <param name="scale">The VEGAS self-normalization scale (ignored under trapezoid masses).</param>
-        public void FinalizeContributions(QuadratureMassLedger? ledger, double scale = 1d)
+        internal void FinalizeContributions(QuadratureMassLedger? ledger, double scale = 1d)
         {
             var accumulators = ContributionAccumulators;
             if (accumulators == null) return;
@@ -208,7 +208,7 @@ namespace RMC.TotalRisk.Results
         /// Applies the quadrature ledger's masses to every consequence type.
         /// </summary>
         /// <param name="ledger">The pass's quadrature ledger, sealed.</param>
-        public void ApplyRecordedMass(QuadratureMassLedger ledger)
+        internal void ApplyRecordedMass(QuadratureMassLedger ledger)
         {
             Curves.ApplyRecordedMass(ledger);
             for (int k = 0; k < AdditionalCurves.Count; k++)

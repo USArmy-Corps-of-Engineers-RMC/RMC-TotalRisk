@@ -438,24 +438,27 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
         }
 
         /// <inheritdoc/>
-        /// <exception cref="NotImplementedException">Always — parametric responses do not emit curve samples (v1.0 behavior).</exception>
+        public override bool SupportsOrderedCurveSampling => false;
+
+        /// <inheritdoc/>
+        /// <exception cref="NotSupportedException">Always — parametric responses do not emit ordered curve samples.</exception>
         public override OrderedPairedData SampleResponseFunction()
         {
-            throw new NotImplementedException("Parametric response functions do not emit ordered-pair curve samples.");
+            throw new NotSupportedException("Parametric response functions do not emit ordered-pair curve samples.");
         }
 
         /// <inheritdoc/>
-        /// <exception cref="NotImplementedException">Always — v1.0 behavior.</exception>
+        /// <exception cref="NotSupportedException">Always — parametric responses do not emit ordered curve samples.</exception>
         public override OrderedPairedData SampleResponseFunction(double percentile)
         {
-            throw new NotImplementedException("Parametric response functions do not emit ordered-pair curve samples.");
+            throw new NotSupportedException("Parametric response functions do not emit ordered-pair curve samples.");
         }
 
         /// <inheritdoc/>
-        /// <exception cref="NotImplementedException">Always — v1.0 behavior.</exception>
+        /// <exception cref="NotSupportedException">Always — parametric responses do not emit ordered curve samples.</exception>
         public override OrderedPairedData SampleResponseFunction(int realizationIndex)
         {
-            throw new NotImplementedException("Parametric response functions do not emit ordered-pair curve samples.");
+            throw new NotSupportedException("Parametric response functions do not emit ordered-pair curve samples.");
         }
 
         /// <inheritdoc/>

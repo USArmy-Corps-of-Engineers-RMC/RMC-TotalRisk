@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Xml.Linq;
@@ -607,7 +607,7 @@ public class SystemComponentTests
     }
 
     /// <summary>
-    /// Verifies that <see cref="SystemComponent.SetupSamplers"/> materializes the automatic
+    /// Verifies that <see cref="SystemComponent.SetupSamplers(int, int, SamplingScheme)"/> materializes the automatic
     /// dependency matrix before any sampling — the compute path captures the raw
     /// <see cref="SystemComponent.CorrelationMatrix"/> reference, and v1.0 kept it fresh by
     /// rebuilding eagerly on every edit. The regression this pins: under perfectly negative

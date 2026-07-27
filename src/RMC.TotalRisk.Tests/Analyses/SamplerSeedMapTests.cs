@@ -189,7 +189,7 @@ public class SamplerSeedMapTests
         // A different walk shape (two modes) faults the run — no results are published.
         var twoModes = Build(300d, modes: 2);
         twoModes.PinnedSamplerSeeds = map;
-        await twoModes.RunAsync();
+        await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => twoModes.RunAsync());
         Assert.IsFalse(twoModes.IsEstimated, "A walk-shape mismatch must fault the run.");
         Assert.IsNull(twoModes.RiskResults, "No results may publish from a faulted pinned run.");
     }

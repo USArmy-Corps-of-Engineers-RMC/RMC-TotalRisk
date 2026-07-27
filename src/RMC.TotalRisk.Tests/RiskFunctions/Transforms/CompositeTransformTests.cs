@@ -512,36 +512,6 @@ public class CompositeTransformTests
             Composite((null!, 1d)).CanonicalHash());
     }
 
-    /// <summary>Verifies the uncertainty summary is deterministic and leaves the live sampler untouched.</summary>
-    [TestMethod]
-    public void Test_ComputeUncertaintyResults_DeterministicAndDoesNotDisturbLiveSampler()
-    {
-        // Arrange
-        var composite = Composite((UncertainChild("A", 2d, 3d, 1.5d), 0.4d), (UncertainChild("B", 10d, 4d, 2.5d), 0.6d));
-        composite.SetupSampler(64, 777, SamplingScheme.LatinHypercube);
-        double beforeDraw = composite.SampleFunction(5).Function(50d);
-
-        // Act
-        var results = composite.ComputeUncertaintyResults();
-        var repeat = composite.ComputeUncertaintyResults();
-
-        // Assert
-        Assert.IsNotNull(results);
-        double[] hazards = composite.UncertaintySummaryHazards();
-        Assert.AreEqual(100, hazards.Length);
-        Assert.AreEqual(hazards.Length, results!.MeanCurve!.Length);
-        for (int i = 0; i < hazards.Length; i++)
-        {
-            Assert.AreEqual(results.MeanCurve[i], repeat!.MeanCurve![i], 0d);
-            Assert.IsTrue(results.ConfidenceIntervals![i, 0] <= results.ConfidenceIntervals[i, 1]);
-        }
-
-        Assert.AreEqual(beforeDraw, composite.SampleFunction(5).Function(50d), 0d);
-        Assert.ThrowsException<ArgumentOutOfRangeException>(() => composite.ComputeUncertaintyResults(0d));
-        Assert.ThrowsException<ArgumentOutOfRangeException>(() => composite.ComputeUncertaintyResults(1d));
-        Assert.IsNull(new CompositeTransform().ComputeUncertaintyResults());
-    }
-
     /// <summary>
     /// Verifies a deterministic composite's uncertainty summary collapses to the exact mean curve
     /// with no simulation.

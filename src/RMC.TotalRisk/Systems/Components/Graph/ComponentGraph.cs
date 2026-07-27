@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Xml.Linq;
 using RMC.TotalRisk.Core.Enums;
@@ -43,13 +44,12 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         /// </summary>
         public ComponentGraph()
         {
+            _elementsView = _elements.AsReadOnly();
         }
 
         /// <summary>
-        /// Restores a component graph from its serialized form: constructs every recognized child
-        /// element (unknown element types are skipped for forward compatibility — connections
-        /// referencing a skipped element surface loudly through the Id-authoritative resolver or
-        /// dangling-connection validation), then resolves every pending connection reference.
+        /// Restores a component graph from its serialized form: constructs every child and fails
+        /// on an unknown element type before resolving pending connection references.
         /// </summary>
         /// <param name="xElement">The serialized form produced by <see cref="ToXElement()"/>.</param>
         /// <param name="resolver">
@@ -59,21 +59,28 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         /// </param>
         /// <exception cref="ArgumentNullException">Thrown when the element is null.</exception>
         /// <exception cref="InvalidOperationException">
-        /// Thrown on duplicate element Ids or names, on a stale serialized connection Id, or when
-        /// a recognized element's wrapped function cannot be reconstructed.
+        /// Thrown on an unknown element type, duplicate element Id or name, stale serialized
+        /// connection Id, or a wrapped function that cannot be reconstructed.
         /// </exception>
         public ComponentGraph(XElement xElement, IRiskFunctionResolver? resolver = null)
         {
             if (xElement == null) throw new ArgumentNullException(nameof(xElement));
+            _elementsView = _elements.AsReadOnly();
 
             var elementsContainer = xElement.Element(nameof(Elements));
             if (elementsContainer != null)
             {
+                int elementIndex = 0;
                 foreach (var child in elementsContainer.Elements())
                 {
                     var element = RiskElementFactory.CreateFromXElement(child, resolver);
-                    if (element == null) continue;
+                    if (element == null)
+                    {
+                        throw new InvalidOperationException(
+                            $"Unknown risk-graph element type '{child.Name.LocalName}' at '/{nameof(ComponentGraph)}/{nameof(Elements)}[{elementIndex}]'. The graph was not loaded.");
+                    }
                     AddElement(element);
+                    elementIndex++;
                 }
             }
 
@@ -98,10 +105,16 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         private readonly List<IRiskElement> _elements = new List<IRiskElement>();
 
         /// <summary>
+        /// The immutable public view over <see cref="_elements"/>. Membership changes remain
+        /// available only through <see cref="AddElement"/> and <see cref="RemoveElement"/>.
+        /// </summary>
+        private readonly ReadOnlyCollection<IRiskElement> _elementsView;
+
+        /// <summary>
         /// Cached Kahn order; null after a failed (cyclic) sort. Rebuilt lazily after
         /// <see cref="InvalidateTopology"/>.
         /// </summary>
-        private List<IRiskElement>? _sortedElements;
+        private ReadOnlyCollection<IRiskElement>? _sortedElements;
 
         /// <summary>
         /// Distinguishes "sort not yet attempted" from "sort failed (cyclic)".
@@ -124,7 +137,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         /// </summary>
         public IReadOnlyList<IRiskElement> Elements
         {
-            get { return _elements; }
+            get { return _elementsView; }
         }
 
         /// <summary>
@@ -352,7 +365,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
                 _sortedElements = null;
                 return false;
             }
-            _sortedElements = sorted;
+            _sortedElements = sorted.AsReadOnly();
             return true;
         }
 
@@ -366,9 +379,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         public IEnumerable<IRiskElement> GetDownstreamElements(IRiskElement element)
         {
             if (element == null) throw new ArgumentNullException(nameof(element));
-            return DownstreamMap.TryGetValue(element, out var consumers)
-                ? consumers
-                : (IEnumerable<IRiskElement>)Array.Empty<IRiskElement>();
+            return EnumerateDownstreamElements(element);
         }
 
         /// <summary>
@@ -392,7 +403,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
                 current = PrimaryInputSource(current);
             }
             path.Reverse();
-            return path;
+            return path.AsReadOnly();
         }
 
         /// <summary>
@@ -439,7 +450,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
                 // Responses are signal-transparent: they consume the signal and emit failure
                 // probability; the hazard signal passes through unchanged.
             }
-            return options;
+            return options.AsReadOnly();
         }
 
         #endregion
@@ -650,6 +661,17 @@ namespace RMC.TotalRisk.Systems.Components.Graph
                 }
                 return _downstreamMap;
             }
+        }
+
+        /// <summary>
+        /// Enumerates a cache entry without leaking its mutable list implementation.
+        /// </summary>
+        /// <param name="element">The source element.</param>
+        /// <returns>The downstream consumers in declared order.</returns>
+        private IEnumerable<IRiskElement> EnumerateDownstreamElements(IRiskElement element)
+        {
+            if (!DownstreamMap.TryGetValue(element, out var consumers)) yield break;
+            for (int i = 0; i < consumers.Count; i++) yield return consumers[i];
         }
 
         /// <summary>

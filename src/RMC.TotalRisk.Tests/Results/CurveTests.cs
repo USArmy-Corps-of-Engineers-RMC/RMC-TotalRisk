@@ -1,5 +1,6 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using RMC.TotalRisk.Results;
@@ -323,6 +324,104 @@ public class CurveTests
             () => curve.CreateCurve(new List<(double Mass, double Consequence)> { (0.5d, 1d) }, 1));
     }
 
+
+    /// <summary>
+    /// Rebuilding a curve clears every prior derived value, accepts a singleton distribution,
+    /// and leaves no stale state when a defective rebuild has no positive mass.
+    /// </summary>
+    [TestMethod]
+    public void Test_CreateCurve_RebuildAndSingleton_ClearPriorState()
+    {
+        var curve = new Curve();
+        curve.CreateCurve(new List<(double Mass, double Consequence)> { (1d, 7d) }, 20);
+        curve.ComputeRiskMeasures(5d, 0.05d);
+        Assert.AreEqual(7d, curve.Mean, 0d);
+        Assert.IsTrue(curve.LECConsequences.Length > 0);
+
+        curve.IsExhaustive = false;
+        curve.CreateCurve(new List<(double Mass, double Consequence)> { (0.25d, 4d) }, 20);
+        Assert.AreEqual(0.25d, curve.TotalProbability, 0d);
+        Assert.AreEqual(1d, curve.Mean, 0d);
+        Assert.IsTrue(double.IsNaN(curve.ValueAtRisk), "A rebuild must clear previously computed optional measures.");
+        CollectionAssert.DoesNotContain(curve.LECConsequences, 7d);
+
+        curve.CreateCurve(Array.Empty<(double Mass, double Consequence)>(), 20);
+        Assert.AreEqual(0d, curve.TotalProbability, 0d);
+        Assert.AreEqual(0d, curve.Mean, 0d);
+        Assert.AreEqual(0, curve.LECConsequences.Length);
+        Assert.AreEqual(0, curve.CumulativeExpectedConsequences.Length);
+    }
+
+    /// <summary>
+    /// Invalid probability and consequence inputs fail closed, including a defective stream
+    /// whose finite non-negative masses materially exceed one.
+    /// </summary>
+    [TestMethod]
+    public void Test_CreateCurve_InvalidPairs_Throw()
+    {
+        var curve = new Curve { IsExhaustive = false };
+        Assert.ThrowsException<ArgumentException>(() => curve.CreateCurve(
+            new List<(double Mass, double Consequence)> { (double.NaN, 1d) }, 20));
+        Assert.ThrowsException<ArgumentException>(() => curve.CreateCurve(
+            new List<(double Mass, double Consequence)> { (1d, double.PositiveInfinity) }, 20));
+        Assert.ThrowsException<ArgumentException>(() => curve.CreateCurve(
+            new List<(double Mass, double Consequence)> { (-double.Epsilon, 1d) }, 20));
+        Assert.ThrowsException<InvalidOperationException>(() => curve.CreateCurve(
+            new List<(double Mass, double Consequence)> { (0.75d, 1d), (0.5d, 2d) }, 20));
+    }
+
+    /// <summary>
+    /// Compensated coalescing and moments preserve tiny high-consequence atoms beside a nearly
+    /// unit low-consequence atom.
+    /// </summary>
+    [TestMethod]
+    public void Test_CreateCurve_DynamicRangeMass_IsCompensated()
+    {
+        const int tinyCount = 1000;
+        const double tinyMass = 1e-15;
+        var pairs = new List<(double Mass, double Consequence)>(tinyCount + 1)
+        {
+            (1d - tinyCount * tinyMass, 2d),
+        };
+        for (int i = 0; i < tinyCount; i++)
+        {
+            pairs.Add((tinyMass, 1e12));
+        }
+
+        var curve = new Curve();
+        curve.CreateCurve(pairs, 40);
+
+        Assert.AreEqual(1d, curve.MassBalance, 0d);
+        Assert.AreEqual(3d - 2d * tinyCount * tinyMass, curve.Mean, 2e-14);
+    }
+
+    /// <summary>
+    /// Log-log error refinement is deterministic and invariant to a constant consequence scale.
+    /// </summary>
+    [TestMethod]
+    public void Test_CreateCurve_Thinning_IsScaleInvariant()
+    {
+        var original = new List<(double Mass, double Consequence)>(2000);
+        var scaled = new List<(double Mass, double Consequence)>(2000);
+        for (int i = 0; i < 2000; i++)
+        {
+            double consequence = Math.Exp(i / 150d) * (1d + 0.1d * Math.Sin(i * 0.07d));
+            original.Add((0.0005d, consequence));
+            scaled.Add((0.0005d, consequence * 1000d));
+        }
+
+        var first = new Curve();
+        var second = new Curve();
+        first.CreateCurve(original, 40);
+        second.CreateCurve(scaled, 40);
+
+        CollectionAssert.AreEqual(first.LECProbabilities, second.LECProbabilities);
+        Assert.AreEqual(first.LECConsequences.Length, second.LECConsequences.Length);
+        for (int i = 0; i < first.LECConsequences.Length; i++)
+        {
+            Assert.AreEqual(first.LECConsequences[i] * 1000d, second.LECConsequences[i], 1e-9 * Math.Max(1d, second.LECConsequences[i]));
+        }
+    }
     /// <summary>Builds the Phase 6.6 profile-catalog fixture: three final-mass points with entry lists and exceedance coordinates.</summary>
     private static Curve CatalogFixture(bool withExceedance = true)
     {
@@ -469,5 +568,22 @@ public class CurveTests
         Assert.AreEqual(0.1d, curve.SystemResponseProbabilities[0], 1e-15);
         CollectionAssert.AreEqual(curve.CumulativeExpectedConsequences, clone.CumulativeExpectedConsequences);
         CollectionAssert.AreEqual(curve.SystemResponseExceedanceProbabilities, clone.SystemResponseExceedanceProbabilities);
+    }
+
+    /// <summary>
+    /// Verifies the multi-entry recording boundary clips each finite response probability and
+    /// preserves NaN so downstream validation still fails closed.
+    /// </summary>
+    [TestMethod]
+    public void Test_AddRiskPoint_ClipsRecordedResponseProbabilities()
+    {
+        var probabilities = new List<double> { -0.25d, 0.5d, 1.25d, double.NaN };
+        var consequences = new List<double> { 1d, 2d, 3d, 4d };
+        var curve = new Curve();
+
+        curve.AddRiskPoint(5d, 0.4d, probabilities, consequences);
+
+        CollectionAssert.AreEqual(new[] { 0d, 0.5d, 1d, double.NaN },
+            curve.RiskPoints[0].ResponseProbabilities.ToArray());
     }
 }

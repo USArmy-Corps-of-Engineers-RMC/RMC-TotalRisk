@@ -17,9 +17,9 @@ namespace RMC.TotalRisk.Results
     /// One of the two persisted results roots (architecture doc §7.5): serialization is
     /// System.Text.Json through <see cref="ToJson"/>/<see cref="FromJson"/> and the
     /// GZip-compressed byte overloads — the v1.0 BinaryFormatter byte arrays are deliberately not
-    /// readable in v1.1; old projects re-run their analyses. The indexer preserves the v1.0
-    /// null-tolerant semantics: out-of-range reads return null and out-of-range writes are
-    /// ignored, so percentile post-processing can probe without guarding.
+    /// readable in v1.1; old projects re-run their analyses. Out-of-range indexer reads preserve
+    /// the v1.0 null result, while writes fail closed. Use <see cref="TryGetRealization"/> when
+    /// probing a possibly absent slot is intentional.
     /// </para>
     /// </remarks>
     public class EnsembleResults
@@ -47,6 +47,16 @@ namespace RMC.TotalRisk.Results
         }
 
         /// <summary>
+        /// The deterministic run provenance. Null only for legacy payloads or manually assembled
+        /// result containers, which are explicitly unverified.
+        /// </summary>
+        public AnalysisRunManifest? Manifest { get; set; }
+
+        /// <summary>Gets whether this result carries a supported provenance manifest.</summary>
+        [System.Text.Json.Serialization.JsonIgnore]
+        public bool IsProvenanceVerified => Manifest?.IsCurrentSchema == true;
+
+        /// <summary>
         /// The per-realization summaries — the serialized state. Assigning null coerces to empty.
         /// </summary>
         public SystemRiskResults?[] Realizations
@@ -56,11 +66,12 @@ namespace RMC.TotalRisk.Results
         }
 
         /// <summary>
-        /// Gets or sets the summary at the given index with the v1.0 null-tolerant semantics:
-        /// out-of-range reads return null; out-of-range writes are ignored.
+        /// Gets or sets the summary at the given index. Out-of-range reads return null for legacy
+        /// compatibility; out-of-range writes throw so a result cannot be silently discarded.
         /// </summary>
         /// <param name="index">The zero-based realization index.</param>
         /// <returns>The summary, or null when absent or out of range.</returns>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown when a write index is outside the ensemble.</exception>
         public SystemRiskResults? this[int index]
         {
             get
@@ -70,9 +81,29 @@ namespace RMC.TotalRisk.Results
             }
             set
             {
-                if (index < 0 || index >= _realizations.Length) return;
+                if (index < 0 || index >= _realizations.Length)
+                    throw new ArgumentOutOfRangeException(nameof(index), "The realization index must be within the ensemble.");
                 _realizations[index] = value;
             }
+        }
+
+        /// <summary>
+        /// Attempts to read a realization slot without relying on the indexer's legacy null result
+        /// to distinguish an out-of-range probe from an unwritten in-range slot.
+        /// </summary>
+        /// <param name="index">The zero-based realization index.</param>
+        /// <param name="realization">The slot value when the index is in range; otherwise null.</param>
+        /// <returns>True when the index is in range; otherwise false.</returns>
+        public bool TryGetRealization(int index, out SystemRiskResults? realization)
+        {
+            if (index < 0 || index >= _realizations.Length)
+            {
+                realization = null;
+                return false;
+            }
+
+            realization = _realizations[index];
+            return true;
         }
 
         /// <summary>
@@ -129,9 +160,12 @@ namespace RMC.TotalRisk.Results
         /// <returns>The restored ensemble.</returns>
         /// <exception cref="ArgumentNullException">Thrown when the JSON text is null.</exception>
         /// <exception cref="JsonException">Thrown when the text is not a serialized ensemble.</exception>
+        /// <exception cref="JsonException">Thrown when the manifest schema is invalid or newer than this library supports.</exception>
         public static EnsembleResults FromJson(string json)
         {
-            return ResultsJson.FromJson<EnsembleResults>(json);
+            var results = ResultsJson.FromJson<EnsembleResults>(json);
+            AnalysisRunManifest.ValidateSchema(results.Manifest);
+            return results;
         }
 
         /// <summary>
@@ -151,9 +185,12 @@ namespace RMC.TotalRisk.Results
         /// <exception cref="ArgumentNullException">Thrown when the byte array is null.</exception>
         /// <exception cref="InvalidDataException">Thrown when the bytes are not a GZip stream.</exception>
         /// <exception cref="JsonException">Thrown when the decompressed text is not a serialized ensemble.</exception>
+        /// <exception cref="JsonException">Thrown when the manifest schema is invalid or newer than this library supports.</exception>
         public static EnsembleResults FromCompressedBytes(byte[] bytes)
         {
-            return ResultsJson.FromCompressedBytes<EnsembleResults>(bytes);
+            var results = ResultsJson.FromCompressedBytes<EnsembleResults>(bytes);
+            AnalysisRunManifest.ValidateSchema(results.Manifest);
+            return results;
         }
     }
 }

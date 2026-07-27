@@ -1,6 +1,22 @@
-﻿# Progress Log
+# Progress Log
 
 > Newest entries first. Keep entries short: what landed, what's verified, what's next. Every session appends an entry; phase completions append "— PHASE N COMPLETE" to the title.
+
+## 2026-07-27 - Forensic numerical and contract remediation — PHASE 8.6 COMPLETE
+
+**Goal:** Close the release-blocking findings from the v1.1 forensic audit without changing established algorithms, default tolerances, correlations, seed behavior, or reference-result doctrine beyond the approved endpoint-mass correction and result manifest.
+
+**Numerics upstream:** committed the repository technical-authority rule, isolated the previously reviewed KDE and MCMC work, and landed lazy `UnionPCMLazy`, `ExclusivePCMLazy`, `PositivelyDependentExclusiveLazy`, plus comprehensive probability-output clipping through `Tools.Clamp`. Dense overloads remain for compatibility and parity tests. The lazy APIs preserve subset-size/lexicographic order, PCM formulas, inclusion/exclusion association, closing half-gap row, dual convergence predicate, and the `1E-4` defaults. Full Numerics Release suite: **1,993/1,993 on each of net481, net8.0, net9.0, and net10.0**, zero warnings.
+
+**TotalRisk numerical correction:** every joint-failure dependency now uses caller-owned lazy enumeration buffers; no execution path materializes the dense `U × (2^U−1)` matrix. Exclusive partitions apply the approved deterministic remaining-budget clip before consequences, profiles, or contributions. The AGK domain is the sampled hazard's natural support; accepted interior weights remain unchanged and explicit endpoint rectangles complete Appendix D's `K+2` construction, with the upper endpoint carrying the exact residual so every exhaustive ledger equals one. `Curve` publishes compensated recorded mass, faults invalid streams, supports degenerate distributions, and thins by deterministic maximum log-log interpolation error.
+
+**Contracts and provenance:** immutable run snapshots, concurrent-run exclusion, `IAnalysis.IsRunning`, atomic publication, task-based exception/cancellation propagation with completion notification, immutable/read-only result surfaces, unknown-graph-type failure, corrected effective-option hashing, structured validation/diagnostics, and deterministic append-only run manifests are covered. The 13 missing public-class test files and the public-class repository guard were added. `QuadratureMassLedger` is internal, pooled, disposable infrastructure.
+
+**Performance:** pooled curve workspaces, in-place pair coalescing/ordinate reuse, and inline storage for the dominant scalar risk points removed the ledger-era regression without changing result bytes. Three-repetition Release medians on HADEN: **F1 5.669 s / 3.09 GB**, **F2 34.183 s / 12.22 GB**, **F3 10.757 s / 6.03 GB**. Allocations beat the pre-ledger baselines of 3.88/16.52/7.64 GB; F1 remains within 5% of its recorded 5.4 s reference. Phase 8.6 hashes are F1 `4c1472d2…`, F2 `d19f56c5…`, F3 `6469666e…`.
+
+**Verified:** Release build zero warnings; fast Release suite **684/684 in 13.9 s**; documentation/namespace/dependency validator green; unit-only line coverage **91.15% (9,806/10,785)**. Required families ran isolated and passed: `JointFailures` **9/9**, `CascadeEndState` **8/8**, `Contribution` **5/5**, `RiskProfile` **5/5**, `SystemRisk` **5/5**. No tolerance widening or algorithm replacement was used.
+
+**Next:** Phase 9 may resume after Haden Smith's review of this safety-gate commit.
 
 ## 2026-07-26 - Polish & optimization stages 0/2/3 — PHASE 8.5 COMPLETE
 

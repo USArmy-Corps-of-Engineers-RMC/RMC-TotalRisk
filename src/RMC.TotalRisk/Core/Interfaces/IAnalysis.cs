@@ -19,10 +19,10 @@ namespace RMC.TotalRisk.Core.Interfaces
     ///     Haden Smith, USACE Risk Management Center, cole.h.smith@usace.army.mil
     /// </para>
     /// <para>
-    /// Events fire on the thread that invokes <see cref="RunAsync"/>; a UI layer wraps its own
-    /// dispatcher. Exceptions surface through the completion event's error state rather than
-    /// propagating out of <see cref="RunAsync"/> (the BestFit convention), so hosts observe one
-    /// uniform completion channel.
+    /// Lifecycle and progress callbacks have no UI-thread affinity; consuming UI layers must
+    /// marshal them. Completion events are notifications of the task outcome: validation faults,
+    /// runtime faults, and cancellation also propagate through the task returned by
+    /// <see cref="RunAsync"/>.
     /// </para>
     /// </remarks>
     public interface IAnalysis : INotifyPropertyChanged
@@ -62,6 +62,18 @@ namespace RMC.TotalRisk.Core.Interfaces
         bool IsEstimated { get; }
 
         /// <summary>
+        /// Determines whether a run currently owns the analysis execution slot.
+        /// </summary>
+        bool IsRunning { get; }
+
+        /// <summary>
+        /// Validates the current state and returns machine-readable issues with stable codes,
+        /// severities, and object paths.
+        /// </summary>
+        /// <returns>The validation issues in deterministic validation order.</returns>
+        IReadOnlyList<ValidationIssue> ValidateIssues();
+
+        /// <summary>
         /// Validates the current state of the analysis and reports any issues found.
         /// </summary>
         /// <returns>
@@ -75,6 +87,9 @@ namespace RMC.TotalRisk.Core.Interfaces
         /// </item>
         /// </list>
         /// </returns>
+        /// <remarks>
+        /// Compatibility adapter over <see cref="ValidateIssues"/> for v1.0 callers.
+        /// </remarks>
         (bool IsValid, List<string> ValidationMessages) Validate();
     }
 }

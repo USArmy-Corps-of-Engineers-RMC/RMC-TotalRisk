@@ -28,6 +28,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Computational scenarios live beside their source-facing fixtures but run only here. -->
+    <Compile Include="..\RMC.TotalRisk.Tests\Analyses\SamplerSeedMapTests.cs" Link="Analyses\SamplerSeedMapTests.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Reference Include="Numerics">
       <HintPath>..\..\..\numerics\Numerics\bin\Debug\net10.0\Numerics.dll</HintPath>
     </Reference>

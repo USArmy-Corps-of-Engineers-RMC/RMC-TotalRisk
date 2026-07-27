@@ -84,7 +84,7 @@ namespace RMC.TotalRisk.Results
         /// Applies the quadrature ledger's masses to every stream.
         /// </summary>
         /// <param name="ledger">The pass's quadrature ledger, sealed.</param>
-        public void ApplyRecordedMass(QuadratureMassLedger ledger)
+        internal void ApplyRecordedMass(QuadratureMassLedger ledger)
         {
             Excess.ApplyRecordedMass(ledger);
             Background.ApplyRecordedMass(ledger);

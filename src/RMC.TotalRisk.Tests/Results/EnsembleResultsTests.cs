@@ -20,8 +20,6 @@ public class EnsembleResultsTests
 
         // Act — out-of-range writes are ignored; out-of-range reads return null.
         ensemble[0] = summary;
-        ensemble[5] = summary;
-        ensemble[-1] = summary;
 
         // Assert
         Assert.AreEqual(2, ensemble.Count);
@@ -30,6 +28,14 @@ public class EnsembleResultsTests
         Assert.IsNull(ensemble[5]);
         Assert.IsNull(ensemble[-1]);
         Assert.IsNull(new EnsembleResults()[0]);
+        Assert.ThrowsException<ArgumentOutOfRangeException>(() => ensemble[5] = summary);
+        Assert.ThrowsException<ArgumentOutOfRangeException>(() => ensemble[-1] = summary);
+        Assert.IsTrue(ensemble.TryGetRealization(0, out var present));
+        Assert.AreSame(summary, present);
+        Assert.IsTrue(ensemble.TryGetRealization(1, out var unwritten));
+        Assert.IsNull(unwritten);
+        Assert.IsFalse(ensemble.TryGetRealization(5, out var missing));
+        Assert.IsNull(missing);
     }
 
     /// <summary>Verifies the JSON and compressed round trips, including unwritten null slots.</summary>

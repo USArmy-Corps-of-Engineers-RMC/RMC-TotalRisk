@@ -63,6 +63,16 @@ namespace RMC.TotalRisk.Results
         }
 
         /// <summary>
+        /// The deterministic run provenance. Null only for legacy payloads or manually assembled
+        /// result containers, which are explicitly unverified.
+        /// </summary>
+        public AnalysisRunManifest? Manifest { get; set; }
+
+        /// <summary>Gets whether this result carries a supported provenance manifest.</summary>
+        [System.Text.Json.Serialization.JsonIgnore]
+        public bool IsProvenanceVerified => Manifest?.IsCurrentSchema == true;
+
+        /// <summary>
         /// The realization's display name (the engine labels the published summary realizations
         /// "Mean", "Median", and the confidence bounds).
         /// </summary>
@@ -202,9 +212,12 @@ namespace RMC.TotalRisk.Results
         /// <returns>The restored realization.</returns>
         /// <exception cref="ArgumentNullException">Thrown when the JSON text is null.</exception>
         /// <exception cref="JsonException">Thrown when the text is not a serialized realization.</exception>
+        /// <exception cref="JsonException">Thrown when the manifest schema is invalid or newer than this library supports.</exception>
         public static SystemRealization FromJson(string json)
         {
-            return ResultsJson.FromJson<SystemRealization>(json);
+            var results = ResultsJson.FromJson<SystemRealization>(json);
+            AnalysisRunManifest.ValidateSchema(results.Manifest);
+            return results;
         }
 
         /// <summary>
@@ -224,9 +237,12 @@ namespace RMC.TotalRisk.Results
         /// <exception cref="ArgumentNullException">Thrown when the byte array is null.</exception>
         /// <exception cref="InvalidDataException">Thrown when the bytes are not a GZip stream.</exception>
         /// <exception cref="JsonException">Thrown when the decompressed text is not a serialized realization.</exception>
+        /// <exception cref="JsonException">Thrown when the manifest schema is invalid or newer than this library supports.</exception>
         public static SystemRealization FromCompressedBytes(byte[] bytes)
         {
-            return ResultsJson.FromCompressedBytes<SystemRealization>(bytes);
+            var results = ResultsJson.FromCompressedBytes<SystemRealization>(bytes);
+            AnalysisRunManifest.ValidateSchema(results.Manifest);
+            return results;
         }
     }
 }

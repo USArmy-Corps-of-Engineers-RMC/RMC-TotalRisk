@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using Numerics;
 using Numerics.Data;
@@ -25,8 +25,8 @@ namespace RMC.TotalRisk.Results
     /// Ported from v1.0 <c>SampledComponent</c> onto the v1.1 sampler contract, with the four
     /// failure-mode combination methods preserved verbatim in structure: joint failures through
     /// the inclusion–exclusion pathway probabilities
-    /// (<c>Probability.IndependentExclusive</c> / <c>PositivelyDependentExclusive</c> /
-    /// <c>ExclusivePCM</c> over the component's cached indicator combinations), weak-link
+    /// (<c>Probability.IndependentExclusiveLazy</c> / <c>PositivelyDependentExclusiveLazy</c> /
+    /// <c>ExclusivePCMLazy</c>, generated without a dense indicator matrix), weak-link
     /// competing failures through cumulative incidence functions pre-processed over 200
     /// stratified hazard levels, the common-cause adjustment, and the mutually-exclusive
     /// normalization (with its probability-above-one warning). The profile-axis remap (Q-T
@@ -58,6 +58,7 @@ namespace RMC.TotalRisk.Results
     /// </remarks>
     public class SampledComponent
     {
+
         #region Construction
 
         /// <summary>
@@ -108,15 +109,6 @@ namespace RMC.TotalRisk.Results
             _jointConsequences = component.JointConsequences;
             _correlationMatrix = component.CorrelationMatrix;
 
-            // Only the joint method decomposes pathways, and only it reads these caches; the
-            // per-mode methods would pay for a 2^U indicator matrix they never touch. The frozen
-            // layout supplies the unit count, so the accessors need not re-project the graph.
-            if (_failureModeMethod == FailureModeMethod.JointFailures)
-            {
-                int unitCount = _layout.CombinationUnitCount;
-                _indicators = component.FailureModeIndicatorsFor(unitCount);
-                _binomialCombinations = component.FailureModeBinomialCombinationsFor(unitCount);
-            }
 
             Hazard = realizationIndex < 0 ? hazardFunction.SampleFunction() : hazardFunction.SampleFunction(realizationIndex);
 
@@ -147,6 +139,7 @@ namespace RMC.TotalRisk.Results
             }
 
             _failureModes = new List<SampledFailureMode>(projectedModes.Count);
+            _failureModesView = _failureModes.AsReadOnly();
             _fModes = new List<SampledFailureMode>(projectedModes.Count);
             int consequenceTypeCount = 1;
             int stateIndex = 0;
@@ -216,6 +209,8 @@ namespace RMC.TotalRisk.Results
             _scratchContributionExcess = new double[_fModes.Count];
             _scratchTupleValues = new double[_fModes.Count];
             _scratchUnitProbabilities = new List<double>(_layout.CombinationUnitCount);
+            _scratchPathwayProbabilities = new List<double>();
+            _scratchPathwayIndicators = new List<int[]>();
             _scratchClaimedConditional = _layout.ClaimedStateCount > 0 ? new double[_fModes.Count] : null;
             _scratchPickedStates = new int[_fModes.Count];
 
@@ -364,6 +359,9 @@ namespace RMC.TotalRisk.Results
         /// </summary>
         private readonly List<SampledFailureMode> _failureModes;
 
+        /// <summary>The immutable public view over the sampled failure modes.</summary>
+        private readonly IReadOnlyList<SampledFailureMode> _failureModesView;
+
         /// <summary>
         /// The sampled failure modes only, in projected order.
         /// </summary>
@@ -408,15 +406,6 @@ namespace RMC.TotalRisk.Results
         /// </summary>
         private readonly double[,]? _correlationMatrix;
 
-        /// <summary>
-        /// The captured failure on/off indicator combinations.
-        /// </summary>
-        private readonly int[,]? _indicators;
-
-        /// <summary>
-        /// The captured binomial subset counts.
-        /// </summary>
-        private readonly int[]? _binomialCombinations;
 
         /// <summary>
         /// The pre-processed cumulative incidence functions (competing failures with two or more
@@ -428,13 +417,13 @@ namespace RMC.TotalRisk.Results
         /// The reusable exclusive-pathway probability buffer for the independent joint
         /// decomposition, allocated on first use.
         /// </summary>
-        private List<double>? _scratchPathwayProbabilities;
+        private readonly List<double> _scratchPathwayProbabilities;
 
         /// <summary>
         /// The reusable exclusive-pathway indicator buffer, parallel to
         /// <see cref="_scratchPathwayProbabilities"/>.
         /// </summary>
-        private List<int[]>? _scratchPathwayIndicators;
+        private readonly List<int[]> _scratchPathwayIndicators;
 
         /// <summary>
         /// The sampled profile transform chain mapping the driving hazard onto the selected
@@ -565,7 +554,7 @@ namespace RMC.TotalRisk.Results
         /// <summary>
         /// The sampled modes, in projected order (the non-failure mode included).
         /// </summary>
-        public IReadOnlyList<SampledFailureMode> FailureModes => _failureModes;
+        public IReadOnlyList<SampledFailureMode> FailureModes => _failureModesView;
 
         /// <summary>
         /// The number of sampled failure modes (the non-failure mode excluded).
@@ -655,7 +644,7 @@ namespace RMC.TotalRisk.Results
                 {
                     modeOutputs[j] = _fModes[j].ComputeRisk(probability, hazardLevel, _pairedSampled[j], flags, realization.FailureModes[j], recordOutput, null, recordedHazard, hazardExceedance);
                 }
-                responseProbabilities.Add(modeOutputs[j].ProbabilityOfFailure);
+                responseProbabilities.Add(Tools.Clamp(modeOutputs[j].ProbabilityOfFailure, 0d, 1d));
             }
 
             // The combination structure is type-independent — compute it once and share it with
@@ -682,7 +671,7 @@ namespace RMC.TotalRisk.Results
                     {
                         mass += responseProbabilities[members[m]];
                     }
-                    unitProbabilities.Add(mass);
+                    unitProbabilities.Add(Tools.Clamp(mass, 0d, 1d));
                 }
 
                 if (_failureModeMethod == FailureModeMethod.JointFailures)
@@ -720,6 +709,7 @@ namespace RMC.TotalRisk.Results
                         {
                             adjusted = unitProbabilities[u] * normalization;
                         }
+                        adjusted = Tools.Clamp(adjusted, 0d, 1d);
                         totalProbabilityOfFailure += adjusted;
 
                         // Distribute the adjusted unit mass to its member states conditionally
@@ -730,15 +720,15 @@ namespace RMC.TotalRisk.Results
                         {
                             int state = members[m];
                             adjustedProbabilities[state] = unitMass > 0d
-                                ? adjusted * (responseProbabilities[state] / unitMass)
+                                ? Tools.Clamp(adjusted * (responseProbabilities[state] / unitMass), 0d, 1d)
                                 : 0d;
                         }
                     }
                 }
             }
-            totalProbabilityOfFailure = Math.Min(1d, totalProbabilityOfFailure);
+            totalProbabilityOfFailure = Tools.Clamp(totalProbabilityOfFailure, 0d, 1d);
             bool hasClaimed = _layout.ClaimedStateCount > 0;
-            double probabilityOfNonFailure = _nfMode == null && !hasClaimed ? 0d : Math.Max(0d, 1d - totalProbabilityOfFailure);
+            double probabilityOfNonFailure = Tools.Clamp(1d - totalProbabilityOfFailure, 0d, 1d);
 
             // The claimed non-failure states' conditional complement shares (§7.9.5):
             // q = w / (1 − P_g) against the state's own cascade unit, exact under independent
@@ -756,7 +746,7 @@ namespace RMC.TotalRisk.Results
                         continue;
                     }
                     int owningUnit = _layout.ClaimedStateUnit[j];
-                    double divisor = owningUnit >= 0 ? 1d - unitProbabilities[owningUnit] : 1d;
+                    double divisor = owningUnit >= 0 ? Tools.Clamp(1d - unitProbabilities[owningUnit], 0d, 1d) : 1d;
                     double share = divisor > 0d ? responseProbabilities[j] / divisor : 0d;
                     claimedConditional[j] = Tools.Clamp(share, 0d, 1d);
                     claimedShareTotal += claimedConditional[j];
@@ -801,22 +791,13 @@ namespace RMC.TotalRisk.Results
                 var failEntryValues = typeOutput.FailureConsequences;
                 var failEntryProbabilities = typeOutput.ResponseProbabilities;
 
-                // A risk point adopts the excess lists when recording, so those stay freshly
-                // allocated; non-recording evaluations reuse the per-type scratch.
-                List<double> excessEntryProbabilities;
-                List<double> excessEntryValues;
-                if (recordOutput)
-                {
-                    excessEntryProbabilities = new List<double>();
-                    excessEntryValues = new List<double>();
-                }
-                else
-                {
-                    excessEntryProbabilities = _scratchExcessProbabilities[k];
-                    excessEntryValues = _scratchExcessValues[k];
-                    excessEntryProbabilities.Clear();
-                    excessEntryValues.Clear();
-                }
+                // Compute into realization-owned scratch. Multi-entry recording copies the final
+                // lists once into its adopted risk point; the dominant one-entry path records
+                // inline and allocates no entry lists.
+                List<double> excessEntryProbabilities = _scratchExcessProbabilities[k];
+                List<double> excessEntryValues = _scratchExcessValues[k];
+                excessEntryProbabilities.Clear();
+                excessEntryValues.Clear();
 
                 double expectedFailureConsequences = 0d;
                 double expectedExcessConsequences = 0d;
@@ -834,7 +815,7 @@ namespace RMC.TotalRisk.Results
                 double remainderShare = 1d;
                 if (hasClaimed)
                 {
-                    remainderShare = Math.Max(0d, 1d - claimedShareTotal);
+                    remainderShare = Tools.Clamp(1d - claimedShareTotal, 0d, 1d);
                     pairWeights = _scratchPairWeights![k];
                     pairValues = _scratchPairValues![k];
                     int cursor = 0;
@@ -945,7 +926,7 @@ namespace RMC.TotalRisk.Results
                     }
                 }
 
-                double effectiveNonFailure = _nfMode == null && !hasClaimed ? 0d : nonFailureConsequences;
+                double effectiveNonFailure = nonFailureConsequences;
                 double meanFailureConsequences = totalProbabilityOfFailure == 0d ? 0d : expectedFailureConsequences / totalProbabilityOfFailure;
                 double meanExcessConsequences = totalProbabilityOfFailure == 0d ? 0d : expectedExcessConsequences / totalProbabilityOfFailure;
 
@@ -960,20 +941,39 @@ namespace RMC.TotalRisk.Results
                 if (recordOutput)
                 {
                     var target = k == 0 ? realization.Curves : realization.AdditionalCurves[k - 1];
-                    if (_fModes.Count > 0)
+                    bool inlineRecord = _fModes.Count > 0 && !hasClaimed
+                        && failEntryProbabilities.Count == 1 && excessEntryProbabilities.Count == 1
+                        && pairWeights.Length == 1;
+                    if (inlineRecord)
                     {
-                        target.Fail.AddRiskPoint(recordedHazard, probability,
-                            new List<double>(failEntryProbabilities), new List<double>(failEntryValues), hazardExceedance);
-                        target.Excess.AddRiskPoint(recordedHazard, probability, excessEntryProbabilities, excessEntryValues);
+                        double failProbability = failEntryProbabilities[0];
+                        double failValue = failEntryValues[0];
+                        double nonFailProbability = Tools.Clamp(probabilityOfNonFailure * pairWeights[0], 0d, 1d);
+                        double nonFailValue = pairValues[0];
+                        target.Fail.AddRiskPoint(recordedHazard, probability, failProbability, failValue, hazardExceedance);
+                        target.Excess.AddRiskPoint(recordedHazard, probability,
+                            excessEntryProbabilities[0], excessEntryValues[0]);
+                        target.Background.AddRiskPoint(recordedHazard, probability,
+                            Tools.Clamp(pairWeights[0], 0d, 1d), nonFailValue);
+                        target.NonFail.AddRiskPoint(recordedHazard, probability, nonFailProbability, nonFailValue);
+                        target.Total.AddTwoEntryRiskPoint(recordedHazard, probability,
+                            failProbability, failValue, nonFailProbability, nonFailValue);
                     }
-
-                    var totalProbabilities = new List<double>(failEntryProbabilities.Count + nonFailWeights.Length);
-                    var totalValues = new List<double>(failEntryValues.Count + nonFailValues.Length);
-                    totalProbabilities.AddRange(failEntryProbabilities);
-                    totalValues.AddRange(failEntryValues);
-
-                    if (_nfMode != null || hasClaimed)
+                    else
                     {
+                        if (_fModes.Count > 0)
+                        {
+                            target.Fail.AddRiskPoint(recordedHazard, probability,
+                                new List<double>(failEntryProbabilities), new List<double>(failEntryValues), hazardExceedance);
+                            target.Excess.AddRiskPoint(recordedHazard, probability,
+                                new List<double>(excessEntryProbabilities), new List<double>(excessEntryValues));
+                        }
+
+                        var totalProbabilities = new List<double>(failEntryProbabilities.Count + nonFailWeights.Length);
+                        var totalValues = new List<double>(failEntryValues.Count + nonFailValues.Length);
+                        totalProbabilities.AddRange(failEntryProbabilities);
+                        totalValues.AddRange(failEntryValues);
+
                         // The complement recording consumes the pair baseline directly: the raw
                         // background branches without claimed states (bit-identical pre-6.7
                         // entries), the conditional mixture with them (§7.9.5).
@@ -983,11 +983,11 @@ namespace RMC.TotalRisk.Results
                         var nonFailPointValues = new List<double>(pairValues.Length);
                         for (int j = 0; j < pairWeights.Length; j++)
                         {
-                            backgroundProbabilities.Add(pairWeights[j]);
+                            backgroundProbabilities.Add(Tools.Clamp(pairWeights[j], 0d, 1d));
                             backgroundValues.Add(pairValues[j]);
-                            nonFailProbabilities.Add(probabilityOfNonFailure * pairWeights[j]);
+                            nonFailProbabilities.Add(Tools.Clamp(probabilityOfNonFailure * pairWeights[j], 0d, 1d));
                             nonFailPointValues.Add(pairValues[j]);
-                            totalProbabilities.Add(probabilityOfNonFailure * pairWeights[j]);
+                            totalProbabilities.Add(Tools.Clamp(probabilityOfNonFailure * pairWeights[j], 0d, 1d));
                             totalValues.Add(pairValues[j]);
                         }
 
@@ -1005,7 +1005,7 @@ namespace RMC.TotalRisk.Results
                                 var claimedPointValues = new List<double>(claimedWeights.Length);
                                 for (int b = 0; b < claimedWeights.Length; b++)
                                 {
-                                    claimedProbabilities.Add(probabilityOfNonFailure * share * claimedWeights[b]);
+                                    claimedProbabilities.Add(Tools.Clamp(probabilityOfNonFailure * share * claimedWeights[b], 0d, 1d));
                                     claimedPointValues.Add(claimedValues[b]);
                                 }
                                 var claimedTarget = k == 0 ? realization.FailureModes[j].Curves : realization.FailureModes[j].AdditionalCurves[k - 1];
@@ -1014,8 +1014,8 @@ namespace RMC.TotalRisk.Results
                         }
                         target.Background.AddRiskPoint(recordedHazard, probability, backgroundProbabilities, backgroundValues);
                         target.NonFail.AddRiskPoint(recordedHazard, probability, nonFailProbabilities, nonFailPointValues);
+                        target.Total.AddRiskPoint(recordedHazard, probability, totalProbabilities, totalValues);
                     }
-                    target.Total.AddRiskPoint(recordedHazard, probability, totalProbabilities, totalValues);
                 }
 
                 // Per-type consequence extents for the percentile post-processing grids (v1.0
@@ -1177,7 +1177,7 @@ namespace RMC.TotalRisk.Results
             var excessValues = new List<double>(entries);
             for (int i = 0; i < entries; i++)
             {
-                double entryProbability = modeOutput.ResponseProbabilities[i] * scale;
+                double entryProbability = Tools.Clamp(modeOutput.ResponseProbabilities[i] * scale, 0d, 1d);
                 failProbabilities.Add(entryProbability);
                 failValues.Add(modeOutput.FailureConsequences[i]);
                 excessProbabilities.Add(entryProbability);
@@ -1211,7 +1211,7 @@ namespace RMC.TotalRisk.Results
             double scale = rawProbability > 0d ? adjustedProbability / rawProbability : 0d;
             for (int i = 0; i < modeOutput.ResponseProbabilities.Count; i++)
             {
-                double entryProbability = modeOutput.ResponseProbabilities[i] * scale;
+                double entryProbability = Tools.Clamp(modeOutput.ResponseProbabilities[i] * scale, 0d, 1d);
                 double entryValue = modeOutput.FailureConsequences[i];
                 double entryExcess = modeOutput.ExcessConsequences[i];
                 failEntryProbabilities.Add(entryProbability);
@@ -1224,63 +1224,67 @@ namespace RMC.TotalRisk.Results
         }
 
         /// <summary>
-        /// Decomposes the combination units' failure masses into the exclusive joint-failure
-        /// pathway probabilities and indicators per the captured dependency — the
-        /// type-independent half of the joint kernel, computed once per evaluation. The
-        /// dependency (including the Gaussian copula) couples the units' binary failure events;
-        /// within a unit the exclusive states distribute conditionally (arch doc §7.9.6).
+        /// Lazily decomposes the combination units' failure masses into exclusive joint-failure
+        /// pathways in the established subset-size and lexicographic order, then clips each cell
+        /// against the remaining unit probability budget.
         /// </summary>
         /// <param name="responseProbabilities">The combination units' failure masses.</param>
-        /// <param name="pathwayProbabilities">Receives the exclusive pathway probabilities.</param>
-        /// <param name="pathwayIndicators">Receives the pathway on/off indicators.</param>
+        /// <param name="pathwayProbabilities">Receives the reusable exclusive pathway probabilities.</param>
+        /// <param name="pathwayIndicators">Receives the reusable pathway on/off indicators.</param>
         /// <exception cref="InvalidOperationException">
-        /// Thrown when the combination caches or the dependent-mode correlation matrix are
-        /// missing — an engine wiring defect, not a data condition.
+        /// Thrown when a dependent-mode correlation matrix is missing.
         /// </exception>
         /// <remarks>
-        /// The independent arm writes into buffers this sampled component owns, so a run allocates
-        /// no outputs here after the first evaluation; the buffers are per-realization, so the
-        /// parallel loop shares nothing. The dependent arms still allocate — their Numerics kernels
-        /// have no pooled overload.
+        /// Every dependency uses a caller-owned lazy output buffer. The final pass is deterministic
+        /// remaining-budget clipping: earlier cells are never rescaled, and trailing PCM
+        /// approximation overshoot is discarded rather than proportionally normalized.
         /// </remarks>
         private void ComputePathwayDecomposition(List<double> responseProbabilities,
             out List<double> pathwayProbabilities, out List<int[]> pathwayIndicators)
         {
-            int[]? binomialCombinations = _binomialCombinations;
-            int[,]? indicatorCombinations = _indicators;
-            if (binomialCombinations == null || indicatorCombinations == null)
-            {
-                throw new InvalidOperationException("The failure-mode combination caches are missing. The component was not sampled through SetupSamplers().");
-            }
-
-            if (_failureModeDependency == DependencyType.Independent)
-            {
-                var probabilities = _scratchPathwayProbabilities ??= new List<double>();
-                var indicators = _scratchPathwayIndicators ??= new List<int[]>();
-                Probability.IndependentExclusive(responseProbabilities, binomialCombinations, indicatorCombinations,
-                    probabilities, indicators);
-                pathwayProbabilities = probabilities;
-                pathwayIndicators = indicators;
-                return;
-            }
+            var probabilities = _scratchPathwayProbabilities;
+            var indicators = _scratchPathwayIndicators;
 
             switch (_failureModeDependency)
             {
+                case DependencyType.Independent:
+                    Probability.IndependentExclusiveLazy(responseProbabilities, probabilities, indicators);
+                    break;
                 case DependencyType.PerfectlyPositive:
-                    Probability.PositivelyDependentExclusive(responseProbabilities, binomialCombinations, indicatorCombinations,
-                        out pathwayProbabilities, out pathwayIndicators);
+                    Probability.PositivelyDependentExclusiveLazy(responseProbabilities, probabilities, indicators);
                     break;
                 default:
                     if (_correlationMatrix == null)
                     {
                         throw new InvalidOperationException("The failure-mode correlation matrix is missing for the dependent joint combination. Call Validate() and correct the reported errors before sampling.");
                     }
-                    Probability.ExclusivePCM(responseProbabilities, binomialCombinations, indicatorCombinations, _correlationMatrix,
-                        out pathwayProbabilities, out pathwayIndicators);
+                    Probability.ExclusivePCMLazy(responseProbabilities, _correlationMatrix, probabilities, indicators);
                     break;
             }
+
+            ClipProbabilityPartition(probabilities);
+            pathwayProbabilities = probabilities;
+            pathwayIndicators = indicators;
         }
 
+        /// <summary>
+        /// Clips an exclusive partition sequentially against its remaining unit probability budget.
+        /// </summary>
+        /// <param name="probabilities">The exclusive cells in deterministic enumeration order.</param>
+        /// <remarks>
+        /// This is not normalization: a cell can only lose trailing overshoot, and no earlier cell
+        /// is changed in response to a later one.
+        /// </remarks>
+        private static void ClipProbabilityPartition(List<double> probabilities)
+        {
+            double remaining = 1d;
+            for (int i = 0; i < probabilities.Count; i++)
+            {
+                double accepted = Tools.Clamp(probabilities[i], 0d, remaining);
+                probabilities[i] = accepted;
+                remaining = Tools.Clamp(remaining - accepted, 0d, 1d);
+            }
+        }
         /// <summary>
         /// The joint-failures consequence kernel for one consequence type: per pathway, the
         /// cross product over the participating combination units' entries — a unit's entry set
@@ -1397,7 +1401,7 @@ namespace RMC.TotalRisk.Results
 
                     if (tupleWeight > 0d)
                     {
-                        double entryProbability = pathwayProbability * tupleWeight;
+                        double entryProbability = Tools.Clamp(pathwayProbability * tupleWeight, 0d, 1d);
                         failEntryProbabilities.Add(entryProbability);
                         failEntryValues.Add(combined);
                         expectedFailureConsequences += entryProbability * combined;
@@ -1410,7 +1414,7 @@ namespace RMC.TotalRisk.Results
                         for (int q = 0; q < nonFailWeights.Length; q++)
                         {
                             double excess = Math.Max(0d, combined - nonFailValues[q]);
-                            double excessProbability = entryProbability * nonFailWeights[q];
+                            double excessProbability = Tools.Clamp(entryProbability * nonFailWeights[q], 0d, 1d);
                             excessEntryProbabilities.Add(excessProbability);
                             excessEntryValues.Add(excess);
                             expectedExcessConsequences += excessProbability * excess;

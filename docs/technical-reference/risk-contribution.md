@@ -1,4 +1,4 @@
-# % Contribution to Risk
+﻿# % Contribution to Risk
 
 > Phase 6.6 (landed 2026-07-24). The attribution mathematics behind `RiskContribution`: how each
 > failure mode's share of a component's risk — and each component's share of the system's — is
@@ -88,12 +88,11 @@ testable against the sum identities. Two first-class percentage bases (user deci
 
 ## 4. Why the sum identities are exact
 
-The identities pin against the component's **recorded** aggregates, not the clamped headline
-scalars:
+The identities pin against the component's **recorded** aggregates:
 
-- Σ_j FailureProbability_j ≡ Fail `MassBalance`, not `TotalProbability` — the Min(1, ·) clamp and
-  the documented Numerics `IndependentExclusive` 1e-4 convergence truncation live outside the
-  recorded decomposition, and the contribution accumulators see exactly the recorded events.
+- Σ_j FailureProbability_j ≡ Fail `MassBalance` ≡ `TotalProbability`. The lazy exclusive
+  decomposition is clipped once at the approved remaining-budget boundary before the contribution
+  accumulators consume it, so every downstream identity sees exactly the same accepted cells.
 - Under the Joint **Additive** rule, r_j(e) = p_e · c_j exactly (the proportional weights cancel),
   so a mode's `FailureMean` contribution equals its marginal Fail mean — the oracle identity the
   verification family pins.

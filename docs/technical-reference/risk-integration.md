@@ -1,4 +1,4 @@
-# Risk Integration
+﻿# Risk Integration
 
 > Technical reference for the numerical integration inside the `RMC.TotalRisk.Analyses.RiskAnalysis`
 > engine (Phase 4 / 4b). Covers the 1D adaptive quadrature, the selectable integrand
@@ -80,28 +80,73 @@ integrator.Integrate(bins);
 - **`StandardError`** is a real error estimate (`√Σ (Kronrod − Gauss)²` accumulated across accepted
   intervals), unlike Simpson's Richardson proxy — surface it on the results container as a diagnostic.
 
-### Probability mass from the quadrature weight (N7, adopted Phase 8.5)
+### Collectively exhaustive probability mass
 
-The exact LEC construction takes each evaluation's **quadrature weight** — the `dF` mass it represents —
-from the integrator, exactly as the VEGAS path takes `wgt`. `AdaptiveGaussKronrod.Recorder` is the
-acceptance-aware `(x, weight, f)` ledger: it flushes only for intervals the refinement **accepted**, so
-`Σ weights` is the domain width and `Σ w·f ≡ Result`. `RMC.TotalRisk.Results.QuadratureMassLedger`
-collects the flush, seals it (sort + coalesce duplicate abscissas), and `Curve.ApplyRecordedMass` sets
-each risk point's mass from it, compacting away points the refinement superseded.
+The sampled hazard defines its natural finite probability support `[p_min, p_max]`. Adaptive
+Gauss-Kronrod integrates only that support. Its acceptance-aware recorder publishes the unchanged
+Kronrod-node weights for intervals that survive refinement; rejected-node data is never retained.
 
-Two gates replace the old `Σ mass = 1` assertion, which could not detect a mis-partition (the trapezoid
-partition telescoped to one regardless of whether the point set was right):
+Appendix D's collectively exhaustive construction adds two explicit endpoint rectangles:
 
-1. **Domain-partition witness**, once per component integration — `|Σ weights − Σ bin widths|` within
-   1e-9 relative, against a Neumaier-compensated total. A double-counted rejected interval overshoots
-   by that interval's *width*, which is macroscopic rather than rounding.
-2. **Fan-out coverage** per curve — the number of recorded abscissas that match a ledger key must equal
-   `DistinctAbscissaCount`, so a break in the record fan-out is caught rather than silently thinning
-   the curve.
+1. lower edge mass `p_min`, evaluated by the complete component-risk calculation at the lower
+   supported hazard;
+2. all accepted AGK interior contributions, whose compensated mass is `p_max - p_min`;
+3. upper edge mass computed as the residual
+   `1 - compensated_sum(lower edge + interior masses)`, evaluated at the upper supported hazard.
 
-Measured against a 4,000,000-point dense reference, the mass partition improves from **5.7e-7** relative
-(midpoint trapezoid) to **4.0e-11** (ledger). See
-[loss-exceedance-curves.md](loss-exceedance-curves.md) §Probability mass.
+The residual must agree with `1 - p_max` within a tight floating-point bound. Computing it as the
+residual makes the underlying ledger total exactly one without stretching the first or last interior
+bin and without proportionally renormalizing any AGK weight. The report's worked partition is therefore
+
+```
+0.001 + 5(0.1996) + 0.001 = 1
+```
+
+for five natural interior bins. In general K interior contributions become K+2 contributions.
+Endpoint evaluations use the same recording path as interior nodes, so every consequence type,
+stream, profile, contribution, and diagnostic receives the edge mass at its endpoint consequence.
+They are included in `FunctionEvaluations`. Coincident, one-sided, saturated, and zero-width supports
+coalesce exact abscissas and avoid double counting.
+
+The internal pooled mass ledger seals by sorting exact probability abscissas, compensated-coalescing
+duplicates, and checking two invariants:
+
+1. the interior accepted mass agrees with the natural support width;
+2. the final exhaustive mass is exactly one, with every recorded curve consuming every sealed entry.
+
+Exhaustive Total streams fault the run if their raw recorded mass is not exactly one after sealing.
+Defective streams must be finite and within `[0,1]`. Reliability-mode Total streams obey the same rule
+even when every consequence is zero.
+
+### Lazy failure-mode enumeration and the probability partition boundary
+
+For `JointFailures`, the component first forms the marginal failure probabilities of its combination
+units. Every dependency then uses caller-owned lazy output buffers in the established
+subset-size/lexicographic order: `IndependentExclusiveLazy` for independent units,
+`PositivelyDependentExclusiveLazy` for perfectly positive dependence, and `ExclusivePCMLazy` for
+perfectly negative or explicit correlation-matrix dependence. The PCM joint-probability formula,
+inclusion/exclusion association order and sign changes, closing all-ones half-gap row, dual absolute
+and relative convergence predicate, and default tolerances (`1E-4`, `1E-4`) are unchanged. Dense
+indicator and binomial matrices remain compatibility inspection surfaces only and are not populated
+by the engine. Runtime memory is proportional to emitted rows, although worst-case compute remains
+combinatorial when convergence is slow.
+
+PCM is an approximation and its exclusive cells can overshoot a unit partition by roundoff or
+approximation error. TotalRisk applies the approved boundary once, immediately after lazy enumeration
+and before consequences, expected values, profiles, or contributions:
+
+```text
+remaining = 1
+for cell in deterministic row order:
+    accepted = clamp(cell, 0, remaining)
+    remaining = clamp(remaining - accepted, 0, 1)
+```
+
+This is not normalization: no earlier cell is rescaled and no probability is redistributed. Only a
+trailing overshoot is discarded. Finite scalar probability outputs and recorded conditional
+probabilities are likewise clipped with `Tools.Clamp`; NaN remains NaN and is rejected by validation.
+The `Curve` mass checks remain strict, so an invalid exhaustive distribution cannot be hidden by a
+published-property clamp.
 
 ## `RiskIntegrand` — the adaptive-refinement objective
 

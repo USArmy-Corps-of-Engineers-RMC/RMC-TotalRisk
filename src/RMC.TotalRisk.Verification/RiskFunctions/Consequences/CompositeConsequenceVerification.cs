@@ -399,4 +399,28 @@ public class CompositeConsequenceVerification
         }
         Assert.IsTrue(anyDifferent, "A compute edit must change the realization stream.");
     }
+
+    /// <summary>
+    /// Verifies the 10,000-realization uncertainty summary is deterministic, content-seeded, and
+    /// isolated from the live sampler used by engine realizations.
+    /// </summary>
+    [TestMethod]
+    public void Test_UncertaintySummary_DeterministicAndSamplerIsolated()
+    {
+        var composite = BuildComposite(CompositeFunctionType.Average);
+        composite.SetupSampler(128, EngineSeed, SamplingScheme.LatinHypercube);
+        double liveDraw = composite.SampleFunction(5).Function(10d);
+
+        var first = composite.ComputeUncertaintyResults(0.90d)!;
+        var second = composite.ComputeUncertaintyResults(0.90d)!;
+
+        CollectionAssert.AreEqual(first.MeanCurve, second.MeanCurve);
+        Assert.AreEqual(liveDraw, composite.SampleFunction(5).Function(10d), 0d);
+        composite.Name = "Renamed";
+        composite.ConsequenceFunctions[0].ConsequenceFunction!.AssignNewId();
+        CollectionAssert.AreEqual(first.MeanCurve, composite.ComputeUncertaintyResults(0.90d)!.MeanCurve);
+        CollectionAssert.AreEqual(new[] { 0d, 10d }, composite.UncertaintySummaryHazards());
+        Assert.AreEqual(57d, first.MeanCurve![1], 0.5d);
+        Assert.IsTrue(first.ConfidenceIntervals![1, 0] < first.ConfidenceIntervals[1, 1]);
+    }
 }
