@@ -735,7 +735,13 @@ namespace RMC.TotalRisk.Analyses
         /// count the joint system risk method can carry. The additive method has no equivalent
         /// limit.
         /// </summary>
-        private const int VegasMaxDimensions = 20;
+        /// <remarks>
+        /// VEGAS stratifies (calls/2)^(1/D) strata per axis, which reaches one around fifteen
+        /// components; beyond that the joint method is adaptive importance sampling over the
+        /// correlated hazards, which stays correct but resolves the tail less sharply per
+        /// evaluation.
+        /// </remarks>
+        private const int VegasMaxDimensions = 50;
 
         /// <summary>
         /// The stratified hazard levels the competing-risks incidence pre-processing spans.

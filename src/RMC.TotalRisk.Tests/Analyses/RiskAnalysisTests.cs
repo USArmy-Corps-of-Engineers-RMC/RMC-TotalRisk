@@ -167,16 +167,15 @@ public class RiskAnalysisTests
     }
 
     /// <summary>
-    /// Verifies the additive system risk method runs past twenty components, and that the joint
-    /// method reports its dimension limit with the additive method as the alternative.
+    /// Verifies both system risk methods run past twenty components.
     /// </summary>
     /// <remarks>
-    /// The joint method integrates one dimension per component through VEGAS, which accepts at
-    /// most twenty. The additive method convolves the components' loss distributions instead and
-    /// has no equivalent limit.
+    /// The old ceiling was two separate limits: a dense 2^D combination matrix built once per run,
+    /// and the integrator's own dimension guard. Combinations are now generated on demand, and the
+    /// guard sits well above the point where VEGAS's stratification self-limits.
     /// </remarks>
     [TestMethod]
-    public async Task Test_AdditiveSystem_BeyondTwentyComponents_Runs()
+    public async Task Test_SystemRisk_BeyondTwentyComponents_Runs()
     {
         // Arrange — twenty-four components, mean-only.
         var components = new List<SystemComponent>();
@@ -209,11 +208,21 @@ public class RiskAnalysisTests
         Assert.IsTrue(completion!.Succeeded, completion.Error?.ToString() ?? "The run did not succeed.");
         Assert.IsNotNull(analysis.MeanRiskResults);
 
-        // The same components under the joint method are rejected, pointing at the additive one.
+        // The same components run under the joint method too, which now integrates well past the
+        // twenty dimensions VEGAS used to refuse.
         analysis.Options.SystemRiskMethod = SystemRiskType.JointRiskMethod;
+        analysis.Options.UseDefaults = false;
+        analysis.Options.WarmupEvaluations = 1000;
+        analysis.Options.WarmupCycles = 1;
+        analysis.Options.FinalEvaluations = 1000;
         var (jointValid, jointMessages) = analysis.Validate();
-        Assert.IsFalse(jointValid);
-        StringAssert.Contains(string.Join(" | ", jointMessages), "additive system risk method");
+        Assert.IsTrue(jointValid, string.Join(" | ", jointMessages));
+
+        AnalysisRunCompletedEventArgs? jointCompletion = null;
+        analysis.AnalysisCompleted += (_, e) => jointCompletion = e;
+        await analysis.RunAsync();
+        Assert.IsNotNull(jointCompletion);
+        Assert.IsTrue(jointCompletion!.Succeeded, jointCompletion.Error?.ToString() ?? "The joint run did not succeed.");
     }
 
     /// <summary>
