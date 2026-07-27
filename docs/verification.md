@@ -4,15 +4,19 @@
 
 ## What the legacy suite is
 
-`C:\GIT\RMC-TotalRisk-Dev\RMC-TotalRisk\Test_TotalRisk\` contains ~128 substantive Monte Carlo methods that are **oracles without asserts**: each hand-computes a risk quantity from Numerics primitives (`LnNormal`, `Normal`, `Linear`, `MultivariateNormal`, `EmpiricalDistribution`, `Mixture`, …) with **fixed seeds** and prints the result to the debugger. They re-implement the engine's math independently — they do not call the engine (except the FDA integration tests). That independence is exactly what makes them verification oracles for the new engine.
+`C:\GIT\RMC-TotalRisk-Dev\RMC-TotalRisk\Test_TotalRisk\` contains 141 `Test_*` methods. The audited disposition is 112 covered, consolidated, or stream-identical methods; 16 empty placeholders; 2 debugger-only workbenches; 4 methods blocked on future model features; 6 standalone FDA importer workflows blocked on external data; and 1 obsolete FDA/NFIP variant. The substantive oracles hand-compute risk quantities from Numerics primitives with fixed seeds and do not call the engine, which makes them independent references.
 
 Legacy configuration facts that carry over:
 
 - Seeds are always fixed: `MersenneTwister(12345)` (dominant), `MersenneTwister(45678)`; correlated draws via `MultivariateNormal.GenerateRandomValues(M, seed)` with seeds 12345 / 67891 / 78910.
 - Realizations: 10,000,000 standard; 1,000,000 in some NFIP variants; 100,000,000 in `Test_BivariateRisk`.
-- All input datasets are inlined arrays (no external files), except the FDA tests (external `C:\Projects\…` data — deferred until committed via a verification request).
+- All applicable engine-oracle datasets are inlined. Six standalone FDA importer workflows retain external `C:\Projects\…` dependencies and are classified `BlockedExternalData`; the FDA/NFIP variant is explicitly obsolete.
 - Several method names are mislabeled relative to their bodies — **always port from the body, never trust the name.**
 
+The committed [legacy traceability matrix](verification/legacy-traceability.csv) accounts for
+every source method and every one of the verification report's 49 system/joint-failure
+configurations. `scripts/validate-verification-traceability.ps1` reconciles the matrix against
+both repositories when the legacy checkout is present and validates every current test target.
 ## Conversion pattern (per scenario)
 
 1. **Port the oracle** to C# in `RMC.TotalRisk.Verification`, preserving the legacy fixed seeds, at **N = 1,000,000 realizations** (the 10M default drops 10×; tolerance scales accordingly; the 100M bivariate cases also drop to 1M with widened tolerance).
@@ -132,7 +136,7 @@ their scheduled phase below — the function-level families do not replace them.
 | 6.6 (landed 2026-07-24) | Four NEW families beyond the legacy suite (the diagnostics carry no legacy oracles): `RiskProfile` (Q-T pushforward exact at knots + bit-identical non-profile outputs, threshold knot equivalence, cumulative/SRP profiles vs an independent dense-quadrature oracle, five-stream band restoration), `Contribution` (Σ-identities vs `MassBalance`/`Mean` at 1e-12, joint-Additive ≡ marginal means, quadrature oracles for the adjusted-marginal methods, additive Poisson-binomial φ vs brute enumeration, joint-system sums vs recorded mass), `ScalarUncertainty` (closed-form ensemble-quantile targets on a linear knowledge map, posterior APF CI), `Sensitivity` (analytic corr(U, Φ⁻¹(U)) = √(3/π) Pearson pin at the Fisher-z bound, rank exactness + inert-input null band, independent hazard-level response oracle, content-seeded reproducibility). Results: [verification/](verification/README.md) |
 | 6.7 (landed 2026-07-24) | `CascadeEndStates` (8 tests, NEW family — the cascade design carries no legacy oracles): the partial-damage two-stage cascade vs its natural MC oracle (MT 12345/45678, N = 10⁶), the joint/ME/competing across-unit matrix, the bit-exact saturated-stage single-stage equivalence, reliability-mode APF vs the Rao-Blackwellized oracle, additive/joint system smokes, port/polarity reproducibility pins. Results: [verification/cascade-end-states.md](verification/cascade-end-states.md) |
 | 7 (landed 2026-07-25) | `ClosedFormFunctions` (4 tests, NEW family — no legacy oracles exist for `LinearTransform`/`PowerTransform`/`NonparametricHazard`): the 2024 report's SF-8 vs HEC-FDA Table 38 pins + the independent legacy-pipeline re-derivation oracle, transform-chain ensembles vs flat MC oracles at MT(12345) N = 10⁶, D = 0 dense-quadrature parity, and the nonparametric reliability AFP with bit-identity pins. Results: [verification/closed-form-functions.md](verification/closed-form-functions.md) |
-| 9 | `Composite` family engine-level scenarios (mixture hazard/response/consequence behind the engine, bootstrap uncertainty), NFIP TOL 60/65 |
+| 8.6 forensic closure | `CompositeEngine` closes all four `Test_Composite.vb` configurations plus the risk-analysis mixture identity against independent quadrature; `NfipAssurance` closes the active TOL 60/65 bootstrap-hazard bodies against conditional quadrature. |
 | 10 | `EventTree` (serialization round-trip + product oracle) |
 | 11 | `BivariateRisk` (100M→1M), `DAMRAE`, BestFit import contract |
-| Future | FDA integration (needs committed datasets via `verification-requests/`) |
+| Not applicable | The FDA/NFIP variant is obsolete by technical-authority decision. Six standalone FDA importer workflows remain separately classified as external-data blockers. |

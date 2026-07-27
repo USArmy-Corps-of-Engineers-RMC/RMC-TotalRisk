@@ -336,6 +336,12 @@ namespace RMC.TotalRisk.Analyses
         private string RunConsequenceUnit => _runConsequenceUnit ?? _consequenceUnit;
 
 
+        /// <summary>
+        /// Internal run-worker observer used by lifecycle fault and cancellation tests. Null in
+        /// production; it is runtime-only and never serialized, hashed, or copied into a model.
+        /// </summary>
+        internal Action? RunWorkerObserver { get; set; }
+
 
         /// <summary>Backing field for <see cref="Name"/>.</summary>
         private string _name = "Risk Analysis";
@@ -1185,49 +1191,40 @@ namespace RMC.TotalRisk.Analyses
             AnalysisRunCompletedEventArgs? completion = null;
             try
             {
-            OnAnalysisStarting(startingArgs);
-            if (startingArgs.Cancel)
-            {
-                throw new OperationCanceledException("The analysis was canceled by an AnalysisStarting handler.");
-            }
+                OnAnalysisStarting(startingArgs);
+                if (startingArgs.Cancel)
+                {
+                    throw new OperationCanceledException("The analysis was canceled by an AnalysisStarting handler.");
+                }
 
-            ClearPublishedState();
+                ClearPublishedState();
 
-            var (isValid, validationMessages) = Validate();
-            if (!isValid)
-            {
-                throw new InvalidOperationException(string.Join(Environment.NewLine, validationMessages));
-            }
-            var pinned = CloneSeedMap(PinnedSamplerSeeds);
-            if (pinned != null && pinned.ComponentCount != _authorComponents.Count)
-            {
-                throw new InvalidOperationException(
-                    "The pinned sampler seed map was captured from a different component count. The seed-stable perturbation mode fits the model shape it was captured from — re-capture from a baseline run of the current structure.");
-            }
+                var (isValid, validationMessages) = Validate();
+                if (!isValid)
+                {
+                    throw new InvalidOperationException(string.Join(Environment.NewLine, validationMessages));
+                }
 
-            var componentSnapshot = new List<SystemComponent>(_authorComponents.Count);
-            for (int i = 0; i < _authorComponents.Count; i++)
-            {
-                componentSnapshot.Add(_authorComponents[i].Clone());
-            }
-            var optionsSnapshot = new RiskAnalysisOptions(_authorOptions.ToXElement());
-            optionsSnapshot.SetDefaultComponentCount(componentSnapshot.Count);
-            var declarations = new List<ConsequenceTypeDescriptor>(_additionalConsequenceTypes.Count);
-            for (int i = 0; i < _additionalConsequenceTypes.Count; i++)
-            {
-                declarations.Add(new ConsequenceTypeDescriptor(_additionalConsequenceTypes[i].ToXElement()));
-            }
-            _components = componentSnapshot;
-            _options = optionsSnapshot;
-            _runAdditionalConsequenceTypes = declarations.AsReadOnly();
-            _runSpecifiedConsequence = _specifiedConsequence;
-            _runConsequenceUnit = _consequenceUnit;
+                var runContext = RiskAnalysisRunContext.Capture(
+                    _authorComponents,
+                    _authorOptions,
+                    _additionalConsequenceTypes,
+                    _specifiedConsequence,
+                    _consequenceUnit,
+                    PinnedSamplerSeeds);
+                var pinned = runContext.PinnedSamplerSeeds;
+                _components = runContext.Components;
+                _options = runContext.Options;
+                _runAdditionalConsequenceTypes = runContext.AdditionalConsequenceTypes;
+                _runSpecifiedConsequence = runContext.SpecifiedConsequence;
+                _runConsequenceUnit = runContext.ConsequenceUnit;
 
-            var token = ResetCancellationToken(cancellationToken);
-            AnalysisRunPublication? publication = null;
+                var token = ResetCancellationToken(cancellationToken);
+                AnalysisRunPublication? publication = null;
 
                 await Task.Run(() =>
                 {
+                    RunWorkerObserver?.Invoke();
                     // The content-based seed walk (architecture doc Â§5.5.4): occurrence indices
                     // disambiguate identical-content components, and each component's functions
                     // are seeded from (analysis seed, component hash, occurrence index).
@@ -1303,7 +1300,7 @@ namespace RMC.TotalRisk.Analyses
                 completion = new AnalysisRunCompletedEventArgs(wasCanceled: false, succeeded: false, error: ex);
                 ClearPublishedState();
                 throw;
-        }
+            }
             finally
             {
                 _components = _authorComponents;
@@ -1413,21 +1410,6 @@ namespace RMC.TotalRisk.Analyses
             if (publication.Upper != null) publication.Upper.Manifest = manifest;
         }
 
-        /// <summary>
-        /// Creates an isolated copy of a pinned sampler-seed map.
-        /// </summary>
-        /// <param name="source">The authoring map, or null.</param>
-        /// <returns>The isolated map, or null.</returns>
-        private static SamplerSeedMap? CloneSeedMap(SamplerSeedMap? source)
-        {
-            if (source == null) return null;
-            var components = new List<int[]>(source.ComponentSeeds.Count);
-            for (int i = 0; i < source.ComponentSeeds.Count; i++)
-            {
-                components.Add((int[])source.ComponentSeeds[i].Clone());
-            }
-            return new SamplerSeedMap(components, source.JointSeedBase);
-        }
 
         /// <summary>
         /// Invalidates the results when any option changes.
@@ -2110,7 +2092,7 @@ namespace RMC.TotalRisk.Analyses
             for (int i = 0; i < _components.Count; i++)
             {
                 token.ThrowIfCancellationRequested();
-                using var ledger = IntegrateComponent(sampledComponents[i], componentRealizations[i], realization, flags, realizationIndex);
+                using var ledger = IntegrateComponent(sampledComponents[i], componentRealizations[i], realization, flags, realizationIndex, token);
                 componentRealizations[i].ApplyRecordedMass(ledger);
                 componentRealizations[i].FinalizeContributions(ledger);
                 componentRealizations[i].CreateCurves(_options.LECOutputLength);
@@ -2392,6 +2374,7 @@ namespace RMC.TotalRisk.Analyses
         /// of the full discipline is spent only where a single answer is published (the mean
         /// pass, mean-only runs, and the deterministic probes).
         /// </param>
+        /// <param name="token">The active run cancellation token.</param>
         /// <exception cref="InvalidOperationException">
         /// Thrown when the integration reports failure â€” an integrand exception was absorbed by
         /// the integrator (<c>ReportFailure</c> is false), so the recorded risk points are
@@ -2400,12 +2383,12 @@ namespace RMC.TotalRisk.Analyses
         /// call sites carry the same guard).
         /// </exception>
         private QuadratureMassLedger IntegrateComponent(SampledComponent sampled, ComponentRealization componentRealization,
-            SystemRealization realization, RiskComputeFlags flags, int realizationIndex)
+            SystemRealization realization, RiskComputeFlags flags, int realizationIndex, CancellationToken token)
         {
             // One stratification build serves the balanced-objective scales and the integrator
             // seeding alike (the probes run before the integrator touches the list).
             var bins = BuildStratificationBins(sampled, flags);
-            var (lowerProbability, upperProbability) = ProbabilitySupport(bins);
+            var support = HazardProbabilitySupport.Create(bins);
             var objective = BuildObjective(sampled, componentRealization, flags, bins);
             bool ensemble = realizationIndex >= 0;
             int expectedNodes = Math.Min(_options.MaxEvaluations + 2, Math.Max(256, _options.LECOutputLength * 16));
@@ -2413,9 +2396,9 @@ namespace RMC.TotalRisk.Analyses
 
             int interiorEvaluations = 0;
             double standardError = 0d;
-            if (upperProbability > lowerProbability)
+            if (support.Upper > support.Lower)
             {
-                var integrator = new AdaptiveGaussKronrod(objective, lowerProbability, upperProbability)
+                var integrator = new AdaptiveGaussKronrod(objective, support.Lower, support.Upper)
                 {
                     ReportFailure = false,
                     MaxFunctionEvaluations = _options.MaxEvaluations,
@@ -2425,6 +2408,7 @@ namespace RMC.TotalRisk.Analyses
                     Recorder = ledger.Record,
                 };
                 integrator.Integrate(bins);
+                token.ThrowIfCancellationRequested();
                 if (integrator.Status == IntegrationStatus.Failure)
                 {
 
@@ -2434,50 +2418,8 @@ namespace RMC.TotalRisk.Analyses
                 standardError = integrator.StandardError;
             }
 
-            double expectedInteriorMass = upperProbability - lowerProbability;
-            double recordedInteriorMass = ledger.RunningTotalWeight;
-            if (Math.Abs(recordedInteriorMass - expectedInteriorMass) > 1e-9 * Math.Max(expectedInteriorMass, 1e-12))
-            {
-                throw new InvalidOperationException(
-                    $"The interior quadrature weights recorded for system component '{sampled.Name}' sum to {recordedInteriorMass:R} instead of the natural support width {expectedInteriorMass:R}. The recorded risk-point set cannot be trusted.");
-            }
-
-            // Appendix D's K + 2 construction: the finite-support tails are endpoint rectangles,
-            // not stretched adaptive panels. The final upper mass is the exact residual after the
-            // lower rectangle and accepted interior weights, so the ledger itself is exhaustive.
-            int endpointEvaluations = 0;
-            bool lowerEvaluated = false;
-            double lowerValue = 0d;
-            if (lowerProbability > 0d)
-            {
-                lowerValue = objective(lowerProbability);
-                lowerEvaluated = true;
-                endpointEvaluations++;
-                ledger.Record(lowerProbability, lowerProbability, lowerValue);
-            }
-
-            double expectedUpperMass = 1d - upperProbability;
-            if (expectedUpperMass > 0d)
-            {
-                double upperMass = 1d - ledger.RunningTotalWeight;
-                if (Math.Abs(upperMass - expectedUpperMass) > 1e-12)
-                {
-                    throw new InvalidOperationException(
-                        $"The upper endpoint mass for system component '{sampled.Name}' is {upperMass:R} instead of {expectedUpperMass:R}. The exhaustive probability budget cannot be trusted.");
-                }
-
-                double upperValue;
-                if (lowerEvaluated && upperProbability == lowerProbability)
-                {
-                    upperValue = lowerValue;
-                }
-                else
-                {
-                    upperValue = objective(upperProbability);
-                    endpointEvaluations++;
-                }
-                ledger.Record(upperProbability, upperMass, upperValue);
-            }
+            int endpointEvaluations = support.CompleteExhaustive(ledger.RunningTotalWeight,
+                objective, ledger.Record, $"system component '{sampled.Name}'");
             ledger.SealExhaustive();
             realization.FunctionEvaluations += interiorEvaluations + endpointEvaluations;
             realization.StandardError += standardError / _components.Count;
@@ -2563,25 +2505,25 @@ namespace RMC.TotalRisk.Analyses
                         ? output.ProbabilityOfFailure * output.MeanFailureConsequences
                         : 0d;
                 case RiskIntegrand.ThresholdExceedanceProbability:
-                {
-                    double exceedance = 0d;
-                    for (int i = 0; i < output.ResponseProbabilities.Count; i++)
                     {
-                        if (output.FailureConsequences[i] > _options.ConsequenceThreshold) exceedance += output.ResponseProbabilities[i];
+                        double exceedance = 0d;
+                        for (int i = 0; i < output.ResponseProbabilities.Count; i++)
+                        {
+                            if (output.FailureConsequences[i] > _options.ConsequenceThreshold) exceedance += output.ResponseProbabilities[i];
+                        }
+                        if (output.NonFailureConsequences > _options.ConsequenceThreshold) exceedance += output.ProbabilityOfNonFailure;
+                        return exceedance;
                     }
-                    if (output.NonFailureConsequences > _options.ConsequenceThreshold) exceedance += output.ProbabilityOfNonFailure;
-                    return exceedance;
-                }
                 case RiskIntegrand.SecondMoment:
-                {
-                    double secondMoment = 0d;
-                    for (int i = 0; i < output.ResponseProbabilities.Count; i++)
                     {
-                        secondMoment += output.ResponseProbabilities[i] * output.FailureConsequences[i] * output.FailureConsequences[i];
+                        double secondMoment = 0d;
+                        for (int i = 0; i < output.ResponseProbabilities.Count; i++)
+                        {
+                            secondMoment += output.ResponseProbabilities[i] * output.FailureConsequences[i] * output.FailureConsequences[i];
+                        }
+                        secondMoment += output.ProbabilityOfNonFailure * output.NonFailureConsequences * output.NonFailureConsequences;
+                        return secondMoment;
                     }
-                    secondMoment += output.ProbabilityOfNonFailure * output.NonFailureConsequences * output.NonFailureConsequences;
-                    return secondMoment;
-                }
                 default:
                     return output.ProbabilityOfFailure * output.MeanFailureConsequences
                         + output.ProbabilityOfNonFailure * output.NonFailureConsequences;
@@ -2674,41 +2616,6 @@ namespace RMC.TotalRisk.Analyses
             return Stratify.XToProbability(bins, sampled.Hazard.CDF, false);
         }
 
-        /// <summary>
-        /// Reads and validates the natural probability support spanned by a stratification.
-        /// </summary>
-        /// <param name="bins">The ordered probability-space bins.</param>
-        /// <returns>The inclusive lower and upper probability bounds.</returns>
-        /// <exception cref="InvalidOperationException">
-        /// Thrown when the bins are empty, non-finite, outside [0, 1], or reverse direction.
-        /// </exception>
-        private static (double Lower, double Upper) ProbabilitySupport(IReadOnlyList<StratificationBin> bins)
-        {
-            if (bins == null || bins.Count == 0)
-            {
-                throw new InvalidOperationException("The sampled hazard produced no probability-space stratification bins.");
-            }
-
-            double lower = bins[0].LowerBound;
-            double upper = bins[bins.Count - 1].UpperBound;
-            if (!double.IsFinite(lower) || !double.IsFinite(upper) || lower < 0d || upper > 1d || upper < lower)
-            {
-                throw new InvalidOperationException($"The sampled hazard probability support [{lower:R}, {upper:R}] is invalid.");
-            }
-
-            double previousUpper = lower;
-            for (int i = 0; i < bins.Count; i++)
-            {
-                if (!double.IsFinite(bins[i].LowerBound) || !double.IsFinite(bins[i].UpperBound)
-                    || bins[i].LowerBound < lower || bins[i].UpperBound > upper
-                    || bins[i].UpperBound < bins[i].LowerBound || bins[i].LowerBound < previousUpper)
-                {
-                    throw new InvalidOperationException($"Probability stratification bin {i} is invalid or out of order.");
-                }
-                previousUpper = bins[i].UpperBound;
-            }
-            return (lower, upper);
-        }
 
         /// <summary>
         /// Splits the bin containing the boundary probability into two bins meeting at it; a
@@ -2844,16 +2751,16 @@ namespace RMC.TotalRisk.Analyses
             var scratch = new ComponentRealization(sampled.FailureModeCount);
             var flags = new RiskComputeFlags();
             var bins = BuildHazardBins(sampled);
-            var (lowerProbability, upperProbability) = ProbabilitySupport(bins);
+            var support = HazardProbabilitySupport.Create(bins);
             double FailureProbability(double probability)
             {
                 return Tools.Clamp(sampled.ComputeRisk(probability, sampled.Hazard.InverseCDF(probability), flags, scratch).ProbabilityOfFailure, 0d, 1d);
             }
 
             double result = 0d;
-            if (upperProbability > lowerProbability)
+            if (support.Upper > support.Lower)
             {
-                var integrator = new AdaptiveGaussKronrod(FailureProbability, lowerProbability, upperProbability)
+                var integrator = new AdaptiveGaussKronrod(FailureProbability, support.Lower, support.Upper)
                 {
                     ReportFailure = false,
                     MaxFunctionEvaluations = _options.MaxEvaluations,
@@ -2869,22 +2776,9 @@ namespace RMC.TotalRisk.Analyses
                 result = integrator.Result;
             }
 
-            bool lowerEvaluated = false;
-            double lowerValue = 0d;
-            if (lowerProbability > 0d)
-            {
-                lowerValue = FailureProbability(lowerProbability);
-                lowerEvaluated = true;
-                result += lowerProbability * lowerValue;
-            }
-            double upperMass = Tools.Clamp(1d - upperProbability, 0d, 1d);
-            if (upperMass > 0d)
-            {
-                double upperValue = lowerEvaluated && upperProbability == lowerProbability
-                    ? lowerValue
-                    : FailureProbability(upperProbability);
-                result += upperMass * upperValue;
-            }
+            support.CompleteExhaustive(support.InteriorMass, FailureProbability,
+                (_, mass, value) => result += mass * value,
+                $"system component '{sampled.Name}' failure-probability probe");
             if (!double.IsFinite(result) || result < -1e-12 || result > 1d + 1e-12)
             {
                 throw new InvalidOperationException($"The failure-probability probe produced the invalid exhaustive result {result:R} for system component '{sampled.Name}'.");
@@ -3095,6 +2989,7 @@ namespace RMC.TotalRisk.Analyses
                 var enumeration = Probability.IndependentExclusiveLazy(failureProbabilities,
                     exclusiveProbabilities, exclusiveIndicators, includeNoEventRow: true,
                     maxEmittedCombinations: _options.MaxSystemCombinations);
+                ProbabilityPartitionBoundary.ClipInPlace(exclusiveProbabilities);
                 if (enumeration == Probability.ExclusiveEnumerationStatus.Capped)
                 {
                     double emitted = 0d;

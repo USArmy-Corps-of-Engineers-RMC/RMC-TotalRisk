@@ -19,7 +19,7 @@ namespace RMC.TotalRisk.Verification.Analyses;
 
 /// <summary>
 /// NFIP assurance — the Phase 6 conversion of the legacy
-/// <c>Test_NFIP_Assurance_TOL_50/55/70</c> annual-probability-of-inundation oracles (LP3 flow
+/// <c>Test_NFIP_Assurance_TOL_50/55/60/65/70</c> annual-probability-of-inundation oracles (LP3 flow
 /// frequency → log-interpolated rating transform → prior-to-overtopping fragility → API), the
 /// 2024 verification report's Table 104 pins, and the full-uncertainty assurance computation
 /// the technical report's NFIP appendix specifies (the probability that the target annual
@@ -130,6 +130,15 @@ public class NfipAssuranceVerification
     /// <summary>The assurance-ensemble realization count (the injected posterior size).</summary>
     private const int AssuranceRealizations = 300;
 
+    /// <summary>
+    /// The number of source-ordered bootstrap distributions used by each active legacy
+    /// TOL-60/TOL-65 configuration. The original workbench used one million single-event
+    /// draws; this verification instead checks every retained bootstrap distribution against
+    /// deterministic conditional quadrature, so 128 distributions exercise the configuration
+    /// without substituting Monte Carlo noise for an oracle.
+    /// </summary>
+    private const int BootstrapRealizations = 128;
+
     /// <summary>The LP3 mean of log10 flow.</summary>
     private const double Lp3Mean = 4.232d;
 
@@ -234,6 +243,40 @@ public class NfipAssuranceVerification
         0.350092095d, 0.434587794d, 0.530596772d, 0.638129875d, 0.756663572d, 0.88468745d, 1d, 1d,
     };
 
+    /// <summary>
+    /// The active legacy TOL-60 rating table. Its first 61 knots and last 40 knots are exact
+    /// slices of the verbatim scenario tables above; the legacy source contains the same values.
+    /// </summary>
+    private static double[] RatingFlows60 => RatingFlows70.Take(61).Concat(RatingFlows55.Skip(61)).ToArray();
+
+    /// <summary>The active legacy TOL-60 two-knot workbench fragility.</summary>
+    private static readonly double[] FragilityStages60 = { 40d, 60d };
+
+    /// <summary>The active legacy TOL-60 two-knot workbench fragility probabilities.</summary>
+    private static readonly double[] FragilityProbabilities60 = { 0d, 0.5d };
+
+    /// <summary>
+    /// The active legacy TOL-65 rating table. Its first 66 knots and last 35 knots are exact
+    /// slices of the verbatim scenario tables above; the legacy source contains the same values.
+    /// </summary>
+    private static double[] RatingFlows65 => RatingFlows70.Take(66).Concat(RatingFlows55.Skip(66)).ToArray();
+
+    /// <summary>The active legacy TOL-65 fragility stages.</summary>
+    private static readonly double[] FragilityStages65 =
+    {
+        40d, 41.35d, 42.7d, 44.05d, 45.4d, 46.75d, 48.1d, 49.45d, 50.8d, 52.15d, 53.5d,
+        54.85d, 56.2d, 57.55d, 58.9d, 60.25d, 61.6d, 62.95d, 64.3d, 65.65d, 67d,
+    };
+
+    /// <summary>The active legacy TOL-65 fragility probabilities.</summary>
+    private static readonly double[] FragilityProbabilities65 =
+    {
+        0d, 0.000147735d, 0.001180906d, 0.00398186d, 0.009428646d, 0.018393757d, 0.03174254d,
+        0.050331131d, 0.075003715d, 0.106588811d, 0.145894109d, 0.193699105d, 0.250744254d,
+        0.317714469d, 0.395212932d, 0.483717513d, 0.583503724d, 0.694497905d, 0.815968191d,
+        0.945777748d, 1d,
+    };
+
     /// <summary>The TOL-70 rating flows (cfs), one per stage 0–100 (legacy table, verbatim).</summary>
     private static readonly double[] RatingFlows70 =
     {
@@ -327,6 +370,24 @@ public class NfipAssuranceVerification
         ReportEngine = 0.018807d,
     };
 
+
+    /// <summary>The active legacy TOL-60 bootstrap-hazard scenario.</summary>
+    private static Scenario Tol60() => new()
+    {
+        Tol = 60d,
+        RatingFlows = RatingFlows60,
+        FragilityStages = FragilityStages60,
+        FragilityProbabilities = FragilityProbabilities60,
+    };
+
+    /// <summary>The active legacy TOL-65 bootstrap-hazard scenario.</summary>
+    private static Scenario Tol65() => new()
+    {
+        Tol = 65d,
+        RatingFlows = RatingFlows65,
+        FragilityStages = FragilityStages65,
+        FragilityProbabilities = FragilityProbabilities65,
+    };
     /// <summary>The TOL-70 scenario.</summary>
     private static Scenario Tol70() => new()
     {
@@ -413,7 +474,8 @@ public class NfipAssuranceVerification
     /// <returns>The strictly increasing knot set ending at the first 1.0 ordinate.</returns>
     private static (double[] Stages, double[] Probabilities) TrimFragility(double[] stages, double[] probabilities)
     {
-        int keep = Array.IndexOf(probabilities, 1d) + 1;
+        int firstCertain = Array.IndexOf(probabilities, 1d);
+        int keep = firstCertain >= 0 ? firstCertain + 1 : probabilities.Length;
         return (stages.Take(keep).ToArray(), probabilities.Take(keep).ToArray());
     }
 
@@ -586,6 +648,86 @@ public class NfipAssuranceVerification
             $"(Δexact {parametricApi - exactApi:G3}), tabular engine {tabularApi:G8} (Δexact {tabularApi - exactApi:G3}), " +
             $"report MC {scenario.ReportMonteCarlo:G6} / engine {scenario.ReportEngine:G6}");
     }
+    /// <summary>
+    /// Verifies one active legacy bootstrap-hazard configuration. Bootstrap seeds and
+    /// short-circuit event draws follow the source order. The engine receives the resulting
+    /// parameter sets and every realization is checked against independent conditional
+    /// quadrature; the source-style single-event estimate is retained as a corroborating
+    /// Monte Carlo check.
+    /// </summary>
+    /// <param name="scenario">The active TOL-60 or TOL-65 scenario.</param>
+    private static void RunBootstrapScenario(Scenario scenario)
+    {
+        var parent = new LogPearsonTypeIII(Lp3Mean, Lp3Sd, Lp3Skew);
+        var generator = new MersenneTwister(OracleSeed);
+        var rating = new Linear(scenario.RatingFlows, RatingStages) { XTransform = Transform.Logarithmic };
+        var fragility = new Linear(scenario.FragilityStages, scenario.FragilityProbabilities);
+        var sets = new List<ParameterSet>(BootstrapRealizations);
+        var exactApis = new double[BootstrapRealizations];
+        int flooded = 0;
+
+        for (int k = 0; k < BootstrapRealizations; k++)
+        {
+            var bootstrap = (LogPearsonTypeIII)parent.Bootstrap(
+                ParameterEstimationMethod.MethodOfMoments, 114, generator.Next());
+            sets.Add(new ParameterSet(bootstrap.GetParameters, 0d));
+            exactApis[k] = ExactApi(scenario, bootstrap, 1 << 13);
+
+            double flow = bootstrap.InverseCDF(generator.NextDouble());
+            double stage = rating.Interpolate(flow);
+            if (stage > scenario.Tol || generator.NextDouble() <= fragility.Interpolate(stage))
+            {
+                flooded++;
+            }
+        }
+
+        var hazard = new ParametricUnivariateHazard
+        {
+            Name = $"TOL {scenario.Tol} bootstrap LP3",
+            SpecifiedHazard = "Flow",
+            HazardUnit = "cfs",
+            ParentDistribution = (UnivariateDistributionBase)parent.Clone(),
+        };
+        hazard.Estimate(sets);
+
+        var analysis = new RiskAnalysis(new[] { BuildComponent(scenario, hazard) })
+        {
+            Name = $"TOL {scenario.Tol} bootstrap-hazard verification",
+        };
+        analysis.Options.Mode = RiskAnalysisMode.Reliability;
+        analysis.Options.EstimateMeanRiskOnly = false;
+        analysis.Options.Realizations = BootstrapRealizations;
+        analysis.Options.UseDefaults = false;
+        analysis.Options.EnsembleTolerance = 1e-8;
+        analysis.Options.EnsembleMinDepth = 2;
+        Run(analysis, analysis.Name);
+
+        Assert.AreEqual(BootstrapRealizations, analysis.RiskResults!.Count);
+        var engineApis = new double[BootstrapRealizations];
+        double maxDeviation = 0d;
+        for (int k = 0; k < BootstrapRealizations; k++)
+        {
+            var componentResults = analysis.RiskResults[k]!.ComponentResults[0];
+            engineApis[k] = componentResults.Fail.TotalProbability +
+                componentResults.NonFail.HazardThresholdProbability;
+            maxDeviation = Math.Max(maxDeviation, Math.Abs(exactApis[k] - engineApis[k]));
+        }
+
+        double exactMean = exactApis.Average();
+        double engineMean = engineApis.Average();
+        Assert.AreEqual(exactMean, engineMean,
+            EnsembleExactRelative * exactMean + EnsembleExactAbsolute,
+            $"TOL {scenario.Tol}: the bootstrap-hazard ensemble mean must match conditional quadrature.");
+
+        double sourceStyleApi = flooded / (double)BootstrapRealizations;
+        double sourceStyleSe = Math.Sqrt(sourceStyleApi * (1d - sourceStyleApi) / BootstrapRealizations);
+        Assert.AreEqual(exactMean, sourceStyleApi, K * sourceStyleSe + 1d / BootstrapRealizations,
+            $"TOL {scenario.Tol}: the source-ordered single-event oracle must corroborate the conditional mean.");
+
+        Console.WriteLine(
+            $"TOL {scenario.Tol} bootstrap: exact mean {exactMean:G6}, engine {engineMean:G6}, " +
+            $"source-order MC {sourceStyleApi:G6} (?{sourceStyleSe:G3}), max realization delta {maxDeviation:G3}.");
+    }
 
     /// <summary>TOL 50: the legacy oracle, exact reference, both engine hazard variants, and the Table 104 pins.</summary>
     [TestMethod]
@@ -606,6 +748,23 @@ public class NfipAssuranceVerification
     public void Test_Tol70_Api_VsOracleExactAndReport()
     {
         RunScenario(Tol70());
+    }
+    /// <summary>
+    /// TOL 60: the active legacy two-knot workbench fragility with per-realization LP3 bootstrap.
+    /// </summary>
+    [TestMethod]
+    public void Test_Tol60_BootstrapHazard_VsConditionalQuadrature()
+    {
+        RunBootstrapScenario(Tol60());
+    }
+
+    /// <summary>
+    /// TOL 65: the active legacy 21-knot fragility with per-realization LP3 bootstrap.
+    /// </summary>
+    [TestMethod]
+    public void Test_Tol65_BootstrapHazard_VsConditionalQuadrature()
+    {
+        RunBootstrapScenario(Tol65());
     }
 
     /// <summary>

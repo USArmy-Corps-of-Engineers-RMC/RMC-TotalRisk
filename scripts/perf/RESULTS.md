@@ -363,3 +363,26 @@ The general multi-entry path and every numerical reduction retain their existing
 below its pre-ledger allocation and its 5.669 s median is within 5% of the recorded 5.4 s reference;
 wall-clock variation on this workstation remains materially noisier than the deterministic allocation
 and hash signals.
+
+### Forensic closure paired rerun (2026-07-27)
+
+The lifecycle and verification closure was timed against safety-gate commit `3a03371` from a
+temporary archive, alternating current and baseline invocations on the same machine. This controls
+for the workstation's observed wall-clock drift more honestly than comparing with a morning run.
+Each reported value is a three-repetition Release median, with one fixture per invocation:
+
+| Fixture | `3a03371` full (s) | Current full (s) | Current allocation (GB) | Current SHA-256 |
+|---|---:|---:|---:|---|
+| F1 | 8.145 | **7.763** | 3.10 | `4c1472d2a3c1c1abdb5b01f05db91bba00b5867b23776fee170ac8372d100d00` |
+| F2 | 29.173 | **26.839** | 12.23 | `876ce063bc6777d54154728e747d279058611e1a1521e3f0d2cd4b6aa6155c73` |
+| F3 | 10.554 | **10.503** | 6.03 | `6469666ef207b436263434e793dc5bd8ec2990e2b26f9cf822de961019206281` |
+
+F1 and F3 retain the `3a03371` hashes exactly. F2 intentionally moves because the deterministic
+failure-probability probe now shares production integration's endpoint-rectangle support service;
+that changes the automatic VEGAS focus and therefore redistributes samples, while definition
+hashes and seeds remain unchanged. The allocation signals remain below the pre-ledger baselines.
+
+During the alternating round, current-code wall medians also ranged to 30.843 s for F2 and
+13.387 s for F3 before immediate repeats returned 26.839 s and 10.503 s; hashes and allocations
+were stable. The paired results are retained so future gates can distinguish deterministic
+regression signals from this workstation's timing noise.

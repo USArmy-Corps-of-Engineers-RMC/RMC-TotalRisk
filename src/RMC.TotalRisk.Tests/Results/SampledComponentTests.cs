@@ -341,13 +341,37 @@ public class SampledComponentTests
             component.AddFailureMode(new FailureMode(null, null, response, Consequence($"Loss {i}", 100d)));
         }
         component.FailureModeMethod = FailureModeMethod.JointFailures;
-        component.FailureModeDependency = DependencyType.Independent;
+        component.FailureModeDependency = DependencyType.CorrelationMatrix;
+        var correlation = new double[modeCount, modeCount];
+        for (int i = 0; i < modeCount; i++) correlation[i, i] = 1d;
+        for (int i = 0; i < 3; i++)
+        {
+            for (int j = 0; j < 3; j++)
+            {
+                if (i != j) correlation[i, j] = 0.2d;
+            }
+        }
+        component.CorrelationMatrix = correlation;
 
         var sampled = MeanSample(component);
         var realization = new ComponentRealization(sampled.FailureModeCount);
         var output = sampled.ComputeRisk(0.5d, 15d, new RiskComputeFlags(), realization, recordOutput: true);
 
+        var reducedProbabilities = new[] { 0.5d, 0.25d, 1d / 6d };
+        var reducedCorrelation = new[,]
+        {
+            { 1d, 0.2d, 0.2d },
+            { 0.2d, 1d, 0.2d },
+            { 0.2d, 0.2d, 1d },
+        };
+        var denseExpected = Probability.ExclusivePCM(reducedProbabilities, reducedCorrelation);
+        double expectedUnion = denseExpected.Sum();
+
         Assert.AreEqual(modeCount, sampled.FailureModeCount);
+        Assert.AreEqual(expectedUnion, output.ProbabilityOfFailure, 1e-4);
+        Assert.IsTrue(output.ResponseProbabilities.Count < 1_000_000,
+            "Lazy PCM must converge without materializing all 16,777,215 nonempty subsets.");
+        Assert.AreEqual(output.ProbabilityOfFailure, output.ResponseProbabilities.Sum(), 1e-12);
         Assert.IsTrue(output.ProbabilityOfFailure > 0d && output.ProbabilityOfFailure <= 1d);
         Assert.AreEqual(1d, output.ProbabilityOfFailure + output.ProbabilityOfNonFailure, 0d);
         Assert.AreEqual(1d, realization.Curves.Total.RiskPoints[0].ResponseProbabilities.Sum(), 1e-12);

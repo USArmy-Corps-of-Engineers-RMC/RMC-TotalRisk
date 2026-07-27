@@ -1262,28 +1262,9 @@ namespace RMC.TotalRisk.Results
                     break;
             }
 
-            ClipProbabilityPartition(probabilities);
+            ProbabilityPartitionBoundary.ClipInPlace(probabilities);
             pathwayProbabilities = probabilities;
             pathwayIndicators = indicators;
-        }
-
-        /// <summary>
-        /// Clips an exclusive partition sequentially against its remaining unit probability budget.
-        /// </summary>
-        /// <param name="probabilities">The exclusive cells in deterministic enumeration order.</param>
-        /// <remarks>
-        /// This is not normalization: a cell can only lose trailing overshoot, and no earlier cell
-        /// is changed in response to a later one.
-        /// </remarks>
-        private static void ClipProbabilityPartition(List<double> probabilities)
-        {
-            double remaining = 1d;
-            for (int i = 0; i < probabilities.Count; i++)
-            {
-                double accepted = Tools.Clamp(probabilities[i], 0d, remaining);
-                probabilities[i] = accepted;
-                remaining = Tools.Clamp(remaining - accepted, 0d, 1d);
-            }
         }
         /// <summary>
         /// The joint-failures consequence kernel for one consequence type: per pathway, the

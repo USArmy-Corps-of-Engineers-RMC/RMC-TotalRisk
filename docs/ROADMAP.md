@@ -512,11 +512,14 @@ upper residual makes the exhaustive ledger sum exactly one. `Curve` publishes th
 compensated mass and faults invalid exhaustive or defective streams instead of masking them.
 
 **Exit criteria:** met — Numerics 1,993/1,993 on all four target frameworks; TotalRisk Release build
-zero warnings and fast suite 684/684 in 13.9 s; documentation validator green; unit-only coverage
-91.15%; `JointFailuresVerification` 9/9 with no tolerance widening and all four companion families
-green one at a time; no TotalRisk execution path calls `Factorial.AllCombinations`; three-repetition
-F1/F2/F3 allocations 3.09/12.22/6.03 GB, all below their pre-ledger baselines; final diff audit found
-no unapproved tolerance, correlation, normalization, seed, or probability-formula change.
+zero warnings and fast suite 698/698 in 11.5 s; documentation, dependency, and legacy-traceability
+validators green; unit-only coverage 91.25%; all 28 verification families / 159 tests green one at a
+time, including `JointFailuresVerification` 9/9 and `RiskAnalysisCombosVerification` 5/5 with no
+tolerance widening. The traceability matrix accounts for all 141 legacy methods (112 applicable)
+and report scenarios 1–49; the FDA/NFIP variant is locked obsolete. No TotalRisk execution path calls
+`Factorial.AllCombinations`; F1/F2/F3 allocations 3.10/12.23/6.03 GB remain below their pre-ledger
+baselines, and paired same-session runtime comparisons show no regression. Final diff audit found no
+unapproved tolerance, correlation, normalization, seed, or probability-formula change.
 
 ## Phase 9 — Composites + RFA hazard + weighted wrappers
 
@@ -524,13 +527,13 @@ no unapproved tolerance, correlation, normalization, seed, or probability-formul
 
 **Scope:** `RFAHazard`, `CompositeHazard` + `WeightedHazardFunction`; `CompositeTransform` + `WeightedTransformFunction`; `CompositeResponse` + `WeightedResponseFunction` — composite math on Numerics `CompositeFunction`/`Mixture`/`CompetingRisks` (migrate `CompositeConsequence`'s in-library combine onto `CompositeFunction` at the same time). **`CompositeHazard` gains the parameter-set import option** (mirroring the Phase 2 parametric injection) so BestFit competing-risks/mixture/composite results import via the UI layer as Numerics artifacts. Resolve whether the injection path supersedes the planned `BestFitUnivariateHazard` type.
 
-**Verification:** `Test_Composite` (incl. its built-in mixture consistency cross-check), `Test_Composite_Uncertainty`, `Test_Composite_Consequence_Mixture` (the engine-level day/night oracles), NFIP TOL 60/65 (hazard bootstrap variants).
+**Verification:** engine-level composite consequence, uncertainty, hazard, response, and mixture-identity oracles are covered by `CompositeEngineVerification`; active NFIP TOL 60/65 hazard-bootstrap variants are covered by `NfipAssuranceVerification`. The FDA/NFIP variant is obsolete by technical-authority direction and is not a release gate.
 
 > **Partially landed (2026-07-25):** **`CompositeHazard` + `WeightedHazardFunction`, `CompositeResponse` + `WeightedResponseFunction`, and `CompositeTransform` + `WeightedTransformFunction`** are P/T/V, with function-level verification families against report Tables 44–46 and closed-form probability identities ([composite-hazard](verification/composite-hazard.md), [composite-response](verification/composite-response.md), [composite-transform](verification/composite-transform.md)) and the doctrine page [technical-reference/composite-functions.md](technical-reference/composite-functions.md). Ratified this session: hazard/response mixtures are **aleatory only** (a real `Mixture` distribution, D = 0, no branch selector — the Q-V defect does not arise because a realization is already a distribution); `CompositeTransform` is **Average only** (Mixture needs engine support for enumerating transform branches); hazard/response carry the new `CompositeCombinationType` rather than overloading `CompositeFunctionType`; and `CompositeConsequence` was left untouched.
 
-**Still open in this phase:** `RFAHazard`; the `CompositeHazard` parameter-set import option (and the `BestFitUnivariateHazard` question); migrating `CompositeConsequence`'s in-library combine onto Numerics `CompositeFunction`; an explicit epistemic mixture mode; and the engine-level oracles — `Test_Composite_Hazard`, `Test_Composite_Response`, the `Test_Composite` mixture-consistency identity, and NFIP TOL 60/65.
+**Still open in this phase:** `RFAHazard`; the `CompositeHazard` parameter-set import option (and the `BestFitUnivariateHazard` question); migrating `CompositeConsequence`'s in-library combine onto Numerics `CompositeFunction`; and an explicit epistemic mixture mode. The engine-level composite and active NFIP TOL 60/65 verification gaps are closed.
 
-**Exit criteria:** composite family P/T/V — met for hazard/transform/response; RFA hazard and the engine-level oracles remain.
+**Exit criteria:** composite family P/T/V and engine-level verification are met; RFA hazard and the listed production features remain.
 
 ## Phase 10 — Event trees (reshaped 2026-07-23)
 

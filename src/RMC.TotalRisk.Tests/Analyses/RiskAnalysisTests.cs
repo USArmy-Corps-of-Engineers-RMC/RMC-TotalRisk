@@ -695,6 +695,68 @@ public class RiskAnalysisTests
         Assert.IsFalse(canceled.IsRunning);
         Assert.IsFalse(vetoed.IsRunning);
     }
+    /// <summary>
+    /// Verifies an exception raised by the evaluation path propagates through the returned task,
+    /// is reported by completion before that task ends, and leaves no partial publication.
+    /// </summary>
+    [TestMethod]
+    public async Task Test_RunAsync_ThrownEvaluationPropagatesAtomically()
+    {
+        var analysis = new RiskAnalysis(new[] { Component(Consequence("A", 300d)) });
+        analysis.Options.RiskIntegrand = RiskIntegrand.Balanced;
+        var fault = new ApplicationException("Injected evaluation fault.");
+        analysis.RunWorkerObserver = () => throw fault;
+        AnalysisRunCompletedEventArgs? completion = null;
+        analysis.AnalysisCompleted += (_, e) => completion = e;
+
+        var propagated = await Assert.ThrowsExceptionAsync<ApplicationException>(() => analysis.RunAsync());
+
+        Assert.AreSame(fault, propagated);
+        Assert.IsNotNull(completion);
+        Assert.AreSame(fault, completion!.Error);
+        Assert.IsFalse(completion.Succeeded);
+        Assert.IsFalse(completion.Cancelled);
+        Assert.IsNull(analysis.RiskResults);
+        Assert.IsNull(analysis.MeanRiskResults);
+        Assert.IsFalse(analysis.IsEstimated);
+        Assert.IsFalse(analysis.IsRunning);
+    }
+
+    /// <summary>
+    /// Verifies cancellation requested after integration has started propagates as cancellation,
+    /// completes notification before the task ends, and publishes no partial result.
+    /// </summary>
+    [TestMethod]
+    [Timeout(60_000)]
+    public async Task Test_RunAsync_ActiveExternalCancellationPropagatesAtomically()
+    {
+        var analysis = new RiskAnalysis(new[] { Component(Consequence("A", 300d)) });
+        analysis.Options.RiskIntegrand = RiskIntegrand.MeanTotalRisk;
+        using var source = new CancellationTokenSource();
+        var entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        analysis.RunWorkerObserver = () =>
+        {
+            entered.TrySetResult(true);
+            while (!source.IsCancellationRequested) Thread.Yield();
+        };
+        AnalysisRunCompletedEventArgs? completion = null;
+        analysis.AnalysisCompleted += (_, e) => completion = e;
+
+        Task run = analysis.RunAsync(cancellationToken: source.Token);
+        Task first = await Task.WhenAny(entered.Task, run);
+        Assert.AreSame(entered.Task, first, "The run ended before the computation worker started.");
+        source.Cancel();
+        await Assert.ThrowsExceptionAsync<OperationCanceledException>(() => run);
+
+        Assert.IsNotNull(completion);
+        Assert.IsTrue(completion!.Cancelled);
+        Assert.IsFalse(completion.Succeeded);
+        Assert.IsNull(completion.Error);
+        Assert.IsNull(analysis.RiskResults);
+        Assert.IsNull(analysis.MeanRiskResults);
+        Assert.IsFalse(analysis.IsEstimated);
+        Assert.IsFalse(analysis.IsRunning);
+    }
 
     /// <summary>Verifies computation warning strings are exact adapters over structured diagnostics.</summary>
     [TestMethod]

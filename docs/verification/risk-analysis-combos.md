@@ -46,10 +46,11 @@ assert tolerances).
 | `Test_2Element_2PFM` | Byte-for-byte the `Test_MC_SystemRisk` 2-comp/2-PFM independent additive body (seeds 78910/12345/45678) — covered by `SystemRiskMatrixVerification` |
 | `Test_2Element_1PFM`, `Test_2Element_1PFM_New`, `Test_5Element_1PFM` | The same scenarios as the system matrix's 2-comp independent additive / independent minimum / 5-comp negative additive groups (the last at identical seeds; the first two at alternate seed layouts of the same model) — covered by `SystemRiskMatrixVerification` |
 | `Test_1Element_2PFM_Adaptive`, `Test_5Element_1PFM_Adaptive`, the `TotalRisk_*_Sum` functions | Inert integration workbenches (mostly commented out, debugger-print only, some referencing the legacy engine's own types) — not oracles; the exact conditional-mean integrand they exercised is pinned by the Phase 4/5 mean-parity and consistency families |
-| `Test_Composite`, `Test_Composite_Uncertainty`, `Test_Composite_Consequence_Mixture` | Engine-level composite oracles — Phase 9 |
+| `Test_Composite`, `Test_Composite_Uncertainty`, `Test_Composite_Consequence_Mixture` | Covered by `CompositeEngineVerification`, `CompositeHazardVerification`, and `CompositeConsequenceVerification` |
 | `Test_EAD` | Converted in Phase 5 (`EadVerification`) |
 | `Test_NFIP_Assurance_TOL_50/55/70` | Converted in `NfipAssuranceVerification` |
-| `Test_NFIP_Assurance_TOL_60/65/65_FDA` | Phase 9 scope (TOL 60's 21-knot fragility is commented out in the legacy source in favor of a workbench ramp; TOL 65 is the per-realization bootstrap-hazard variant; the FDA variant needs committed datasets) |
+| `Test_NFIP_Assurance_TOL_60/65` | Covered in `NfipAssuranceVerification` using the active workbench ramp/21-knot fragility, source-ordered bootstrap seeds, and independent conditional quadrature |
+| `Test_NFIP_Assurance_TOL_65_FDA` | Obsolete by technical-authority decision; intentionally not ported |
 
 ## Results
 

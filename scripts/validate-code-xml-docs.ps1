@@ -167,6 +167,14 @@ foreach ($file in $documentedMemberFiles) {
     }
 }
 
+$traceabilityValidator = Join-Path $PSScriptRoot "validate-verification-traceability.ps1"
+try {
+    & $traceabilityValidator
+}
+catch {
+    Add-Failure "Verification traceability validation failed:$([Environment]::NewLine)$($_.Exception.Message)"
+}
+
 if (-not $SkipBuild) {
     $projects = @(
         "src/RMC.TotalRisk/RMC.TotalRisk.csproj",

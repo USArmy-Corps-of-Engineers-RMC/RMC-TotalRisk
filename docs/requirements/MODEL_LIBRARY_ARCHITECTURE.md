@@ -1302,57 +1302,59 @@ The future `RMC.TotalRisk.UI` (Phase 3) references `DAGControls` (which referenc
 ```csharp
 public override async Task RunAsync(SafeProgressReporter? progress = null, CancellationToken ct = default)
 {
-    var startEv = new CancelEventArgs();
-    OnAnalysisStarting(startEv);
-    if (startEv.Cancel) return;
+    if (!TryBeginRun())
+        throw NotifyConcurrentRunFailure();
 
-    var (isValid, messages) = Validate();
-    if (!isValid)
-        throw new InvalidOperationException(string.Join("\n", messages));
-
-    var token = ResetCancellationToken();    // fresh CTS, joined with caller's ct
-
-    // Content-based per-component seeds with occurrence-index for within-analysis independence.
-    // See §5.5.4.
-    AssignOccurrenceIndices(Components);
-    foreach (var component in Components)
+    AnalysisRunCompletedEventArgs? completion = null;
+    try
     {
-        int componentSeed = SeedHelpers.HashCombine(
-            Options.PRNGSeed, component.CanonicalHash(), component.OccurrenceIndex);
+        var startEv = new CancelEventArgs();
+        OnAnalysisStarting(startEv);
+        if (startEv.Cancel)
+            throw new OperationCanceledException("Canceled by AnalysisStarting.");
 
-        // Walk the component's function tree and pre-allocate per-function LHS matrices.
-        // Each function gets a unique seed derived from the component seed + structural ordinal
-        // + function canonical hash. See §5.8.
-        component.SetupSamplers(Options.Realizations, componentSeed, Options.SamplingScheme);
-    }
+        ClearPublishedState();
+        EnsureValid();
 
-    if (Options.EstimateMeanRiskOnly)
-    {
-        var single = Compute(prngSeed: -1, index: -1, progress);
-        // wrap in EnsembleResults with a single SystemRiskResults
-    }
-    else
-    {
-        var random = new Random(Options.PRNGSeed);
-        int[] randomSeeds = random.NextIntegers(Options.Realizations);
+        // One deep, declaration-order-preserving snapshot for the whole run. Later edits to
+        // authoring options, graphs, functions, declarations, or pinned seeds cannot enter it.
+        var context = RiskAnalysisRunContext.Capture(/* authoring state */);
+        var token = ResetCancellationToken(ct);
 
-        var realizations = new SystemRealization[Options.Realizations];
-        var perRealizationResults = new SystemRiskResults[Options.Realizations];
-
-        Parallel.For(0, Options.Realizations, new ParallelOptions { CancellationToken = token }, idx =>
+        AnalysisRunPublication publication = await Task.Run(() =>
         {
-            var computed = Compute(randomSeeds[idx], idx, progress);
-            realizations[idx] = computed;
-            perRealizationResults[idx] = new SystemRiskResults(computed);
-            // update ensemble min/max via Interlocked
-        });
+            AssignOccurrenceIndices(context.Components);
+            SetupContentDerivedSamplers(context);
 
-        // PostProcessUncertainty across the ensemble
-        RiskResults = new EnsembleResults(perRealizationResults, realizations);
+            // Component hashes are sorted only for system seed folding and additive-convolution
+            // association; component-local sampler walks retain their declared semantic order.
+            PrepareCanonicalSystemOrderAndSeed(context);
+            return context.Options.EstimateMeanRiskOnly
+                ? RunMeanOnly(progress, token)
+                : RunFullUncertainty(progress, token);
+        }, token);
+
+        Publish(publication); // one atomic publication after every invariant succeeds
+        completion = Success();
     }
-
-    IsEstimated = true;
-    OnAnalysisCompleted(new AnalysisRunCompletedEventArgs(/* ... */));
+    catch (OperationCanceledException)
+    {
+        ClearPublishedState();
+        completion = Canceled();
+        throw;
+    }
+    catch (Exception error)
+    {
+        ClearPublishedState();
+        completion = Failed(error);
+        throw;
+    }
+    finally
+    {
+        RestoreAuthoringState();
+        EndRun();
+        OnAnalysisCompleted(completion ?? MissingCompletionFailure());
+    }
 }
 ```
 

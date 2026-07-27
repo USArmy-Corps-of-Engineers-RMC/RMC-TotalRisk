@@ -1,8 +1,8 @@
 # NFIP Assurance
 
-**Test class:** `NfipAssuranceVerification` · **Status:** ✅ Verified (2026-07-23, Phase 6)
+**Test class:** `NfipAssuranceVerification` · **Status:** ✅ Verified (2026-07-27)
 
-The Phase 6 conversion of the legacy `Test_NFIP_Assurance_TOL_50/55/70` oracles — the annual
+The conversion of the active legacy `Test_NFIP_Assurance_TOL_50/55/60/65/70` oracles — the annual
 probability of inundation (API) for the hypothetical NFIP levee (LP3 flow frequency →
 log-interpolated rating transform → prior-to-overtopping fragility) — plus the
 full-uncertainty **assurance** computation the technical report's NFIP appendix requires.
@@ -25,21 +25,24 @@ chains the rating transform (logarithmic flow interpolation) into the fragility 
 response-free non-failure mode supplies the NonFail stream, and
 `SystemComponent.HazardThreshold` carries the top-of-levee threshold **in flow units** — the
 rating's stage ordinates are the integers 0–100, so each TOL stage maps to an exact rating
-knot (stage 50 ↔ 37,719.40 cfs; 55 ↔ 45,744.67; 70 ↔ 69,820.48) and the flow-space threshold
-is algebraically identical to the stage-space one for the strictly increasing rating (the
-profile-axis remap remains open question Q-T).
+knot (stage 50 ↔ 37,719.40 cfs; 55 ↔ 45,744.67; 60 ↔ 53,769.94; 65 ↔ 61,795.21;
+70 ↔ 69,820.48) and the flow-space threshold is algebraically identical to the stage-space
+one for the strictly increasing rating.
 
 ## Scenarios and oracle
 
-Three levee heights (TOL 50 / 55 / 70 ft), each with its own legacy 101-point rating and
-21-knot fragility, ported verbatim. Oracle (per the legacy bodies at `MersenneTwister(45678)`,
-N = 10⁶ — legacy 10M ÷ 10 per policy): q = LP3⁻¹(u); h = rating(q); flood when h > TOL **or**
-a second uniform falls below the fragility — the legacy short-circuit draw order preserved (an
-overtopping draw consumes no failure uniform). An exact composite-Simpson quadrature of the
-same integrand (2¹⁸ intervals, the overtopping crossing split out, the same Numerics `Linear`
-interpolators) anchors both oracle and engine to roundoff-level truth. The engine fragility
-drops the legacy tables' redundant trailing 1.0 knots (flat extrapolation reproduces them
-exactly).
+Five active levee heights are covered. TOL 50 / 55 / 70 use deterministic LP3 hazards,
+legacy 101-point ratings, and 21-knot fragilities. Their oracle runs at
+`MersenneTwister(45678)`, N = 10⁶: q = LP3⁻¹(u); h = rating(q); flood when h > TOL **or** a
+second uniform falls below the fragility, preserving the legacy short-circuit draw order. Exact
+composite-Simpson quadrature anchors oracle and engine.
+
+TOL 60 preserves the active two-knot workbench ramp in the source body; TOL 65 preserves its
+active 21-knot fragility. Both generate an LP3 method-of-moments bootstrap with sample size 114
+for each retained realization. The verification preserves the source seed/event-draw order,
+injects the resulting parameter sets into the engine, and compares the aggregate engine API to
+the mean of independent per-distribution conditional quadratures. The source-style one-event
+Monte Carlo estimate is retained as a corroborating 4·SE check.
 
 ## Results
 
@@ -55,6 +58,14 @@ the widest (TOL 50, inside its tabulation allowance). Report Table 104 pins hold
 the oracle against the 10M Monte Carlo column at the combined 1M/10M binomial error, and the
 engine against the v1.0 RMC-TotalRisk column within 0.1% at every height (the 0.5% parity band
 documented; the report's own engine-versus-MC differences reach 0.3%).
+
+## Bootstrap-hazard results
+
+The isolated family passes 7/7, including both active bootstrap cases. For TOL 60 and TOL 65,
+the engine ensemble mean matches the independent conditional-quadrature mean at the existing
+ensemble allowance; the source-ordered single-event estimate also lies within its binomial
+4·SE interval. Individual threshold-profile deltas are reported diagnostically, while the
+asserted quantity remains the aggregate API computed by the legacy bodies.
 
 ## Assurance under knowledge uncertainty
 
@@ -91,9 +102,8 @@ borderline margin — the engine and exact assurance counts agree exactly.
 
 ## Notes
 
-- The legacy TOL 60 body's 21-knot fragility is commented out in the legacy source (replaced
-  by a workbench ramp), and TOL 65 draws a bootstrap hazard per realization — both remain
-  Phase 9 scope with the composite families, alongside the FDA variant (committed datasets).
+- The FDA/NFIP variant is obsolete by technical-authority decision and is intentionally not
+  ported. The active non-FDA TOL 60/65 bodies are covered above.
 - The tabular-hazard variant (641-knot ±8 z-grid at step 0.025, normal-z probability
   interpolation, logarithmic flow interpolation) verifies `TabularHazard` on the same oracle
   family with a documented 5e-4 relative tabulation allowance.

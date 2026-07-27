@@ -84,10 +84,13 @@ the test executable with a TRX report:
 | [Composite hazard](composite-hazard.md) | `CompositeHazardVerification` | NEW Phase 9 family: 2024 report Tables 44–46 (R `mistr` mixture curve and bootstrap bands) + an exact index-parity oracle rebuilt from Numerics `BootstrapAnalysis`/`Mixture` at the legacy seeds + competing-risks maximum-rule closed forms. Records two findings: v1.1 is ~6× closer to the analytic mixture than two published mid-distribution rows, and the upstream bootstrap summary reduction is order-nondeterministic | ✅ Verified (2026-07-25) |
 | [Composite response](composite-response.md) | `CompositeResponseVerification` | NEW Phase 9 family: the shared Table 44 scenario read on the fragility (probability) axis + exact weakest-link probability identities (union under independence, maximum under comonotonic) + a hazard-grid index-parity band oracle | ✅ Verified (2026-07-25) |
 | [Composite transform](composite-transform.md) | `CompositeTransformVerification` | NEW Phase 9 greenfield family (no legacy implementation, no report table): exact linear-combination algebra forward and inverse, exact Normal theory for the ω²-additive ensemble variance (the check that discriminates independent from co-monotonic child seeding), and a realization-for-realization identity against the independently reproduced child-seed recipe | ✅ Verified (2026-07-25) |
+| [Composite engine scenarios](composite-engine.md) | `CompositeEngineVerification` | All four executable `Test_Composite.vb` configurations and the risk-analysis mixture identity behind the full engine, checked against independent fixed quadrature and child-engine identities | ✅ Verified (2026-07-27) |
 
-**Still to convert (Phase 9 follow-on).** The engine-level composite scenarios — legacy
-`Test_Composite.vb` (`Test_Composite_Hazard`, `Test_Composite_Response`, and the day/night
-consequence oracles) and the `Test_RiskAnalysis.Test_Composite` mixture-consistency identity — put
-a composite behind the full risk engine rather than exercising the function alone. They convert in
-a follow-on session, alongside the NFIP TOL 60/65 hazard-bootstrap variants. See the conversion
-order in [docs/verification.md](../verification.md).
+**Forensic traceability closure.** The
+[legacy traceability matrix](legacy-traceability.csv) accounts for all 141 legacy `Test_*`
+methods and maps every applicable method to an existing current test. It also maps all 49
+system and joint-failure configurations in the 2024 verification report. The repository
+validator reconciles both source trees and fails on a missing method, stale target, unsupported
+disposition, or missing report scenario. The active TOL 60/65 bootstrap-hazard bodies and
+engine-level composite bodies are now covered. The FDA/NFIP variant is explicitly obsolete;
+future-feature and external-data blockers remain visible in the matrix rather than implied covered.
