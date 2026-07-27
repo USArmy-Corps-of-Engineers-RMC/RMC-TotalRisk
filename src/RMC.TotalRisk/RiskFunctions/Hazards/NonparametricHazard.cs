@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.Globalization;
@@ -646,8 +646,8 @@ namespace RMC.TotalRisk.RiskFunctions.Hazards
                 var opd = new OrderedPairedData(xVals, pVals, true, SortOrder.Ascending, true, SortOrder.Descending);
                 var empDist = new EmpiricalDistribution(opd) { ProbabilityTransform = ProbabilityTransform };
                 int n = EffectiveRecordLength;
-                double se99 = Math.Sqrt((1d - 0.99d) * 0.99d / (n * Math.Pow(empDist.PDF(lin.Interpolate(0.99d)), 2d)));
-                double se01 = Math.Sqrt((1d - 0.01d) * 0.01d / (n * Math.Pow(empDist.PDF(lin.Interpolate(0.01d)), 2d)));
+                double se99 = Math.Sqrt((1d - 0.99d) * 0.99d / (n * Tools.Sqr(empDist.PDF(lin.Interpolate(0.99d)))));
+                double se01 = Math.Sqrt((1d - 0.01d) * 0.01d / (n * Tools.Sqr(empDist.PDF(lin.Interpolate(0.01d)))));
 
                 var se = new List<double>(xVals.Count);
                 for (int i = 0; i < xVals.Count; i++)
@@ -662,7 +662,7 @@ namespace RMC.TotalRisk.RiskFunctions.Hazards
                     }
                     else
                     {
-                        se.Add(Math.Sqrt((1d - pVals[i]) * pVals[i] / (n * Math.Pow(empDist.PDF(xVals[i]), 2d))));
+                        se.Add(Math.Sqrt((1d - pVals[i]) * pVals[i] / (n * Tools.Sqr(empDist.PDF(xVals[i])))));
                     }
                     // Forward monotone smoothing: the SE never shrinks toward the rare tail.
                     if (i > 0 && pVals[i] < 0.5d && se[i] < se[i - 1]) se[i] = se[i - 1];

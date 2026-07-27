@@ -187,25 +187,6 @@ namespace RMC.TotalRisk.Results
         }
 
         /// <summary>
-        /// Post-processes the recorded hazard probabilities into masses on every consequence
-        /// type (one-dimensional path only).
-        /// </summary>
-        /// <exception cref="InvalidOperationException">Thrown when a stream's mass budget does not telescope to one.</exception>
-        public void ProcessHazardProbabilities()
-        {
-            Curves.ProcessHazardProbabilities();
-            for (int k = 0; k < AdditionalCurves.Count; k++)
-            {
-                AdditionalCurves[k].ProcessHazardProbabilities();
-            }
-            AdjustedCurves?.ProcessHazardProbabilities();
-            for (int k = 0; k < AdditionalAdjustedCurves.Count; k++)
-            {
-                AdditionalAdjustedCurves[k].ProcessHazardProbabilities();
-            }
-        }
-
-        /// <summary>
         /// Applies the run's optional-measure selection to every curve set this mode owns.
         /// </summary>
         /// <param name="measures">The measures to compute.</param>

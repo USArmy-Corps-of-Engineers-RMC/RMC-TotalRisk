@@ -70,12 +70,6 @@ namespace RMC.TotalRisk.Results
         #region Members
 
         /// <summary>
-        /// The tolerance on the hazard probability-mass budget assertion in
-        /// <see cref="ProcessHazardProbabilities"/> — the Numerics N7 interim gate.
-        /// </summary>
-        private const double MassBudgetTolerance = 1e-9;
-
-        /// <summary>
         /// The lower integration limit and probability clamp shared with the legacy engine.
         /// </summary>
         private const double ProbabilityFloor = 1e-16;
@@ -583,72 +577,6 @@ namespace RMC.TotalRisk.Results
         #endregion
 
         #region Curve Construction
-
-        /// <summary>
-        /// Post-processes the recorded hazard non-exceedance probabilities into probability
-        /// masses: sorts the points by probability, merges duplicate-probability points (their
-        /// entry lists concatenate — a shared stratification-bin edge can collide), applies the
-        /// midpoint-trapezoid mass partition, and asserts the mass budget telescopes to one.
-        /// </summary>
-        /// <exception cref="InvalidOperationException">
-        /// Thrown when the post-processed mass budget differs from one by more than 1e-9 — an
-        /// engine invariant violation, never a data condition. The midpoint-trapezoid partition
-        /// telescopes to exactly one in exact arithmetic, so a violation means the recorded point
-        /// set is corrupt (the Numerics N7 interim gate; the quadrature-weight overload retires
-        /// this re-derivation).
-        /// </exception>
-        /// <remarks>
-        /// One-dimensional path only — the VEGAS path records true quadrature weights and never
-        /// re-derives mass. Ported from v1.0 with the duplicate merge and the budget assertion
-        /// added; v1.0 silently produced zero or negative masses on duplicate probabilities.
-        /// </remarks>
-        public void ProcessHazardProbabilities()
-        {
-            if (RiskPoints.Count < 2) return;
-
-            RiskPoints.Sort((x, y) => x.HazardProbability.CompareTo(y.HazardProbability));
-
-            // Merge points sharing a probability so the trapezoid partition sees strictly
-            // increasing probabilities.
-            var merged = new List<RiskPoint>(RiskPoints.Count) { RiskPoints[0] };
-            for (int i = 1; i < RiskPoints.Count; i++)
-            {
-                var point = RiskPoints[i];
-                var last = merged[merged.Count - 1];
-                if (point.HazardProbability == last.HazardProbability)
-                {
-                    last.ResponseProbabilities.AddRange(point.ResponseProbabilities);
-                    last.Consequences.AddRange(point.Consequences);
-                }
-                else
-                {
-                    merged.Add(point);
-                }
-            }
-            RiskPoints = merged;
-            if (RiskPoints.Count < 2) return;
-
-            int n = RiskPoints.Count;
-            RiskPoints[0].HazardProbabilityMass = (RiskPoints[0].HazardProbability + RiskPoints[1].HazardProbability) / 2d;
-            for (int i = 1; i < n - 1; i++)
-            {
-                RiskPoints[i].HazardProbabilityMass =
-                    (RiskPoints[i].HazardProbability + RiskPoints[i + 1].HazardProbability) / 2d
-                    - (RiskPoints[i].HazardProbability + RiskPoints[i - 1].HazardProbability) / 2d;
-            }
-            RiskPoints[n - 1].HazardProbabilityMass = 1d - (RiskPoints[n - 2].HazardProbability + RiskPoints[n - 1].HazardProbability) / 2d;
-
-            double budget = 0d;
-            for (int i = 0; i < n; i++)
-            {
-                budget += RiskPoints[i].HazardProbabilityMass;
-            }
-            if (Math.Abs(budget - 1d) > MassBudgetTolerance)
-            {
-                throw new InvalidOperationException(
-                    $"The hazard probability-mass budget is {budget:R} instead of 1. The recorded risk-point set is corrupt.");
-            }
-        }
 
         /// <summary>
         /// Assigns each recorded risk point the probability mass its abscissa carries in the

@@ -311,3 +311,35 @@ component integration:
 
 In-place compaction in `Curve.ApplyRecordedMass` (overwriting the kept points and trimming once,
 rather than building a second list) took F1 from 4.61 GB to 4.54 GB and F3 from 8.95 GB to 8.81 GB.
+
+## Phase 8.5 stage 3b–3d — the rest of the value-moving batch
+
+Three changes landed after the ledger, and **none of the four byte gates moved**:
+
+- **3b** — the parametric hazard and response summarize their posterior into an
+  `UncertaintyAnalysisResults` directly instead of calling `BootstrapAnalysis.Estimate`. The
+  fixtures use tabular functions (estimated parametric functions are excluded from the byte gates
+  by the reproducibility note), so the gates are silent on it; the equivalence is pinned upstream
+  and the estimation-touching verification families re-ran green.
+- **3d** — `Math.Pow(x, 2d)` → `Tools.Sqr` at the four remaining sites. This was deferred out of
+  the bit-inert stage because the two are **not** identical: 1,560 differences per 3,000,000
+  random inputs, all one ulp. The sites are `NonparametricHazard`'s order-statistic standard
+  errors (kept out of the byte-gate fixtures) and the sensitivity R², which is not serialized.
+- The `RMCTR_LEGACY_MASS` A/B scaffold and the retired `ProcessHazardProbabilities` chain are
+  **deleted** — the phase exit gate. That removed 117 lines across five files.
+
+Byte gates confirmed unchanged after all three:
+
+- F1 `23a0f30ea40cff8c05025c4e0a7e9acefa66c40800b8b60d35f7fa1843548a49` (4.54 GB)
+- F2 `9dbec059b6f10d6f8dcde5b6abaa4bdaa777b390cfe2293061d818b4b6f54f4f` (16.52 GB)
+- F3 `8c8494416786fef6185a80e46327c7c30b6b631119e5b542e371f8a14753353d` (8.81 GB)
+- F4 `31bef59fda695643aa576ae3d172f8dd39bb243a8c5f51176e4ee774baf24b46` (4.63 GB)
+
+### 3c was audited and declined
+
+`SystemConvolution` does **not** migrate onto N8's `EmpiricalDistribution.ConvolveDiscrete`. The
+upstream kernel is pairwise and derives its lattice step from its two operands' spans, so an N-way
+fold through it re-bins the running result at a step that changes on every fold, and its
+two-node atom deposit smears once per re-bin. The engine bins every component once onto a single
+lattice sized to the summed support and folds by integer shift, which is exact by comparison. The
+reason is recorded in the type's remarks so the next sweep does not re-litigate it.

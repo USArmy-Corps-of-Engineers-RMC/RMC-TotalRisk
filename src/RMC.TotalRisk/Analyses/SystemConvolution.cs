@@ -29,9 +29,18 @@ namespace RMC.TotalRisk.Analyses
     /// the discrete pairs directly onto a shared lattice keeps every atom exact, and because all
     /// components share one lattice step the fast-Fourier-transform convolution is the exact
     /// discrete convolution of the binned distributions — no probability-density sampling, no
-    /// per-stage regridding. The follow-up for an atom-aware convolution inside Numerics is
-    /// folded into roadmap item N8 (Phase 8); the transform itself is Numerics
-    /// (<c>Fourier.FFT</c>), only the domain-specific lattice assembly lives here.
+    /// per-stage regridding. The transform itself is Numerics (<c>Fourier.FFT</c>); only the
+    /// domain-specific lattice assembly lives here.
+    /// </para>
+    /// <para>
+    /// <b>Why this is not <c>EmpiricalDistribution.ConvolveDiscrete</c>.</b> The atom-aware
+    /// upstream kernel that arrived with roadmap item N8 is pairwise: it derives its lattice step
+    /// from the two operands' spans, so an N-way fold through it re-bins the running result at a
+    /// step that changes on every fold. Its deposit splits each atom across two nodes, and that
+    /// smearing compounds once per fold. Binning every component **once** onto a single lattice
+    /// sized to the summed support and then folding by integer shift is exact by comparison, which
+    /// is why the local kernel stays. <c>ConvolveDiscrete</c> remains the right choice for a
+    /// genuine two-operand convolution.
     /// </para>
     /// <para>
     /// <b>Accuracy:</b> the two-node split preserves each pair's probability mass and first

@@ -68,9 +68,8 @@ namespace RMC.TotalRisk.Results
 
         /// <summary>
         /// The hazard probability mass, dF(x) — the quadrature weight this point carries. Recorded
-        /// directly on the VEGAS path; re-derived from the sorted non-exceedance probabilities by
-        /// <c>Curve.ProcessHazardProbabilities()</c> on the one-dimensional path (the Numerics N7
-        /// interim).
+        /// directly on the VEGAS path; credited from the adaptive Gauss–Kronrod ledger by
+        /// <c>Curve.ApplyRecordedMass()</c> on the one-dimensional path.
         /// </summary>
         public double HazardProbabilityMass { get; set; }
 

@@ -142,30 +142,65 @@ public class CurveTests
     }
 
     /// <summary>
-    /// Verifies the mass post-processing: sort, duplicate-probability merge, the midpoint
-    /// trapezoid partition, and the telescoping budget.
+    /// Verifies the recorded-mass application: sort, first-occurrence credit for a repeated
+    /// abscissa, mass taken from the ledger, and compaction of the points the refinement
+    /// superseded.
     /// </summary>
     [TestMethod]
-    public void Test_ProcessHazardProbabilities_TrapezoidPartition_AndDuplicateMerge()
+    public void Test_ApplyRecordedMass_CreditsLedgerAndCompacts()
     {
-        // Arrange — three probabilities plus a duplicate that must merge its entries.
+        // Arrange — three accepted abscissas, one of them recorded twice, plus one abscissa the
+        // refinement superseded (absent from the ledger) and one accepted at zero weight.
         var curve = new Curve();
         curve.AddRiskPoint(1d, 0.5d, 0.2d, 10d);
         curve.AddRiskPoint(2d, 0.1d, 0.3d, 20d);
         curve.AddRiskPoint(3d, 0.9d, 0.4d, 30d);
         curve.AddRiskPoint(4d, 0.5d, 0.6d, 40d);
+        curve.AddRiskPoint(5d, 0.7d, 0.8d, 50d);
+        curve.AddRiskPoint(6d, 0.3d, 0.9d, 60d);
+
+        var ledger = new QuadratureMassLedger();
+        ledger.Record(0.1d, 0.3d, 0d);
+        ledger.Record(0.5d, 0.4d, 0d);
+        ledger.Record(0.9d, 0.3d, 0d);
+        ledger.Record(0.3d, 0d, 0d);
+        ledger.Seal();
 
         // Act
-        curve.ProcessHazardProbabilities();
+        curve.ApplyRecordedMass(ledger);
 
-        // Assert — masses (0.1, 0.5, 0.9) → (0.3, 0.4, 0.3); the duplicate p = 0.5 merged.
+        // Assert — p = 0.7 was superseded and p = 0.3 carried no weight, so both are compacted
+        // away; the duplicate p = 0.5 is credited once.
         Assert.AreEqual(3, curve.RiskPoints.Count);
+        Assert.AreEqual(0.1d, curve.RiskPoints[0].HazardProbability, 0d);
         Assert.AreEqual(0.3d, curve.RiskPoints[0].HazardProbabilityMass, 1e-15);
+        Assert.AreEqual(0.5d, curve.RiskPoints[1].HazardProbability, 0d);
         Assert.AreEqual(0.4d, curve.RiskPoints[1].HazardProbabilityMass, 1e-15);
+        Assert.AreEqual(0.9d, curve.RiskPoints[2].HazardProbability, 0d);
         Assert.AreEqual(0.3d, curve.RiskPoints[2].HazardProbabilityMass, 1e-15);
-        Assert.AreEqual(2, curve.RiskPoints[1].ResponseProbabilities.Count, "The duplicate-probability point must merge its entries.");
-        Assert.AreEqual(0.2d, curve.RiskPoints[1].ResponseProbabilities[0], 0d);
-        Assert.AreEqual(0.6d, curve.RiskPoints[1].ResponseProbabilities[1], 0d);
+    }
+
+    /// <summary>
+    /// A curve whose recorded abscissas do not cover the ledger's throws rather than publishing a
+    /// thinned curve. The recording fan-out receives one point per evaluation by construction, so
+    /// a shortfall is an engine invariant violation.
+    /// </summary>
+    [TestMethod]
+    public void Test_ApplyRecordedMass_ShortfallThrows()
+    {
+        // Arrange — the ledger accepted two abscissas; the curve only recorded one of them.
+        var curve = new Curve();
+        curve.AddRiskPoint(1d, 0.5d, 0.2d, 10d);
+        curve.AddRiskPoint(2d, 0.1d, 0.3d, 20d);
+
+        var ledger = new QuadratureMassLedger();
+        ledger.Record(0.1d, 0.3d, 0d);
+        ledger.Record(0.5d, 0.4d, 0d);
+        ledger.Record(0.9d, 0.3d, 0d);
+        ledger.Seal();
+
+        // Act / Assert
+        Assert.ThrowsException<InvalidOperationException>(() => curve.ApplyRecordedMass(ledger));
     }
 
     /// <summary>

@@ -81,20 +81,6 @@ namespace RMC.TotalRisk.Results
         }
 
         /// <summary>
-        /// Post-processes the recorded hazard probabilities into masses on every stream
-        /// (one-dimensional path only).
-        /// </summary>
-        /// <exception cref="InvalidOperationException">Thrown when a stream's mass budget does not telescope to one.</exception>
-        public void ProcessHazardProbabilities()
-        {
-            Excess.ProcessHazardProbabilities();
-            Background.ProcessHazardProbabilities();
-            Total.ProcessHazardProbabilities();
-            Fail.ProcessHazardProbabilities();
-            NonFail.ProcessHazardProbabilities();
-        }
-
-        /// <summary>
         /// Applies the quadrature ledger's masses to every stream.
         /// </summary>
         /// <param name="ledger">The pass's quadrature ledger, sealed.</param>

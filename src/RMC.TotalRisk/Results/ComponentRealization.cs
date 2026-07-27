@@ -154,24 +154,6 @@ namespace RMC.TotalRisk.Results
         public double MaxH { get; set; } = double.MinValue;
 
         /// <summary>
-        /// Post-processes the recorded hazard probabilities into masses on the component and every
-        /// failure mode, across every consequence type (one-dimensional path only).
-        /// </summary>
-        /// <exception cref="InvalidOperationException">Thrown when a stream's mass budget does not telescope to one.</exception>
-        public void ProcessHazardProbabilities()
-        {
-            Curves.ProcessHazardProbabilities();
-            for (int k = 0; k < AdditionalCurves.Count; k++)
-            {
-                AdditionalCurves[k].ProcessHazardProbabilities();
-            }
-            for (int i = 0; i < FailureModes.Count; i++)
-            {
-                FailureModes[i].ProcessHazardProbabilities();
-            }
-        }
-
-        /// <summary>
         /// Applies the run's optional-measure selection to every curve set this realization owns.
         /// </summary>
         /// <param name="measures">The measures to compute.</param>

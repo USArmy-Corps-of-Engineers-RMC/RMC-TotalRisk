@@ -38,11 +38,18 @@ public class ComponentRealizationTests
         realization.FailureModes[0].Curves.Fail.AddRiskPoint(1d, 0.4d, 0.1d, 10d);
         realization.FailureModes[0].Curves.Fail.AddRiskPoint(2d, 0.8d, 0.2d, 20d);
 
-        // Act
-        realization.ProcessHazardProbabilities();
-        realization.DumpMemory();
+        var ledger = new QuadratureMassLedger();
+        ledger.Record(0.4d, 0.5d, 0d);
+        ledger.Record(0.8d, 0.5d, 0d);
+        ledger.Seal();
 
-        // Assert
+        // Act
+        realization.ApplyRecordedMass(ledger);
+
+        // Assert — both scopes were credited before the dump clears them.
+        Assert.AreEqual(0.5d, realization.Curves.Fail.RiskPoints[0].HazardProbabilityMass, 1e-15);
+        Assert.AreEqual(0.5d, realization.FailureModes[0].Curves.Fail.RiskPoints[0].HazardProbabilityMass, 1e-15);
+        realization.DumpMemory();
         Assert.AreEqual(0, realization.Curves.Fail.RiskPoints.Count);
         Assert.AreEqual(0, realization.FailureModes[0].Curves.Fail.RiskPoints.Count);
     }
