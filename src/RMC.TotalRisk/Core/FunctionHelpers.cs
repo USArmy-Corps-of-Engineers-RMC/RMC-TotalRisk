@@ -152,5 +152,35 @@ namespace RMC.TotalRisk.Core
             results.ConfidenceIntervals![index, 0] = Statistics.Percentile(row, tail, dataIsSorted: true);
             results.ConfidenceIntervals[index, 1] = Statistics.Percentile(row, 1d - tail, dataIsSorted: true);
         }
+
+        /// <summary>
+        /// Summarizes a posterior ensemble of fitted distributions into an
+        /// <see cref="UncertaintyAnalysisResults"/>: the parent's mode curve, the percentile
+        /// confidence intervals, the predictive mean curve, and the parameter sets.
+        /// </summary>
+        /// <param name="parentDistribution">The parent (point-estimate) distribution.</param>
+        /// <param name="posterior">The fitted ensemble; a failed member is null and contributes NaN parameters.</param>
+        /// <param name="probabilities">The non-exceedance probabilities the curves are reported at.</param>
+        /// <param name="alpha">The two-sided tail probability of the confidence intervals.</param>
+        /// <returns>The summarized results.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when the parent distribution or the posterior is null.</exception>
+        /// <remarks>
+        /// The estimation lifecycle is the same whether the ensemble came from a parametric
+        /// bootstrap or an external fit, so the summary is expressed as the
+        /// <see cref="UncertaintyAnalysisResults"/> it produces rather than as a call on the
+        /// bootstrap. The two forms are pinned equivalent upstream; the visible difference is that
+        /// the goodness-of-fit fields report <see cref="double.NaN"/> — not computed — where the
+        /// bootstrap's own summary left them at zero.
+        /// </remarks>
+        public static UncertaintyAnalysisResults SummarizePosterior(UnivariateDistributionBase parentDistribution,
+            IUnivariateDistribution[] posterior, double[] probabilities, double alpha)
+        {
+            if (parentDistribution is null) throw new ArgumentNullException(nameof(parentDistribution));
+            if (posterior is null) throw new ArgumentNullException(nameof(posterior));
+
+            var sampled = new UnivariateDistributionBase[posterior.Length];
+            for (int i = 0; i < posterior.Length; i++) sampled[i] = (UnivariateDistributionBase)posterior[i];
+            return new UncertaintyAnalysisResults(parentDistribution, sampled, probabilities, alpha, recordParameterSets: true);
+        }
     }
 }

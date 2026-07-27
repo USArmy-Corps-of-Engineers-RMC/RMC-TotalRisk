@@ -386,7 +386,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
                 try
                 {
                     var bootstrap = new BootstrapAnalysis(ParentDistribution, EstimationMethod, EffectiveRecordLength, Realizations, PRNGSeed);
-                    Results = bootstrap.Estimate(probs, 1d - ConfidenceIntervalWidth);
+                    Results = FunctionHelpers.SummarizePosterior(ParentDistribution, bootstrap.Distributions(), probs, 1d - ConfidenceIntervalWidth);
                 }
                 catch (Exception ex)
                 {
