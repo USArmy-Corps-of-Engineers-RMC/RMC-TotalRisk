@@ -80,7 +80,7 @@ Get-ChildItem -Path $verificationRoot -Recurse -Filter *.cs -File |
     Where-Object { $_.FullName -notmatch '[\\/](bin|obj)[\\/]' } |
     ForEach-Object {
         $text = [System.IO.File]::ReadAllText($_.FullName)
-        $classMatch = [regex]::Match($text, 'public\s+(?:sealed\s+)?class\s+(?<Name>[A-Za-z_][A-Za-z0-9_]*Verification)\b')
+        $classMatch = [regex]::Match($text, 'public\s+(?:(?:sealed|partial)\s+)*class\s+(?<Name>[A-Za-z_][A-Za-z0-9_]*Verification)\b')
         if (-not $classMatch.Success) {
             return
         }
@@ -135,7 +135,7 @@ if (Test-Path -LiteralPath $DevRepository) {
     Get-ChildItem -Path $DevRepository -Recurse -Filter *.vb -File | ForEach-Object {
         $relative = $_.FullName.Substring($DevRepository.Length).TrimStart('\', '/')
         foreach ($line in [System.IO.File]::ReadAllLines($_.FullName)) {
-            $match = [regex]::Match($line, '\b(?:Public\s+)?Sub\s+(?<Name>Test_[A-Za-z0-9_]+)\s*\(')
+            $match = [regex]::Match($line, '\b(?:Public\s+)?Sub\s+(?<Name>Test_[A-Za-z0-9_]+|TestIO)\s*\(')
             if ($match.Success) {
                 [void]$legacyKeys.Add("$relative|$($match.Groups["Name"].Value)")
             }

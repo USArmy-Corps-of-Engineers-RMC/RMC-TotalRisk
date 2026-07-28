@@ -1,5 +1,21 @@
 # Progress Log
 
+## 2026-07-28 - Phase 10A legacy XML conversion/template vertical slice landed (PARTIAL)
+
+**Goal:** import the released recursive event-tree XML and representative shipped templates into the landed v1.1 controlled tree model without changing probability, interpolation, identity, seeding, or serialization contracts.
+
+**Legacy authority audited:** the partial C# and released VB `EventTreeResponse`/event-node implementations, `Test_TotalRisk/Test_EventTree.vb`, and shipped `RMC-TotalRisk/Resources/TreeTemplates.xml`. The inventory contains 29 roots, 466 nodes, and 219 chance nodes: 208 `MultiValue`, 11 `SingleValue`, and no response/event-node/link sources. The exact shipped `Basic` and `Concrete Dam Gate Failure` roots are committed with an authority manifest.
+
+**Landed:** import-only recognition of a direct recursive `Node` or the released `EventTreeResponse/Node` and `EventTreeResponse/EventTree/Node` envelopes; both `HazardLevels`/`HazardIntervals` and `NodeGuid`/`NodeGUID`; deterministic preservation or path-derived creation of node IDs; scalar, compact/table, and name-only ordinary/nested response sources; legacy automatic remainder creation; resolver-backed response-ID repair; current-only explicit-node/edge writes in both serialization modes; and deterministic path-specific malformed, missing-reference, excluded-node, duplicate-ID, and unsupported-source diagnostics. Failed conversion and converted-source cycle detection leave live configured samplers unchanged.
+
+**Compatibility boundary:** legacy `EventNode` means reuse of another node's probability source, not reuse of a subtree, so it is rejected rather than misrepresented as Phase 10A `IndependentClone`. The commented `SecondaryHazardNode` remains excluded, and `WeightedHazardLevel` remains Phase 11 bivariate-response work. Legacy `Test_Product` has no assertion and constructs no event tree, so it is classified as a non-oracle workbench.
+
+**Numerical and identity contracts preserved:** compensated sibling sums, normalization only above one, remainder/residual behavior, terminal path products, compensated failure aggregation, established Normal-Z interpolation, occurrence-aware child seeding, and output ports are unchanged. Legacy wrappers, valid or derived IDs, names, descriptions, sibling order, serialization mode, and repaired reference wrappers remain hash/seed-inert. No established algorithm, formula, tolerance, seed behavior, clipping, or normalization policy changed.
+
+**Verified:** focused legacy-conversion unit tests **6/6**; warning-free `dotnet build`; Release fast suite **761/761**; isolated `EventTreeVerification` **10/10**, including legacy `TestIO`, both exact shipped fixtures terminal-for-terminal against an independent recursive oracle, and 256 realization-for-realization nested-response LHS parity across both XML modes; traceability validator green at **142 legacy methods / 113 applicable methods** plus all 49 report scenarios; full code/XML-doc/namespace/dependency/public-class validator green; `git diff --check` clean.
+
+**Still open before Phase 10A can close:** expanded per-leaf graph output ports and stale-connection policy; immutable compiled-plan caching/invalidation and allocation-free O(V+E) evaluation; large-tree performance fixtures; property-based testing; independent branch-routing Monte Carlo; graph-connected per-leaf consequence verification; aggregate LHS variance reduction; and the remaining thread-count, coverage, and performance exit gates. Phase 10A remains partial and Phase 10B remains gated behind full closure.
+
 
 ## 2026-07-28 — Phase 10A recursive probability-source vertical slice landed (PARTIAL)
 

@@ -27,7 +27,7 @@ Porting sources in order of authority: (1) the partial C# port `C:\GIT\RMC-Total
 | 8 | Numerics.Functions expansion (numerics repo) + RMC.Numerics 2.2.0 package switch | Implementation complete (2026-07-25); 2.2.0 release + package switch pending user push |
 | 8.5 | Polish & optimization: Numerics helper adoption, determinism fixes, dimension-cap removal, optional measures, adjusted marginal LEC, N7 adoption | Complete (2026-07-26) |
 | 9 | Composites + RFA hazard + weighted wrappers + BestFit composite imports | Not started (`CompositeConsequence` + `WeightedConsequenceFunction` pulled forward 2026-07-21) |
-| 10A | Event-tree response + common tree/reference/manipulation foundation | Partial: foundation + independent-link slices landed (2026-07-28) |
+| 10A | Event-tree response + common tree/reference/manipulation foundation | Partial: foundation through legacy-conversion/template slices landed (2026-07-28) |
 | 10B | Static fault-tree response with exact repeated-event evaluation | Designed (2026-07-28); starts after 10A exits |
 | 11 | Bivariate + BestFit import + LifeSim | Not started |
 | 12 | Hardening: coverage gate, Linux check, examples, getting-started | Not started |
@@ -516,7 +516,7 @@ compensated mass and faults invalid exhaustive or defective streams instead of m
 zero warnings and fast suite 698/698 in 11.5 s; documentation, dependency, and legacy-traceability
 validators green; unit-only coverage 91.25%; all 28 verification families / 159 tests green one at a
 time, including `JointFailuresVerification` 9/9 and `RiskAnalysisCombosVerification` 5/5 with no
-tolerance widening. The traceability matrix accounts for all 141 legacy methods (112 applicable)
+tolerance widening. The traceability matrix accounts for all 142 legacy methods (113 applicable)
 and report scenarios 1–49; the FDA/NFIP variant is locked obsolete. No TotalRisk execution path calls
 `Factorial.AllCombinations`; F1/F2/F3 allocations 3.10/12.23/6.03 GB remain below their pre-ledger
 baselines, and paired same-session runtime comparisons show no regression. Final diff audit found no
@@ -544,7 +544,7 @@ unapproved tolerance, correlation, normalization, seed, or probability-formula c
 > `ComponentGraph`, and `RiskAnalysis`. The graph-level event-tree behavior already landed in
 > Phase 6.7 remains the downstream integration contract.
 
-> **Partially landed (2026-07-28):** four coherent vertical slices provide the common branch
+> **Partially landed (2026-07-28):** five coherent vertical slices provide the common branch
 > contracts, controlled nodes, scalar/aligned-table/ordinary-response sources, internal/external
 > `IndependentClone` occurrence expansion, resolver-backed two-mode XML, exhaustive outputs, and
 > projected hash/seed identity. The controlled authoring/topology slice adds immutable
@@ -554,16 +554,22 @@ unapproved tolerance, correlation, normalization, seed, or probability-formula c
 > slice adds direct and multi-level `EventTreeResponse` probability sources, caller-hazard
 > evaluation, exact recursive sampler discovery, independent occurrence streams, indexed,
 > percentile, and LHS propagation through nested sources and links, mixed source/link cycle paths,
-> transactional sampler rollback, and nested two-mode reference repair. Seven
-> analytic/indexed/link/recursive verification tests remain green. Phase 10A remains open for
-> legacy conversion/templates, expanded graph ports, cached-plan performance, and the remaining
-> verification and performance gates.
+> transactional sampler rollback, and nested two-mode reference repair. The import-only legacy
+> conversion slice accepts the recursive v1.0 `Node` shape directly or through the released
+> response/tree envelopes; accepts `HazardLevels`/`HazardIntervals`, `NodeGuid`/`NodeGUID`,
+> scalar/table/name-only-response sources; resolves and repairs response IDs; emits only canonical
+> v1.1 XML; and rejects ambiguous event-node probability references with path-specific diagnostics.
+> Ten analytic/indexed/link/recursive/legacy verification tests remain green. Phase 10A remains
+> open for expanded per-leaf graph output ports and stale-connection policy, immutable compiled-plan
+> caching/invalidation, large-tree performance, property-based testing, branch-routing Monte Carlo,
+> graph-connected per-leaf consequence verification, aggregate LHS variance reduction, and the
+> remaining thread-count, coverage, and performance exit gates.
 
 **Scope:** implement the normative [event-tree and fault-tree response design](requirements/EVENT_AND_FAULT_TREE_RESPONSE_DESIGN.md) §§1–15: the controlled event-tree model; scalar/tabular/response probability sources; internal and external independent-clone links; copy/paste/add/insert/delete/move/replace/link/materialize operations; deterministic traversal, topological sort, search, reachability, pruning, and cycle diagnostics; compiled linear-time probability propagation; mean/percentile/indexed response and per-leaf branch outputs; `RiskSerializationMode`, projected canonical identity, legacy XML conversion, recursive sampler discovery, content-derived seeds, and LHS. Per-leaf output ports extend the Phase 6.7 response-port machinery without moving hazard frequency, consequence, or risk math into the tree.
 
 `SecondaryHazardNode` is excluded: both legacy implementations comment it out, no factory/template/test uses it, and it is not active v1.0 behavior. `WeightedHazardLevel` is **not** dead: legacy `BivariateResponse` uses it, so it remains in Phase 11 rather than Phase 10A.
 
-**Verification:** `EventTreeVerification` converts and asserts the legacy `TestIO` shape, representative shipped templates, analytic path-product and mass-conservation oracles, indexed child parity, independent-link versus explicit-clone equivalence, graph-connected per-leaf equivalence, fixed-seed Monte Carlo branch routing, LHS variance reduction, and full reproducibility/hash invariance. Legacy `Test_Product` has no assertion and does not construct an event tree; it is not a compute oracle.
+**Verification:** `EventTreeVerification` now converts and asserts the legacy `TestIO` shape and exact shipped `Basic` and `Concrete Dam Gate Failure` templates against independent terminal-for-terminal path-product/mass-conservation oracles; it also pins indexed child parity, independent-link versus explicit-clone equivalence, nested response sampling, serialization-mode parity, and reproducibility/hash invariance. Remaining gates add graph-connected per-leaf equivalence, fixed-seed Monte Carlo branch routing, aggregate LHS variance reduction, thread-count reproducibility, and performance/property-based coverage. Legacy `Test_Product` has no assertion and does not construct an event tree; it is not a compute oracle.
 
 **Exit criteria:** common/event-tree family P/T/V; ≥90% fast-suite coverage retained; performance fixture and verification results recorded; all manipulation/reference/branch-output/LHS/hash gates in the normative design green.
 

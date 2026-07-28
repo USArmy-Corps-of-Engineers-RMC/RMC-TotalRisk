@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LegacyEventTreeTemplates>
+  <Node Type="InitiatingNode" Name="Hazard" Description="" NodeGuid="1c64b73c-daa4-4883-829f-d6dcd900e0aa" HazardLevels="0|1" TemplateName="Basic" IsDefault="true" Category="Generic" TemplateDescription="Basic Event Tree">
+    <Node Type="ChanceNode" Name="Fail" Description="" SourceProbability="MultiValue" NodeGuid="1cbacacd-dc6b-48bc-a9f1-58318fdce2a8" ReferenceNode="">
+      <IntervalDistributions X_Strict="True" Y_Strict="True" X_Order="Ascending" Y_Order="None" Distribution="Uniform">
+        <Ordinates>
+          <Ordinate X="0" Min="0" Max="0" />
+          <Ordinate X="1" Min="0" Max="1" />
+        </Ordinates>
+      </IntervalDistributions>
+    </Node>
+    <Node Type="RemainderNode" Name="Non-Fail" Description="" NodeGuid="5b9f7613-ec9e-4fd1-8943-a8ebc3d9743c" />
+  </Node>
+
+  <Node Type="InitiatingNode" Name="Reservoir Stage" Description="In the risk analysis, this should be a reservoir stage duration curve, which represents the probability of exceeding a stage on any given day." NodeGuid="35f8ea9f-91e3-4d48-931f-63ad19716b6f" HazardLevels="0|1|2|3|4" TemplateName="Concrete Dam Gate Failure" IsDefault="true" Category="Seismic" TemplateDescription="Concrete Dam Gate Failure">
+    <Node Type="ChanceNode" Name="Seismic Hazard" Description="Add a branch for each seismic event, and give the event a probability (or weight). Weights should be derived from an annual exceedance curve.  All weights (plus the remainder node) should sum to 1. Use a 'Single Value' source so the weight is applied to all reservoir stage levels." SourceProbability="SingleValue" NodeGuid="99fdea43-a030-4c87-ae53-4576b6f123e9" ReferenceNode="" ResponseFunction="">
+      <AllHazardsDistribution Type="Deterministic" Value="0.5" />
+      <IntervalDistributions X_Strict="True" Y_Strict="True" X_Order="Ascending" Y_Order="None" Distribution="Uniform" AllowDifferentDistributionTypes="False">
+        <Ordinates>
+          <UncertainOrdinate X="0"><Distribution Type="Uniform" Min="0" Max="0" /></UncertainOrdinate>
+          <UncertainOrdinate X="1"><Distribution Type="Uniform" Min="0" Max="1" /></UncertainOrdinate>
+          <UncertainOrdinate X="2"><Distribution Type="Uniform" Min="0" Max="1" /></UncertainOrdinate>
+          <UncertainOrdinate X="3"><Distribution Type="Uniform" Min="0" Max="1" /></UncertainOrdinate>
+          <UncertainOrdinate X="4"><Distribution Type="Uniform" Min="0" Max="1" /></UncertainOrdinate>
+        </Ordinates>
+      </IntervalDistributions>
+      <Node Type="ChanceNode" Name="Strut Arm Capacity" Description="Combined moment and axial compressive stress exceed the strut arm capacity?" SourceProbability="MultiValue" NodeGuid="c16f2903-783a-4d66-9c0c-0a8ff1c552bb" ReferenceNode="" ResponseFunction="">
+        <AllHazardsDistribution Type="Deterministic" Value="0.5" />
+        <IntervalDistributions X_Strict="True" Y_Strict="False" X_Order="Ascending" Y_Order="None" Distribution="Triangular" AllowDifferentDistributionTypes="False">
+          <Ordinates>
+            <UncertainOrdinate X="0"><Distribution Type="Triangular" Min="0" MostLikely="0" Max="0" /></UncertainOrdinate>
+            <UncertainOrdinate X="1"><Distribution Type="Triangular" Min="0" MostLikely="0.5" Max="1" /></UncertainOrdinate>
+            <UncertainOrdinate X="2"><Distribution Type="Triangular" Min="0" MostLikely="0.5" Max="1" /></UncertainOrdinate>
+            <UncertainOrdinate X="3"><Distribution Type="Triangular" Min="0" MostLikely="0.5" Max="1" /></UncertainOrdinate>
+            <UncertainOrdinate X="4"><Distribution Type="Triangular" Min="0" MostLikely="0.5" Max="1" /></UncertainOrdinate>
+          </Ordinates>
+        </IntervalDistributions>
+        <Node Type="ChanceNode" Name="Breach" Description="Gate failure due to strut arm buckling and uncontrolled release of impounded water occurs?" SourceProbability="MultiValue" NodeGuid="ae014b8f-c01d-4ad3-a016-e5e084b08b5e" ReferenceNode="" ResponseFunction="">
+          <AllHazardsDistribution Type="Deterministic" Value="0.5" />
+          <IntervalDistributions X_Strict="True" Y_Strict="False" X_Order="Ascending" Y_Order="None" Distribution="Triangular" AllowDifferentDistributionTypes="False">
+            <Ordinates>
+              <UncertainOrdinate X="0"><Distribution Type="Triangular" Min="0" MostLikely="0" Max="0" /></UncertainOrdinate>
+              <UncertainOrdinate X="1"><Distribution Type="Triangular" Min="0" MostLikely="0.5" Max="1" /></UncertainOrdinate>
+              <UncertainOrdinate X="2"><Distribution Type="Triangular" Min="0" MostLikely="0.5" Max="1" /></UncertainOrdinate>
+              <UncertainOrdinate X="3"><Distribution Type="Triangular" Min="0" MostLikely="0.5" Max="1" /></UncertainOrdinate>
+              <UncertainOrdinate X="4"><Distribution Type="Triangular" Min="0" MostLikely="0.5" Max="1" /></UncertainOrdinate>
+            </Ordinates>
+          </IntervalDistributions>
+        </Node>
+        <Node Type="RemainderNode" Name="No Breach" Description="" NodeGuid="385b6d2f-48a6-4943-8469-3d07ba59f163" />
+      </Node>
+      <Node Type="RemainderNode" Name="Does Not Exceed" Description="" NodeGuid="697d7c71-b755-4f58-8c9a-bd5f8d82dda9" />
+    </Node>
+    <Node Type="RemainderNode" Name="No Hazard" Description="" NodeGuid="bac56c28-c90a-4426-80a0-68a955422cd7" />
+  </Node>
+</LegacyEventTreeTemplates>

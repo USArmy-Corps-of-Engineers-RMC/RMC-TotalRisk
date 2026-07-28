@@ -18,7 +18,7 @@ where *F_R* is the conditional CDF of the resistance and *f_S* is the hazard (de
 
 `EventTreeResponse` (Phase 10A) and `FaultTreeResponse` (Phase 10B) remain response functions under this exact contract: they produce conditional fragility `P(F|h)`. Hazard functions manage hazard probability/frequency, and the component risk graph plus `RiskAnalysis` connects responses to consequences and computes risk. The normative [tree-response implementation design](../requirements/EVENT_AND_FAULT_TREE_RESPONSE_DESIGN.md) defines event end-state outputs, exact static fault evaluation, internal/external links, independent clones, controlled authoring operations, graph algorithms, LHS, serialization, hashing, testing, and cost-benefit.
 
-The first four coherent `EventTreeResponse` slices landed 2026-07-28. They include:
+The first five coherent `EventTreeResponse` slices landed 2026-07-28. They include:
 
 - the common immutable branch descriptors/sample contract and tree-reference value object;
 - controlled `EventTree` ownership with add, insert, move, delete, search, ancestry,
@@ -53,7 +53,23 @@ The first four coherent `EventTreeResponse` slices landed 2026-07-28. They inclu
   repeated references to the same live response, with indexed, co-monotonic percentile, and LHS
   sampling preserved through arbitrary acyclic nesting depth; and
 - transactional recursive compilation/setup plus direct, indirect, mixed source/link, and
-  cross-function cycle diagnostics carrying the complete deterministic function/node path.
+  cross-function cycle diagnostics carrying the complete deterministic function/node path;
+- an import-only legacy adapter for recursive v1.0 `Node` roots, direct or inside the released
+  `EventTreeResponse`/`EventTree` envelopes, including both hazard-attribute and GUID spellings,
+  scalar/table/name-only-response probability sources, and the legacy automatic remainder; and
+- current-only writes plus deterministic path diagnostics for malformed, excluded, and semantically
+  ambiguous legacy input.
+
+The conversion authority is the partial C#
+`RMC.TotalRisk.IO/Project/Elements/Response Function/EventTreeResponse.cs`, the released VB
+`RMC.TotalRisk/Project/Elements/Response Function/EventTreeResponse.vb` and their event-node
+types, and the shipped `RMC-TotalRisk/Resources/TreeTemplates.xml` in the Dev repository. The
+committed verification fixtures reproduce the shipped `Basic` and `Concrete Dam Gate Failure`
+roots exactly. Name-only legacy `ResponseFunction` sources pass through the existing resolver, so
+successful by-reference writes repair stable IDs. Legacy `EventNode` probability references are
+not structural subtree links and cannot be mapped faithfully to Phase 10A `IndependentClone`
+semantics; they therefore fail explicitly. The commented `SecondaryHazardNode` remains excluded,
+and `WeightedHazardLevel` remains Phase 11 bivariate-response work.
 
 For explicit siblings with raw probabilities `q_i` and compensated sum `S`, the conditional rule is:
 
@@ -78,8 +94,11 @@ Nested response content participates in projected canonical identity. Link wrapp
 referenced occurrences from authored inline content, while persistent IDs, display names, sibling
 authoring order, serialization mode, and reference wrappers remain projected away. `TreeFragment`
 is authoring-only state: it is neither a persistence type nor a hash input, and paste-cloned
-subtrees therefore preserve projected canonical identity. Still open in Phase 10A are legacy XML
-conversion/templates, expanded graph ports, cached allocation-free plans, and remaining gates.
+subtrees therefore preserve projected canonical identity. Still open in Phase 10A are expanded
+per-leaf graph output ports and stale-connection policy; immutable compiled-plan
+caching/invalidation; large-tree performance; property-based testing; branch-routing Monte Carlo;
+graph-connected per-leaf consequence verification; aggregate LHS variance reduction; and the
+remaining thread-count, coverage, and performance exit gates.
 
 
 ## Contract

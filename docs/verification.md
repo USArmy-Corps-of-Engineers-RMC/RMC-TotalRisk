@@ -4,7 +4,7 @@
 
 ## What the legacy suite is
 
-`C:\GIT\RMC-TotalRisk-Dev\RMC-TotalRisk\Test_TotalRisk\` contains 141 `Test_*` methods. The audited disposition is 112 covered, consolidated, or stream-identical methods; 16 empty placeholders; 2 debugger-only workbenches; 4 methods blocked on future model features; 6 standalone FDA importer workflows blocked on external data; and 1 obsolete FDA/NFIP variant. The substantive oracles hand-compute risk quantities from Numerics primitives with fixed seeds and do not call the engine, which makes them independent references.
+`C:\GIT\RMC-TotalRisk-Dev\RMC-TotalRisk\Test_TotalRisk\` contains 142 inventoried test methods, including the event-tree `TestIO` method outside the usual `Test_*` naming convention. The audited disposition is 113 covered, consolidated, or stream-identical methods; 16 empty placeholders; 3 debugger-only/non-oracle workbenches; 3 methods blocked on future model features; 6 standalone FDA importer workflows blocked on external data; and 1 obsolete FDA/NFIP variant. The substantive oracles hand-compute risk quantities from Numerics primitives with fixed seeds and do not call the engine, which makes them independent references.
 
 Legacy configuration facts that carry over:
 

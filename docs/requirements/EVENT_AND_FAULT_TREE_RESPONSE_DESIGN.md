@@ -393,7 +393,7 @@ Warnings versus errors must follow existing response validation: correctable sha
 
 ### Phase 10A — common foundation and event-tree response
 
-> **Implementation status (2026-07-28, partial):** four landed vertical slices now include common
+> **Implementation status (2026-07-28, partial):** five landed vertical slices now include common
 > branch/reference/fragment contracts; controlled transactional authoring with fresh-ID copy/paste,
 > replace, materialize, delete-materialize, and prune; deterministic expanded topological,
 > unreachable, and reference queries; scalar/tabular/ordinary-response sources; internal/external
@@ -402,11 +402,18 @@ Warnings versus errors must follow existing response validation: correctable sha
 > probability sources evaluated on the caller hazard axis; recursive discovery and independent
 > occurrence sampling through nested responses, ordinary responses, tables, and links; mixed
 > source/link cycle diagnostics; transactional sampler setup; and projected recursive hash/seed
-> identity. Failed mutations and failed sampler setup restore topology, output ports, persistent
-> IDs, hashes, and configured-sampler state exactly. The established raw/normalized sibling,
-> residual, interpolation, seed, and output-port rules are unchanged. Phase 10A remains open for
-> the unimplemented portions of steps 3 and 5–7, including legacy conversion, expanded graph ports,
-> immutable cached-plan performance, and the remaining verification/performance gates.
+> identity. Step 3 is now complete: the import-only adapter accepts recursive v1.0 `Node` roots
+> directly and through `EventTreeResponse`/`EventTree` envelopes; accepts `HazardLevels` or
+> `HazardIntervals`, `NodeGuid` or `NodeGUID`, and `SingleValue`, `MultiValue`, or name-only
+> `ResponseFunction` sources; repairs resolved response IDs; supplies the legacy automatic
+> remainder; and writes only the canonical explicit-node/edge v1.1 form. Ambiguous legacy
+> `EventNode` probability references fail with deterministic path diagnostics rather than being
+> reinterpreted as independent structural clones. The exact shipped `Basic` and `Concrete Dam Gate
+> Failure` templates plus the legacy `TestIO` shape are independently verified. Failed mutations,
+> conversion, and sampler setup preserve live state exactly. The established raw/normalized
+> sibling, residual, interpolation, seed, and output-port rules are unchanged. Phase 10A remains
+> open for the unimplemented portions of steps 5–7: immutable compiled-plan caching/invalidation,
+> expanded graph ports and stale-connection policy, and the remaining verification/performance gates.
 1. Add append-only discriminators, common tree interfaces/results, source/link/reference types, and diagnostic codes.
 2. Add the controlled `EventTree` authoring model and transactional manipulation/search/topology APIs.
 3. Add legacy XML conversion plus canonical v1.1 self-contained/by-reference serialization and projected hashing.

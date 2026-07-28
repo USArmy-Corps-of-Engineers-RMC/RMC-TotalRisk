@@ -13,9 +13,10 @@ namespace RMC.TotalRisk.Verification.RiskFunctions.Responses;
 /// Focused Phase 10A event-tree verification against independently derived conditional path
 /// products and direct uncertainty-table samples. This partial family covers scalar and aligned
 /// tables, recursive response probability sources, internal/external independent-clone links,
-/// two-mode round trips, and occurrence-level LHS reproducibility. Legacy XML, graph-expanded
-/// consequences, routing Monte Carlo, aggregate LHS variance, and performance remain future rows
-/// in the normative verification plan.
+/// two-mode round trips, occurrence-level LHS reproducibility, legacy recursive XML conversion,
+/// and representative shipped templates. Graph-expanded consequences, routing Monte Carlo,
+/// aggregate LHS variance, thread-count reproducibility, and performance remain future rows in
+/// the normative verification plan.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -30,7 +31,7 @@ namespace RMC.TotalRisk.Verification.RiskFunctions.Responses;
 /// </para>
 /// </remarks>
 [TestClass]
-public class EventTreeVerification
+public partial class EventTreeVerification
 {
     /// <summary>Verifies a representative deep/wide tree against hand-derived terminal path products.</summary>
     [TestMethod]

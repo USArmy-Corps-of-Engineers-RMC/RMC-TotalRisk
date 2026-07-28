@@ -22,6 +22,9 @@ namespace RMC.TotalRisk.RiskFunctions
     /// <para>
     /// Mirrors the Hydrologics <c>BasinElementFactory</c> pattern: a closed switch on the
     /// element's local name, which by the serialization contract is the concrete type name.
+    /// The sole import-only exception is the legacy recursive event-tree <c>Node</c> root, which
+    /// is normalized immediately into <see cref="EventTreeResponse"/> and never emitted by the
+    /// current writer.
     /// Unknown names return null so each caller chooses its own failure policy — graph-level
     /// callers skip unknown elements gracefully (forward compatibility), while compute-chain
     /// callers (<c>FailureMode</c>, <c>ResponseStage</c>) treat an unreconstructable child as
@@ -76,6 +79,8 @@ namespace RMC.TotalRisk.RiskFunctions
                 nameof(NonFailResponse) => new NonFailResponse(xElement),
                 nameof(CompositeResponse) => new CompositeResponse(xElement, resolver),
                 nameof(EventTreeResponse) => new EventTreeResponse(xElement, resolver),
+                "Node" when LegacyEventTreeConverter.IsLegacyRoot(xElement) =>
+                    new EventTreeResponse(xElement, resolver),
                 nameof(TabularConsequence) => new TabularConsequence(xElement),
                 nameof(ParametricConsequence) => new ParametricConsequence(xElement),
                 nameof(CompositeConsequence) => new CompositeConsequence(xElement, resolver),

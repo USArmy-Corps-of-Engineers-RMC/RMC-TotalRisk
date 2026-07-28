@@ -22,10 +22,11 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
     /// <remarks>
     /// The current Phase 10A implementation supports scalar, uncertain-tabular, ordinary-response,
     /// and recursively nested event-tree probability sources together with internal/external
-    /// independent-clone link occurrences. Every nested occurrence participates in recursive
-    /// sampling, two-mode serialization, projected hashing, and mixed source/link cycle
-    /// diagnostics. Legacy recursive-XML conversion, expanded graph ports, and cached-plan
-    /// optimization remain explicitly deferred.
+    /// independent-clone link occurrences. It also reads the recursive node XML emitted by the
+    /// v1.0 product and writes only the explicit v1.1 graph form. Every nested occurrence
+    /// participates in recursive sampling, two-mode serialization, projected hashing, and mixed
+    /// source/link cycle diagnostics. Expanded graph ports and cached-plan optimization remain
+    /// explicitly deferred.
     /// </remarks>
     public sealed class EventTreeResponse : ResponseFunctionBase, IBranchingResponseFunction
     {
@@ -46,14 +47,18 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
             SetHazardLevels(hazardLevels);
         }
 
-        /// <summary>Restores an event-tree response from its v1.1 explicit graph serialization.</summary>
-        /// <param name="xElement">The serialized response.</param>
+        /// <summary>
+        /// Restores an event-tree response from v1.1 explicit graph serialization or imports a
+        /// legacy recursive event-node root/envelope into that representation.
+        /// </summary>
+        /// <param name="xElement">The current response or legacy recursive event tree.</param>
         /// <param name="resolver">The optional resolver for by-reference probability sources.</param>
         /// <exception cref="ArgumentNullException">Thrown when the element is null.</exception>
         /// <exception cref="InvalidOperationException">Thrown when required tree content is absent.</exception>
         public EventTreeResponse(XElement xElement, IRiskFunctionResolver? resolver = null)
         {
             if (xElement == null) throw new ArgumentNullException(nameof(xElement));
+            xElement = LegacyEventTreeConverter.Normalize(xElement);
             ReadIdentityAttributes(xElement);
             SpecifiedHazard = SerializationUtilities.ReadString(xElement, nameof(SpecifiedHazard));
             HazardUnit = SerializationUtilities.ReadString(xElement, nameof(HazardUnit));
