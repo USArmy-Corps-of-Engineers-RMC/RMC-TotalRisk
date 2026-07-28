@@ -38,5 +38,8 @@ namespace RMC.TotalRisk.Core.Enums
         /// competing-risks (minimum-rule, weakest-link) combination (<c>CompositeResponse</c>).
         /// </summary>
         Composite,
+
+        /// <summary>An authored event-tree conditional-failure response (<c>EventTreeResponse</c>).</summary>
+        EventTree,
     }
 }

@@ -27,7 +27,8 @@ Porting sources in order of authority: (1) the partial C# port `C:\GIT\RMC-Total
 | 8 | Numerics.Functions expansion (numerics repo) + RMC.Numerics 2.2.0 package switch | Implementation complete (2026-07-25); 2.2.0 release + package switch pending user push |
 | 8.5 | Polish & optimization: Numerics helper adoption, determinism fixes, dimension-cap removal, optional measures, adjusted marginal LEC, N7 adoption | Complete (2026-07-26) |
 | 9 | Composites + RFA hazard + weighted wrappers + BestFit composite imports | Not started (`CompositeConsequence` + `WeightedConsequenceFunction` pulled forward 2026-07-21) |
-| 10 | Event trees | Not started |
+| 10A | Event-tree response + common tree/reference/manipulation foundation | Designed (2026-07-28); implementation not started |
+| 10B | Static fault-tree response with exact repeated-event evaluation | Designed (2026-07-28); starts after 10A exits |
 | 11 | Bivariate + BestFit import + LifeSim | Not started |
 | 12 | Hardening: coverage gate, Linux check, examples, getting-started | Not started |
 | 13 | Release prep — `v1.1.0-alpha` tag | Not started |
@@ -535,26 +536,41 @@ unapproved tolerance, correlation, normalization, seed, or probability-formula c
 
 **Exit criteria:** composite family P/T/V and engine-level verification are met; RFA hazard and the listed production features remain.
 
-## Phase 10 — Event trees (reshaped 2026-07-23)
+## Phase 10A — Event-tree response and common tree foundation (designed 2026-07-28)
 
-> **Reshaped by the Phase 6.5 cascade ratification:** graph-level event-tree behavior — branch
-> semantics, partial end states, consequences on end states — is Phase 6.7's cascading
-> response design. This phase ports `EventTreeResponse` as the **compact single-node authoring
-> convenience** for chance-probability trees (per-node distributions, per-hazard-interval
-> tables, node references — the v1.0 `ChanceSource` surface), sharing the cascade's end-state
-> compute contract; per-leaf output ports (completing the dormant v1.0 `MultipleConsequences`
-> scaffold) let a tree's failure leaves feed distinct consequence terminals. Final scope call
-> happens here, informed by the landed cascade.
+> **Responsibility boundary:** `EventTreeResponse` is a response function that creates the
+> conditional fragility relationship `P(F|h)`. Hazard probability remains the responsibility
+> of hazard functions; consequences and risk are attached/computed through `RiskConnection`s,
+> `ComponentGraph`, and `RiskAnalysis`. The graph-level event-tree behavior already landed in
+> Phase 6.7 remains the downstream integration contract.
 
-**Scope:** `IEventNode`, `EventNodeBase`, `ChanceNode`, `InitiatingNode`, `RemainderNode`, `EventNodeExtensions`; `EventTreeResponse` with LHS-driven traversal (arch doc §5.8.6); post-order canonical hashing (Q-B resolution); per-leaf output ports riding the Phase 6.7 port machinery. (`SecondaryHazardNode`/`WeightedHazardLevel` were dead v1.0 scaffolding — port only if the bivariate phase resurrects the need.)
+> **Partially landed (2026-07-28):** the first coherent P/T/V vertical slice provides the common
+> branch contracts, controlled event-tree nodes and core mutation/traversal/search operations,
+> scalar/aligned-table/ordinary-response probability sources, mean/percentile/indexed sampling,
+> exhaustive terminal outputs plus aggregate failure, dual-mode XML, projected hash identity,
+> factory/discriminator registration, and three focused analytic/indexed verification tests.
+> Phase 10A remains open for links/clones, the rest of the authoring/topology surface, recursive
+> references/cycles, legacy conversion, expanded graph ports, compiled-plan performance, and the
 
-**Verification:** port the legacy `Test_EventTree` serialization round-trip (the suite's only genuinely asserted legacy test) + its product oracle.
+**Scope:** implement the normative [event-tree and fault-tree response design](requirements/EVENT_AND_FAULT_TREE_RESPONSE_DESIGN.md) §§1–15: the controlled event-tree model; scalar/tabular/response probability sources; internal and external independent-clone links; copy/paste/add/insert/delete/move/replace/link/materialize operations; deterministic traversal, topological sort, search, reachability, pruning, and cycle diagnostics; compiled linear-time probability propagation; mean/percentile/indexed response and per-leaf branch outputs; `RiskSerializationMode`, projected canonical identity, legacy XML conversion, recursive sampler discovery, content-derived seeds, and LHS. Per-leaf output ports extend the Phase 6.7 response-port machinery without moving hazard frequency, consequence, or risk math into the tree.
 
-**Exit criteria:** event-tree family P/T/V.
+`SecondaryHazardNode` is excluded: both legacy implementations comment it out, no factory/template/test uses it, and it is not active v1.0 behavior. `WeightedHazardLevel` is **not** dead: legacy `BivariateResponse` uses it, so it remains in Phase 11 rather than Phase 10A.
+
+**Verification:** `EventTreeVerification` converts and asserts the legacy `TestIO` shape, representative shipped templates, analytic path-product and mass-conservation oracles, indexed child parity, independent-link versus explicit-clone equivalence, graph-connected per-leaf equivalence, fixed-seed Monte Carlo branch routing, LHS variance reduction, and full reproducibility/hash invariance. Legacy `Test_Product` has no assertion and does not construct an event tree; it is not a compute oracle.
+
+**Exit criteria:** common/event-tree family P/T/V; ≥90% fast-suite coverage retained; performance fixture and verification results recorded; all manipulation/reference/branch-output/LHS/hash gates in the normative design green.
+
+## Phase 10B — Static fault-tree response (designed 2026-07-28)
+
+**Scope:** after Phase 10A exits, implement the same normative design's static `FaultTreeResponse`: AND/OR/XOR/K-of-N gates; basic and house events; internal/external transfers; explicit shared-logical versus independent-clone semantics; the same controlled authoring/search/topology/pruning surface; and an exact ordered reduced binary decision diagram (ROBDD) evaluator. The response returns top-event conditional fragility `P(F|h)` only. Exactness is mandatory: minimal cut sets are coherent-tree inspection output, never the production probability algorithm, and resource-limit failure never falls back silently to approximation.
+
+**Verification:** exhaustive Boolean enumeration for small trees, closed-form gate identities, repeated shared-event versus independent-clone cases, coherent cut-set inspection, independent fixed-seed Monte Carlo checks for medium trees, graph-connected equivalence to an ordinary response curve, LHS/referenced-response sampling, canonical/reproducibility gates, and BDD resource/performance fixtures.
+
+**Exit criteria:** fault-tree family P/T/V and every Phase 10B acceptance item in the normative design green. Honest estimate after the shared 10A foundation: approximately 4–6.5 contributor-weeks. If schedule pressure intervenes, defer 10B rather than ship a naive independence or truncated-cut-set evaluator.
 
 ## Phase 11 — Bivariate + BestFit import + LifeSim
 
-**Scope:** Bivariate hazards (`ParametricBivariateHazard`, `BestFitBivariateHazard`, `BestFitTabularHazard` — posterior-import types holding Numerics artifacts only), `BivariateResponse` + the §7.4 nested Y|X integration, `BestFitTransform` (posterior import; no `RMC.BestFit.dll`), `LifeSimConsequence` + `LifeSimResult`, `FaultTreeResponse` v2 placeholder. Revisit `BestFitUnivariateHazard` here only if Phase 9 concluded the parametric injection path does not fully supersede it.
+**Scope:** Bivariate hazards (`ParametricBivariateHazard`, `BestFitBivariateHazard`, `BestFitTabularHazard` — posterior-import types holding Numerics artifacts only), `BivariateResponse` + `WeightedHazardLevel` + the §7.4 nested Y|X integration, `BestFitTransform` (posterior import; no `RMC.BestFit.dll`), `LifeSimConsequence` + `LifeSimResult`. Revisit `BestFitUnivariateHazard` here only if Phase 9 concluded the parametric injection path does not fully supersede it. Fault trees are Phase 10B, not a Phase 11 placeholder.
 
 **Verification:** `Test_BivariateRisk` (legacy 100M → 1M with widened, documented tolerance), `Test_DAMRAE` (bilinear surfaces); BestFit import contract test (deserialize `MCMCResults`/`UncertaintyAnalysisResults` with Numerics alone → construct → evaluate).
 

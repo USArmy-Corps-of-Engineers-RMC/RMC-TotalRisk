@@ -85,6 +85,13 @@ the test executable with a TRX report:
 | [Composite response](composite-response.md) | `CompositeResponseVerification` | NEW Phase 9 family: the shared Table 44 scenario read on the fragility (probability) axis + exact weakest-link probability identities (union under independence, maximum under comonotonic) + a hazard-grid index-parity band oracle | ✅ Verified (2026-07-25) |
 | [Composite transform](composite-transform.md) | `CompositeTransformVerification` | NEW Phase 9 greenfield family (no legacy implementation, no report table): exact linear-combination algebra forward and inverse, exact Normal theory for the ω²-additive ensemble variance (the check that discriminates independent from co-monotonic child seeding), and a realization-for-realization identity against the independently reproduced child-seed recipe | ✅ Verified (2026-07-25) |
 | [Composite engine scenarios](composite-engine.md) | `CompositeEngineVerification` | All four executable `Test_Composite.vb` configurations and the risk-analysis mixture identity behind the full engine, checked against independent fixed quadrature and child-engine identities | ✅ Verified (2026-07-27) |
+| [Event-tree response — first slice](event-tree.md) | `EventTreeVerification` | Independent analytic path products and over-allocation normalization + realization-for-realization aligned-table LHS parity | 🟡 First verified slice (3/3, 2026-07-28); Phase 10A verification remains open |
+
+## Remaining tree-response verification
+
+The first `EventTreeVerification` slice is executable and documented above. Phase 10A still owes
+legacy conversion, link/clone, branch-routing Monte Carlo, graph-integration, LHS variance,
+reproducibility, and performance anchors. Phase 10B will add `FaultTreeVerification`. The complete gates are specified in the normative [event-tree and fault-tree response design](../requirements/EVENT_AND_FAULT_TREE_RESPONSE_DESIGN.md) §15.
 
 **Forensic traceability closure.** The
 [legacy traceability matrix](legacy-traceability.csv) accounts for all 141 legacy `Test_*`

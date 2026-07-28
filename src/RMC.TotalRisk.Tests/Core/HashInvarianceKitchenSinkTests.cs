@@ -8,6 +8,7 @@ using RMC.TotalRisk.Core.Interfaces;
 using RMC.TotalRisk.RiskFunctions.Consequences;
 using RMC.TotalRisk.RiskFunctions.Hazards;
 using RMC.TotalRisk.RiskFunctions.Responses;
+using RMC.TotalRisk.RiskFunctions.Responses.EventTrees;
 using RMC.TotalRisk.RiskFunctions.Transforms;
 using RMC.TotalRisk.Tests.RiskFunctions.Responses;
 
@@ -169,6 +170,29 @@ public class HashInvarianceKitchenSinkTests
                 CompositeCombinationType = CompositeCombinationType.Mixture,
             },
             f => ((CompositeResponse)f).ProbabilityTransform = Transform.NormalZ);
+
+
+        // Phase 10A — deterministic event-tree vertical slice.
+        yield return new RegistryEntry(
+            nameof(EventTreeResponse),
+            () =>
+            {
+                var tree = new EventTree();
+                tree.Add(tree.Root.Id, new ChanceNode("Failure", new ProbabilitySource(0.2d)));
+                tree.Add(tree.Root.Id, new RemainderNode("No failure"));
+                return new EventTreeResponse(new[] { 0d, 1d }, tree)
+                {
+                    Name = "Event tree",
+                    SpecifiedHazard = "Stage",
+                    HazardUnit = "ft",
+                };
+            },
+            f =>
+            {
+                var tree = (EventTreeResponse)f;
+                var chance = (ChanceNode)tree.EventTree.Root.Children[0];
+                chance.ProbabilitySource = new ProbabilitySource(0.3d);
+            });
 
         // Phase 9 — the composite transform (Average-only; the mutation nudges a weight).
         yield return new RegistryEntry(

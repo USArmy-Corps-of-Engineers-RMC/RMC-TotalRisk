@@ -4,6 +4,7 @@ using RMC.TotalRisk.Core.Interfaces;
 using RMC.TotalRisk.RiskFunctions.Consequences;
 using RMC.TotalRisk.RiskFunctions.Hazards;
 using RMC.TotalRisk.RiskFunctions.Responses;
+using RMC.TotalRisk.RiskFunctions.Responses.EventTrees;
 using RMC.TotalRisk.RiskFunctions.Transforms;
 
 namespace RMC.TotalRisk.RiskFunctions
@@ -74,6 +75,7 @@ namespace RMC.TotalRisk.RiskFunctions
                 nameof(ParametricResponse) => new ParametricResponse(xElement),
                 nameof(NonFailResponse) => new NonFailResponse(xElement),
                 nameof(CompositeResponse) => new CompositeResponse(xElement, resolver),
+                nameof(EventTreeResponse) => new EventTreeResponse(xElement, resolver),
                 nameof(TabularConsequence) => new TabularConsequence(xElement),
                 nameof(ParametricConsequence) => new ParametricConsequence(xElement),
                 nameof(CompositeConsequence) => new CompositeConsequence(xElement, resolver),

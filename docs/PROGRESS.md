@@ -1,5 +1,29 @@
 # Progress Log
 
+
+## 2026-07-28 — Phase 10A first vertical slice landed (PARTIAL)
+
+**Goal:** begin Phase 10A with the largest coherent end-to-end event-tree slice that could be implemented, tested, verified, and documented without pretending the multi-week full phase was complete.
+
+**Landed:** common `TreeLinkMode`/`TreeDeletePolicy`/`TreeNodeReference` and immutable branch descriptor/sample contracts; controlled `EventTree` ownership over initiating/chance/remainder nodes; transactional add/insert/move/delete; deterministic DFS/BFS/search/ancestry/reachability/leaves/structural hashes; scalar, aligned uncertain-table, and ordinary response-function probability sources; `EventTreeResponse` mean/percentile/indexed sampling with recursive direct-child setup and flattened sampler columns; exhaustive terminal outputs plus aggregate failure; explicit node/edge self-contained and by-reference XML; projected metadata/GUID/presentation-order-inert hashing; factory/discriminator/kitchen-sink registrations; and mirrored public-class tests.
+
+**Probability contract preserved:** compensated sibling sums; explicit probabilities unchanged when their sum is at most one; proportional normalization when above one; remainder `1-S` or zero; path products; failure-terminal sum; and a stable implicit non-failure branch for unassigned mass. `SecondaryHazardNode` was not added and `WeightedHazardLevel` was untouched. No hazard frequency, consequence, annualization, or risk math moved into the response.
+
+**Verified:** warning-free `dotnet build`; Release fast gate **724/724**; isolated `EventTreeVerification` **3/3** (deep/wide analytic path products, over-allocation normalization, and 256 realization-for-realization LHS table samples); code/XML-doc/namespace/dependency/public-class/traceability validator green. Verification results are recorded in [event-tree.md](verification/event-tree.md). Legacy `Test_Product` is explicitly not an oracle.
+
+**Still open before Phase 10A can close:** `EventTreeLinkNode`, internal/external independent-clone occurrence binding, `TreeFragment` copy/paste and replace/materialize/prune operations, topological/unreachable/reference queries, cross-function cycle paths and recursive tree sources, repeated referenced-response occurrences, legacy recursive-XML conversion/templates, expanded graph ports and stale-connection policy, immutable compiled plans/cache invalidation/allocation-free O(V+E) evaluation, large-tree performance fixtures, property-based tests, branch-routing Monte Carlo, graph-connected consequence equivalence, LHS variance-reduction and thread/round-trip/link reproducibility gates. The roadmap remains partial and Phase 10B remains gated behind full 10A closure.
+## 2026-07-28 — Event/fault-tree response implementation design complete
+
+**Goal:** produce a decision-complete plan another session can implement without redoing the legacy audit or reopening the central semantics, while preserving all previously requested scope.
+
+**Landed (documentation only):** the normative [event-tree and fault-tree response design](requirements/EVENT_AND_FAULT_TREE_RESPONSE_DESIGN.md), roadmap split into Phase 10A (common/event foundation) and 10B (static fault tree), architecture v0.21/Q-B/Q-O resolution, technical/verification maps, bibliography, and corrected legacy traceability. The design specifies conditional fragility `P(F|h)` as the only tree output responsibility; hazard probability remains in hazard functions and risk remains in graph connections plus `RiskAnalysis`. It locks the event probability/remainder rules, exact ROBDD fault evaluation, stable per-leaf ports, internal/external references, independent-clone and shared-logical semantics, copy/paste/add/insert/delete/link/manipulation APIs, traversal/search/topological/pruning algorithms, compiled performance model, recursive LHS/content seeding, two-mode serialization, projected hashing, unit/verification/performance gates, file/phase order, and definition of done.
+
+**Legacy findings confirmed:** `SecondaryHazardNode` and its paths are commented out in both old implementations, no live factory/template/test uses them, and they are excluded. `WeightedHazardLevel` is active in legacy `BivariateResponse`, so it remains Phase 11 scope and is not mislabeled as dead event-tree code. The 29 templates contain 466 event nodes (largest 33, depth 10) but no node/response references. `Test_EventTree.Test_Product` has no assertion and does not create an event tree; verification now uses analytic path products, exhaustive identities, and independent branch-routing oracles instead of claiming false legacy parity.
+
+**Assessment:** Phase 10A is approximately 5.5–8 contributor-weeks. Exact static fault trees add approximately 4–6.5 weeks after that foundation; combined estimate 9.5–14.5 weeks. The fault-tree cost-benefit is favorable when practitioners need repeated basic events, because exact shared-event semantics avoid exponential manual event-tree expansion and modeling errors. Recommendation is to plan 10B now but gate it after 10A; defer rather than ship naive independence or truncated-cut-set probability math.
+
+**Code impact:** none. No algorithm, serialized model, hash, seed, or result changed in this documentation session.
+
 > Newest entries first. Keep entries short: what landed, what's verified, what's next. Every session appends an entry; phase completions append "— PHASE N COMPLETE" to the title.
 
 ## 2026-07-27 - Forensic numerical and contract remediation — PHASE 8.6 COMPLETE

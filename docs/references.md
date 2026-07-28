@@ -45,3 +45,13 @@ Consolidated bibliography, IEEE-numbered, grouped by topic. Numbers are stable o
 [17] R. T. Rockafellar and S. Uryasev, "Optimization of Conditional Value-at-Risk," *Journal of Risk*, vol. 2, no. 3, pp. 21–41, 2000. (CVaR / expected shortfall as a coherent tail risk measure.)
 
 [18] Basel Committee on Banking Supervision, *Minimum Capital Requirements for Market Risk* (Fundamental Review of the Trading Book), Bank for International Settlements, 2019. (Adoption of 97.5% expected shortfall in place of 99% VaR — the regulatory precedent for preferring a coherent tail measure.)
+
+## Event-tree and fault-tree analysis
+
+[19] U.S. Nuclear Regulatory Commission, *Fault Tree Handbook*, NUREG-0492, Washington, DC, 1981. Available: https://www.nrc.gov/reading-rm/doc-collections/nuregs/staff/sr0492/index
+
+[20] National Aeronautics and Space Administration, *Fault Tree Handbook with Aerospace Applications*, Version 1.1, Washington, DC, 2002. Available: https://extapps.ksc.nasa.gov/Reliability/Documents/Fault_Tree_Handbook_with_Aerospace_Applications_August_2002.pdf
+
+[21] International Electrotechnical Commission, *Fault Tree Analysis (FTA)*, IEC 61025:2006, Geneva, Switzerland, 2006. Available: https://webstore.iec.ch/en/publication/4311
+
+[22] International Electrotechnical Commission, *Analysis Techniques for Dependability — Event Tree Analysis (ETA)*, IEC 62502:2010, Geneva, Switzerland, 2010.

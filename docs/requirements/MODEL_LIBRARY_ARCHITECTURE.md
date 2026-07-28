@@ -2,6 +2,8 @@
 
 > Living architectural specification for `RMC.TotalRisk.dll` — the headless .NET 10 compute library at the heart of the v1.1.0 modernization. **Authoritative home (since 2026-07-20): `docs/requirements/` in the RMC-TotalRisk repo**; the phased plan implementing this spec is [../ROADMAP.md](../ROADMAP.md). The copy at the `C:\GIT\RMC-TotalRisk-Dev` root is frozen with a pointer here, and legacy porting-source paths referenced below (e.g., `RMC-TotalRisk/RMC.TotalRisk.IO/...`) live in that Dev repo. The locked sections are the contract every cluster-port PR references.
 
+**Status**: 2026-07-28 — **v0.21** (Phases 10A/10B design ratification). [EVENT_AND_FAULT_TREE_RESPONSE_DESIGN.md](EVENT_AND_FAULT_TREE_RESPONSE_DESIGN.md) is the normative specialization for tree response functions. It resolves Q-B and Q-O: event and fault trees create conditional fragility only; event links are independent compiled clones; fault links explicitly distinguish shared logical events from independent clones; both gain controlled authoring/graph algorithms, recursive LHS, two-mode references, and projected identity; static fault probability uses an exact ROBDD. Secondary-hazard event nodes are excluded, while `WeightedHazardLevel` remains active bivariate-response scope. Phase 10 is split into 10A common/event foundation and 10B fault trees.
+
 **Status**: 2026-07-25 — **v0.19** (Phase 9 partial landing: composite hazard, transform, and response. **Q-Y ADDED AND RESOLVED** — composite mixtures are aleatory only; see §11 Q-Y, the amended §5.5.3 hash rows for the three composites, the corrected §5.8.4 dimension rows (both were pre-Q-V), and the practitioner doctrine in `docs/technical-reference/composite-functions.md`.)
 **Status**: 2026-07-27 — **v0.20** (Phase 8.6 safety gate). Failure-mode exclusive
 enumeration is lazy for every dependency, so the engine no longer allocates a dense
@@ -250,17 +252,13 @@ src/RMC.TotalRisk/
 │   │   ├── NonFailResponse.cs
 │   │   ├── BivariateResponse.cs            (Phase 11; see section 6.3)
 │   │   ├── CompositeResponse.cs
-│   │   ├── EventTreeResponse.cs
-│   │   ├── FaultTreeResponse.cs            (v2 placeholder; see section 6.3)
-│   │   └── EventNodes/                     (cluster-local node contract, not a kernel contract)
-│   │       ├── IEventNode.cs
-│   │       ├── EventNodeBase.cs
-│   │       ├── EventNodeExtensions.cs
-│   │       ├── ChanceNode.cs
-│   │       ├── InitiatingNode.cs
-│   │       ├── RemainderNode.cs
-│   │       ├── SecondaryHazardNode.cs
-│   │       └── WeightedHazardLevel.cs
+│   │   ├── Trees/                          (common references, branch results, compilation support)
+│   │   ├── EventTrees/                     (Phase 10A)
+│   │   │   ├── EventTreeResponse.cs
+│   │   │   └── Nodes/                      (initiating, chance, remainder, independent link)
+│   │   └── FaultTrees/                     (Phase 10B)
+│   │       ├── FaultTreeResponse.cs
+│   │       └── Nodes/                      (gate, basic event, house event, transfer)
 │   └── Consequences/
 │       ├── ConsequenceFunctionBase.cs
 │       ├── WeightedConsequenceFunction.cs
@@ -495,8 +493,8 @@ Architecture is contract. The tables below enumerate each type's **compute-relev
 |---|---|
 | `ParametricResponse` / `TabularResponse` / `NonFailResponse` | analogous to corresponding hazard types |
 | `BivariateResponse` | typeTag, surface ordinates, PrimaryHazardType, SecondaryHazardType |
-| `EventTreeResponse` | typeTag + post-order DAG traversal: per node, type tag + parameters; children sorted by canonical hash |
-| `FaultTreeResponse` | (v2 placeholder; recipe deferred — Q-O) |
+| `EventTreeResponse` | projected tree identity: hazard axis, source content, terminal failure classification, topology, target subtree/function canonical identities, and link mode; IDs/names/reference wrappers stripped; canonical occurrence paths replace persistence IDs |
+| `FaultTreeResponse` | projected tree identity: hazard axis, gates/K/basic-source content/topology, target canonical identities, and shared-logical versus independent-clone mode; IDs/names/reference wrappers stripped; commutative gate inputs sorted by child canonical hash |
 | `CompositeResponse` | typeTag, **CompositeCombinationType**, DependencyType, CorrelationMatrix, HazardTransform, ProbabilityTransform, weighted-list count, per entry (effective weight and sub.CanonicalHash) — a **projected identity form**, identical recipe to `CompositeHazard`. *(Amended at implementation, 2026-07-25.)* |
 | `WeightedResponseFunction` | typeTag, weight, responseFunction.CanonicalHash |
 
@@ -766,7 +764,7 @@ public abstract class RiskFunctionBase : IRiskFunction
 | `NonparametricHazard`, `TabularHazard`, `RFAHazard` | 1 | percentile-driven ordinate |
 | `TabularResponse`, `NonFailResponse` | 1 | percentile lookup |
 | `BivariateResponse` | 0 | deterministic |
-| `EventTreeResponse` | direct-chance-node count + unique-response-function count | see §5.8.6 |
+| `EventTreeResponse`, `FaultTreeResponse` | local uncertain-source dimensions plus recursively owned referenced-function dimensions; independent link occurrences bind independent canonical occurrences, shared fault events bind once | see §5.8.6 and the normative tree-response design §8 |
 | `TabularConsequence`, `LifeSimConsequence` | 1 | percentile-driven `UncertainOrderedPairedData` |
 | `CompositeHazard`, `CompositeConsequence` | **0** | *(Corrected 2026-07-25, Phase 9 — this row was pre-Q-V.)* `CompositeConsequence` is 0 under ratified Q-V (branches enumerated, not drawn). `CompositeHazard` is 0 because its mixture is **aleatory**: `SampleFunction(k)` returns a real `Mixture` distribution built from the children sampled at realization k, so no branch is ever selected. Children own their own dimensions and are set up recursively. |
 | `CompositeResponse` | **0** | *(Corrected 2026-07-25, Phase 9.)* Same aleatory-mixture reasoning as `CompositeHazard`. |
@@ -805,39 +803,9 @@ private double? MixtureSelector(int idx)
        : null;
 ```
 
-#### 5.8.6 EventTreeResponse: LHS-driven traversal
+#### 5.8.6 Tree responses: recursive LHS-driven evaluation
 
-The legacy `SampleFunction(int seed)` does `new Random(seed)` and walks the tree, calling `rnd.NextDouble()` once per direct chance-node child of the initiating node and once per unique referenced `ResponseFunction`. Both kinds of draws fit cleanly into a single LHS matrix.
-
-```csharp
-public override int SamplingDimensions
-    => CountDirectChanceNodes() + CountUniqueResponseFunctionReferences();
-
-public override void SetupSampler(int N, int seed, SamplingScheme scheme)
-{
-    base.SetupSampler(N, seed, scheme);
-
-    int sub = 0;
-    foreach (var rf in UniqueResponseFunctionsReferenced())
-    {
-        int childSeed = SeedHelpers.HashCombine(seed, sub++, rf.CanonicalHash());
-        rf.SetupSampler(N, childSeed, scheme);
-    }
-}
-
-public IUnivariateDistribution SampleFunction(int idx)
-{
-    var clone = _eventTree.CloneTree();
-    int dim = 0;
-    foreach (var node in clone.DirectChanceChildren())
-        node.SamplePercentile = Percentile(idx, dim++);
-    foreach (var rfRef in clone.UniqueResponseFunctionReferences())
-        rfRef.SamplePercentile = Percentile(idx, dim++);
-    return clone.ResponseFunction(idx);     // tree traversal now uses pre-set percentiles
-}
-```
-
-The tree's internal traversal (in `ChanceNode.SampleNode`, `InitiatingNode.ResponseFunctionProbabilities`, etc.) reads the pre-set `SamplePercentile` on each node instead of calling into a `Random`. Variance reduction extends through the entire event tree.
+The legacy event tree cloned its object graph and used local random draws. Phases 10A/10B instead compile event/fault graphs once and participate in the standard sampler lifecycle. Local uncertain sources receive LHS dimensions; referenced response functions own and report their actual nested dimensions; independent link occurrences receive distinct canonical occurrence bindings; shared-logical fault events sample once and reuse the value. Indexed sampling performs no random draw and no public-tree clone. Exact rules, seed invariances, posterior-capacity checks, and verification gates are normative in [EVENT_AND_FAULT_TREE_RESPONSE_DESIGN.md](EVENT_AND_FAULT_TREE_RESPONSE_DESIGN.md) §8.
 
 #### 5.8.7 Component-level orchestration
 
@@ -1060,9 +1028,9 @@ public interface IResponseFunction : IModelElement
 }
 ```
 
-Concrete types: `ParametricResponse`, `TabularResponse`, `BivariateResponse`, `NonFailResponse`, `EventTreeResponse`, `CompositeResponse`, `FaultTreeResponse` (v2 placeholder) + `WeightedResponseFunction`.
+Concrete types: `ParametricResponse`, `TabularResponse`, `BivariateResponse`, `NonFailResponse`, `EventTreeResponse`, `CompositeResponse`, `FaultTreeResponse` + `WeightedResponseFunction`.
 
-Event-node sub-hierarchy under `EventTreeResponse`: `IEventNode`, `EventNodeBase`, `ChanceNode`, `InitiatingNode`, `RemainderNode`, `SecondaryHazardNode`, `WeightedHazardLevel`, `EventNodeExtensions`. Pure DAG of probabilistic branches; canonical hash via post-order traversal with children visited in their own canonical-hash order.
+Tree-response details are specified in [EVENT_AND_FAULT_TREE_RESPONSE_DESIGN.md](EVENT_AND_FAULT_TREE_RESPONSE_DESIGN.md). In summary, `EventTreeResponse` owns initiating/chance/remainder/independent-link nodes and exposes aggregate and stable per-leaf conditional probabilities; `FaultTreeResponse` owns static gate/basic/house/transfer nodes and returns exact top-event conditional probability. Both are response functions, not hazard or risk calculators. `SecondaryHazardNode` is excluded as confirmed inactive legacy code. `WeightedHazardLevel` remains with Phase 11 `BivariateResponse`, not the event-node hierarchy.
 
 #### 6.3.1 BivariateResponse extended for bivariate hazards
 
@@ -1090,24 +1058,9 @@ Validation in `SystemComponent`: the FM's BivariateResponse is allowed only when
 
 The owning `FailureMode` exposes `ConsequenceHazardBinding ∈ { Primary, Secondary }` to indicate which dimension feeds the consequence function (which is itself univariate). See §6.5 and §7.4.
 
-#### 6.3.2 FaultTreeResponse (v2 placeholder)
+#### 6.3.2 EventTreeResponse and FaultTreeResponse
 
-```csharp
-/// <summary>
-/// V2 PLACEHOLDER — full design deferred to a post-v1.1.0 release. Provides a structural contract
-/// for fault-tree analysis: AND/OR/XOR/k-of-N gates, basic-event probabilities, minimal-cut-set
-/// enumeration. Will mirror EventTreeResponse's pattern (declarative tree + traversal at SampleFunction).
-/// LHS-driven via SetupSampler once the dimension-counting recipe is locked.
-/// Throws NotImplementedException from SetupSampler in v1.1.0.
-/// </summary>
-public class FaultTreeResponse : ResponseFunctionBase
-{
-    public FaultTreeRootNode Root { get; set; }
-    // ...
-}
-```
-
-Tracked design as Q-O. The placeholder lets the UI offer "Add Fault Tree Response" with a stub editor that warns "v2 only".
+Both are fully designed v1.1 response functions, sequenced as roadmap Phases 10A and 10B. Their responsibility boundary, public model, link semantics, exact event/fault mathematics, manipulation and graph algorithms, LHS recipe, serialization/hash contract, risk-graph branch integration, tests, verification, performance gates, and level-of-effort assessment are normative in [EVENT_AND_FAULT_TREE_RESPONSE_DESIGN.md](EVENT_AND_FAULT_TREE_RESPONSE_DESIGN.md). No `NotImplementedException` placeholder ships as a completed feature.
 
 ### 6.4 Consequence Function — cluster #4
 
@@ -1873,10 +1826,10 @@ Small after Phase 2.0 — the types are thin wrappers over `Numerics.Functions` 
 ### Phase 2.3 — Response cluster
 
 - Port `IResponseFunction`, `ResponseFunctionBase`, `WeightedResponseFunction`.
-- Port 6 concrete response types + 8 event-node types.
+- Port the ordinary response types in their owning phases; implement the tree-response foundation and event hierarchy in Phase 10A and static fault hierarchy in Phase 10B.
 - Extend `BivariateResponse` with bivariate hazard wiring (`PrimaryHazardType`, `SecondaryHazardType`, alignment validation against parent component).
-- Add `FaultTreeResponse` v2 placeholder (throws from `SetupSampler`; canonical-hash recipe deferred to Q-O).
-- `CanonicalizationRules` entries + hash-invariance tests on each (event nodes via post-order traversal; children sorted by canonical hash).
+- Do not add a fault-tree placeholder. Implement the approved exact design in Phase 10B after the Phase 10A foundation exits.
+- Add projected canonical identities and hash-invariance tests according to the normative tree-response design; persistent child order is never allowed to leak metadata into compute identity.
 - Unit tests + parity tests, including a bivariate-response + bivariate-hazard end-to-end scenario.
 
 ### Phase 2.4 — Consequence cluster
@@ -1923,7 +1876,6 @@ Living section. Append entries as we go. Once an item is resolved, move it under
 
 ### Open
 
-- **Q-B**: `EventTreeResponse` post-order traversal — children sorted by their own canonical hash (proposed). Confirm this matches the math; if event-tree mathematics depend on declared order (e.g., probability normalization across siblings), we keep declared order and accept the metadata leak.
 - **Q-D**: `LifeSimConsequence` is a heavy type that wraps a separate simulation. Audit during Phase 2.4: confirm there's no hidden file I/O in its compute path.
 - **Q-E**: Threading audit — `Parallel.For` is straightforward, but are any `SampledComponent` / `SampledFailureMode` operations not thread-safe today? Audit during Phase 2.5.
 - **Q-F**: `BasicMessageItem` rich metadata — Phase 2 drops severity/code/source/property-name. If the future REST API or agentic clients need structured error codes, revisit this in v1.x with a `ValidationIssue` record.
@@ -1934,7 +1886,6 @@ Living section. Append entries as we go. Once an item is resolved, move it under
 - **Q-L**: Default value of `RiskAnalysisOptions.SamplingScheme` — `LatinHypercube` (proposed; gives the variance-reduction win out of the box) vs. `MonteCarlo` (legacy parity, opt-in). Recommended `LatinHypercube`. Confirm before Phase 2.5.
 - **Q-M**: Bootstrap posterior size vs. Realizations count. `ParametricHazard.SampleFunction(int idx)` looks up the idx-th posterior parameter set. The legacy bootstrap stores M ∈ [100, 100000] samples; risk analysis runs N ∈ [1000, 10000+] realizations. If M < N, indices currently wrap modularly. Two options: keep the index-based path (simpler, parity with legacy) or convert to a `SamplingDimensions = 1` percentile-based path (`posterior[(int)(p * M)]`) so the bootstrap participates in LHS. Decide during Phase 2.1; for the initial port, preserve index-based.
 - **Q-N** *(amended 2026-07-20, v0.9)*: Fail vs. non-fail consequence coupling. Legacy `SampledFailureMode` draws ONE percentile r per realization and uses it for BOTH the failure consequence and a parallel sample of the parent non-failure consequence on the same FM, so excess = fail − non-fail is sampled coherently at the realization level. With per-function `SetupSampler`, fail and non-fail samplers are independent by default — the coupling is lost. Default proposal: have `FailureMode.SetupSamplers` allocate one shared consequence percentile that drives both functions via `SampleFunction(double percentile)` instead of `SampleFunction(int idx)`. v0.9 amendment: under multi-consequence lists the coupling applies **per paired position** (the k-th failure consequence shares its draw with the k-th non-failure consequence — pairing is positional). Design with the engine phase's sampled machinery. **RESOLVED 2026-07-22, v0.14**: the technical reference grounds the shared draw (C_F and C_NF perfectly correlated within a mode); landed as the failure mode's N×max(K,1) coupling matrix driving both sides of each positional pair through `SampleExposureBranches(double percentile)` — consequence functions are excluded from the per-function sampler walk (see the v0.14 status block, item 2).
-- **Q-O**: `FaultTreeResponse` design. v2 placeholder shipped in v1.1.0; full design (gate types, basic-event probabilities, minimal-cut-set enumeration, LHS dimension recipe) deferred. Pre-design discussion before v2 starts.
 - **Q-P**: `BestFitTabularHazard` import shape. BestFit's `CoincidentFrequencyAnalysis` produces an X × Y × Z table with MCMC sample bounds. Decide what gets stored in canonical hash: the full Z[i,j] grid, or a compressed posterior-summary representation. Affects file size on save and canonical-hash bytes; doesn't affect math. Resolve during Phase 2.1.
 - **Q-Q**: Copula sampling under LHS for `ParametricBivariateHazard`. The copula's parameter uncertainty (if present) needs to be one LHS dimension; the marginals each have their own. `SamplingDimensions` for a parametric bivariate hazard is `MarginalX.SamplingDimensions + MarginalY.SamplingDimensions + (copula uncertain ? 1 : 0)`. Confirm during Phase 2.1.
 - **Q-R**: `BivariateResponse` surface uncertainty. The existing legacy `BivariateResponse` is deterministic (D=0 per the explore agent's report). For v1.1.0, do we add knowledge uncertainty on the surface itself (e.g., uncertainty per surface ordinate)? Default proposal: keep deterministic for the initial port; revisit in v2 if users request it. Tracked.
@@ -1944,6 +1895,8 @@ Living section. Append entries as we go. Once an item is resolved, move it under
 - **Q-V** *(added 2026-07-21, v0.13; **RESOLVED 2026-07-22, v0.14 — ratified YES**)*: mixture-branch exposure enumeration applies in the full-MC path too. Mixture weights are aleatory exposure, so every realization's LEC carries the mixture spread and the ensemble stays purely epistemic. Landed: `SampledFailureMode` is branch-aware in both paths, `CompositeConsequence.SamplingDimensions` is 0, and the standalone per-realization mixture surface keeps its pre-Q-V stream through an internal selector matrix (see the v0.14 status block, item 1).
 - **Q-W** *(added 2026-07-21, v0.13; narrowed 2026-07-23, v0.16; **RESOLVED 2026-07-24, v0.17 — design recorded, implementation deliberately withheld**)*: *Shared exposure state* across consequence types. In reality a single day/night draw should drive **all** consequence types on that mode at once (economic and life loss share the same exposure state); v1.0 has no concept of this. **v0.16 erratum**: the engine computes per-type marginal results and never crosses branches across types, so the question is moot for every output produced today. **Resolution (v0.17, Phase 6.6)**: the practical surface shipped as per-type marginals plus the per-type `ConsequenceThreshold` on `ConsequenceTypeDescriptor`; the shared-exposure declaration itself is sketched in §6.4.1 (a per-mode append-only flag binding one branch selector across the mode's consequence positions) and is implemented only when cross-type joint statistics — which do not exist in any produced output — are actually requested.
 ### Resolved
+
+- **Q-B / Q-O** *(resolved 2026-07-28, v0.21)*: The complete tree-response design is [EVENT_AND_FAULT_TREE_RESPONSE_DESIGN.md](EVENT_AND_FAULT_TREE_RESPONSE_DESIGN.md). Canonical identity uses projected topology and target content rather than names/IDs; mathematically commutative fault inputs sort canonically while stable branch IDs preserve event-tree output connections. Event trees compile independent links and propagate conditional mass in linear time. Static fault trees distinguish shared logical events from independent clones and use an exact ROBDD; cut sets are inspection only. Both recursively participate in LHS and produce conditional fragility, leaving hazard frequency and risk to the existing function/graph/analysis layers.
 
 - **Q-X** *(added 2026-07-22, v0.14; successor design ratified 2026-07-23, v0.16; **RESOLVED 2026-07-24, v0.18 — Phase 6.7 landed**)*: Multi-stage response composition semantics. The Phase-3 grammar `T* (R T*)* C` authors chains with two or more response stages, but v1.0 had exactly one response and no oracle covered composition. The v0.14 deferral (the `RiskAnalysis.Validate()` gate + the `SampledFailureMode` constructor throw) is replaced by the implemented cascading-response-end-states design: typed Fail/Non-Fail output ports, per-stage `BranchPolarity` (polarity-product SRP), end states as projected modes in mutually-exclusive state groups with the complement remainder to background, final-polarity classification (§7.9.2), the claimed-complement mixture (§7.9.5), sibling excess pairing (§7.9.4), and the across-unit combination with the narrow competing gate (§7.9.6). See the v0.18 status block and §7.9; evidence in `CascadeEndStateVerification`.
 - **Q-Y** *(added and **RESOLVED 2026-07-25, v0.19** — Phase 9 partial landing)*: **Are composite mixture weights aleatory or epistemic?** A weighted list of children admits two readings — the weights are frequencies within the event population (aleatory), or they are credibility that one fixed-but-unknown alternative is correct (epistemic). The two share a mean and differ in spread, so the choice is invisible in expected risk and decisive in the uncertainty bands. **Ratified: v1.1 implements the aleatory reading only**, because aleatory representability differs by cluster and only three of four clusters can express it. Hazard and response composites return a real `Numerics.Mixture` distribution built from the children sampled at the same realization, so `SamplingDimensions` is 0 and no branch is ever selected — a realization *is already a distribution*, the mixture folds into it losslessly, and the Q-V tail defect cannot arise. `CompositeConsequence` is aleatory by ratified Q-V (exposure branches). `CompositeTransform` **cannot** represent an aleatory mixture at all — `SampledFailureMode` chains transforms deterministically, with no branch surface — so it ships `Average` only, and `Mixture` is a validation error until the engine gains a transform analog of exposure branches. Consequences: a mixture of deterministic hazard/response children is itself deterministic (the divergence from `CompositeConsequence`); an epistemic mode for any cluster is deferred to its own ratification, with the practitioner decision rule and the Jensen-bias worked example already written up in `docs/technical-reference/composite-functions.md`. Evidence in `CompositeHazardVerification`, `CompositeResponseVerification`, and `CompositeTransformVerification`.

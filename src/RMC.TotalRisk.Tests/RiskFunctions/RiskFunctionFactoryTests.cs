@@ -6,6 +6,7 @@ using RMC.TotalRisk.RiskFunctions;
 using RMC.TotalRisk.RiskFunctions.Consequences;
 using RMC.TotalRisk.RiskFunctions.Hazards;
 using RMC.TotalRisk.RiskFunctions.Responses;
+using RMC.TotalRisk.RiskFunctions.Responses.EventTrees;
 using RMC.TotalRisk.RiskFunctions.Transforms;
 
 namespace RMC.TotalRisk.Tests.RiskFunctions;
@@ -33,6 +34,7 @@ public class RiskFunctionFactoryTests
             new TabularResponse(),
             new ParametricResponse(),
             new NonFailResponse(),
+            new EventTreeResponse(),
             new TabularConsequence(),
             new ParametricConsequence(),
             new CompositeConsequence(),
@@ -98,6 +100,7 @@ public class RiskFunctionFactoryTests
         var transformXml = new TabularTransform().ToXElement();
         var responseXml = new TabularResponse().ToXElement();
         var nonFailXml = new NonFailResponse().ToXElement();
+        var eventTreeXml = new EventTreeResponse().ToXElement();
         var consequenceXml = new TabularConsequence().ToXElement();
         var parametricConsequenceXml = new ParametricConsequence().ToXElement();
 
@@ -108,6 +111,7 @@ public class RiskFunctionFactoryTests
         Assert.IsNotNull(RiskFunctionFactory.CreateTransformFunction(new PowerTransform().ToXElement()));
         Assert.IsNotNull(RiskFunctionFactory.CreateResponseFunction(responseXml));
         Assert.IsNotNull(RiskFunctionFactory.CreateResponseFunction(nonFailXml));
+        Assert.IsNotNull(RiskFunctionFactory.CreateResponseFunction(eventTreeXml));
         Assert.IsNotNull(RiskFunctionFactory.CreateConsequenceFunction(consequenceXml));
         Assert.IsNotNull(RiskFunctionFactory.CreateConsequenceFunction(parametricConsequenceXml));
         Assert.IsNull(RiskFunctionFactory.CreateResponseFunction(parametricConsequenceXml));
