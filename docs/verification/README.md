@@ -90,8 +90,10 @@ the test executable with a TRX report:
 ## Remaining tree-response verification
 
 The foundation and independent-link `EventTreeVerification` slices are executable and documented
-above. Phase 10A still owes legacy conversion/templates, branch-routing Monte Carlo,
-graph-integration, LHS variance reduction, thread-count reproducibility, and performance anchors.
+above. The third, controlled authoring/topology slice is covered by fast structural and
+transactional tests because it introduces no new numerical behavior. Phase 10A still owes legacy
+conversion/templates, branch-routing Monte Carlo, graph integration, LHS variance reduction,
+thread-count reproducibility, and performance anchors.
 Phase 10B will add `FaultTreeVerification`. The complete gates are specified in the normative [event-tree and fault-tree response design](../requirements/EVENT_AND_FAULT_TREE_RESPONSE_DESIGN.md) §15.
 
 **Forensic traceability closure.** The

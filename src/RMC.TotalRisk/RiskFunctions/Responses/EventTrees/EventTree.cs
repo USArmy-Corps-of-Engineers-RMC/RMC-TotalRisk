@@ -15,7 +15,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
     /// A controlled event-tree node collection. Public views are read-only and every structural
     /// mutation is validated before the authored graph changes.
     /// </summary>
-    public sealed class EventTree
+    public sealed partial class EventTree
     {
         /// <summary>Initializes an event tree with one initiating root.</summary>
         public EventTree()
@@ -282,31 +282,9 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
         /// <param name="nodeId">The subtree root to delete.</param>
         /// <param name="policy">The policy for internal links targeting the selected subtree.</param>
         /// <exception cref="InvalidOperationException">Thrown when the root is selected or the policy would leave a dangling link.</exception>
-        /// <exception cref="NotSupportedException">Thrown when materialization is requested; that authoring operation remains a later Phase 10A slice.</exception>
         public void Delete(Guid nodeId, TreeDeletePolicy policy = TreeDeletePolicy.RejectIfReferenced)
         {
-            EventNodeBase node = RequireNode(nodeId, "Delete", "source");
-            if (ReferenceEquals(node, Root)) throw MutationError("Delete", node, Root, "the initiating root cannot be deleted");
-            if (!Enum.IsDefined(policy)) throw new ArgumentOutOfRangeException(nameof(policy));
-            EventNodeBase[] subtree = DescendantsAndSelf(node).ToArray();
-            var subtreeIds = new HashSet<Guid>(subtree.Select(item => item.Id));
-            EventTreeLinkNode[] incoming = _nodes.OfType<EventTreeLinkNode>()
-                .Where(link => !subtreeIds.Contains(link.Id)
-                    && !link.IsExternal
-                    && subtreeIds.Contains(link.Target.NodeId))
-                .ToArray();
-            if (incoming.Length > 0 && policy == TreeDeletePolicy.RejectIfReferenced)
-            {
-                throw MutationError("Delete", node, incoming[0],
-                    $"the subtree is referenced by internal link '{incoming[0].Name}'");
-            }
-            if (incoming.Length > 0 && policy == TreeDeletePolicy.MaterializeLinks)
-                throw new NotSupportedException("MaterializeLinks is not available in this Phase 10A link slice; use RejectIfReferenced or CascadeLinks.");
-            if (policy == TreeDeletePolicy.CascadeLinks)
-            {
-                for (int i = 0; i < incoming.Length; i++) RemoveSubtree(incoming[i]);
-            }
-            RemoveSubtree(node);
+            DeleteTransactional(nodeId, policy);
         }
 
         /// <summary>Removes one subtree after reference policy has been resolved.</summary>

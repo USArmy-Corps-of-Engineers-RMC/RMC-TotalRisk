@@ -544,14 +544,16 @@ unapproved tolerance, correlation, normalization, seed, or probability-formula c
 > `ComponentGraph`, and `RiskAnalysis`. The graph-level event-tree behavior already landed in
 > Phase 6.7 remains the downstream integration contract.
 
-> **Partially landed (2026-07-28):** two coherent P/T/V vertical slices provide the common branch
-> contracts, controlled nodes and core mutation/traversal/search operations, scalar/aligned-table/
-> ordinary-response sources, internal/external `IndependentClone` occurrence expansion, recursive
-> occurrence sampling, resolver-backed two-mode XML, full-path cross-function cycle diagnostics,
-> exhaustive outputs, projected hash/seed identity, and five analytic/indexed/link verification
-> tests. Phase 10A remains open for the remaining authoring/topology operations, event-tree
-> probability-source recursion, legacy conversion/templates, expanded graph ports, cached-plan
-> performance, property-based/routing/graph/LHS verification, and the remaining exit gates.
+> **Partially landed (2026-07-28):** three coherent vertical slices provide the common branch
+> contracts, controlled nodes, scalar/aligned-table/ordinary-response sources, internal/external
+> `IndependentClone` occurrence expansion, recursive occurrence sampling, resolver-backed two-mode
+> XML, full-path cross-function cycle diagnostics, exhaustive outputs, and projected hash/seed
+> identity. The controlled authoring/topology slice adds immutable `TreeFragment` snapshots,
+> fresh-ID copy/paste, replace/materialize/delete-materialize/prune operations, deterministic
+> expanded topological and unreachable-node inspection, internal/external reference queries, and
+> full rollback on failed mutation. Five analytic/indexed/link verification tests remain green.
+> Phase 10A remains open for probability-source recursion, legacy conversion/templates, expanded
+> graph ports, cached-plan performance, and the remaining verification and performance gates.
 
 **Scope:** implement the normative [event-tree and fault-tree response design](requirements/EVENT_AND_FAULT_TREE_RESPONSE_DESIGN.md) §§1–15: the controlled event-tree model; scalar/tabular/response probability sources; internal and external independent-clone links; copy/paste/add/insert/delete/move/replace/link/materialize operations; deterministic traversal, topological sort, search, reachability, pruning, and cycle diagnostics; compiled linear-time probability propagation; mean/percentile/indexed response and per-leaf branch outputs; `RiskSerializationMode`, projected canonical identity, legacy XML conversion, recursive sampler discovery, content-derived seeds, and LHS. Per-leaf output ports extend the Phase 6.7 response-port machinery without moving hazard frequency, consequence, or risk math into the tree.
 

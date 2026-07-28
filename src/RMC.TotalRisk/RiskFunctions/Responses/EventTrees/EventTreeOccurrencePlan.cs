@@ -174,8 +174,11 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                         var childPersistence = new List<Guid>(persistencePath.Count + 1);
                         childPersistence.AddRange(persistencePath);
                         childPersistence.Add(child.Id);
-                        children.Add(Expand(function, child, linkedAncestor || pendingLinks.Count > 0,
-                            Array.Empty<EventTreeLinkNode>(), childPersistence));
+                        EventTreeOccurrenceNode occurrence = Expand(function, child,
+                            linkedAncestor || pendingLinks.Count > 0,
+                            Array.Empty<EventTreeLinkNode>(), childPersistence);
+                        occurrence.AuthoredSiblingOrder = i;
+                        children.Add(occurrence);
                     }
                     children = children.Select((child, index) => (Child: child, Index: index))
                         .OrderBy(item => item.Child.IdentityToken, StringComparer.Ordinal)
@@ -308,6 +311,9 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
 
         /// <summary>The persistent-id occurrence path used only for stable branch addressing.</summary>
         internal string PersistencePath { get; }
+
+        /// <summary>The source parent's persistent child order used only for topology inspection.</summary>
+        internal int AuthoredSiblingOrder { get; set; }
 
         /// <summary>The metadata-free occurrence path assigned after canonical sibling sorting.</summary>
         internal string CanonicalPath { get; set; } = string.Empty;

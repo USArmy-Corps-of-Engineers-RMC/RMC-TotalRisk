@@ -1,6 +1,20 @@
 # Progress Log
 
 
+## 2026-07-28 - Phase 10A controlled authoring/topology vertical slice landed (PARTIAL)
+
+**Goal:** complete the next coherent controlled-authoring and topology surface without changing the landed event-tree probability, serialization-identity, seed, or output-port contracts.
+
+**Landed:** public immutable `TreeFragment`; snapshot copy and fresh-ID paste with fragment-local link remapping and live external-reference preservation; transactional `ReplaceSubtree`, internal/external `MaterializeLink`, `PruneUnreachable`, and all three delete policies including `TreeDeletePolicy.MaterializeLinks`; deterministic expanded topological order; unreachable-node detection; internal, external, incoming, and outgoing reference queries; and operation/source/target/reason diagnostics for invalid or unresolved targets. Cross-tree fragments promote out-of-fragment internal targets to explicit external references when the source tree has an owner.
+
+**Transactional contract:** every multi-step mutation snapshots authored nodes, parentage, child order, ownership, lookup state, and the output-port allocator. A failed operation detaches provisional clones and restores the exact pre-operation XML topology, persistent IDs, output ports, canonical hash, and configured-sampler validity; the unit suite exercises failure after provisional IDs and ports have been attached.
+
+**Numerical contract preserved:** the new surface is authoring-only and introduces no serialized compute property, formula, tolerance, seed rule, or local random-number generator. Raw sibling probabilities still apply when the compensated sum is at most one, normalization remains `q/S` only above one, residual behavior and compensated aggregation are unchanged, and event-tree links remain `IndependentClone` only. Fresh IDs, names, presentation order, and persistence wrappers remain outside projected canonical identity.
+
+**Verified:** warning-free `dotnet build`; Release fast suite **747/747**; isolated `EventTreeVerification` **5/5**. No verification case was added because this slice has no new numerically observable behavior; fast tests prove copy/materialization calculation parity and sampler/hash rollback. The code/XML-doc/namespace/dependency/public-class/traceability validator is green.
+
+**Still open before Phase 10A can close:** recursive `EventTreeResponse` probability sources; legacy recursive-XML conversion and representative templates; expanded graph ports and stale-connection policy; immutable cached-plan invalidation and allocation-free O(V+E) evaluation; large-tree performance fixtures; property-based tests; independent branch-routing Monte Carlo; graph-connected per-leaf consequence equivalence; LHS variance reduction; and the remaining thread-count, legacy, and performance exit gates. Phase 10A remains partial and Phase 10B remains gated behind full closure.
+
 ## 2026-07-28 — Phase 10A independent-link vertical slice landed (PARTIAL)
 
 **Goal:** extend the event-tree foundation with the next coherent reference-aware slice while preserving the landed conditional-probability, seed, serialization-identity, and output-port contracts.

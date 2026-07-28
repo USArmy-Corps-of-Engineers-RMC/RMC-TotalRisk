@@ -2,13 +2,15 @@
 
 ## Scope and status
 
-`EventTreeVerification` currently verifies two coherent Phase 10A implementation slices:
-controlled scalar/tabular event trees, legacy conditional-probability algebra, aggregate failure,
-exhaustive terminal outputs, indexed LHS table sampling, internal/external `IndependentClone`
-links, both serialization modes, and linked-occurrence reproducibility. This remains a partial
-family, not the Phase 10A exit gate. Legacy recursive XML/templates, graph-connected per-leaf
-consequences, independent branch-routing Monte Carlo, LHS variance reduction, thread-count and
-performance gates, and the remaining manipulation/topology surface are still open.
+`EventTreeVerification` verifies the numerically observable behavior from the first two coherent
+Phase 10A slices: controlled scalar/tabular event trees, legacy conditional-probability algebra,
+aggregate failure, exhaustive terminal outputs, indexed LHS table sampling, internal/external
+`IndependentClone` links, both serialization modes, and linked-occurrence reproducibility. The
+third slice adds authoring-only fragment, mutation, and topology inspection APIs. Fast tests cover
+that structural surface and prove numerical parity and exact rollback, so no new verification
+oracle was introduced. This remains a partial family, not the Phase 10A exit gate. Legacy recursive
+XML/templates, graph-connected per-leaf consequences, independent branch-routing Monte Carlo, LHS
+variance reduction, thread-count reproducibility, and performance gates are still open.
 
 The response computes conditional fragility `P(F|h)` only. Hazard probability, annualization,
 consequences, and risk remain outside the event tree.
@@ -55,5 +57,8 @@ The unit suite additionally pins nested path products, implicit residual mass, p
 same-content LHS reproducibility, independent repeated-source sampler occurrences,
 metadata/GUID/name/order/reference-wrapper hash invariance, compute sensitivity, linked external
 hazard-axis interpolation, resolver-backed self-contained/by-reference round trips and ID/name
-repair, useful full-path cross-function cycle diagnostics, validation, factory registration, and
-the controlled authoring/traversal/delete-policy surface.
+repair, useful full-path cross-function cycle diagnostics, validation, and factory registration.
+The third slice's fast tests cover immutable fragment snapshots; fresh-ID paste with local-reference
+remapping; replace, link materialization, delete-materialization, and unreachable pruning;
+deterministic expanded topological/internal/external reference inspection; cross-tree links; and
+failed-mutation rollback of XML topology, IDs, output ports, canonical hash, and sampler results.

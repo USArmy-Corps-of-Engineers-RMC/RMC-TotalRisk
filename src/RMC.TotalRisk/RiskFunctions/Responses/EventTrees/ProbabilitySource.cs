@@ -305,5 +305,31 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
             return CanonicalContentHasher.ToTokenHex(
                 CanonicalContentHasher.Hash(ToIdentityXElement(), CanonicalizationRules.ModelRules));
         }
+
+        /// <summary>
+        /// Creates an owned snapshot for a tree fragment. Local tabular content is deep-copied,
+        /// while an ordinary response remains the same live external reference.
+        /// </summary>
+        /// <returns>The independent probability-source snapshot.</returns>
+        /// <exception cref="InvalidOperationException">Thrown when a referenced response is unresolved.</exception>
+        internal ProbabilitySource CloneForFragment()
+        {
+            return Kind switch
+            {
+                ProbabilitySourceKind.DeterministicScalar => new ProbabilitySource(ScalarProbability!.Value),
+                ProbabilitySourceKind.UncertainTabular => new ProbabilitySource(
+                    new UncertainOrderedPairedData(Table!.SaveToXElement())
+                    {
+                        OrderX = SortOrder.Ascending,
+                        OrderY = SortOrder.None,
+                        StrictX = true,
+                        StrictY = false,
+                    }),
+                ProbabilitySourceKind.ResponseFunctionReference => new ProbabilitySource(
+                    ResponseFunction ?? throw new InvalidOperationException(
+                        "A tree fragment cannot snapshot an unresolved response-function probability source.")),
+                _ => throw new InvalidOperationException($"Unsupported probability source kind '{Kind}'."),
+            };
+        }
     }
 }

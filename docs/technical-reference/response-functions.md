@@ -18,12 +18,18 @@ where *F_R* is the conditional CDF of the resistance and *f_S* is the hazard (de
 
 `EventTreeResponse` (Phase 10A) and `FaultTreeResponse` (Phase 10B) remain response functions under this exact contract: they produce conditional fragility `P(F|h)`. Hazard functions manage hazard probability/frequency, and the component risk graph plus `RiskAnalysis` connects responses to consequences and computes risk. The normative [tree-response implementation design](../requirements/EVENT_AND_FAULT_TREE_RESPONSE_DESIGN.md) defines event end-state outputs, exact static fault evaluation, internal/external links, independent clones, controlled authoring operations, graph algorithms, LHS, serialization, hashing, testing, and cost-benefit.
 
-The first two coherent `EventTreeResponse` slices landed 2026-07-28. They include:
+The first three coherent `EventTreeResponse` slices landed 2026-07-28. They include:
 
 - the common immutable branch descriptors/sample contract and tree-reference value object;
 - controlled `EventTree` ownership with add, insert, move, delete, search, ancestry,
   reachability, pre/post-order DFS, breadth-first traversal, leaves, structural equality, and
   subtree hashes;
+- immutable `TreeFragment` subtree snapshots with fresh persistent IDs on paste and remapped
+  fragment-local links, while cross-tree references retain live external targets;
+- transactional paste, replace, materialize, `TreeDeletePolicy.MaterializeLinks`, and unreachable
+  pruning, with topology, output-port allocation, IDs, canonical hash, and configured samplers
+  restored exactly when an operation fails;
+- deterministic expanded topological order plus unreachable/internal/external reference queries;
 - deterministic scalar, aligned uncertain-tabular, and ordinary response-function probability
   sources;
 - mean, co-monotonic percentile, and indexed LHS branch/aggregate samples;
@@ -54,8 +60,9 @@ Linked external uncertain tables are evaluated at the owning response's hazard o
 the same interpolation/extrapolation contract as their `OrderedPairedData`. A link wrapper is
 retained in canonical identity to distinguish a referenced occurrence from authored inline
 content, while persistent IDs, display names, sibling authoring order, and self-contained versus
-by-reference wrappers are projected away. Still open in Phase 10A are fragment copy/paste and the
-remaining authoring/topology operations, event-tree probability-source recursion, legacy XML
+by-reference wrappers are projected away. `TreeFragment` is authoring-only state: it is neither a
+persistence type nor a hash input, and paste-cloned subtrees therefore preserve projected canonical
+identity. Still open in Phase 10A are event-tree probability-source recursion, legacy XML
 conversion/templates, expanded graph ports, cached allocation-free plans, and remaining gates.
 
 
