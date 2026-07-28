@@ -18,7 +18,7 @@ where *F_R* is the conditional CDF of the resistance and *f_S* is the hazard (de
 
 `EventTreeResponse` (Phase 10A) and `FaultTreeResponse` (Phase 10B) remain response functions under this exact contract: they produce conditional fragility `P(F|h)`. Hazard functions manage hazard probability/frequency, and the component risk graph plus `RiskAnalysis` connects responses to consequences and computes risk. The normative [tree-response implementation design](../requirements/EVENT_AND_FAULT_TREE_RESPONSE_DESIGN.md) defines event end-state outputs, exact static fault evaluation, internal/external links, independent clones, controlled authoring operations, graph algorithms, LHS, serialization, hashing, testing, and cost-benefit.
 
-The first three coherent `EventTreeResponse` slices landed 2026-07-28. They include:
+The first four coherent `EventTreeResponse` slices landed 2026-07-28. They include:
 
 - the common immutable branch descriptors/sample contract and tree-reference value object;
 - controlled `EventTree` ownership with add, insert, move, delete, search, ancestry,
@@ -45,6 +45,15 @@ The first three coherent `EventTreeResponse` slices landed 2026-07-28. They incl
   and
 - transactional same-tree and cross-function cycle rejection with the complete function/node path
   in the diagnostic.
+- direct and multi-level `EventTreeResponse` probability sources evaluated at each caller hazard
+  ordinate through the established response-CDF interpolation/extrapolation contract;
+- recursive sampler-dimension discovery through nested event trees, ordinary responses, aligned
+  uncertain tables, and internal/external independent-clone links;
+- isolated deterministic epistemic streams for every canonical nested occurrence, including
+  repeated references to the same live response, with indexed, co-monotonic percentile, and LHS
+  sampling preserved through arbitrary acyclic nesting depth; and
+- transactional recursive compilation/setup plus direct, indirect, mixed source/link, and
+  cross-function cycle diagnostics carrying the complete deterministic function/node path.
 
 For explicit siblings with raw probabilities `q_i` and compensated sum `S`, the conditional rule is:
 
@@ -56,13 +65,20 @@ p_i = q_i/S and p_remainder = 0, when S > 1
 A terminal probability is the product of its conditional path. Aggregate `P(F|h)` is the
 compensated sum of terminals explicitly classified as failure; omitted remainder mass is surfaced
 as a stable implicit non-failure branch.
-Linked external uncertain tables are evaluated at the owning response's hazard ordinates, using
-the same interpolation/extrapolation contract as their `OrderedPairedData`. A link wrapper is
-retained in canonical identity to distinguish a referenced occurrence from authored inline
-content, while persistent IDs, display names, sibling authoring order, and self-contained versus
-by-reference wrappers are projected away. `TreeFragment` is authoring-only state: it is neither a
-persistence type nor a hash input, and paste-cloned subtrees therefore preserve projected canonical
-identity. Still open in Phase 10A are event-tree probability-source recursion, legacy XML
+Referenced responses, including recursively nested event trees, are evaluated at the owning
+response's current hazard ordinate through `IResponseFunction.SampleFunction(...).CDF(h)`.
+That preserves the existing response interpolation and extrapolation policy; this slice introduces
+no alternate interpolator. Setup creates an isolated self-contained sampler occurrence for every
+referenced source, derives its seed from the established source-identity/occurrence recipe, and
+copies the exact child percentile columns into the owner's flattened sampler. A failed recursive
+compile, clone, capacity check, or child setup restores the owner's prior sample size, percentile
+matrix, sampler identity, and occurrence bindings exactly.
+
+Nested response content participates in projected canonical identity. Link wrappers distinguish
+referenced occurrences from authored inline content, while persistent IDs, display names, sibling
+authoring order, serialization mode, and reference wrappers remain projected away. `TreeFragment`
+is authoring-only state: it is neither a persistence type nor a hash input, and paste-cloned
+subtrees therefore preserve projected canonical identity. Still open in Phase 10A are legacy XML
 conversion/templates, expanded graph ports, cached allocation-free plans, and remaining gates.
 
 

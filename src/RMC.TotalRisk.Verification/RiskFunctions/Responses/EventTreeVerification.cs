@@ -12,9 +12,10 @@ namespace RMC.TotalRisk.Verification.RiskFunctions.Responses;
 /// <summary>
 /// Focused Phase 10A event-tree verification against independently derived conditional path
 /// products and direct uncertainty-table samples. This partial family covers scalar and aligned
-/// tables, internal/external independent-clone links, two-mode round trips, and link-occurrence
-/// reproducibility. Legacy XML, graph-expanded consequences, routing Monte Carlo, LHS variance,
-/// and performance remain future rows in the normative verification plan.
+/// tables, recursive response probability sources, internal/external independent-clone links,
+/// two-mode round trips, and occurrence-level LHS reproducibility. Legacy XML, graph-expanded
+/// consequences, routing Monte Carlo, aggregate LHS variance, and performance remain future rows
+/// in the normative verification plan.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -95,6 +96,105 @@ public class EventTreeVerification
             Assert.AreEqual(direct[1].Y, actual[1].Y);
         }
     }
+
+    /// <summary>
+    /// Verifies direct and multi-level nested response sources against an independent Normal-Z
+    /// interpolation oracle evaluated at the caller's hazard levels.
+    /// </summary>
+    [TestMethod]
+    public void Test_NestedResponses_EqualAnalyticCallerHazardOracle()
+    {
+        var deepestTable = new UncertainOrderedPairedData(
+            new[]
+            {
+                new UncertainOrdinate(0d, new Deterministic(0.2d)),
+                new UncertainOrdinate(2d, new Deterministic(0.6d)),
+            }, true, SortOrder.Ascending, false, SortOrder.None,
+            UnivariateDistributionType.Deterministic);
+        var deepestTree = new EventTree();
+        deepestTree.Add(deepestTree.Root.Id,
+            new ChanceNode("Deep failure", new ProbabilitySource(deepestTable)));
+        deepestTree.Add(deepestTree.Root.Id, new RemainderNode("Deep survival"));
+        EventTreeResponse deepest = Response(new[] { 0d, 2d }, deepestTree);
+
+        var middleTree = new EventTree();
+        middleTree.Add(middleTree.Root.Id,
+            new ChanceNode("Nested deep response", new ProbabilitySource(deepest)));
+        middleTree.Add(middleTree.Root.Id, new RemainderNode("Middle survival"));
+        EventTreeResponse middle = Response(new[] { 0d, 2d }, middleTree);
+
+        var outerTree = new EventTree();
+        var load = new ChanceNode("Load case", new ProbabilitySource(0.6d))
+        {
+            IsFailure = false,
+        };
+        outerTree.Add(outerTree.Root.Id, load);
+        outerTree.Add(outerTree.Root.Id, new RemainderNode("No load"));
+        outerTree.Add(load.Id,
+            new ChanceNode("Nested middle response", new ProbabilitySource(middle)));
+        outerTree.Add(load.Id, new RemainderNode("Loaded survival"));
+        EventTreeResponse outer = Response(new[] { 0d, 1d, 2d }, outerTree);
+
+        OrderedPairedData actual = outer.SampleResponseFunction();
+        double[] expected =
+        {
+            0.6d * 0.2d,
+            0.6d * NormalZInterpolate(0.2d, 0.6d, 0.5d),
+            0.6d * 0.6d,
+        };
+
+        for (int i = 0; i < expected.Length; i++)
+        {
+            Assert.AreEqual(expected[i], actual[i].Y, 1e-14d);
+        }
+    }
+
+    /// <summary>
+    /// Verifies every nested Latin-hypercube realization against a direct deepest-table draw and
+    /// an independent caller-hazard interpolation/path-product calculation.
+    /// </summary>
+    [TestMethod]
+    public void Test_NestedResponses_LhsRealizationsEqualDirectDeepestSamples()
+    {
+        var deepestTable = new UncertainOrderedPairedData(
+            new[]
+            {
+                new UncertainOrdinate(0d, new Uniform(0.1d, 0.3d)),
+                new UncertainOrdinate(2d, new Uniform(0.3d, 0.7d)),
+            }, true, SortOrder.Ascending, false, SortOrder.None,
+            UnivariateDistributionType.Uniform);
+        var deepestTree = new EventTree();
+        deepestTree.Add(deepestTree.Root.Id,
+            new ChanceNode("Deep failure", new ProbabilitySource(deepestTable)));
+        deepestTree.Add(deepestTree.Root.Id, new RemainderNode("Deep survival"));
+        EventTreeResponse deepest = Response(new[] { 0d, 2d }, deepestTree);
+        var middleTree = new EventTree();
+        middleTree.Add(middleTree.Root.Id,
+            new ChanceNode("Nested deep response", new ProbabilitySource(deepest)));
+        middleTree.Add(middleTree.Root.Id, new RemainderNode("Middle survival"));
+        EventTreeResponse middle = Response(new[] { 0d, 2d }, middleTree);
+        var outerTree = new EventTree();
+        outerTree.Add(outerTree.Root.Id,
+            new ChanceNode("Nested middle response", new ProbabilitySource(middle)));
+        outerTree.Add(outerTree.Root.Id, new RemainderNode("Outer survival"));
+        EventTreeResponse outer = Response(new[] { 0d, 1d, 2d }, outerTree);
+        outer.SetupSampler(256, 24681357, SamplingScheme.LatinHypercube);
+
+        Assert.AreEqual(1, outer.SamplingDimensions);
+        for (int realization = 0; realization < 256; realization++)
+        {
+            double percentile = outer.SampledPercentile(realization, 0);
+            OrderedPairedData deepestSample = deepestTable.CurveSample(percentile);
+            OrderedPairedData actual = outer.SampleResponseFunction(realization);
+            for (int hazardIndex = 0; hazardIndex < outer.HazardLevels.Count; hazardIndex++)
+            {
+                double expected = InterpolateResponseCurve(
+                    deepestSample, outer.HazardLevels[hazardIndex]);
+                Assert.AreEqual(expected, actual[hazardIndex].Y, 1e-14d);
+            }
+        }
+    }
+
     /// <summary>
     /// Verifies two external independent links against an explicitly cloned analytic model,
     /// including the established over-allocation normalization rule.
@@ -221,5 +321,38 @@ public class EventTreeVerification
             SpecifiedHazard = "Stage",
             HazardUnit = "ft",
         };
+    }
+
+    /// <summary>Builds a labeled event-tree response over the supplied hazard axis.</summary>
+    /// <param name="hazards">The caller hazard levels.</param>
+    /// <param name="tree">The authored tree.</param>
+    /// <returns>The valid response.</returns>
+    private static EventTreeResponse Response(double[] hazards, EventTree tree)
+    {
+        return new EventTreeResponse(hazards, tree)
+        {
+            Name = "Verification event tree",
+            SpecifiedHazard = "Stage",
+            HazardUnit = "ft",
+        };
+    }
+
+    /// <summary>Evaluates a two-knot response curve using the established Normal-Z contract.</summary>
+    private static double InterpolateResponseCurve(OrderedPairedData curve, double hazard)
+    {
+        if (hazard <= curve[0].X) return curve[0].Y;
+        if (hazard >= curve[1].X) return curve[1].Y;
+        double fraction = (hazard - curve[0].X) / (curve[1].X - curve[0].X);
+        return NormalZInterpolate(curve[0].Y, curve[1].Y, fraction);
+    }
+
+    /// <summary>Interpolates probability on the standard-normal quantile axis.</summary>
+    private static double NormalZInterpolate(
+        double lowerProbability, double upperProbability, double fraction)
+    {
+        var standardNormal = new Normal(0d, 1d);
+        double lowerZ = standardNormal.InverseCDF(lowerProbability);
+        double upperZ = standardNormal.InverseCDF(upperProbability);
+        return standardNormal.CDF(lowerZ + fraction * (upperZ - lowerZ));
     }
 }

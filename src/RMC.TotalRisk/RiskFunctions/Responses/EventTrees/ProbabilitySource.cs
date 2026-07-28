@@ -160,10 +160,17 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                 messages.Add($"Error: Chance node '{nodeName}' references {reference}, which was not found.");
             if (ResponseFunction == null && _unresolvedReferences.Count == 0)
                 messages.Add($"Error: Chance node '{nodeName}' has no referenced response function.");
-            else if (ResponseFunction is EventTreeResponse)
-                messages.Add($"Error: Chance node '{nodeName}' references another event-tree response; recursive tree-response sources are deferred beyond the first Phase 10A implementation slice.");
-            else if (ResponseFunction != null && !ResponseFunction.Validate().IsValid)
-                messages.Add($"Error: Chance node '{nodeName}' references an invalid response function '{ResponseFunction.Name}'.");
+            else if (ResponseFunction != null)
+            {
+                var validation = ResponseFunction.Validate();
+                foreach (string message in validation.ValidationMessages.Where(message =>
+                    message.StartsWith("Error:", StringComparison.Ordinal)))
+                {
+                    messages.Add(
+                        $"Error: Chance node '{nodeName}' references invalid response function " +
+                        $"'{ResponseFunction.Name}': {message.Substring("Error:".Length).Trim()}");
+                }
+            }
             return messages;
         }
 
@@ -275,7 +282,11 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
 
         /// <summary>Builds the metadata-free projected identity of this source.</summary>
         /// <returns>The canonical identity element.</returns>
-        internal XElement ToIdentityXElement()
+        /// <param name="recursiveResponseHash">
+        /// The already-compiled identity hash of a nested event-tree response. Supplying it keeps
+        /// cycle detection on the occurrence compiler's shared function/node stack.
+        /// </param>
+        internal XElement ToIdentityXElement(byte[]? recursiveResponseHash = null)
         {
             var element = new XElement(nameof(ProbabilitySource));
             element.SetAttributeValue(nameof(Kind), Kind.ToString());
@@ -290,9 +301,8 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                 case ProbabilitySourceKind.ResponseFunctionReference:
                     element.SetAttributeValue("FunctionHash", ReferenceEquals(ResponseFunction, null)
                         ? string.Empty
-                        : ResponseFunction is EventTreeResponse
-                            ? "UnsupportedRecursiveEventTreeReference"
-                            : CanonicalContentHasher.ToTokenHex(ResponseFunction.CanonicalHash()));
+                        : CanonicalContentHasher.ToTokenHex(recursiveResponseHash
+                            ?? ResponseFunction.CanonicalHash()));
                     break;
             }
             return element;

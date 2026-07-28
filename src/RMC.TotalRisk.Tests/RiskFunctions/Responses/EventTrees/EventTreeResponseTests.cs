@@ -122,9 +122,15 @@ public class EventTreeResponseTests
         response.SetupSampler(16, 45678, SamplingScheme.LatinHypercube);
 
         Assert.AreEqual(1, response.SamplingDimensions);
+        Assert.AreEqual(0, child.SampleSize,
+            "Recursive setup must not overwrite the live stored child sampler.");
         for (int realization = 0; realization < 16; realization++)
         {
-            Assert.AreEqual(child.SampledPercentile(realization, 0), response.SampledPercentile(realization, 0));
+            double percentile = response.SampledPercentile(realization, 0);
+            OrderedPairedData expected = child.UncertainOrderedPairedData.CurveSample(percentile);
+            OrderedPairedData actual = response.SampleResponseFunction(realization);
+            Assert.AreEqual(expected[0].Y, actual[0].Y);
+            Assert.AreEqual(expected[1].Y, actual[1].Y);
         }
     }
     /// <summary>Verifies display metadata, persistent ids, and sibling presentation order are hash-inert.</summary>
@@ -453,7 +459,8 @@ public class EventTreeResponseTests
         replay.SetupSampler(64, 112233, SamplingScheme.LatinHypercube);
 
         Assert.AreEqual(2, response.SamplingDimensions);
-        Assert.AreEqual(64, child.SampleSize);
+        Assert.AreEqual(0, child.SampleSize,
+            "Independent occurrence setup must preserve the live stored response sampler.");
         bool distinct = false;
         for (int realization = 0; realization < 64; realization++)
         {

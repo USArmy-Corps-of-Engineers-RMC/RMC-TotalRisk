@@ -1,6 +1,20 @@
 # Progress Log
 
 
+## 2026-07-28 — Phase 10A recursive probability-source vertical slice landed (PARTIAL)
+
+**Goal:** allow `EventTreeResponse` to participate recursively as a chance-node probability source while preserving every landed probability, interpolation, seeding, identity, serialization, and output-port contract.
+
+**Landed:** direct and arbitrary acyclic multi-level event-tree response sources evaluated at the caller's current hazard ordinate through the established response-CDF contract; recursive occurrence-plan discovery across nested event trees, ordinary response functions, uncertain tables, and internal/external `IndependentClone` links; exact recursive `SamplingDimensions`/`IsDeterministic`; isolated deterministic epistemic streams for every nested occurrence, including repeated references to one live response; realization-index, co-monotonic percentile, and LHS propagation through the full source/link graph; source-aware projected identity; SelfContained and ByReference nested XML with resolver ID/name fallback and reference repair; and complete direct, indirect, mixed source/link, and cross-function cycle paths.
+
+**Transactional sampler contract:** every referenced occurrence is set up on an isolated self-contained clone, its exact child percentile columns are copied into the owner's flattened sampler, and the live stored function remains untouched. Failed recursive compilation, clone/setup, sampler-capacity validation, or stale-dimension detection restores the owner's exact prior sample size, percentile matrix, sampler identity, and occurrence bindings. Diagnostics identify the owning response, chance occurrence, canonical path, referenced function, and nested failure.
+
+**Numerical and identity contracts preserved:** compensated sibling sums, raw probabilities when `S <= 1`, `q/S` normalization only when `S > 1`, explicit/implicit residual branches, path products, compensated failure aggregation, established Normal-Z response interpolation/extrapolation, the child-seed recipe, and output ports are unchanged. IDs, names, sibling presentation order, serialization mode, and reference wrappers remain hash/seed-inert; nested compute content moves the parent hash. Event trees still support `IndependentClone` only and reject `SharedLogical`.
+
+**Verified:** focused fast event-tree/probability/hash suite **55/55**; warning-free `dotnet build`; Release fast suite **755/755**; isolated `EventTreeVerification` **7/7**, including independent multi-level analytic caller-hazard parity and 256 realization-for-realization nested LHS comparisons; code/XML-doc/namespace/dependency/public-class/traceability validator green; `git diff --check` clean. The canonical-hash kitchen sink now includes a nested event-tree source and repeated internal occurrence.
+
+**Still open before Phase 10A can close:** legacy recursive-XML conversion and representative templates; expanded graph ports and stale-connection policy; immutable cached-plan invalidation and allocation-free O(V+E) evaluation; large-tree performance fixtures; property-based tests; independent branch-routing Monte Carlo; graph-connected per-leaf consequence equivalence; aggregate LHS variance reduction; and the remaining thread-count, legacy, and performance exit gates. Phase 10A remains partial and Phase 10B remains gated behind full closure.
+
 ## 2026-07-28 - Phase 10A controlled authoring/topology vertical slice landed (PARTIAL)
 
 **Goal:** complete the next coherent controlled-authoring and topology surface without changing the landed event-tree probability, serialization-identity, seed, or output-port contracts.

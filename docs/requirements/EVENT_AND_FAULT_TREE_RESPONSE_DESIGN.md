@@ -393,17 +393,20 @@ Warnings versus errors must follow existing response validation: correctable sha
 
 ### Phase 10A — common foundation and event-tree response
 
-> **Implementation status (2026-07-28, partial):** three landed vertical slices now include common
+> **Implementation status (2026-07-28, partial):** four landed vertical slices now include common
 > branch/reference/fragment contracts; controlled transactional authoring with fresh-ID copy/paste,
 > replace, materialize, delete-materialize, and prune; deterministic expanded topological,
 > unreachable, and reference queries; scalar/tabular/ordinary-response sources; internal/external
 > `IndependentClone` links and occurrence-aware sampling; resolver-backed two-mode XML; full-path
-> cross-function cycle diagnostics; link-aware evaluation; and projected hash/seed identity.
-> Failed mutations restore topology, output ports, persistent IDs, hashes, and configured-sampler
-> validity. The established raw/normalized sibling and residual rules are unchanged. Phase 10A
-> remains open for the unimplemented portions
-> of steps 3 and 5–7, including legacy conversion, expanded graph ports, cached-plan performance,
-> probability-source recursion, and the remaining verification/performance gates.
+> cross-function cycle diagnostics; link-aware evaluation; recursive `EventTreeResponse`
+> probability sources evaluated on the caller hazard axis; recursive discovery and independent
+> occurrence sampling through nested responses, ordinary responses, tables, and links; mixed
+> source/link cycle diagnostics; transactional sampler setup; and projected recursive hash/seed
+> identity. Failed mutations and failed sampler setup restore topology, output ports, persistent
+> IDs, hashes, and configured-sampler state exactly. The established raw/normalized sibling,
+> residual, interpolation, seed, and output-port rules are unchanged. Phase 10A remains open for
+> the unimplemented portions of steps 3 and 5–7, including legacy conversion, expanded graph ports,
+> immutable cached-plan performance, and the remaining verification/performance gates.
 1. Add append-only discriminators, common tree interfaces/results, source/link/reference types, and diagnostic codes.
 2. Add the controlled `EventTree` authoring model and transactional manipulation/search/topology APIs.
 3. Add legacy XML conversion plus canonical v1.1 self-contained/by-reference serialization and projected hashing.

@@ -29,8 +29,10 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
             }
             CanonicalPreOrder = preOrder;
             Leaves = preOrder.Where(node => node.Children.Count == 0 && node.SourceNode is not InitiatingNode).ToArray();
-            SamplingDimensions = preOrder.Where(node => node.SourceNode is ChanceNode)
-                .Sum(node => ((ChanceNode)node.SourceNode).ProbabilitySource.SamplingDimensions);
+            SamplingDimensions = preOrder.Sum(node => node.ProbabilitySamplingDimensions);
+            IsDeterministic = preOrder
+                .Where(node => node.SourceNode is ChanceNode)
+                .All(node => node.ProbabilityIsDeterministic);
             Identity = new XElement(nameof(EventTree), new XElement(root.Identity));
             IdentityToken = CanonicalContentHasher.ToTokenHex(
                 CanonicalContentHasher.Hash(Identity, CanonicalizationRules.ModelRules));
@@ -53,6 +55,9 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
 
         /// <summary>The local and recursively referenced sampling-dimension count.</summary>
         internal int SamplingDimensions { get; }
+
+        /// <summary>Whether every expanded local and nested probability source is deterministic.</summary>
+        internal bool IsDeterministic { get; }
 
         /// <summary>Lenient node-name fallback diagnostics discovered during expansion.</summary>
         internal IReadOnlyList<string> Warnings { get; }
@@ -167,6 +172,28 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                         return Expand(targetFunction, targetNode, true, wrappers, targetPersistence);
                     }
 
+                    XElement? probabilityIdentity = null;
+                    int probabilitySamplingDimensions = 0;
+                    bool probabilityIsDeterministic = true;
+                    if (node is ChanceNode chance)
+                    {
+                        ProbabilitySource source = chance.ProbabilitySource;
+                        byte[]? recursiveResponseHash = null;
+                        if (source.ResponseFunction is EventTreeResponse nestedResponse)
+                        {
+                            EventTreeOccurrencePlan nestedPlan = CompileNestedResponse(nestedResponse);
+                            probabilitySamplingDimensions = nestedPlan.SamplingDimensions;
+                            probabilityIsDeterministic = nestedPlan.IsDeterministic;
+                            recursiveResponseHash = nestedResponse.CanonicalHash(nestedPlan);
+                        }
+                        else
+                        {
+                            probabilitySamplingDimensions = source.SamplingDimensions;
+                            probabilityIsDeterministic = source.IsDeterministic;
+                        }
+                        probabilityIdentity = source.ToIdentityXElement(recursiveResponseHash);
+                    }
+
                     var children = new List<EventTreeOccurrenceNode>(node.Children.Count);
                     for (int i = 0; i < node.Children.Count; i++)
                     {
@@ -188,7 +215,8 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
 
                     bool terminal = children.Count == 0;
                     bool isFailure = terminal && pendingLinks.Count > 0 ? pendingLinks[0].IsFailure : node.IsFailure;
-                    XElement identity = BuildUnderlyingIdentity(node, isFailure, terminal, children);
+                    XElement identity = BuildUnderlyingIdentity(node, isFailure, terminal, children,
+                        probabilityIdentity);
                     if (pendingLinks.Count > 0)
                     {
                         for (int i = pendingLinks.Count - 1; i >= 0; i--)
@@ -208,7 +236,9 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                         : node.Name;
                     return new EventTreeOccurrenceNode(function, node, children, identity,
                         linkedAncestor || pendingLinks.Count > 0, isFailure, displayName,
-                        string.Join("/", persistencePath.Select(id => id.ToString("N"))));
+                        string.Join("/", persistencePath.Select(id => id.ToString("N"))),
+                        probabilitySamplingDimensions, probabilityIsDeterministic,
+                        probabilityIdentity);
                 }
                 finally
                 {
@@ -216,14 +246,26 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                 }
             }
 
+            /// <summary>Compiles one nested response while retaining the caller's active cycle stack.</summary>
+            private EventTreeOccurrencePlan CompileNestedResponse(EventTreeResponse function)
+            {
+                EventNodeBase rootNode = function.EventTree.Root;
+                var persistence = new List<Guid> { rootNode.Id };
+                EventTreeOccurrenceNode root = Expand(function, rootNode, false,
+                    Array.Empty<EventTreeLinkNode>(), persistence);
+                AssignCanonicalPaths(root, "R");
+                return new EventTreeOccurrencePlan(root, Array.Empty<string>());
+            }
+
             /// <summary>Builds the projected identity of one effective non-link node.</summary>
             private static XElement BuildUnderlyingIdentity(EventNodeBase node, bool isFailure,
-                bool terminal, IReadOnlyList<EventTreeOccurrenceNode> children)
+                bool terminal, IReadOnlyList<EventTreeOccurrenceNode> children,
+                XElement? probabilityIdentity)
             {
                 var identity = new XElement("Node");
                 identity.SetAttributeValue("Type", node.SerializedName);
                 if (terminal) identity.SetAttributeValue(nameof(EventNodeBase.IsFailure), isFailure);
-                if (node is ChanceNode chance) identity.Add(chance.ProbabilitySource.ToIdentityXElement());
+                if (node is ChanceNode) identity.Add(probabilityIdentity);
                 for (int i = 0; i < children.Count; i++) identity.Add(new XElement(children[i].Identity));
                 return identity;
             }
@@ -271,7 +313,9 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
     {
         internal EventTreeOccurrenceNode(EventTreeResponse sourceFunction, EventNodeBase sourceNode,
             IReadOnlyList<EventTreeOccurrenceNode> children, XElement identity, bool isLinkedOccurrence,
-            bool isFailure, string displayName, string persistencePath)
+            bool isFailure, string displayName, string persistencePath,
+            int probabilitySamplingDimensions, bool probabilityIsDeterministic,
+            XElement? probabilityIdentity)
         {
             SourceFunction = sourceFunction;
             SourceNode = sourceNode;
@@ -283,6 +327,12 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
             PersistencePath = persistencePath;
             IdentityToken = CanonicalContentHasher.ToTokenHex(
                 CanonicalContentHasher.Hash(identity, CanonicalizationRules.ModelRules));
+            ProbabilitySamplingDimensions = probabilitySamplingDimensions;
+            ProbabilityIsDeterministic = probabilityIsDeterministic;
+            ProbabilityIdentityToken = probabilityIdentity == null
+                ? string.Empty
+                : CanonicalContentHasher.ToTokenHex(
+                    CanonicalContentHasher.Hash(probabilityIdentity, CanonicalizationRules.ModelRules));
         }
 
         /// <summary>The response owning the effective authored source node.</summary>
@@ -311,6 +361,15 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
 
         /// <summary>The persistent-id occurrence path used only for stable branch addressing.</summary>
         internal string PersistencePath { get; }
+
+        /// <summary>The exact recursive sampling dimensions contributed by this chance occurrence.</summary>
+        internal int ProbabilitySamplingDimensions { get; }
+
+        /// <summary>Whether this chance occurrence's complete probability-source graph is deterministic.</summary>
+        internal bool ProbabilityIsDeterministic { get; }
+
+        /// <summary>The stable projected-identity token used for this source occurrence's seed.</summary>
+        internal string ProbabilityIdentityToken { get; }
 
         /// <summary>The source parent's persistent child order used only for topology inspection.</summary>
         internal int AuthoredSiblingOrder { get; set; }

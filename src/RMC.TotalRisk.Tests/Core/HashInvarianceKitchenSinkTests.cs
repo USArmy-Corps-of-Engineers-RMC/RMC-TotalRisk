@@ -177,10 +177,21 @@ public class HashInvarianceKitchenSinkTests
             nameof(EventTreeResponse),
             () =>
             {
+                var nestedTree = new EventTree();
+                nestedTree.Add(nestedTree.Root.Id,
+                    new ChanceNode("Nested failure", new ProbabilitySource(0.1d)));
+                nestedTree.Add(nestedTree.Root.Id, new RemainderNode("Nested survival"));
+                var nested = new EventTreeResponse(new[] { 0d, 1d }, nestedTree)
+                {
+                    Name = "Nested event tree",
+                    SpecifiedHazard = "Stage",
+                    HazardUnit = "ft",
+                };
                 var tree = new EventTree();
-                var failure = new ChanceNode("Failure", new ProbabilitySource(0.2d));
+                var failure = new ChanceNode("Failure", new ProbabilitySource(nested));
                 tree.Add(tree.Root.Id, failure);
-                tree.LinkIndependent(tree.Root.Id, failure.Id, "Independent failure occurrence");
+                tree.LinkIndependent(tree.Root.Id, failure.Id,
+                    "Independent nested failure occurrence");
                 tree.Add(tree.Root.Id, new RemainderNode("No failure"));
                 return new EventTreeResponse(new[] { 0d, 1d }, tree)
                 {
@@ -192,8 +203,10 @@ public class HashInvarianceKitchenSinkTests
             f =>
             {
                 var tree = (EventTreeResponse)f;
-                var chance = (ChanceNode)tree.EventTree.Root.Children[0];
-                chance.ProbabilitySource = new ProbabilitySource(0.3d);
+                var outerChance = (ChanceNode)tree.EventTree.Root.Children[0];
+                var nested = (EventTreeResponse)outerChance.ProbabilitySource.ResponseFunction!;
+                var nestedChance = (ChanceNode)nested.EventTree.Root.Children[0];
+                nestedChance.ProbabilitySource = new ProbabilitySource(0.3d);
             });
 
         // Phase 9 — the composite transform (Average-only; the mutation nudges a weight).

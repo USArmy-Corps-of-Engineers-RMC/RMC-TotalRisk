@@ -21,10 +21,11 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
     /// </summary>
     /// <remarks>
     /// The current Phase 10A implementation supports scalar, uncertain-tabular, ordinary-response,
-    /// and internal/external independent-clone link occurrences. Linked occurrences participate in
-    /// recursive sampling, two-mode serialization, projected hashing, and cycle diagnostics.
-    /// Event-tree probability-source recursion, copy/paste fragments, legacy recursive-XML
-    /// conversion, expanded graph ports, and cached-plan optimization remain explicitly deferred.
+    /// and recursively nested event-tree probability sources together with internal/external
+    /// independent-clone link occurrences. Every nested occurrence participates in recursive
+    /// sampling, two-mode serialization, projected hashing, and mixed source/link cycle
+    /// diagnostics. Legacy recursive-XML conversion, expanded graph ports, and cached-plan
+    /// optimization remain explicitly deferred.
     /// </remarks>
     public sealed class EventTreeResponse : ResponseFunctionBase, IBranchingResponseFunction
     {
@@ -113,9 +114,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
         public override ResponseFunctionType FunctionType => ResponseFunctionType.EventTree;
 
         /// <inheritdoc/>
-        public override bool IsDeterministic => EventTreeOccurrencePlan.Compile(this).CanonicalPreOrder
-            .Where(node => node.SourceNode is ChanceNode)
-            .All(node => ((ChanceNode)node.SourceNode).ProbabilitySource.IsDeterministic);
+        public override bool IsDeterministic => EventTreeOccurrencePlan.Compile(this).IsDeterministic;
 
         /// <inheritdoc/>
         /// <remarks>
@@ -127,53 +126,110 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
 
         /// <inheritdoc/>
         /// <remarks>
-        /// Local table dimensions are columns of this function's sampler. Repeated references to
-        /// the same live response use an isolated self-contained clone after the first occurrence,
-        /// preventing one occurrence's setup from overwriting another's sampler state.
+        /// Local table dimensions are columns of this function's sampler. Every referenced
+        /// response occurrence, including the first and every recursively nested event tree, is
+        /// prepared on an isolated self-contained setup clone. The parent copies the clone's exact
+        /// flattened percentiles, so indexed sampling and LHS strata remain observable without
+        /// mutating a live stored child. Setup is transactional: a compilation, clone, capacity, or
+        /// child-setup failure restores the exact prior parent sampler state.
         /// </remarks>
         public override void SetupSampler(int sampleSize, int seed, SamplingScheme scheme)
         {
-            ThrowIfUnusable();
-            base.SetupSampler(sampleSize, seed, scheme);
-            _samplingBindings.Clear();
-
-            EventTreeOccurrencePlan plan = EventTreeOccurrencePlan.Compile(this);
-            var usedResponseInstances = new HashSet<IResponseFunction>(ReferenceEqualityComparer.Instance);
-            int dimension = 0;
-            int responseOccurrence = 0;
-            foreach (EventTreeOccurrenceNode occurrence in plan.CanonicalPreOrder)
+            int priorSampleSize = SampleSize;
+            double[,]? priorPercentiles = _percentiles;
+            byte[]? priorSamplerIdentity = _samplerIdentity;
+            KeyValuePair<string, SamplingBinding>[] priorBindings = _samplingBindings.ToArray();
+            try
             {
-                if (occurrence.SourceNode is not ChanceNode chance) continue;
-                ProbabilitySource source = chance.ProbabilitySource;
-                if (source.Kind == ProbabilitySourceKind.UncertainTabular)
+                ThrowIfUnusable();
+                EventTreeOccurrencePlan plan = EventTreeOccurrencePlan.Compile(this);
+                base.SetupSampler(sampleSize, seed, scheme);
+                var nextBindings = new Dictionary<string, SamplingBinding>(StringComparer.Ordinal);
+                int dimension = 0;
+                int responseOccurrence = 0;
+                foreach (EventTreeOccurrenceNode occurrence in plan.CanonicalPreOrder)
                 {
-                    _samplingBindings.Add(occurrence.CanonicalPath,
-                        new SamplingBinding(dimension, null));
-                    dimension++;
-                }
-                else if (source.Kind == ProbabilitySourceKind.ResponseFunctionReference && source.ResponseFunction != null)
-                {
-                    IResponseFunction sampledFunction = usedResponseInstances.Add(source.ResponseFunction)
-                        ? source.ResponseFunction
-                        : CloneResponseFunction(source.ResponseFunction);
-                    byte[] sourceHash = Convert.FromHexString(source.CanonicalToken());
-                    sampledFunction.SetupSampler(sampleSize,
-                        SeedHelpers.HashCombine(seed, sourceHash, responseOccurrence++), scheme);
-                    int childDimensions = sampledFunction.SamplingDimensions;
-                    for (int realization = 0; realization < sampleSize; realization++)
+                    if (occurrence.SourceNode is not ChanceNode chance) continue;
+                    ProbabilitySource source = chance.ProbabilitySource;
+                    if (source.Kind == ProbabilitySourceKind.UncertainTabular)
                     {
-                        for (int childDimension = 0; childDimension < childDimensions; childDimension++)
-                        {
-                            _percentiles![realization, dimension + childDimension] =
-                                ((RiskFunctionBase)sampledFunction).SampledPercentile(realization, childDimension);
-                        }
+                        nextBindings.Add(occurrence.CanonicalPath,
+                            new SamplingBinding(dimension, null));
+                        dimension++;
                     }
-                    _samplingBindings.Add(occurrence.CanonicalPath,
-                        new SamplingBinding(-1, sampledFunction));
-                    dimension += childDimensions;
+                    else if (source.Kind == ProbabilitySourceKind.ResponseFunctionReference
+                        && source.ResponseFunction != null)
+                    {
+                        IResponseFunction sampledFunction;
+                        try
+                        {
+                            sampledFunction = CloneResponseFunction(source.ResponseFunction);
+                            byte[] sourceHash = Convert.FromHexString(
+                                occurrence.ProbabilityIdentityToken);
+                            sampledFunction.SetupSampler(sampleSize,
+                                SeedHelpers.HashCombine(seed, sourceHash, responseOccurrence++),
+                                scheme);
+                        }
+                        catch (Exception ex) when (ex is ArgumentException
+                            || ex is InvalidOperationException
+                            || ex is NotSupportedException)
+                        {
+                            throw new InvalidOperationException(
+                                $"Event-tree response '{Name}' could not set up chance occurrence " +
+                                $"'{occurrence.DisplayName}' at canonical path " +
+                                $"'{occurrence.CanonicalPath}' from referenced response " +
+                                $"'{source.ResponseFunction.Name}': {ex.Message}", ex);
+                        }
+
+                        int childDimensions = sampledFunction.SamplingDimensions;
+                        if (childDimensions != occurrence.ProbabilitySamplingDimensions)
+                        {
+                            throw new InvalidOperationException(
+                                $"Event-tree response '{Name}' compiled chance occurrence " +
+                                $"'{occurrence.DisplayName}' with {occurrence.ProbabilitySamplingDimensions} " +
+                                $"sampling dimensions, but its setup clone reported {childDimensions}. " +
+                                "The referenced response changed during sampler setup; retry setup.");
+                        }
+                        RiskFunctionBase? sampledBase = sampledFunction as RiskFunctionBase;
+                        if (childDimensions > 0 && sampledBase == null)
+                            throw new InvalidOperationException(
+                                $"Referenced response '{sampledFunction.Name}' does not expose the " +
+                                "established RiskFunctionBase sampler state.");
+                        for (int realization = 0; realization < sampleSize; realization++)
+                        {
+                            for (int childDimension = 0; childDimension < childDimensions; childDimension++)
+                            {
+                                _percentiles![realization, dimension + childDimension] =
+                                    sampledBase!.SampledPercentile(realization, childDimension);
+                            }
+                        }
+                        nextBindings.Add(occurrence.CanonicalPath,
+                            new SamplingBinding(-1, sampledFunction));
+                        dimension += childDimensions;
+                    }
                 }
+                if (dimension != plan.SamplingDimensions)
+                {
+                    throw new InvalidOperationException(
+                        $"Event-tree response '{Name}' populated {dimension} sampler dimensions " +
+                        $"for a compiled plan requiring {plan.SamplingDimensions}. Retry setup after " +
+                        "all referenced functions are stable.");
+                }
+                _samplingBindings.Clear();
+                foreach (var binding in nextBindings)
+                    _samplingBindings.Add(binding.Key, binding.Value);
+                _samplerIdentity = CanonicalHash(plan);
             }
-            _samplerIdentity = CanonicalHash();
+            catch
+            {
+                SampleSize = priorSampleSize;
+                _percentiles = priorPercentiles;
+                _samplerIdentity = priorSamplerIdentity;
+                _samplingBindings.Clear();
+                foreach (var binding in priorBindings)
+                    _samplingBindings.Add(binding.Key, binding.Value);
+                throw;
+            }
         }
 
         /// <inheritdoc/>
@@ -460,6 +516,14 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
         public override byte[] CanonicalHash()
         {
             EventTreeOccurrencePlan plan = EventTreeOccurrencePlan.Compile(this);
+            return CanonicalHash(plan);
+        }
+
+        /// <summary>Hashes a previously compiled plan without recursively recompiling source edges.</summary>
+        /// <param name="plan">The occurrence plan compiled on the active cycle-detection stack.</param>
+        /// <returns>The metadata-free SHA-256 canonical identity.</returns>
+        internal byte[] CanonicalHash(EventTreeOccurrencePlan plan)
+        {
             var identity = new XElement(nameof(EventTreeResponse));
             var hazards = new XElement(nameof(HazardLevels));
             foreach (double value in _hazardLevels)
@@ -705,7 +769,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
             Array.Copy(hash, bytes, bytes.Length);
             return new Guid(bytes);
         }
-        /// <summary>Creates an isolated self-contained response occurrence for repeated live references.</summary>
+        /// <summary>Creates an isolated self-contained response occurrence for setup.</summary>
         private static IResponseFunction CloneResponseFunction(IResponseFunction source)
         {
             return RiskFunctionFactory.CreateResponseFunction(source.ToXElement())
@@ -750,8 +814,13 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
         /// <summary>Throws when validation reports any error.</summary>
         private void ThrowIfUnusable()
         {
-            if (!Validate().IsValid)
-                throw new InvalidOperationException("The event-tree response is invalid. Call Validate() and correct the reported errors before sampling.");
+            var validation = Validate();
+            if (validation.IsValid) return;
+            string errors = string.Join(" ", validation.ValidationMessages.Where(message =>
+                message.StartsWith("Error:", StringComparison.Ordinal)));
+            throw new InvalidOperationException(
+                "The event-tree response is invalid. Call Validate() and correct the reported " +
+                $"errors before sampling. {errors}");
         }
 
         /// <summary>Ensures realization sampling uses the configuration that was set up.</summary>
