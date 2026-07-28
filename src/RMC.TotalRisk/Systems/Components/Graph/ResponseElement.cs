@@ -2,18 +2,21 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Xml.Linq;
+using RMC.TotalRisk.Core;
 using RMC.TotalRisk.Core.Enums;
 using RMC.TotalRisk.Core.Interfaces;
 using RMC.TotalRisk.RiskFunctions;
 using RMC.TotalRisk.RiskFunctions.Responses;
+using RMC.TotalRisk.RiskFunctions.Responses.Trees;
 
 namespace RMC.TotalRisk.Systems.Components.Graph
 {
     /// <summary>
     /// A response element of a system component's risk graph: wraps a response (fragility)
-    /// function evaluated at the incoming hazard signal. One input and one output — the hazard
-    /// signal passes through to downstream elements; the fail/non-fail branch accounting is the
-    /// risk engine's concern.
+    /// function evaluated at the incoming hazard signal. One input feeds either the established
+    /// aggregate Fail/Non-Fail outputs or opt-in stable terminal outputs for a branching response.
+    /// Every output carries the same pass-through hazard signal; its selected probability branch
+    /// participates in downstream failure-mode projection.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -73,6 +76,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         {
             if (xElement == null) throw new ArgumentNullException(nameof(xElement));
             ReadBaseFromXElement(xElement);
+            _expandBranchOutputs = SerializationUtilities.ReadBoolean(xElement, nameof(ExpandBranchOutputs));
             _pendingInput = ReadPendingConnection(xElement, "Source");
             _pendingSecondaryInput = ReadPendingConnection(xElement, "SecondarySource");
 
@@ -96,6 +100,9 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         /// </summary>
         private IResponseFunction? _function;
 
+        /// <summary>Whether this element exposes constituent branch outputs instead of aggregate outputs.</summary>
+        private bool _expandBranchOutputs;
+
         /// <summary>
         /// Backing field for <see cref="Input"/>.
         /// </summary>
@@ -109,13 +116,13 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         /// <summary>
         /// The pending serialized input reference, resolved by the graph after construction.
         /// </summary>
-        private (Guid? Id, string? Name, int Port)? _pendingInput;
+        private PendingConnection? _pendingInput;
 
         /// <summary>
         /// The pending serialized secondary-input reference, resolved by the graph after
         /// construction.
         /// </summary>
-        private (Guid? Id, string? Name, int Port)? _pendingSecondaryInput;
+        private PendingConnection? _pendingSecondaryInput;
 
         /// <summary>
         /// The wrapped response function (referenced, not owned: a consuming layer may store one function and use it in several graphs). Null while unset —
@@ -130,7 +137,25 @@ namespace RMC.TotalRisk.Systems.Components.Graph
                 {
                     _function = SwapFunctionSubscription(_function, value);
                     RaisePropertyChange(nameof(Function));
+                    RaisePropertyChange(nameof(OutputCount));
                 }
+            }
+        }
+
+        /// <summary>
+        /// Gets or sets whether a branching response exposes its constituent end-state outputs.
+        /// The default aggregate view retains ports 0 = Fail and 1 = Non-Fail. Expanded mode
+        /// exposes only the stable descriptors returned by <see cref="GetAvailableBranches"/>.
+        /// </summary>
+        public bool ExpandBranchOutputs
+        {
+            get { return _expandBranchOutputs; }
+            set
+            {
+                if (_expandBranchOutputs == value) return;
+                _expandBranchOutputs = value;
+                RaisePropertyChange(nameof(ExpandBranchOutputs));
+                RaisePropertyChange(nameof(OutputCount));
             }
         }
 
@@ -168,6 +193,15 @@ namespace RMC.TotalRisk.Systems.Components.Graph
             }
         }
 
+        /// <summary>Restores both structural inputs without publishing a partially rolled-back edit.</summary>
+        /// <param name="input">The checkpointed primary input.</param>
+        /// <param name="secondaryInput">The checkpointed secondary input.</param>
+        internal void RestoreInputConnections(RiskConnection? input, RiskConnection? secondaryInput)
+        {
+            _input = input;
+            _secondaryInput = secondaryInput;
+        }
+
         /// <inheritdoc/>
         public override RiskElementType ElementType => RiskElementType.Response;
 
@@ -180,14 +214,22 @@ namespace RMC.TotalRisk.Systems.Components.Graph
 
         /// <inheritdoc/>
         /// <remarks>
-        /// Two since Phase 6.7 (arch doc §7.9): output port 0 is the <b>Fail</b> branch — the
-        /// implied v1.0 port every pre-6.7 connection already targets — and output port 1 is the
-        /// <b>Non-Fail</b> branch. A downstream path exiting port 0 contributes the fragility
-        /// <c>p(h)</c> to its failure mode's polarity product; port 1 contributes <c>1 − p(h)</c>.
-        /// Both ports carry the same pass-through hazard signal (responses are signal-transparent);
-        /// they differ only in the probability algebra of the paths that use them.
+        /// In the default aggregate view, Phase 6.7's contract remains output port 0 =
+        /// <b>Fail</b> and output port 1 = <b>Non-Fail</b>. In the opt-in expanded view, only the
+        /// branching response's stable terminal descriptors are available; port 2 is the implicit
+        /// unmodeled branch and authored or linked terminal ports are append-only from port 3.
+        /// All outputs carry the same pass-through hazard signal and differ only in path-probability
+        /// algebra.
         /// </remarks>
-        public override int OutputCount => 2;
+        public override int OutputCount
+        {
+            get
+            {
+                if (!_expandBranchOutputs) return 2;
+                IReadOnlyList<ResponseBranchDescriptor> branches = GetAvailableBranches();
+                return branches.Count == 0 ? 0 : branches.Max(branch => branch.OutputPort) + 1;
+            }
+        }
 
         #endregion
 
@@ -204,6 +246,121 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         public override IEnumerable<IRiskFunction> GetFunctions()
         {
             if (_function != null) yield return _function;
+        }
+
+        /// <summary>Gets the stable branches available through the expanded output view.</summary>
+        /// <returns>The current branch descriptors in output-port order, or an empty list when the wrapped response is not branching.</returns>
+        public IReadOnlyList<ResponseBranchDescriptor> GetAvailableBranches()
+        {
+            return _function is IBranchingResponseFunction branching
+                ? branching.GetBranches()
+                : Array.Empty<ResponseBranchDescriptor>();
+        }
+
+        /// <summary>Creates a connection to one stable expanded branch.</summary>
+        /// <param name="branchId">The selected branch id.</param>
+        /// <returns>A branch-addressed risk connection.</returns>
+        /// <exception cref="InvalidOperationException">Thrown when expanded outputs are disabled or the branch is unavailable.</exception>
+        public RiskConnection CreateBranchConnection(Guid branchId)
+        {
+            return new RiskConnection(this, RequireAvailableBranch(branchId));
+        }
+
+        /// <summary>Requires one currently available expanded branch.</summary>
+        /// <param name="branchId">The selected branch id.</param>
+        /// <returns>The matching descriptor.</returns>
+        /// <exception cref="InvalidOperationException">Thrown when expanded outputs are disabled or the branch is unavailable.</exception>
+        internal ResponseBranchDescriptor RequireAvailableBranch(Guid branchId)
+        {
+            if (!_expandBranchOutputs)
+                throw new InvalidOperationException(
+                    $"The response element '{Name}' is using its aggregate Fail/Non-Fail output view; enable expanded branch outputs before connecting an end state.");
+            ResponseBranchDescriptor? branch = GetAvailableBranches()
+                .FirstOrDefault(item => item.Id == branchId);
+            return branch ?? throw new InvalidOperationException(
+                $"The response element '{Name}' does not expose branch '{branchId:D}'.");
+        }
+
+        /// <summary>Resolves persisted branch identity through id, name-only migration, or port-only migration.</summary>
+        /// <param name="branchId">The primary branch id.</param>
+        /// <param name="branchName">The branch-name fallback.</param>
+        /// <param name="sourcePort">The persisted output port.</param>
+        /// <param name="linkDescription">The consuming connection description.</param>
+        /// <returns>The repaired branch-addressed connection.</returns>
+        /// <exception cref="InvalidOperationException">Thrown when the branch address is stale, missing, or ambiguous.</exception>
+        internal RiskConnection ResolveBranchConnection(Guid? branchId, string? branchName,
+            int sourcePort, string linkDescription)
+        {
+            if (!_expandBranchOutputs)
+                throw new InvalidOperationException(
+                    $"{linkDescription} carries an expanded branch address, but response element '{Name}' uses the aggregate output view.");
+
+            IReadOnlyList<ResponseBranchDescriptor> branches = GetAvailableBranches();
+            ResponseBranchDescriptor? branch = null;
+            if (branchId.HasValue)
+            {
+                branch = branches.FirstOrDefault(item => item.Id == branchId.Value);
+                if (branch == null)
+                    throw new InvalidOperationException(
+                        $"{linkDescription} references stale branch id '{branchId.Value:D}' on response element '{Name}'.");
+            }
+            else if (!string.IsNullOrEmpty(branchName))
+            {
+                ResponseBranchDescriptor[] matches = branches
+                    .Where(item => string.Equals(item.Name, branchName, StringComparison.Ordinal))
+                    .ToArray();
+                if (matches.Length != 1)
+                    throw new InvalidOperationException(
+                        $"{linkDescription} branch-name fallback '{branchName}' is {(matches.Length == 0 ? "missing" : "ambiguous")} on response element '{Name}'.");
+                branch = matches[0];
+            }
+            else
+            {
+                branch = branches.FirstOrDefault(item => item.OutputPort == sourcePort);
+                if (branch == null)
+                    throw new InvalidOperationException(
+                        $"{linkDescription} references stale output port {sourcePort} on expanded response element '{Name}'.");
+            }
+
+            return new RiskConnection(this, branch.OutputPort, branch.Id, branch.Name);
+        }
+
+        /// <summary>Validates one downstream connection against the active output view.</summary>
+        /// <param name="connection">The connection whose source is this response element.</param>
+        /// <param name="error">The branch-specific error text, or an empty string.</param>
+        /// <returns>True when the selected output is currently available.</returns>
+        internal bool TryValidateOutputConnection(RiskConnection connection, out string error)
+        {
+            if (!_expandBranchOutputs)
+            {
+                if (connection.SourceBranchId.HasValue)
+                {
+                    error = $"references an expanded branch of response element '{Name}', which is using its aggregate Fail/Non-Fail output view.";
+                    return false;
+                }
+                error = string.Empty;
+                return true;
+            }
+
+            if (!connection.SourceBranchId.HasValue)
+            {
+                error = $"references output port {connection.SourcePort} of expanded response element '{Name}' without a stable branch id.";
+                return false;
+            }
+            ResponseBranchDescriptor? descriptor = GetAvailableBranches()
+                .FirstOrDefault(branch => branch.Id == connection.SourceBranchId.Value);
+            if (descriptor == null)
+            {
+                error = $"references stale branch id '{connection.SourceBranchId.Value:D}' on expanded response element '{Name}'.";
+                return false;
+            }
+            if (descriptor.OutputPort != connection.SourcePort)
+            {
+                error = $"references stale output port {connection.SourcePort} for branch '{descriptor.Name}' on response element '{Name}'; the stable branch now uses port {descriptor.OutputPort}.";
+                return false;
+            }
+            error = string.Empty;
+            return true;
         }
 
 
@@ -244,6 +401,11 @@ namespace RMC.TotalRisk.Systems.Components.Graph
                 AggregateWithContext(messages, _function.Validate().ValidationMessages);
             }
 
+            if (_expandBranchOutputs && _function is not IBranchingResponseFunction)
+            {
+                messages.Add($"Error: The response element '{Name}' enables expanded branch outputs, but its response function is not branching.");
+            }
+
             if (_secondaryInput != null)
             {
                 messages.Add($"Error: The response element '{Name}' has a secondary input, which is reserved for bivariate response functions (Phase 11).");
@@ -257,6 +419,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         {
             var element = new XElement(nameof(ResponseElement));
             AddBaseAttributesToXElement(element);
+            element.SetAttributeValue(nameof(ExpandBranchOutputs), _expandBranchOutputs);
             WriteConnection(element, "Source", _input);
             WriteConnection(element, "SecondarySource", _secondaryInput);
             if (_function != null) element.Add(new XElement(nameof(Function), WriteFunctionEntry(_function, mode)));
@@ -268,6 +431,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         {
             var clone = new ResponseElement();
             CopyBaseTo(clone);
+            clone._expandBranchOutputs = _expandBranchOutputs;
             clone._function = _function == null ? null : RiskFunctionFactory.CreateResponseFunction(_function.ToXElement());
             clone.SubscribeFunction(clone._function);
             return clone;

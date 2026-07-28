@@ -641,7 +641,7 @@ namespace RMC.TotalRisk.Systems.Components
         /// <returns>The 32-byte SHA-256 hash of the canonicalized <see cref="ToXElement"/> form.</returns>
         public byte[] CanonicalHash()
         {
-            return CanonicalContentHasher.Hash(ToXElement(), CanonicalizationRules.ModelRules);
+            return CanonicalContentHasher.Hash(ToIdentityXElement(), CanonicalizationRules.ModelRules);
         }
 
         /// <summary>
@@ -796,6 +796,24 @@ namespace RMC.TotalRisk.Systems.Components
             }
             element.Add(consequences);
 
+            return element;
+        }
+
+        /// <summary>Builds canonical identity with projected response identities in place of persistence wrappers.</summary>
+        /// <returns>The identity form.</returns>
+        internal XElement ToIdentityXElement()
+        {
+            XElement element = ToXElement();
+            XElement? stages = element.Element(nameof(ResponseStages));
+            if (stages == null) return element;
+            XElement[] persisted = stages.Elements(nameof(ResponseStage)).ToArray();
+            int serializedIndex = 0;
+            for (int i = 0; i < _responseStages.Count; i++)
+            {
+                if (_responseStages[i] == null) continue;
+                persisted[serializedIndex++].ReplaceWith(
+                    _responseStages[i].ToIdentityXElement());
+            }
             return element;
         }
 

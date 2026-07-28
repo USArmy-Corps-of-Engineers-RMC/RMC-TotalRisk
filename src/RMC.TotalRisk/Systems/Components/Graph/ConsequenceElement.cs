@@ -121,12 +121,12 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         /// <summary>
         /// The pending serialized input reference, resolved by the graph after construction.
         /// </summary>
-        private (Guid? Id, string? Name, int Port)? _pendingInput;
+        private PendingConnection? _pendingInput;
 
         /// <summary>
         /// The pending serialized binding reference, resolved by the graph after construction.
         /// </summary>
-        private (Guid? Id, string? Name, int Port)? _pendingHazardSource;
+        private PendingConnection? _pendingHazardSource;
 
         /// <summary>
         /// The ordered consequence functions (referenced, not owned — a consuming layer may store
@@ -213,6 +213,15 @@ namespace RMC.TotalRisk.Systems.Components.Graph
                     RaisePropertyChange(nameof(HazardSource));
                 }
             }
+        }
+
+        /// <summary>Restores structural and binding inputs without publishing a partially rolled-back edit.</summary>
+        /// <param name="input">The checkpointed structural input.</param>
+        /// <param name="hazardSource">The checkpointed hazard-source binding.</param>
+        internal void RestoreInputConnections(RiskConnection? input, RiskConnection? hazardSource)
+        {
+            _input = input;
+            _hazardSource = hazardSource;
         }
 
         /// <inheritdoc/>

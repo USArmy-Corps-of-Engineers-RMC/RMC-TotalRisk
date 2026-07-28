@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
@@ -15,6 +15,7 @@ using RMC.TotalRisk.Core.Enums;
 using RMC.TotalRisk.Core.Interfaces;
 using RMC.TotalRisk.Results;
 using RMC.TotalRisk.RiskFunctions.Responses;
+using RMC.TotalRisk.RiskFunctions.Responses.Trees;
 using RMC.TotalRisk.Systems.Components.Graph;
 
 namespace RMC.TotalRisk.Systems.Components
@@ -759,6 +760,8 @@ namespace RMC.TotalRisk.Systems.Components
             // branch port after each stage (the stage's polarity — arch doc §7.9), 0 otherwise,
             // so projecting the expansion reproduces the chain's polarities bit-identically.
             int upstreamPort = 0;
+            Guid? upstreamBranchId = null;
+            string? upstreamBranchName = null;
             var stageTransformElements = new List<TransformElement>();
             bool isNonFail = failureMode.IsNonFailureMode;
             for (int s = 0; s < failureMode.ResponseStages.Count; s++)
@@ -767,31 +770,53 @@ namespace RMC.TotalRisk.Systems.Components
                 if (stage is null) continue;
                 for (int t = 0; t < stage.Transforms.Count; t++)
                 {
-                    upstream = AddTransformElement(stage.Transforms[t], upstream, stageTransformElements, upstreamPort);
+                    upstream = AddTransformElement(stage.Transforms[t], upstream,
+                        stageTransformElements, upstreamPort, upstreamBranchId, upstreamBranchName);
                     upstreamPort = 0;
+                    upstreamBranchId = null;
+                    upstreamBranchName = null;
                 }
                 if (!isNonFail)
                 {
                     var responseElement = new ResponseElement(_graph.GetUniqueName(ElementName(stage.Response?.Name, "Response")))
                     {
                         Function = stage.Response,
-                        Input = new RiskConnection(upstream, upstreamPort),
+                        ExpandBranchOutputs = stage.SelectedBranchId.HasValue,
+                        Input = new RiskConnection(upstream, upstreamPort,
+                            upstreamBranchId, upstreamBranchName),
                     };
                     _graph.AddElement(responseElement);
                     upstream = responseElement;
-                    upstreamPort = (int)stage.BranchPolarity;
+                    if (stage.SelectedBranchId.HasValue)
+                    {
+                        ResponseBranchDescriptor branch = responseElement.RequireAvailableBranch(
+                            stage.SelectedBranchId.Value);
+                        upstreamPort = branch.OutputPort;
+                        upstreamBranchId = branch.Id;
+                        upstreamBranchName = branch.Name;
+                    }
+                    else
+                    {
+                        upstreamPort = (int)stage.BranchPolarity;
+                        upstreamBranchId = null;
+                        upstreamBranchName = null;
+                    }
                 }
             }
             for (int t = 0; t < failureMode.ResponseToConsequence.Count; t++)
             {
-                upstream = AddTransformElement(failureMode.ResponseToConsequence[t], upstream, null, upstreamPort);
+                upstream = AddTransformElement(failureMode.ResponseToConsequence[t], upstream,
+                    null, upstreamPort, upstreamBranchId, upstreamBranchName);
                 upstreamPort = 0;
+                upstreamBranchId = null;
+                upstreamBranchName = null;
             }
 
             var primary = failureMode.ConsequenceFunctions.Count > 0 ? failureMode.ConsequenceFunctions[0] : null;
             var terminal = new ConsequenceElement(_graph.GetUniqueName(ElementName(primary?.Name, "Consequence")))
             {
-                Input = new RiskConnection(upstream, upstreamPort),
+                Input = new RiskConnection(upstream, upstreamPort,
+                    upstreamBranchId, upstreamBranchName),
                 Functions = new ObservableCollection<IConsequenceFunction>(failureMode.ConsequenceFunctions),
             };
 
@@ -1583,7 +1608,7 @@ namespace RMC.TotalRisk.Systems.Components
             var projected = ProjectFailureModes();
             for (int i = 0; i < projected.Count; i++)
             {
-                var modeXml = projected[i].ToXElement();
+                var modeXml = projected[i].ToIdentityXElement();
                 var ordinals = projected[i].ProjectedResponseOrdinals;
                 modeXml.SetAttributeValue("ResponseNodes",
                     ordinals == null ? string.Empty : string.Join(",", ordinals));
@@ -1647,7 +1672,7 @@ namespace RMC.TotalRisk.Systems.Components
             var stageOrdinals = new List<int>();
             var pending = new List<ITransformFunction>();
             ResponseElement? lastResponseElement = null;
-            int lastExitPort = 0;
+            RiskConnection? lastExitConnection = null;
             for (int i = 1; i < path.Count - 1; i++)
             {
                 if (path[i] is TransformElement transformElement)
@@ -1656,9 +1681,18 @@ namespace RMC.TotalRisk.Systems.Components
                 }
                 else if (path[i] is ResponseElement responseElement)
                 {
-                    int exitPort = ExitPort(path[i + 1], responseElement);
+                    RiskConnection? exitConnection = ExitConnection(path[i + 1], responseElement);
+                    int exitPort = exitConnection?.SourcePort ?? 0;
                     var polarity = exitPort == (int)BranchPolarity.NonFail ? BranchPolarity.NonFail : BranchPolarity.Fail;
-                    stages.Add(new ResponseStage(pending, responseElement.Function, polarity));
+                    if (exitConnection?.SourceBranchId is Guid branchId)
+                    {
+                        ResponseBranchDescriptor branch = responseElement.RequireAvailableBranch(branchId);
+                        stages.Add(new ResponseStage(pending, responseElement.Function!, branch));
+                    }
+                    else
+                    {
+                        stages.Add(new ResponseStage(pending, responseElement.Function, polarity));
+                    }
                     if (!responseOrdinals.TryGetValue(responseElement, out int ordinal))
                     {
                         ordinal = responseOrdinals.Count;
@@ -1667,7 +1701,7 @@ namespace RMC.TotalRisk.Systems.Components
                     stageOrdinals.Add(ordinal);
                     pending = new List<ITransformFunction>();
                     lastResponseElement = responseElement;
-                    lastExitPort = exitPort;
+                    lastExitConnection = exitConnection;
                 }
             }
 
@@ -1734,12 +1768,30 @@ namespace RMC.TotalRisk.Systems.Components
                 int fanOut = 0;
                 foreach (var consumer in _graph.GetDownstreamElements(lastResponseElement))
                 {
-                    if (ExitPort(consumer, lastResponseElement) == lastExitPort) fanOut++;
+                    RiskConnection? connection = ExitConnection(consumer, lastResponseElement);
+                    if (connection != null && lastExitConnection != null
+                        && connection.SourcePort == lastExitConnection.SourcePort
+                        && connection.SourceBranchId == lastExitConnection.SourceBranchId)
+                        fanOut++;
                 }
                 mode.MultipleConsequences = fanOut >= 2;
             }
             return mode;
         }
+
+        /// <summary>Reads the first structural connection a consumer takes from a source element.</summary>
+        /// <param name="consumer">The downstream element.</param>
+        /// <param name="source">The upstream element.</param>
+        /// <returns>The matching connection, or null.</returns>
+        private static RiskConnection? ExitConnection(IRiskElement consumer, IRiskElement source)
+        {
+            foreach (RiskConnection connection in consumer.GetInputConnections())
+            {
+                if (ReferenceEquals(connection.Source, source)) return connection;
+            }
+            return null;
+        }
+
 
         /// <summary>
         /// Reads the output port a consumer's structural connection takes from a source element:
@@ -1751,11 +1803,7 @@ namespace RMC.TotalRisk.Systems.Components
         /// <returns>The connection's source port, or 0.</returns>
         private static int ExitPort(IRiskElement consumer, IRiskElement source)
         {
-            foreach (var connection in consumer.GetInputConnections())
-            {
-                if (ReferenceEquals(connection.Source, source)) return connection.SourcePort;
-            }
-            return 0;
+            return ExitConnection(consumer, source)?.SourcePort ?? 0;
         }
 
         /// <summary>
@@ -1870,13 +1918,18 @@ namespace RMC.TotalRisk.Systems.Components
         /// <param name="upstream">The element the new transform consumes.</param>
         /// <param name="stageRegistry">When non-null, collects the created element for binding-position mapping (stage transforms only).</param>
         /// <param name="upstreamPort">The upstream output port to consume — a response's branch port when the upstream element closed a stage (arch doc §7.9); 0 otherwise.</param>
+        /// <param name="upstreamBranchId">The stable expanded branch id, or null.</param>
+        /// <param name="upstreamBranchName">The expanded branch-name fallback.</param>
         /// <returns>The created element (the new upstream).</returns>
-        private TransformElement AddTransformElement(ITransformFunction? function, IRiskElement upstream, List<TransformElement>? stageRegistry, int upstreamPort = 0)
+        private TransformElement AddTransformElement(ITransformFunction? function,
+            IRiskElement upstream, List<TransformElement>? stageRegistry, int upstreamPort = 0,
+            Guid? upstreamBranchId = null, string? upstreamBranchName = null)
         {
             var element = new TransformElement(_graph.GetUniqueName(ElementName(function?.Name, "Transform")))
             {
                 Function = function,
-                Input = new RiskConnection(upstream, upstreamPort),
+                Input = new RiskConnection(upstream, upstreamPort,
+                    upstreamBranchId, upstreamBranchName),
             };
             _graph.AddElement(element);
             stageRegistry?.Add(element);

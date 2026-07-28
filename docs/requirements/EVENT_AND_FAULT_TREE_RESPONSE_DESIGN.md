@@ -393,27 +393,26 @@ Warnings versus errors must follow existing response validation: correctable sha
 
 ### Phase 10A — common foundation and event-tree response
 
-> **Implementation status (2026-07-28, partial):** five landed vertical slices now include common
-> branch/reference/fragment contracts; controlled transactional authoring with fresh-ID copy/paste,
-> replace, materialize, delete-materialize, and prune; deterministic expanded topological,
-> unreachable, and reference queries; scalar/tabular/ordinary-response sources; internal/external
-> `IndependentClone` links and occurrence-aware sampling; resolver-backed two-mode XML; full-path
-> cross-function cycle diagnostics; link-aware evaluation; recursive `EventTreeResponse`
-> probability sources evaluated on the caller hazard axis; recursive discovery and independent
-> occurrence sampling through nested responses, ordinary responses, tables, and links; mixed
-> source/link cycle diagnostics; transactional sampler setup; and projected recursive hash/seed
-> identity. Step 3 is now complete: the import-only adapter accepts recursive v1.0 `Node` roots
-> directly and through `EventTreeResponse`/`EventTree` envelopes; accepts `HazardLevels` or
-> `HazardIntervals`, `NodeGuid` or `NodeGUID`, and `SingleValue`, `MultiValue`, or name-only
-> `ResponseFunction` sources; repairs resolved response IDs; supplies the legacy automatic
-> remainder; and writes only the canonical explicit-node/edge v1.1 form. Ambiguous legacy
-> `EventNode` probability references fail with deterministic path diagnostics rather than being
-> reinterpreted as independent structural clones. The exact shipped `Basic` and `Concrete Dam Gate
-> Failure` templates plus the legacy `TestIO` shape are independently verified. Failed mutations,
-> conversion, and sampler setup preserve live state exactly. The established raw/normalized
-> sibling, residual, interpolation, seed, and output-port rules are unchanged. Phase 10A remains
-> open for the unimplemented portions of steps 5–7: immutable compiled-plan caching/invalidation,
-> expanded graph ports and stale-connection policy, and the remaining verification/performance gates.
+> **Implementation status (2026-07-28, partial):** six landed vertical slices now cover the
+> common contracts, controlled transactional authoring/topology, recursive sources and independent
+> links, legacy conversion/templates, and risk-graph end-state integration. The graph slice keeps
+> the ordinary response view at ports 0 = Fail and 1 = Non-Fail and adds an opt-in expanded view:
+> port 2 is the stable implicit-unmodeled non-failure branch, while every authored or linked
+> terminal receives an append-only port from 3. Stable branch IDs are authoritative in
+> `RiskConnection` and `ResponseStage` persistence; exact names are migration fallbacks and are
+> refreshed on write. Rename, metadata edits, sibling reorder, copy/paste, materialization,
+> pruning, and both XML modes preserve existing branch addresses. Graph-aware deletion rejects a
+> disappearing connected terminal by default, cascade-disconnects only consumers of that branch,
+> or preserves it only when exact link materialization retains the same branch ID and port. Failed
+> edits restore tree topology, connection slots, IDs, branch-port allocation, canonical hash, and
+> configured sampler state. Projection, end-state grouping, validation, resolver/factory paths,
+> and projected canonical identity understand arbitrary n-way leaves; graph-connected consequence
+> probabilities are independently verified and aggregate failure remains unchanged. The established
+> raw/normalized sibling, residual, interpolation, sampling, seed, and reference rules are
+> unchanged. Phase 10A remains open for immutable compiled-plan caching/invalidation, large-tree
+> performance, property-based testing, branch-routing Monte Carlo, aggregate LHS variance
+> reduction, and the remaining thread-count, coverage, and performance gates.
+
 1. Add append-only discriminators, common tree interfaces/results, source/link/reference types, and diagnostic codes.
 2. Add the controlled `EventTree` authoring model and transactional manipulation/search/topology APIs.
 3. Add legacy XML conversion plus canonical v1.1 self-contained/by-reference serialization and projected hashing.

@@ -70,6 +70,25 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                     throw new InvalidOperationException($"The serialized event tree contains duplicate output port '{node.OutputPort}'.");
                 _nextOutputPort = Math.Max(_nextOutputPort, node.OutputPort + 1);
             }
+            XElement? branchPorts = xElement.Element("BranchPorts");
+            if (branchPorts != null)
+            {
+                foreach (XElement branchElement in branchPorts.Elements("Branch"))
+                {
+                    Guid branchId = ReadRequiredGuid(branchElement, "Id");
+                    int outputPort = SerializationUtilities.ReadInt32(branchElement, "OutputPort");
+                    if (outputPort < 3)
+                        throw new InvalidOperationException("A serialized linked branch output port must be at least three.");
+                    if (!_linkedBranchPorts.TryAdd(branchId, outputPort))
+                        throw new InvalidOperationException($"The serialized event tree contains duplicate linked branch id '{branchId:D}'.");
+                    string? persistencePath = branchElement.Attribute("PersistencePath")?.Value;
+                    if (!string.IsNullOrEmpty(persistencePath))
+                        _linkedBranchPaths.Add(branchId, persistencePath);
+                    if (!usedPorts.Add(outputPort))
+                        throw new InvalidOperationException($"The serialized event tree contains duplicate output port '{outputPort}'.");
+                    _nextOutputPort = Math.Max(_nextOutputPort, outputPort + 1);
+                }
+            }
             foreach (EventNodeBase node in _nodes.Where(node => node is not InitiatingNode && node.OutputPort < 3))
             {
                 AssignNextOutputPort(node);
@@ -112,6 +131,12 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
 
         /// <summary>The persistent-id lookup.</summary>
         private readonly Dictionary<Guid, EventNodeBase> _byId = new Dictionary<Guid, EventNodeBase>();
+
+        /// <summary>Append-only output-port assignments for expanded linked-leaf branches.</summary>
+        private readonly Dictionary<Guid, int> _linkedBranchPorts = new Dictionary<Guid, int>();
+
+        /// <summary>Current occurrence paths for linked or materialized branch addresses.</summary>
+        private readonly Dictionary<Guid, string> _linkedBranchPaths = new Dictionary<Guid, string>();
 
         /// <summary>The cached read-only node view.</summary>
         private ReadOnlyCollection<EventNodeBase>? _readOnlyNodes;
@@ -481,6 +506,18 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
             }
             element.Add(nodes);
 
+            var branchPorts = new XElement("BranchPorts");
+            foreach (KeyValuePair<Guid, int> branch in _linkedBranchPorts.OrderBy(item => item.Value))
+            {
+                var serialized = new XElement("Branch");
+                serialized.SetAttributeValue("Id", branch.Key.ToString("D"));
+                serialized.SetAttributeValue("OutputPort", branch.Value.ToString(CultureInfo.InvariantCulture));
+                if (_linkedBranchPaths.TryGetValue(branch.Key, out string? persistencePath))
+                    serialized.SetAttributeValue("PersistencePath", persistencePath);
+                branchPorts.Add(serialized);
+            }
+            element.Add(branchPorts);
+
             var edges = new XElement("Edges");
             foreach (EventNodeBase parent in _nodes)
             {
@@ -568,16 +605,88 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
             if (parent != null) parent.MutableChildren.Insert(childIndex, node);
         }
 
-        /// <summary>Validates a prospective unattached child.</summary>
         /// <summary>Assigns the next unused persistent output port to a new or migrated node.</summary>
         /// <param name="node">The node receiving the port.</param>
         private void AssignNextOutputPort(EventNodeBase node)
         {
-            while (_nodes.Any(existing => existing.OutputPort == _nextOutputPort)) _nextOutputPort++;
+            while (_nodes.Any(existing => existing.OutputPort == _nextOutputPort)
+                || _linkedBranchPorts.ContainsValue(_nextOutputPort)) _nextOutputPort++;
             node.AssignOutputPort(_nextOutputPort);
             _nextOutputPort++;
         }
 
+        /// <summary>Gets or append-only assigns one linked occurrence's stable output port and records its current path.</summary>
+        /// <param name="branchId">The linked occurrence branch id.</param>
+        /// <param name="persistencePath">The current persistent-id occurrence path.</param>
+        /// <returns>The stable output port.</returns>
+        internal int GetOrAssignLinkedBranchPort(Guid branchId, string persistencePath)
+        {
+            if (_linkedBranchPorts.TryGetValue(branchId, out int outputPort))
+            {
+                _linkedBranchPaths[branchId] = persistencePath;
+                return outputPort;
+            }
+            while (_nodes.Any(existing => existing.OutputPort == _nextOutputPort)
+                || _linkedBranchPorts.ContainsValue(_nextOutputPort)) _nextOutputPort++;
+            outputPort = _nextOutputPort++;
+            _linkedBranchPorts.Add(branchId, outputPort);
+            _linkedBranchPaths.Add(branchId, persistencePath);
+            return outputPort;
+        }
+
+        /// <summary>Finds a preserved linked/materialized address for one current occurrence path.</summary>
+        /// <param name="persistencePath">The current persistent-id occurrence path.</param>
+        /// <param name="branchId">The preserved branch id.</param>
+        /// <param name="outputPort">The preserved output port.</param>
+        /// <returns>True when the path has a preserved address.</returns>
+        internal bool TryGetPreservedBranchAddress(string persistencePath, out Guid branchId,
+            out int outputPort)
+        {
+            foreach (KeyValuePair<Guid, string> item in _linkedBranchPaths)
+            {
+                if (!string.Equals(item.Value, persistencePath, StringComparison.Ordinal)) continue;
+                branchId = item.Key;
+                outputPort = _linkedBranchPorts[item.Key];
+                return true;
+            }
+            branchId = Guid.Empty;
+            outputPort = -1;
+            return false;
+        }
+
+        /// <summary>Readdresses every expanded occurrence carried through one materialized link.</summary>
+        /// <param name="linkId">The materialized authored link id.</param>
+        /// <param name="freshIds">The copied target-subtree source-to-fresh id map.</param>
+        internal void RemapMaterializedBranchPaths(Guid linkId,
+            IReadOnlyDictionary<Guid, Guid> freshIds)
+        {
+            string linkToken = linkId.ToString("N");
+            foreach (Guid branchId in _linkedBranchPaths.Keys.ToArray())
+            {
+                string[] tokens = _linkedBranchPaths[branchId].Split('/');
+                int linkIndex = Array.FindIndex(tokens,
+                    token => string.Equals(token, linkToken, StringComparison.OrdinalIgnoreCase));
+                if (linkIndex < 0) continue;
+
+                var remapped = new List<string>(tokens.Length - 1);
+                for (int i = 0; i < tokens.Length; i++)
+                {
+                    if (i == linkIndex) continue;
+                    if (i > linkIndex && Guid.TryParseExact(tokens[i], "N", out Guid sourceId)
+                        && freshIds.TryGetValue(sourceId, out Guid freshId))
+                    {
+                        remapped.Add(freshId.ToString("N"));
+                    }
+                    else
+                    {
+                        remapped.Add(tokens[i]);
+                    }
+                }
+                _linkedBranchPaths[branchId] = string.Join("/", remapped);
+            }
+        }
+
+        /// <summary>Validates a detached child before adding it to the selected parent.</summary>
         /// <param name="parent">The selected parent.</param>
         /// <param name="node">The new child.</param>
         /// <param name="operation">The operation name.</param>

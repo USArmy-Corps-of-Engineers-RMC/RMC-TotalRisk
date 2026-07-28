@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
 using Numerics;
+using Numerics.Data;
 using Numerics.Distributions;
 using Numerics.Functions;
 using RMC.TotalRisk.Core.Enums;
+using RMC.TotalRisk.RiskFunctions.Responses.Trees;
 using RMC.TotalRisk.Systems.Components;
 
 namespace RMC.TotalRisk.Results
@@ -92,6 +94,7 @@ namespace RMC.TotalRisk.Results
             _stageTransformOffsets = new int[stageCount + 1];
             _stageResponses = new IUnivariateDistribution[stageCount];
             _stagePolarities = new BranchPolarity[stageCount];
+            _stageUsesExpandedBranches = new bool[stageCount];
             int cursor = 0;
             for (int s = 0; s < stageCount; s++)
             {
@@ -102,8 +105,37 @@ namespace RMC.TotalRisk.Results
                     _stageTransforms[cursor++] = mean ? transforms[i].SampleFunction() : transforms[i].SampleFunction(realizationIndex);
                 }
                 var response = stages[s].Response;
-                _stageResponses[s] = mean ? response.SampleFunction() : response.SampleFunction(realizationIndex);
                 _stagePolarities[s] = stages[s].BranchPolarity;
+                ResponseBranchDescriptor? selectedBranch = stages[s].GetSelectedBranch();
+                if (selectedBranch == null)
+                {
+                    _stageResponses[s] = mean
+                        ? response.SampleFunction()
+                        : response.SampleFunction(realizationIndex);
+                    continue;
+                }
+
+                var branching = (IBranchingResponseFunction)response;
+                ResponseBranchSample branchSample = mean
+                    ? branching.SampleBranches()
+                    : branching.SampleBranches(realizationIndex);
+                int branchIndex = -1;
+                for (int branch = 0; branch < branchSample.Branches.Count; branch++)
+                {
+                    if (branchSample.Branches[branch].Id == selectedBranch.Id)
+                    {
+                        branchIndex = branch;
+                        break;
+                    }
+                }
+                if (branchIndex < 0)
+                    throw new InvalidOperationException(
+                        $"Response branch '{selectedBranch.Id:D}' became stale while sampling failure mode '{Name}'.");
+                _stageResponses[s] = new EmpiricalDistribution(
+                    new List<double>(branchSample.Hazards),
+                    new List<double>(branchSample.Probabilities[branchIndex]),
+                    SortOrder.Ascending, SortOrder.None);
+                _stageUsesExpandedBranches[s] = true;
             }
             _stageTransformOffsets[stageCount] = cursor;
 
@@ -223,6 +255,12 @@ namespace RMC.TotalRisk.Results
         private readonly BranchPolarity[] _stagePolarities;
 
         /// <summary>
+        /// Whether each stage uses an exact expanded branch probability rather than aggregate
+        /// Fail/Non-Fail polarity algebra.
+        /// </summary>
+        private readonly bool[] _stageUsesExpandedBranches;
+
+        /// <summary>
         /// The sampled trailing transform curves applied from the bound consequence position.
         /// </summary>
         private readonly IUnivariateFunction[] _responseToConsequence;
@@ -339,7 +377,9 @@ namespace RMC.TotalRisk.Results
                     signal = _stageTransforms[i].Function(signal);
                 }
                 double p = Tools.Clamp(_stageResponses[s].CDF(signal), 0d, 1d);
-                weight *= _stagePolarities[s] == BranchPolarity.Fail ? p : 1d - p;
+                weight *= _stageUsesExpandedBranches[s]
+                    ? p
+                    : _stagePolarities[s] == BranchPolarity.Fail ? p : 1d - p;
             }
             return Tools.Clamp(weight, 0d, 1d);
         }
@@ -359,10 +399,11 @@ namespace RMC.TotalRisk.Results
         /// </exception>
         public double InverseSRP(double probability)
         {
-            if (_stageResponses.Length != 1 || _stagePolarities[0] != BranchPolarity.Fail)
+            if (_stageResponses.Length != 1 || _stagePolarities[0] != BranchPolarity.Fail
+                || _stageUsesExpandedBranches[0])
             {
                 throw new NotSupportedException(
-                    "InverseSRP is exact only for a single-stage Fail-polarity mode; a cascade's polarity product is not monotone in the hazard.");
+                    "InverseSRP is exact only for a single-stage aggregate Fail-polarity mode; expanded branches and cascade polarity products are not generally monotone in the hazard.");
             }
 
             double signal = _stageResponses[0].InverseCDF(probability);

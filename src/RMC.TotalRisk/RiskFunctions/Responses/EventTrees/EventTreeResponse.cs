@@ -495,7 +495,8 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
         /// <returns>The serialized response.</returns>
         public XElement ToXElement(RiskSerializationMode mode)
         {
-            EventTreeOccurrencePlan.Compile(this);
+            EventTreeOccurrencePlan plan = EventTreeOccurrencePlan.Compile(this);
+            _ = BuildBranchBindings(plan);
             var element = new XElement(nameof(EventTreeResponse));
             WriteIdentityAttributes(element);
             element.SetAttributeValue(nameof(SpecifiedHazard), SpecifiedHazard);
@@ -529,6 +530,20 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
         /// <returns>The metadata-free SHA-256 canonical identity.</returns>
         internal byte[] CanonicalHash(EventTreeOccurrencePlan plan)
         {
+            return CanonicalContentHasher.Hash(BuildIdentityXElement(plan),
+                CanonicalizationRules.ModelRules);
+        }
+
+        /// <summary>Builds the projected identity form used when this response is nested in a component chain.</summary>
+        /// <returns>The metadata- and persistence-free response identity.</returns>
+        internal XElement ToIdentityXElement()
+        {
+            return BuildIdentityXElement(EventTreeOccurrencePlan.Compile(this));
+        }
+
+        /// <summary>Builds projected identity from a previously compiled occurrence plan.</summary>
+        private XElement BuildIdentityXElement(EventTreeOccurrencePlan plan)
+        {
             var identity = new XElement(nameof(EventTreeResponse));
             var hazards = new XElement(nameof(HazardLevels));
             foreach (double value in _hazardLevels)
@@ -539,7 +554,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
             }
             identity.Add(hazards);
             identity.Add(new XElement(plan.Identity));
-            return CanonicalContentHasher.Hash(identity, CanonicalizationRules.ModelRules);
+            return identity;
         }
 
         /// <summary>The sampling mode used by the shared evaluator.</summary>
@@ -731,36 +746,62 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                     new ResponseBranchDescriptor(ImplicitBranchId, "Unmodeled", false, 2)),
             };
             var usedIds = new HashSet<Guid> { ImplicitBranchId };
-            foreach (EventTreeOccurrenceNode leaf in plan.Leaves.Where(leaf => !leaf.IsLinkedOccurrence)
-                .OrderBy(leaf => leaf.SourceNode.OutputPort))
+            foreach (EventTreeOccurrenceNode leaf in plan.Leaves)
             {
-                usedIds.Add(leaf.SourceNode.Id);
-                result.Add(new BranchBinding(leaf,
-                    new ResponseBranchDescriptor(leaf.SourceNode.Id, leaf.DisplayName,
-                        leaf.IsFailure, leaf.SourceNode.OutputPort)));
-            }
-
-            var linked = new List<(EventTreeOccurrenceNode Leaf, Guid Id)>();
-            foreach (EventTreeOccurrenceNode leaf in plan.Leaves.Where(leaf => leaf.IsLinkedOccurrence))
-            {
-                int salt = 0;
-                Guid id;
-                do
+                Guid branchId;
+                int outputPort;
+                if (EventTree.TryGetPreservedBranchAddress(leaf.PersistencePath,
+                    out branchId, out outputPort))
                 {
-                    id = CreateLinkedBranchId(leaf.PersistencePath, salt++);
+                    if (!usedIds.Add(branchId))
+                        throw new InvalidOperationException(
+                            $"Expanded event-tree branch id '{branchId:D}' resolves to more than one terminal occurrence.");
                 }
-                while (!usedIds.Add(id));
-                linked.Add((leaf, id));
-            }
+                else if (!leaf.IsLinkedOccurrence)
+                {
+                    branchId = leaf.SourceNode.Id;
+                    outputPort = leaf.SourceNode.OutputPort;
+                    if (!usedIds.Add(branchId))
+                        throw new InvalidOperationException(
+                            $"Expanded event-tree branch id '{branchId:D}' is not unique.");
+                }
+                else
+                {
+                    int salt = 0;
+                    do
+                    {
+                        branchId = CreateLinkedBranchId(leaf.PersistencePath, salt++);
+                    }
+                    while (!usedIds.Add(branchId));
+                    outputPort = EventTree.GetOrAssignLinkedBranchPort(branchId,
+                        leaf.PersistencePath);
+                }
 
-            int nextPort = Math.Max(3, EventTree.Nodes.Select(node => node.OutputPort).DefaultIfEmpty(2).Max() + 1);
-            foreach (var item in linked.OrderBy(item => item.Id))
-            {
-                result.Add(new BranchBinding(item.Leaf,
-                    new ResponseBranchDescriptor(item.Id, item.Leaf.DisplayName,
-                        item.Leaf.IsFailure, nextPort++)));
+                result.Add(new BranchBinding(leaf,
+                    new ResponseBranchDescriptor(branchId, leaf.DisplayName,
+                        leaf.IsFailure, outputPort)));
             }
             return result.OrderBy(binding => binding.Descriptor.OutputPort).ToArray();
+        }
+
+        /// <summary>Gets the metadata-free projected identity of one selected branch.</summary>
+        /// <param name="branchId">The stable branch id.</param>
+        /// <returns>The canonical occurrence path, or the implicit-unmodeled token.</returns>
+        /// <exception cref="InvalidOperationException">Thrown when the branch is stale.</exception>
+        internal string GetBranchIdentityToken(Guid branchId)
+        {
+            if (branchId == ImplicitBranchId) return "ImplicitUnmodeled";
+            EventTreeOccurrencePlan plan = EventTreeOccurrencePlan.Compile(this);
+            BranchBinding? binding = BuildBranchBindings(plan)
+                .FirstOrDefault(item => item.Descriptor.Id == branchId);
+            if (binding?.Occurrence == null)
+                throw new InvalidOperationException(
+                    $"Event-tree response '{Name}' does not expose branch '{branchId:D}'.");
+            return string.Join("/", binding.Occurrence.CanonicalPath.Split('/').Select(segment =>
+            {
+                int separator = segment.LastIndexOf(':');
+                return separator < 0 ? segment : segment.Substring(0, separator);
+            }));
         }
 
         /// <summary>Creates a stable persisted-occurrence branch id without placing ids on the hash surface.</summary>

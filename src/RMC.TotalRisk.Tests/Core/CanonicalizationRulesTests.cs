@@ -23,6 +23,12 @@ public class CanonicalizationRulesTests
         string[] audited =
         {
             "Id", "Name", "Description",
+            // Appended with Phase 10A expanded response outputs: persistence addresses and
+            // migration labels, not projected compute identity.
+            "SelectedBranchId", "SelectedBranchName",
+            "SourceBranchId", "SourceBranch",
+            "SecondarySourceBranchId", "SecondarySourceBranch",
+            "HazardSourceBranchId", "HazardSourceBranch",
             "SpecifiedHazard", "HazardUnit", "TransformedHazard", "TransformedHazardUnit",
             "SpecifiedConsequence", "ConsequenceUnit",
             "NameOnDisk", "Guid", "LeftPosition", "TopPosition", "ChartSettings",

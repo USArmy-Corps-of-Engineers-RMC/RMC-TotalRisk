@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Numerics.Data;
@@ -5,7 +6,12 @@ using Numerics.Distributions;
 using RMC.TotalRisk.Core.Enums;
 using RMC.TotalRisk.Core.Interfaces;
 using RMC.TotalRisk.RiskFunctions;
+using RMC.TotalRisk.RiskFunctions.Consequences;
+using RMC.TotalRisk.RiskFunctions.Hazards;
 using RMC.TotalRisk.RiskFunctions.Responses.EventTrees;
+using RMC.TotalRisk.RiskFunctions.Responses.Trees;
+using RMC.TotalRisk.Systems.Components;
+using RMC.TotalRisk.Systems.Components.Graph;
 
 namespace RMC.TotalRisk.Verification.RiskFunctions.Responses;
 
@@ -14,9 +20,9 @@ namespace RMC.TotalRisk.Verification.RiskFunctions.Responses;
 /// products and direct uncertainty-table samples. This partial family covers scalar and aligned
 /// tables, recursive response probability sources, internal/external independent-clone links,
 /// two-mode round trips, occurrence-level LHS reproducibility, legacy recursive XML conversion,
-/// and representative shipped templates. Graph-expanded consequences, routing Monte Carlo,
-/// aggregate LHS variance, thread-count reproducibility, and performance remain future rows in
-/// the normative verification plan.
+/// representative shipped templates, and graph-connected arbitrary n-way per-leaf consequences.
+/// Routing Monte Carlo, aggregate LHS variance, thread-count reproducibility, and performance
+/// remain future rows in the normative verification plan.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -53,6 +59,89 @@ public partial class EventTreeVerification
         Assert.AreEqual(expectedFailure, response.SampleResponseFunction()[0].Y, 1e-14d);
         Assert.AreEqual(1d, sample.Probabilities.Sum(row => row[0]), 1e-14d);
         Assert.AreEqual(1d, sample.Probabilities.Sum(row => row[1]), 1e-14d);
+    }
+
+    /// <summary>
+    /// Verifies graph-connected n-way terminal consequences against independent conditional
+    /// path products and preserves aggregate failure as the exact sum of failure leaves.
+    /// </summary>
+    [TestMethod]
+    public void Test_GraphConnectedPerLeafConsequences_EqualAnalyticPathProducts()
+    {
+        var tree = new EventTree();
+        var load = new ChanceNode("Load case", new ProbabilitySource(0.6d))
+        {
+            IsFailure = false,
+        };
+        var direct = new ChanceNode("Direct failure", new ProbabilitySource(0.1d));
+        var rootResidual = new RemainderNode("Root survival") { IsFailure = false };
+        var mechanismA = new ChanceNode("Mechanism A", new ProbabilitySource(0.25d));
+        var mechanismB = new ChanceNode("Mechanism B", new ProbabilitySource(0.15d));
+        var loadedResidual = new RemainderNode("Loaded survival") { IsFailure = false };
+        tree.Add(tree.Root.Id, load);
+        tree.Add(tree.Root.Id, direct);
+        tree.Add(tree.Root.Id, rootResidual);
+        tree.Add(load.Id, mechanismA);
+        tree.Add(load.Id, mechanismB);
+        tree.Add(load.Id, loadedResidual);
+        EventTreeResponse response = Response(tree);
+
+        var component = new SystemComponent(new TabularHazard
+        {
+            Name = "Stage frequency",
+            SpecifiedHazard = "Stage",
+            HazardUnit = "ft",
+        });
+        HazardElement hazard = component.Graph.GetElements<HazardElement>().Single();
+        var responseElement = new ResponseElement("Expanded event tree")
+        {
+            Function = response,
+            ExpandBranchOutputs = true,
+            Input = new RiskConnection(hazard),
+        };
+        component.Graph.AddElement(responseElement);
+
+        var oracle = new Dictionary<System.Guid, double>
+        {
+            [direct.Id] = 0.1d,
+            [mechanismA.Id] = 0.6d * 0.25d,
+            [mechanismB.Id] = 0.6d * 0.15d,
+            [loadedResidual.Id] = 0.6d * (1d - 0.25d - 0.15d),
+            [rootResidual.Id] = 1d - 0.6d - 0.1d,
+        };
+        var selected = new List<ResponseBranchDescriptor>();
+        foreach (ResponseBranchDescriptor branch in response.GetBranches()
+            .Where(branch => oracle.ContainsKey(branch.Id)))
+        {
+            selected.Add(branch);
+            var consequence = new ConsequenceElement(branch.Name)
+            {
+                Input = responseElement.CreateBranchConnection(branch.Id),
+            };
+            consequence.Functions.Add(new TabularConsequence
+            {
+                Name = branch.Name + " consequence",
+                SpecifiedHazard = "Stage",
+                HazardUnit = "ft",
+                SpecifiedConsequence = "Damage",
+                ConsequenceUnit = "$",
+            });
+            component.Graph.AddElement(consequence);
+        }
+
+        IReadOnlyList<FailureMode> modes = component.FailureModes;
+        Assert.AreEqual(selected.Count, modes.Count);
+        double projectedFailure = 0d;
+        for (int i = 0; i < modes.Count; i++)
+        {
+            double expected = oracle[selected[i].Id];
+            double actual = modes[i].Sample(null).SRP(0d);
+            Assert.AreEqual(expected, actual, 1e-14d, selected[i].Name);
+            if (selected[i].IsFailure) projectedFailure += actual;
+        }
+        Assert.AreEqual(0.1d + 0.6d * 0.25d + 0.6d * 0.15d,
+            projectedFailure, 1e-14d);
+        Assert.AreEqual(projectedFailure, response.SampleResponseFunction()[0].Y, 1e-14d);
     }
 
     /// <summary>Verifies proportional sibling normalization and zero residual in the over-allocated case.</summary>

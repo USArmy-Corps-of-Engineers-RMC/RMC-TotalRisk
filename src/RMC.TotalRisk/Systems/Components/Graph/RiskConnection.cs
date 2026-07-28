@@ -32,12 +32,33 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         /// <exception cref="ArgumentNullException">Thrown when the source is null.</exception>
         /// <exception cref="ArgumentOutOfRangeException">Thrown when the port is negative.</exception>
         public RiskConnection(IRiskElement source, int sourcePort = 0)
+            : this(source, sourcePort, null, null)
+        {
+        }
+
+        /// <summary>Initializes a connection to one stable expanded response branch.</summary>
+        /// <param name="source">The expanded response element.</param>
+        /// <param name="branch">The selected branch descriptor.</param>
+        /// <exception cref="ArgumentNullException">Thrown when an argument is null.</exception>
+        /// <exception cref="InvalidOperationException">Thrown when the response is not expanded or the branch is unavailable.</exception>
+        public RiskConnection(ResponseElement source,
+            RMC.TotalRisk.RiskFunctions.Responses.Trees.ResponseBranchDescriptor branch)
+            : this(source ?? throw new ArgumentNullException(nameof(source)),
+                branch?.OutputPort ?? throw new ArgumentNullException(nameof(branch)),
+                branch.Id, branch.Name)
+        {
+            source.RequireAvailableBranch(branch.Id);
+        }
+
+        internal RiskConnection(IRiskElement source, int sourcePort, Guid? sourceBranchId, string? sourceBranchName)
         {
             if (source == null) throw new ArgumentNullException(nameof(source));
             if (sourcePort < 0) throw new ArgumentOutOfRangeException(nameof(sourcePort), "The source port cannot be negative.");
 
             Source = source;
             SourcePort = sourcePort;
+            SourceBranchId = sourceBranchId;
+            SourceBranchName = sourceBranchName;
         }
 
         /// <summary>
@@ -46,19 +67,35 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         public IRiskElement Source { get; }
 
         /// <summary>
-        /// Gets the source output port: 0 is the primary output; 1 is the secondary output of a
-        /// bivariate hazard (Phase 11).
+        /// Gets the source output port. Port meanings are defined by the source element; an
+        /// expanded branching response pairs this integer with <see cref="SourceBranchId"/> so
+        /// sparse append-only ports remain safely addressable.
         /// </summary>
         public int SourcePort { get; }
 
         /// <summary>
-        /// Determines equality: the same source element instance and the same port.
+        /// Gets the stable selected branch id for an expanded branching response, or null for a
+        /// fixed aggregate/hazard/transform output.
+        /// </summary>
+        public Guid? SourceBranchId { get; }
+
+        /// <summary>
+        /// Gets the branch-name migration fallback captured with an expanded response connection.
+        /// Branch ids remain authoritative during normal authoring and round trips.
+        /// </summary>
+        public string? SourceBranchName { get; }
+
+        /// <summary>
+        /// Determines equality: the same source element instance, port, and stable branch id.
         /// </summary>
         /// <param name="other">The connection to compare against.</param>
-        /// <returns>True when both connections reference the same source instance and port.</returns>
+        /// <returns>True when both connections reference the same source instance, port, and branch id.</returns>
         public bool Equals(RiskConnection? other)
         {
-            return other is not null && ReferenceEquals(Source, other.Source) && SourcePort == other.SourcePort;
+            return other is not null
+                && ReferenceEquals(Source, other.Source)
+                && SourcePort == other.SourcePort
+                && SourceBranchId == other.SourceBranchId;
         }
 
         /// <summary>
@@ -77,7 +114,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         /// <returns>The hash code.</returns>
         public override int GetHashCode()
         {
-            return HashCode.Combine(Source, SourcePort);
+            return HashCode.Combine(Source, SourcePort, SourceBranchId);
         }
     }
 }

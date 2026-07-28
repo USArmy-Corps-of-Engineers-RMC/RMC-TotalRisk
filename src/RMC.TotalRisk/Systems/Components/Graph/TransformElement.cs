@@ -93,7 +93,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         /// <summary>
         /// The pending serialized input reference, resolved by the graph after construction.
         /// </summary>
-        private (Guid? Id, string? Name, int Port)? _pendingInput;
+        private PendingConnection? _pendingInput;
 
         /// <summary>
         /// The wrapped transform function (referenced, not owned: a consuming layer may store one function and use it in several graphs). Null while unset —
@@ -127,6 +127,13 @@ namespace RMC.TotalRisk.Systems.Components.Graph
                     RaisePropertyChange(nameof(Input));
                 }
             }
+        }
+
+        /// <summary>Restores the structural input without publishing a partially rolled-back edit.</summary>
+        /// <param name="input">The checkpointed input.</param>
+        internal void RestoreInputConnection(RiskConnection? input)
+        {
+            _input = input;
         }
 
         /// <inheritdoc/>

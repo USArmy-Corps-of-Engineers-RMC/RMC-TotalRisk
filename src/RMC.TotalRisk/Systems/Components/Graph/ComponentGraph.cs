@@ -5,6 +5,8 @@ using System.ComponentModel;
 using System.Xml.Linq;
 using RMC.TotalRisk.Core.Enums;
 using RMC.TotalRisk.Core.Interfaces;
+using RMC.TotalRisk.RiskFunctions.Responses.EventTrees;
+using RMC.TotalRisk.RiskFunctions.Responses.Trees;
 
 namespace RMC.TotalRisk.Systems.Components.Graph
 {
@@ -455,6 +457,153 @@ namespace RMC.TotalRisk.Systems.Components.Graph
 
         #endregion
 
+        #region Branch Authoring
+
+        /// <summary>
+        /// Deletes an event-tree node through the graph authoring surface and applies the selected
+        /// policy to downstream connections whose stable terminal branch disappears.
+        /// </summary>
+        /// <param name="responseElement">The expanded event-tree response element.</param>
+        /// <param name="nodeId">The authored event-tree node to delete.</param>
+        /// <param name="staleConnectionPolicy">Reject, cascade-disconnect, or preserve by exact link materialization.</param>
+        /// <exception cref="ArgumentNullException">Thrown when the response element is null.</exception>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown for an unknown policy.</exception>
+        /// <exception cref="InvalidOperationException">Thrown when the element is not an expanded event tree in this graph, or the edit violates the selected policy.</exception>
+        /// <remarks>
+        /// Reject and failed-materialize edits restore the complete event-tree authoring snapshot.
+        /// <see cref="TreeDeletePolicy.MaterializeLinks"/> succeeds only when event-tree link
+        /// materialization retains every connected branch address; the graph never fabricates a
+        /// replacement for a deleted direct terminal because that would change model semantics.
+        /// </remarks>
+        public void DeleteEventTreeNode(ResponseElement responseElement, Guid nodeId,
+            TreeDeletePolicy staleConnectionPolicy = TreeDeletePolicy.RejectIfReferenced)
+        {
+            if (responseElement == null) throw new ArgumentNullException(nameof(responseElement));
+            if (!Enum.IsDefined(staleConnectionPolicy))
+                throw new ArgumentOutOfRangeException(nameof(staleConnectionPolicy));
+            if (!_elements.Contains(responseElement))
+                throw new InvalidOperationException(
+                    $"Response element '{responseElement.Name}' does not belong to this graph.");
+            if (!responseElement.ExpandBranchOutputs
+                || responseElement.Function is not EventTreeResponse eventTreeResponse)
+                throw new InvalidOperationException(
+                    $"Response element '{responseElement.Name}' must expose expanded EventTreeResponse outputs before graph-aware deletion.");
+
+            EventTree tree = eventTreeResponse.EventTree;
+            object checkpoint = tree.CreateMutationCheckpoint();
+            ConnectionSnapshot[] connectionCheckpoint = _elements
+                .Select(ConnectionSnapshot.Capture)
+                .ToArray();
+            try
+            {
+                IReadOnlyList<ResponseBranchDescriptor> before = responseElement.GetAvailableBranches();
+                tree.Delete(nodeId, staleConnectionPolicy);
+                var afterIds = new HashSet<Guid>();
+                foreach (ResponseBranchDescriptor branch in responseElement.GetAvailableBranches())
+                    afterIds.Add(branch.Id);
+                var removedIds = new HashSet<Guid>();
+                var removedNames = new List<string>();
+                foreach (ResponseBranchDescriptor branch in before)
+                {
+                    if (afterIds.Contains(branch.Id)) continue;
+                    removedIds.Add(branch.Id);
+                    removedNames.Add(branch.Name);
+                }
+
+                int referenced = CountBranchConnections(responseElement, removedIds);
+                if (referenced > 0 && staleConnectionPolicy != TreeDeletePolicy.CascadeLinks)
+                {
+                    string policy = staleConnectionPolicy == TreeDeletePolicy.MaterializeLinks
+                        ? "materialization did not preserve the connected terminal"
+                        : "the terminal is connected";
+                    throw new InvalidOperationException(
+                        $"ComponentGraph DeleteEventTreeNode failed for response '{responseElement.Name}': {policy}; " +
+                        $"branch(es) [{string.Join(", ", removedNames)}] have {referenced} downstream connection(s). " +
+                        "Use CascadeLinks to disconnect them, or preserve the terminal through an equivalent event-tree link materialization.");
+                }
+                if (referenced > 0)
+                    DisconnectBranchConnections(responseElement, removedIds);
+                InvalidateTopology();
+                RaisePropertyChange(nameof(Elements));
+            }
+            catch
+            {
+                tree.RestoreMutationCheckpoint(checkpoint);
+                for (int i = 0; i < connectionCheckpoint.Length; i++)
+                    connectionCheckpoint[i].Restore();
+                InvalidateTopology();
+                throw;
+            }
+        }
+
+        /// <summary>One element's graph-connection state for transactional rollback.</summary>
+        private readonly struct ConnectionSnapshot
+        {
+            /// <summary>Initializes a connection checkpoint.</summary>
+            private ConnectionSnapshot(IRiskElement element, RiskConnection? input,
+                RiskConnection? secondary)
+            {
+                Element = element;
+                Input = input;
+                Secondary = secondary;
+            }
+
+            private IRiskElement Element { get; }
+
+            private RiskConnection? Input { get; }
+
+            private RiskConnection? Secondary { get; }
+
+            /// <summary>Captures every mutable connection slot on one element.</summary>
+            internal static ConnectionSnapshot Capture(IRiskElement element)
+            {
+                return element switch
+                {
+                    TransformElement transform => new ConnectionSnapshot(element,
+                        transform.Input, null),
+                    ResponseElement response => new ConnectionSnapshot(element,
+                        response.Input, response.SecondaryInput),
+                    ConsequenceElement consequence => new ConnectionSnapshot(element,
+                        consequence.Input, consequence.HazardSource),
+                    _ => new ConnectionSnapshot(element, null, null),
+                };
+            }
+
+            /// <summary>Restores the captured fields without raising intermediate notifications.</summary>
+            internal void Restore()
+            {
+                switch (Element)
+                {
+                    case TransformElement transform:
+                        transform.RestoreInputConnection(Input);
+                        break;
+                    case ResponseElement response:
+                        response.RestoreInputConnections(Input, Secondary);
+                        break;
+                    case ConsequenceElement consequence:
+                        consequence.RestoreInputConnections(Input, Secondary);
+                        break;
+                }
+            }
+        }
+
+        /// <summary>Counts downstream connections to a set of stable branch ids.</summary>
+        private int CountBranchConnections(ResponseElement source, HashSet<Guid> branchIds)
+        {
+            int count = 0;
+            foreach (IRiskElement element in _elements)
+            {
+                foreach (RiskConnection connection in AllConnections(element))
+                {
+                    if (ReferenceEquals(connection.Source, source)
+                        && connection.SourceBranchId is Guid id && branchIds.Contains(id)) count++;
+                }
+            }
+            return count;
+        }
+
+        #endregion
+
         #region Validation
 
         /// <summary>
@@ -732,18 +881,62 @@ namespace RMC.TotalRisk.Systems.Components.Graph
             }
         }
 
-        /// <summary>
-        /// Checks a single connection for membership and port bounds.
-        /// </summary>
+        /// <summary>Enumerates structural and binding connections held by one element.</summary>
+        /// <param name="element">The connection-owning element.</param>
+        /// <returns>The element's structural and hazard-source connections.</returns>
+        private static IEnumerable<RiskConnection> AllConnections(IRiskElement element)
+        {
+            foreach (RiskConnection connection in element.GetInputConnections())
+                yield return connection;
+            if (element is ConsequenceElement consequence && consequence.HazardSource != null)
+                yield return consequence.HazardSource;
+        }
+
+        /// <summary>Disconnects every slot selecting one of the removed stable branches.</summary>
+        private void DisconnectBranchConnections(ResponseElement source, HashSet<Guid> branchIds)
+        {
+            bool Matches(RiskConnection? connection)
+            {
+                return connection != null && ReferenceEquals(connection.Source, source)
+                    && connection.SourceBranchId is Guid id && branchIds.Contains(id);
+            }
+
+            foreach (IRiskElement element in _elements)
+            {
+                if (element is TransformElement transform)
+                {
+                    if (Matches(transform.Input)) transform.Input = null;
+                    continue;
+                }
+                if (element is ResponseElement response)
+                {
+                    if (Matches(response.Input)) response.Input = null;
+                    if (Matches(response.SecondaryInput)) response.SecondaryInput = null;
+                    continue;
+                }
+                if (element is ConsequenceElement consequence)
+                {
+                    if (Matches(consequence.Input)) consequence.Input = null;
+                    if (Matches(consequence.HazardSource)) consequence.HazardSource = null;
+                }
+            }
+        }
+
+        /// <summary>Checks a single connection for membership, branch identity, and port bounds.</summary>
         /// <param name="owner">The consuming element.</param>
         /// <param name="connection">The connection to check.</param>
-        /// <param name="kind">The connection kind for the message ("input" or "hazard-source binding").</param>
+        /// <param name="kind">The connection kind (input or hazard-source binding).</param>
         /// <param name="messages">The message sink.</param>
         private void CheckConnection(IRiskElement owner, RiskConnection connection, string kind, List<string> messages)
         {
             if (!_elements.Contains(connection.Source))
             {
                 messages.Add($"Error: The element '{owner.Name}' {kind} references '{connection.Source.Name}', which is not in the graph.");
+            }
+            else if (connection.Source is ResponseElement response
+                && !response.TryValidateOutputConnection(connection, out string branchError))
+            {
+                messages.Add($"Error: The element '{owner.Name}' {kind} {branchError}");
             }
             else if (connection.SourcePort >= connection.Source.OutputCount)
             {

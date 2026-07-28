@@ -332,8 +332,11 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
         private Guid MaterializeLinkCore(EventTreeLinkNode link)
         {
             (EventTree targetTree, EventNodeBase targetNode) = ResolveLinkTarget(link);
+            if (_ownerResponse != null) _ = _ownerResponse.GetBranches();
             TreeFragment fragment = targetTree.Copy(targetNode.Id);
-            EventNodeBase cloneRoot = BuildFragmentClone(fragment);
+            EventNodeBase cloneRoot = BuildFragmentClone(fragment,
+                out IReadOnlyDictionary<Guid, Guid> freshIds);
+            RemapMaterializedBranchPaths(link.Id, freshIds);
             if (cloneRoot.IsTerminal)
             {
                 cloneRoot.IsFailure = link.IsFailure;
@@ -408,8 +411,18 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
         /// <returns>The detached clone root.</returns>
         private EventNodeBase BuildFragmentClone(TreeFragment fragment)
         {
+            return BuildFragmentClone(fragment, out _);
+        }
+
+        /// <summary>Builds one fresh detached subtree and returns its complete id remap.</summary>
+        /// <param name="fragment">The immutable fragment.</param>
+        /// <param name="freshIds">The source-to-fresh persistent id map.</param>
+        /// <returns>The detached clone root.</returns>
+        private EventNodeBase BuildFragmentClone(TreeFragment fragment,
+            out IReadOnlyDictionary<Guid, Guid> freshIds)
+        {
             EventTreeFragmentPayload payload = fragment.RequirePayload<EventTreeFragmentPayload>();
-            var freshIds = payload.Nodes.ToDictionary(item => item.SourceId, _ => Guid.NewGuid());
+            freshIds = payload.Nodes.ToDictionary(item => item.SourceId, _ => Guid.NewGuid());
             var clones = new Dictionary<Guid, EventNodeBase>();
             for (int i = 0; i < payload.Nodes.Count; i++)
             {
@@ -573,11 +586,29 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
             return reachable;
         }
 
+        /// <summary>Captures an opaque complete authoring checkpoint for a graph-level transaction.</summary>
+        /// <returns>The opaque checkpoint.</returns>
+        internal object CreateMutationCheckpoint()
+        {
+            return CaptureMutationSnapshot();
+        }
+
+        /// <summary>Restores a graph-level authoring checkpoint exactly.</summary>
+        /// <param name="checkpoint">The checkpoint returned by <see cref="CreateMutationCheckpoint"/>.</param>
+        /// <exception cref="ArgumentException">Thrown when the checkpoint was not created by this tree.</exception>
+        internal void RestoreMutationCheckpoint(object checkpoint)
+        {
+            if (checkpoint is not MutationSnapshot snapshot)
+                throw new ArgumentException("The event-tree mutation checkpoint is invalid.", nameof(checkpoint));
+            RestoreMutationSnapshot(snapshot);
+        }
+
         /// <summary>Captures every mutable topology field needed for rollback.</summary>
         /// <returns>The complete structural mutation snapshot.</returns>
         private MutationSnapshot CaptureMutationSnapshot()
         {
-            return new MutationSnapshot(_nodes, _nextOutputPort);
+            return new MutationSnapshot(_nodes, _linkedBranchPorts, _linkedBranchPaths,
+                _nextOutputPort);
         }
 
         /// <summary>Restores topology, ownership, ids, child order, and output-port allocation after failure.</summary>
@@ -606,6 +637,12 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                 _byId.Add(node.Id, node);
                 node.Attach(this, snapshot.Parents[node]);
             }
+            _linkedBranchPorts.Clear();
+            foreach (KeyValuePair<Guid, int> branch in snapshot.LinkedBranchPorts)
+                _linkedBranchPorts.Add(branch.Key, branch.Value);
+            _linkedBranchPaths.Clear();
+            foreach (KeyValuePair<Guid, string> branch in snapshot.LinkedBranchPaths)
+                _linkedBranchPaths.Add(branch.Key, branch.Value);
             _nextOutputPort = snapshot.NextOutputPort;
         }
 
@@ -681,11 +718,15 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
         private sealed class MutationSnapshot
         {
             /// <summary>Captures the current nodes, parentage, child order, and port allocator.</summary>
-            internal MutationSnapshot(IReadOnlyList<EventNodeBase> nodes, int nextOutputPort)
+            internal MutationSnapshot(IReadOnlyList<EventNodeBase> nodes,
+                IReadOnlyDictionary<Guid, int> linkedBranchPorts,
+                IReadOnlyDictionary<Guid, string> linkedBranchPaths, int nextOutputPort)
             {
                 Nodes = nodes.ToArray();
                 Parents = Nodes.ToDictionary(node => node, node => node.Parent);
                 Children = Nodes.ToDictionary(node => node, node => node.Children.ToArray());
+                LinkedBranchPorts = new Dictionary<Guid, int>(linkedBranchPorts);
+                LinkedBranchPaths = new Dictionary<Guid, string>(linkedBranchPaths);
                 NextOutputPort = nextOutputPort;
             }
 
@@ -694,6 +735,10 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
             internal IReadOnlyDictionary<EventNodeBase, EventNodeBase?> Parents { get; }
 
             internal IReadOnlyDictionary<EventNodeBase, EventNodeBase[]> Children { get; }
+
+            internal IReadOnlyDictionary<Guid, int> LinkedBranchPorts { get; }
+
+            internal IReadOnlyDictionary<Guid, string> LinkedBranchPaths { get; }
 
             internal int NextOutputPort { get; }
         }

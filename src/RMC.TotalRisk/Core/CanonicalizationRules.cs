@@ -70,6 +70,13 @@ namespace RMC.TotalRisk.Core
                 // layers point at (IRiskFunction.Id, IRiskElement.Id); it is identity, not content,
                 // so two objects with identical content and different ids must hash identically.
                 "Id", "Name", "Description",
+                // Expanded response branch addresses are persistence identity and migration
+                // metadata. The projected SelectedBranchIdentity token remains compute content.
+                "SelectedBranchId", "SelectedBranchName",
+                "SourceBranchId", "SourceBranch",
+                "SecondarySourceBranchId", "SecondarySourceBranch",
+                "HazardSourceBranchId", "HazardSourceBranch",
+
                 // Axis labels — they describe units and hazard/consequence types, not the math.
                 "SpecifiedHazard", "HazardUnit", "TransformedHazard", "TransformedHazardUnit",
                 "SpecifiedConsequence", "ConsequenceUnit",

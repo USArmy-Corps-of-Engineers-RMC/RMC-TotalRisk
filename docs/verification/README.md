@@ -85,19 +85,17 @@ the test executable with a TRX report:
 | [Composite response](composite-response.md) | `CompositeResponseVerification` | NEW Phase 9 family: the shared Table 44 scenario read on the fragility (probability) axis + exact weakest-link probability identities (union under independence, maximum under comonotonic) + a hazard-grid index-parity band oracle | ✅ Verified (2026-07-25) |
 | [Composite transform](composite-transform.md) | `CompositeTransformVerification` | NEW Phase 9 greenfield family (no legacy implementation, no report table): exact linear-combination algebra forward and inverse, exact Normal theory for the ω²-additive ensemble variance (the check that discriminates independent from co-monotonic child seeding), and a realization-for-realization identity against the independently reproduced child-seed recipe | ✅ Verified (2026-07-25) |
 | [Composite engine scenarios](composite-engine.md) | `CompositeEngineVerification` | All four executable `Test_Composite.vb` configurations and the risk-analysis mixture identity behind the full engine, checked against independent fixed quadrature and child-engine identities | ✅ Verified (2026-07-27) |
-| [Event-tree response — foundation through legacy conversion](event-tree.md) | `EventTreeVerification` | Analytic path products/normalization, aligned-table LHS parity, explicit-clone link parity, two-mode resolver round trips, nested caller-hazard/LHS parity, the legacy `TestIO` shape, exact shipped `Basic` and `Concrete Dam Gate Failure` templates, and terminal-for-terminal independent conversion oracles | 🟡 Five numerically verified slices (10/10, 2026-07-28); Phase 10A verification remains open |
+| [Event-tree response - foundation through graph integration](event-tree.md) | `EventTreeVerification` | Analytic path products/normalization, aligned-table LHS parity, explicit-clone link parity, two-mode resolver round trips, nested caller-hazard/LHS parity, legacy conversion/templates, and graph-connected arbitrary n-way per-leaf consequences against an independent oracle | 🟡 Six numerically verified slices (11/11, 2026-07-28); Phase 10A verification remains open |
 
 ## Remaining tree-response verification
 
-The foundation, independent-link, recursive-source, and legacy-conversion/template
-`EventTreeVerification` slices are executable and documented above. The controlled
-authoring/topology slice is covered by fast structural and transactional tests because it
-introduces no new numerical behavior. The conversion slice verifies the legacy `TestIO` shape and
-exact shipped `Basic` and `Concrete Dam Gate Failure` templates. Still open are expanded per-leaf
-graph output ports and stale-connection policy, compiled-plan caching and large-tree performance,
-property-based testing, branch-routing Monte Carlo, graph-connected per-leaf consequence
-verification, aggregate LHS variance reduction, and the remaining thread-count/coverage gates.
-Phase 10B will add `FaultTreeVerification`. The complete gates are specified in the normative [event-tree and fault-tree response design](../requirements/EVENT_AND_FAULT_TREE_RESPONSE_DESIGN.md) §15.
+The foundation, independent-link, recursive-source, legacy-conversion/template, and graph-integration
+`EventTreeVerification` slices are executable and documented above. Controlled authoring/topology
+and stale-connection behavior are covered by fast structural and transactional tests; the numerical
+graph test independently checks every connected n-way leaf and aggregate parity. Still open are
+compiled-plan caching and large-tree performance, property-based testing, branch-routing Monte
+Carlo, aggregate LHS variance reduction, and the remaining thread-count/coverage gates. Phase 10B
+will add `FaultTreeVerification`. The complete gates are specified in the normative [event-tree and fault-tree response design](../requirements/EVENT_AND_FAULT_TREE_RESPONSE_DESIGN.md) §15.
 
 **Forensic traceability closure.** The
 [legacy traceability matrix](legacy-traceability.csv) accounts for all 142 legacy test methods

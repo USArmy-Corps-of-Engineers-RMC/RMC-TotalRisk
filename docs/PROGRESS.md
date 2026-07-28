@@ -1,5 +1,21 @@
 # Progress Log
 
+## 2026-07-28 - Phase 10A expanded event-tree graph-integration slice landed (PARTIAL)
+
+**Goal:** expose every arbitrary n-way event-tree terminal through the existing headless risk-graph authoring, persistence, projection, validation, identity, and compute surfaces without changing the established probability or ordinary response-port contracts.
+
+**Authority and compatibility:** Haden Smith explicitly approved the additive expanded-branch canonical identity contract. The default response view remains exactly port `0 = Fail`, port `1 = Non-Fail`; expanded output is opt-in and cannot be mixed with aggregate outputs. Expanded port `2` is the stable implicit-unmodeled non-failure branch. Every authored or linked terminal receives an append-only port from 3, so the v1 requirement for more than two splits, arbitrary sibling counts, normalization, and automatic remainder is preserved with no capability loss.
+
+**Landed:** shared `ResponseElement` branch discovery/connection authoring; ID-addressed `RiskConnection` and `ResponseStage` persistence with exact-name migration fallback; append-only linked-occurrence port registry; stable mapping across rename, metadata edits, sibling reorder, copy/paste, link materialization, pruning, and both XML modes; graph factory/resolver restoration; branch-aware validation; arbitrary n-way `SystemComponent` failure-mode projection; exclusive end-state grouping; exact per-leaf mean/indexed probability sampling; and projected branch identity that is persistence-ID/name/port/order/mode inert while remaining sensitive to selected compute content.
+
+**Stale-connection policy:** `ComponentGraph.DeleteEventTreeNode` defaults to `RejectIfReferenced` and restores the full edit when a connected terminal would disappear. `CascadeLinks` clears only structural, secondary, consequence, or hazard-binding slots selecting the removed stable branch. `MaterializeLinks` preserves a connection only when exact link materialization retains the same branch ID and port; a deleted direct terminal never receives a fabricated substitute. Failed edits, including observer exceptions during cascade, restore topology, connection fields, IDs, branch-port allocation, canonical hash, and configured sampler state exactly.
+
+**Numerical contract preserved:** no event-tree sibling normalization, remainder computation, path product, compensated aggregate, interpolation/extrapolation, sampling, seed, tolerance, or reference semantic changed. Graph-connected leaf probabilities are the existing terminal outputs; hazard frequency, consequence, annualization, and risk remain outside the event tree. Aggregate `EventTreeResponse` failure remains the sum of failure-classified leaves.
+
+**Verified:** focused graph/canonicalization/stage suite **52/52**; warning-free `dotnet build`; Release fast suite **772/772**; isolated `EventTreeVerification` **11/11**, adding five graph-connected terminal consequences (`0.10`, `0.15`, `0.09`, `0.36`, `0.30`) against an independent n-way path-product oracle and aggregate failure `0.34`; traceability remains **142 legacy methods and 49 report scenarios**; code/XML-doc/namespace/dependency/public-class validator green; `git diff --check` clean.
+
+**Still open before Phase 10A can close:** immutable compiled-plan caching/invalidation; large-tree performance; property-based testing; branch-routing Monte Carlo; aggregate LHS variance reduction; and the remaining thread-count, coverage, and performance gates. Phase 10A remains partial and Phase 10B remains gated behind full closure.
+
 ## 2026-07-28 - Phase 10A legacy XML conversion/template vertical slice landed (PARTIAL)
 
 **Goal:** import the released recursive event-tree XML and representative shipped templates into the landed v1.1 controlled tree model without changing probability, interpolation, identity, seeding, or serialization contracts.

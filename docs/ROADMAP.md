@@ -541,35 +541,30 @@ unapproved tolerance, correlation, normalization, seed, or probability-formula c
 > **Responsibility boundary:** `EventTreeResponse` is a response function that creates the
 > conditional fragility relationship `P(F|h)`. Hazard probability remains the responsibility
 > of hazard functions; consequences and risk are attached/computed through `RiskConnection`s,
-> `ComponentGraph`, and `RiskAnalysis`. The graph-level event-tree behavior already landed in
-> Phase 6.7 remains the downstream integration contract.
+> `ComponentGraph`, and `RiskAnalysis`. The Phase 6.7 binary graph contract remains intact;
+> the opt-in expanded view is its additive downstream extension.
 
-> **Partially landed (2026-07-28):** five coherent vertical slices provide the common branch
-> contracts, controlled nodes, scalar/aligned-table/ordinary-response sources, internal/external
-> `IndependentClone` occurrence expansion, resolver-backed two-mode XML, exhaustive outputs, and
-> projected hash/seed identity. The controlled authoring/topology slice adds immutable
-> `TreeFragment` snapshots, fresh-ID copy/paste, replace/materialize/delete-materialize/prune
-> operations, deterministic expanded topological and unreachable-node inspection,
-> internal/external reference queries, and full rollback on failed mutation. The recursive-source
-> slice adds direct and multi-level `EventTreeResponse` probability sources, caller-hazard
-> evaluation, exact recursive sampler discovery, independent occurrence streams, indexed,
-> percentile, and LHS propagation through nested sources and links, mixed source/link cycle paths,
-> transactional sampler rollback, and nested two-mode reference repair. The import-only legacy
-> conversion slice accepts the recursive v1.0 `Node` shape directly or through the released
-> response/tree envelopes; accepts `HazardLevels`/`HazardIntervals`, `NodeGuid`/`NodeGUID`,
-> scalar/table/name-only-response sources; resolves and repairs response IDs; emits only canonical
-> v1.1 XML; and rejects ambiguous event-node probability references with path-specific diagnostics.
-> Ten analytic/indexed/link/recursive/legacy verification tests remain green. Phase 10A remains
-> open for expanded per-leaf graph output ports and stale-connection policy, immutable compiled-plan
-> caching/invalidation, large-tree performance, property-based testing, branch-routing Monte Carlo,
-> graph-connected per-leaf consequence verification, aggregate LHS variance reduction, and the
+> **Partially landed (2026-07-28):** six coherent vertical slices provide the common branch
+> contracts, controlled nodes and authoring, recursive probability sources and independent links,
+> current and legacy two-mode XML, projected identity, and exhaustive terminal propagation. The
+> sixth slice integrates arbitrary n-way end states with the graph: `ResponseElement` opts into
+> expanded outputs; the aggregate view remains ports 0 = Fail and 1 = Non-Fail; expanded port 2 is
+> the implicit unmodeled non-failure branch; authored and linked terminals receive append-only ports
+> from 3. Connections and projected stages persist stable branch ID first and exact name fallback
+> second, while materialization preserves linked occurrence IDs/ports. Graph-aware delete applies
+> reject, cascade-disconnect, or exact link-materialize behavior transactionally. Factory/resolver,
+> both XML modes, validation, end-state grouping, projected canonical hash/seed identity, and exact
+> per-leaf sampling all use that shared surface. Eleven isolated verification tests remain green,
+> including graph-connected consequences against an independent n-way path-product oracle. Phase
+> 10A remains open for immutable compiled-plan caching/invalidation, large-tree performance,
+> property-based testing, branch-routing Monte Carlo, aggregate LHS variance reduction, and the
 > remaining thread-count, coverage, and performance exit gates.
 
 **Scope:** implement the normative [event-tree and fault-tree response design](requirements/EVENT_AND_FAULT_TREE_RESPONSE_DESIGN.md) §§1–15: the controlled event-tree model; scalar/tabular/response probability sources; internal and external independent-clone links; copy/paste/add/insert/delete/move/replace/link/materialize operations; deterministic traversal, topological sort, search, reachability, pruning, and cycle diagnostics; compiled linear-time probability propagation; mean/percentile/indexed response and per-leaf branch outputs; `RiskSerializationMode`, projected canonical identity, legacy XML conversion, recursive sampler discovery, content-derived seeds, and LHS. Per-leaf output ports extend the Phase 6.7 response-port machinery without moving hazard frequency, consequence, or risk math into the tree.
 
 `SecondaryHazardNode` is excluded: both legacy implementations comment it out, no factory/template/test uses it, and it is not active v1.0 behavior. `WeightedHazardLevel` is **not** dead: legacy `BivariateResponse` uses it, so it remains in Phase 11 rather than Phase 10A.
 
-**Verification:** `EventTreeVerification` now converts and asserts the legacy `TestIO` shape and exact shipped `Basic` and `Concrete Dam Gate Failure` templates against independent terminal-for-terminal path-product/mass-conservation oracles; it also pins indexed child parity, independent-link versus explicit-clone equivalence, nested response sampling, serialization-mode parity, and reproducibility/hash invariance. Remaining gates add graph-connected per-leaf equivalence, fixed-seed Monte Carlo branch routing, aggregate LHS variance reduction, thread-count reproducibility, and performance/property-based coverage. Legacy `Test_Product` has no assertion and does not construct an event tree; it is not a compute oracle.
+**Verification:** `EventTreeVerification` converts and asserts the legacy `TestIO` shape and exact shipped `Basic` and `Concrete Dam Gate Failure` templates against independent terminal-for-terminal path-product/mass-conservation oracles; pins indexed child parity, independent-link versus explicit-clone equivalence, nested response sampling, serialization-mode parity, and reproducibility/hash invariance; and verifies graph-connected arbitrary n-way per-leaf consequences against an independent path-product oracle while preserving aggregate failure parity. Remaining gates add fixed-seed Monte Carlo branch routing, aggregate LHS variance reduction, thread-count reproducibility, and performance/property-based coverage. Legacy `Test_Product` has no assertion and does not construct an event tree; it is not a compute oracle.
 
 **Exit criteria:** common/event-tree family P/T/V; ≥90% fast-suite coverage retained; performance fixture and verification results recorded; all manipulation/reference/branch-output/LHS/hash gates in the normative design green.
 

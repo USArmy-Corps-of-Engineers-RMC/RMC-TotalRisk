@@ -1,20 +1,19 @@
-# Event-tree response - Phase 10A foundation through legacy conversion
+# Event-tree response - Phase 10A foundation through graph integration
 
 ## Scope and status
 
-`EventTreeVerification` now verifies the numerically observable behavior from the first five
+`EventTreeVerification` now verifies the numerically observable behavior from the first six
 Phase 10A slices: controlled scalar/tabular event trees, legacy conditional-probability algebra,
 aggregate failure, exhaustive terminal outputs, indexed LHS table sampling, internal/external
 `IndependentClone` links, direct and multi-level nested `EventTreeResponse` probability sources,
-both serialization modes, occurrence reproducibility, and conversion of the recursive v1.0 XML
-shape and representative shipped templates. The authoring-only fragment, mutation, and topology
-APIs remain covered by fast structural parity and rollback tests. This is a partial family, not
-the Phase 10A exit gate.
+both serialization modes, occurrence reproducibility, recursive v1.0 XML conversion and shipped
+templates, and graph-connected arbitrary n-way per-leaf consequences. The authoring-only fragment,
+mutation, stable-port, stale-connection, and topology APIs are covered by fast structural parity
+and rollback tests. This is a partial family, not the Phase 10A exit gate.
 
-Still open are expanded per-leaf graph output ports and stale-connection policy; immutable
-compiled-plan caching/invalidation; large-tree performance; property-based testing; independent
-branch-routing Monte Carlo; graph-connected per-leaf consequence verification; aggregate LHS
-variance reduction; and the remaining thread-count, coverage, and performance exit gates.
+Still open are immutable compiled-plan caching/invalidation; large-tree performance;
+property-based testing; independent branch-routing Monte Carlo; aggregate LHS variance reduction;
+and the remaining thread-count, coverage, and performance exit gates.
 
 The response computes conditional fragility `P(F|h)` only. Hazard probability, annualization,
 consequences, and risk remain outside the event tree.
@@ -75,11 +74,12 @@ Run in isolation:
 dotnet test src/RMC.TotalRisk.Verification -- --filter "ClassName~EventTreeVerification"
 ```
 
-Observed 2026-07-28: **10/10 passed**.
+Observed 2026-07-28: **11/11 passed**.
 
 | Fixture | Independent expectation | Result |
 |---|---|---|
 | Deep/wide tree | `0.1 + 0.6 x 0.25 + 0.6 x 0.15 = 0.34`; every hazard's branch mass = 1 | Exact within `1e-14` |
+| Graph-connected n-way leaves | Five terminal consequences independently expect `0.10`, `0.15`, `0.09`, `0.36`, and `0.30`; failure leaves sum to aggregate `0.34` | Exact within `1e-14` per leaf and aggregate |
 | Over-allocated siblings | failure = `0.8/(0.8+0.7)`; remainder = 0 | Exact within `1e-14` |
 | Indexed uncertainty | 256 realization outputs equal the aligned `UncertainOrderedPairedData.CurveSample(p)` at the recorded LHS percentile | Bit-equal |
 | Linked subtree parity | Internal and external links after self-contained/by-reference round trip equal an explicitly cloned tree | Bit-equal branches, aggregate curves, and canonical hashes |
@@ -99,7 +99,11 @@ both XML modes with resolver ID/name fallback and repair; complete structural/so
 paths; and exact sampler-state rollback. Authoring tests cover immutable fragments, fresh-ID paste
 with local-reference remapping, replace/materialize/delete-materialize/prune operations,
 deterministic expanded topology/reference inspection, and failed-mutation rollback of topology,
-IDs, output ports, hashes, and configured samplers.
+IDs, output ports, hashes, and configured samplers. Graph tests additionally cover opt-in output
+discovery for arbitrary n-way splits/remainders, branch-ID/name/port migration, both graph XML
+modes and live resolver reuse, rename/metadata/reorder/copy-paste/materialize/prune stability, every
+connection slot, stale diagnostics, all three deletion policies, observer-failure rollback, exact
+per-leaf mean/indexed projection and grouping, plus canonical hash/seed invariance and selected-path sensitivity.
 
 `LegacyEventTreeConversionTests` adds the exact `TestIO` direct-factory import; both wrapper forms;
 both hazard/GUID spellings; scalar, compact/table, ordinary-response, and nested-response sources;

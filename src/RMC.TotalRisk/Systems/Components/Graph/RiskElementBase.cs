@@ -439,6 +439,40 @@ namespace RMC.TotalRisk.Systems.Components.Graph
             xElement.SetAttributeValue(kind + "ElementId", connection.Source.Id.ToString("D"));
             xElement.SetAttributeValue(kind + "Element", connection.Source.Name);
             xElement.SetAttributeValue(kind + "Port", connection.SourcePort);
+            if (connection.SourceBranchId.HasValue)
+            {
+                string? branchName = connection.SourceBranchName;
+                if (connection.Source is ResponseElement response)
+                    branchName = response.RequireAvailableBranch(connection.SourceBranchId.Value).Name;
+                xElement.SetAttributeValue(kind + "BranchId", connection.SourceBranchId.Value.ToString("D"));
+                xElement.SetAttributeValue(kind + "Branch", branchName);
+            }
+        }
+
+        /// <summary>One unresolved serialized graph connection.</summary>
+        protected readonly struct PendingConnection
+        {
+            /// <summary>Initializes a pending graph connection.</summary>
+            /// <param name="id">The source-element id.</param>
+            /// <param name="name">The source-element name fallback.</param>
+            /// <param name="port">The persisted source port.</param>
+            /// <param name="branchId">The selected branch id.</param>
+            /// <param name="branchName">The selected branch-name fallback.</param>
+            internal PendingConnection(Guid? id, string? name, int port, Guid? branchId,
+                string? branchName)
+            {
+                Id = id;
+                Name = name;
+                Port = port;
+                BranchId = branchId;
+                BranchName = branchName;
+            }
+
+            internal Guid? Id { get; }
+            internal string? Name { get; }
+            internal int Port { get; }
+            internal Guid? BranchId { get; }
+            internal string? BranchName { get; }
         }
 
         /// <summary>
@@ -448,12 +482,16 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         /// <param name="xElement">The serialized form.</param>
         /// <param name="kind">The connection kind: "Source", "SecondarySource", or "HazardSource".</param>
         /// <returns>The pending (Id, Name, Port) triple, or null when the connection was not serialized.</returns>
-        protected static (Guid? Id, string? Name, int Port)? ReadPendingConnection(XElement xElement, string kind)
+        protected static PendingConnection? ReadPendingConnection(XElement xElement, string kind)
         {
             string? idText = xElement.Attribute(kind + "ElementId")?.Value;
             string? nameText = xElement.Attribute(kind + "Element")?.Value;
             if (idText == null && nameText == null) return null;
-            return (RiskElementResolver.ParsePendingId(idText), nameText, SerializationUtilities.ReadInt32(xElement, kind + "Port"));
+            string? branchIdText = xElement.Attribute(kind + "BranchId")?.Value;
+            return new PendingConnection(RiskElementResolver.ParsePendingId(idText), nameText,
+                SerializationUtilities.ReadInt32(xElement, kind + "Port"),
+                RiskElementResolver.ParsePendingId(branchIdText),
+                xElement.Attribute(kind + "Branch")?.Value);
         }
 
         /// <summary>
@@ -463,12 +501,20 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         /// <param name="resolver">The resolver over the restored graph.</param>
         /// <param name="linkDescription">A short description of the link for the stale-Id message.</param>
         /// <returns>The resolved connection, or null when nothing was serialized or the name fallback missed.</returns>
-        protected static RiskConnection? ResolveConnection((Guid? Id, string? Name, int Port)? pending,
+        protected static RiskConnection? ResolveConnection(PendingConnection? pending,
             RiskElementResolver resolver, string linkDescription)
         {
             if (pending == null) return null;
             var source = resolver.Resolve(pending.Value.Id, pending.Value.Name, linkDescription);
-            return source == null ? null : new RiskConnection(source, pending.Value.Port);
+            if (source == null) return null;
+            if (source is ResponseElement response
+                && (response.ExpandBranchOutputs || pending.Value.BranchId.HasValue
+                    || !string.IsNullOrEmpty(pending.Value.BranchName)))
+            {
+                return response.ResolveBranchConnection(pending.Value.BranchId,
+                    pending.Value.BranchName, pending.Value.Port, linkDescription);
+            }
+            return new RiskConnection(source, pending.Value.Port);
         }
 
         /// <summary>
@@ -483,7 +529,8 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         {
             if (connection == null) return null;
             return cloneMap.TryGetValue(connection.Source, out var clone)
-                ? new RiskConnection(clone, connection.SourcePort)
+                ? new RiskConnection(clone, connection.SourcePort,
+                    connection.SourceBranchId, connection.SourceBranchName)
                 : connection;
         }
 

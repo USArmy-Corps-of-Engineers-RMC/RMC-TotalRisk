@@ -82,6 +82,7 @@ namespace RMC.TotalRisk.Systems.Components
             // Collect the states (non-background modes) with their signatures. Chain-authored
             // modes carry no ordinals — synthesize unique negatives so they can never share.
             var ordinals = new List<int[]>();
+            var branchIds = new List<Guid?[]>();
             var polarities = new List<BranchPolarity[]>();
             var isFailure = new List<bool>();
             int synthetic = -1;
@@ -91,9 +92,11 @@ namespace RMC.TotalRisk.Systems.Components
                 if (mode.IsNonFailureMode) continue;
                 var stages = mode.ResponseStages;
                 var stagePolarities = new BranchPolarity[stages.Count];
+                var stageBranchIds = new Guid?[stages.Count];
                 for (int s = 0; s < stages.Count; s++)
                 {
                     stagePolarities[s] = stages[s]?.BranchPolarity ?? BranchPolarity.Fail;
+                    stageBranchIds[s] = stages[s]?.SelectedBranchId;
                 }
                 int[] stageOrdinals;
                 if (mode.ProjectedResponseOrdinals != null && mode.ProjectedResponseOrdinals.Length == stages.Count)
@@ -110,6 +113,7 @@ namespace RMC.TotalRisk.Systems.Components
                 }
                 ordinals.Add(stageOrdinals);
                 polarities.Add(stagePolarities);
+                branchIds.Add(stageBranchIds);
                 isFailure.Add(stagePolarities.Length == 0 || stagePolarities[stagePolarities.Length - 1] == BranchPolarity.Fail);
             }
 
@@ -163,7 +167,8 @@ namespace RMC.TotalRisk.Systems.Components
                     for (int b = a + 1; b < members.Count; b++)
                     {
                         int j = members[b];
-                        int relation = CompareSignatures(ordinals[i], polarities[i], ordinals[j], polarities[j]);
+                        int relation = CompareSignatures(ordinals[i], polarities[i], branchIds[i],
+                            ordinals[j], polarities[j], branchIds[j]);
                         if (relation == 0 && isFailure[i] && isFailure[j])
                         {
                             standalone[i] = true;
@@ -177,11 +182,13 @@ namespace RMC.TotalRisk.Systems.Components
                         {
                             standalone[j] = true;
                         }
-                        if (partner[i] < 0 && IsFlippedFinalSibling(ordinals[i], polarities[i], ordinals[j], polarities[j]))
+                        if (partner[i] < 0 && IsFlippedFinalSibling(ordinals[i], polarities[i], branchIds[i],
+                            ordinals[j], polarities[j], branchIds[j]))
                         {
                             if (isFailure[i] && !isFailure[j]) partner[i] = j;
                         }
-                        if (partner[j] < 0 && IsFlippedFinalSibling(ordinals[j], polarities[j], ordinals[i], polarities[i]))
+                        if (partner[j] < 0 && IsFlippedFinalSibling(ordinals[j], polarities[j], branchIds[j],
+                            ordinals[i], polarities[i], branchIds[i]))
                         {
                             if (isFailure[j] && !isFailure[i]) partner[j] = i;
                         }
@@ -339,16 +346,27 @@ namespace RMC.TotalRisk.Systems.Components
         /// </summary>
         /// <param name="ordinalsA">The first signature's response ordinals.</param>
         /// <param name="polaritiesA">The first signature's polarities.</param>
+        /// <param name="branchIdsA">The first signature's selected expanded branch ids.</param>
         /// <param name="ordinalsB">The second signature's response ordinals.</param>
         /// <param name="polaritiesB">The second signature's polarities.</param>
+        /// <param name="branchIdsB">The second signature's selected expanded branch ids.</param>
         /// <returns>The relation code.</returns>
         private static int CompareSignatures(int[] ordinalsA, BranchPolarity[] polaritiesA,
-            int[] ordinalsB, BranchPolarity[] polaritiesB)
+            Guid?[] branchIdsA, int[] ordinalsB, BranchPolarity[] polaritiesB,
+            Guid?[] branchIdsB)
         {
             int shared = Math.Min(ordinalsA.Length, ordinalsB.Length);
             for (int k = 0; k < shared; k++)
             {
-                if (ordinalsA[k] != ordinalsB[k] || polaritiesA[k] != polaritiesB[k]) return -1;
+                if (ordinalsA[k] != ordinalsB[k]) return -1;
+                if (branchIdsA[k].HasValue || branchIdsB[k].HasValue)
+                {
+                    if (branchIdsA[k] != branchIdsB[k]) return -1;
+                }
+                else if (polaritiesA[k] != polaritiesB[k])
+                {
+                    return -1;
+                }
             }
             if (ordinalsA.Length == ordinalsB.Length) return 0;
             return ordinalsA.Length < ordinalsB.Length ? 1 : 2;
@@ -361,18 +379,29 @@ namespace RMC.TotalRisk.Systems.Components
         /// </summary>
         /// <param name="ordinalsA">The reference signature's response ordinals.</param>
         /// <param name="polaritiesA">The reference signature's polarities.</param>
+        /// <param name="branchIdsA">The reference signature's selected expanded branch ids.</param>
         /// <param name="ordinalsB">The candidate signature's response ordinals.</param>
         /// <param name="polaritiesB">The candidate signature's polarities.</param>
+        /// <param name="branchIdsB">The candidate signature's selected expanded branch ids.</param>
         /// <returns>True when the candidate is the flipped-final sibling.</returns>
         private static bool IsFlippedFinalSibling(int[] ordinalsA, BranchPolarity[] polaritiesA,
-            int[] ordinalsB, BranchPolarity[] polaritiesB)
+            Guid?[] branchIdsA, int[] ordinalsB, BranchPolarity[] polaritiesB,
+            Guid?[] branchIdsB)
         {
             int length = ordinalsA.Length;
             if (length == 0 || ordinalsB.Length != length) return false;
             for (int k = 0; k < length; k++)
             {
                 if (ordinalsA[k] != ordinalsB[k]) return false;
-                if (k < length - 1 && polaritiesA[k] != polaritiesB[k]) return false;
+                if (branchIdsA[k].HasValue || branchIdsB[k].HasValue)
+                {
+                    if (branchIdsA[k] != branchIdsB[k]) return false;
+                    if (k == length - 1) return false;
+                }
+                else if (k < length - 1 && polaritiesA[k] != polaritiesB[k])
+                {
+                    return false;
+                }
             }
             return polaritiesA[length - 1] != polaritiesB[length - 1];
         }

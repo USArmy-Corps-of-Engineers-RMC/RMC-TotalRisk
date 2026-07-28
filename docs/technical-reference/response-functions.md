@@ -18,7 +18,7 @@ where *F_R* is the conditional CDF of the resistance and *f_S* is the hazard (de
 
 `EventTreeResponse` (Phase 10A) and `FaultTreeResponse` (Phase 10B) remain response functions under this exact contract: they produce conditional fragility `P(F|h)`. Hazard functions manage hazard probability/frequency, and the component risk graph plus `RiskAnalysis` connects responses to consequences and computes risk. The normative [tree-response implementation design](../requirements/EVENT_AND_FAULT_TREE_RESPONSE_DESIGN.md) defines event end-state outputs, exact static fault evaluation, internal/external links, independent clones, controlled authoring operations, graph algorithms, LHS, serialization, hashing, testing, and cost-benefit.
 
-The first five coherent `EventTreeResponse` slices landed 2026-07-28. They include:
+The first six coherent `EventTreeResponse` slices landed 2026-07-28. They include:
 
 - the common immutable branch descriptors/sample contract and tree-reference value object;
 - controlled `EventTree` ownership with add, insert, move, delete, search, ancestry,
@@ -58,7 +58,15 @@ The first five coherent `EventTreeResponse` slices landed 2026-07-28. They inclu
   `EventTreeResponse`/`EventTree` envelopes, including both hazard-attribute and GUID spellings,
   scalar/table/name-only-response probability sources, and the legacy automatic remainder; and
 - current-only writes plus deterministic path diagnostics for malformed, excluded, and semantically
-  ambiguous legacy input.
+  ambiguous legacy input;
+- opt-in `ResponseElement` expanded output discovery for every arbitrary n-way terminal, including
+  remainder and the implicit-unmodeled non-failure branch, while the default view remains the
+  established ports 0 = Fail and 1 = Non-Fail;
+- stable ID-addressed graph connections and projected response stages, append-only direct/linked
+  terminal ports, exact-name migration fallback, both XML modes, validation, end-state grouping,
+  and projected per-leaf hash/seed identity; and
+- graph-aware reject/cascade/materialize deletion with complete tree, connection, port-registry,
+  hash, ID, and configured-sampler rollback after any failed edit.
 
 The conversion authority is the partial C#
 `RMC.TotalRisk.IO/Project/Elements/Response Function/EventTreeResponse.cs`, the released VB
@@ -90,14 +98,27 @@ copies the exact child percentile columns into the owner's flattened sampler. A 
 compile, clone, capacity check, or child setup restores the owner's prior sample size, percentile
 matrix, sampler identity, and occurrence bindings exactly.
 
-Nested response content participates in projected canonical identity. Link wrappers distinguish
-referenced occurrences from authored inline content, while persistent IDs, display names, sibling
-authoring order, serialization mode, and reference wrappers remain projected away. `TreeFragment`
-is authoring-only state: it is neither a persistence type nor a hash input, and paste-cloned
-subtrees therefore preserve projected canonical identity. Still open in Phase 10A are expanded
-per-leaf graph output ports and stale-connection policy; immutable compiled-plan
-caching/invalidation; large-tree performance; property-based testing; branch-routing Monte Carlo;
-graph-connected per-leaf consequence verification; aggregate LHS variance reduction; and the
+Nested response content and a selected expanded branch both participate in projected canonical
+identity. The branch contribution is its metadata-free compute-occurrence path; persistent branch
+IDs, names, output ports, and duplicate-sibling occurrence ordinals remain outside the hash. This
+makes renamed, reordered, or materialized connections hash/seed invariant while a changed selected
+path probability still moves identity. Link wrappers distinguish referenced occurrences from
+authored inline content, while persistent IDs, display names, sibling authoring order,
+serialization mode, and reference wrappers remain projected away. `TreeFragment` is authoring-only
+state: it is neither a persistence type nor a hash input, and paste-cloned subtrees therefore
+preserve the original branches' projected identity.
+
+The expanded view is mutually exclusive with the aggregate view. Port 2 is reserved for the
+implicit-unmodeled non-failure branch; direct and linked terminal ports are allocated append-only
+from 3 and are never renumbered after rename, metadata edits, sibling reorder, copy/paste,
+materialization, pruning, or XML round trip. `RiskConnection` and `ResponseStage` persist branch ID
+as authority and the current exact name as a migration fallback. `ComponentGraph.DeleteEventTreeNode`
+defaults to reject when a connected terminal would disappear; cascade clears only slots selecting
+that branch; materialize succeeds only when exact link materialization retains its ID and port.
+The graph never fabricates an equivalent-looking replacement for a deleted direct terminal.
+
+Still open in Phase 10A are immutable compiled-plan caching/invalidation; large-tree performance;
+property-based testing; branch-routing Monte Carlo; aggregate LHS variance reduction; and the
 remaining thread-count, coverage, and performance exit gates.
 
 

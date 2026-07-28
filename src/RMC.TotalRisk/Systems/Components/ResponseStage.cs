@@ -8,6 +8,8 @@ using RMC.TotalRisk.Core.Enums;
 using RMC.TotalRisk.Core.Interfaces;
 using RMC.TotalRisk.RiskFunctions;
 using RMC.TotalRisk.RiskFunctions.Responses;
+using RMC.TotalRisk.RiskFunctions.Responses.EventTrees;
+using RMC.TotalRisk.RiskFunctions.Responses.Trees;
 
 namespace RMC.TotalRisk.Systems.Components
 {
@@ -96,6 +98,22 @@ namespace RMC.TotalRisk.Systems.Components
             _branchPolarity = branchPolarity;
         }
 
+        /// <summary>Initializes a response stage that selects one expanded response branch.</summary>
+        /// <param name="transforms">The ordered transforms applied before the response.</param>
+        /// <param name="response">The branching response.</param>
+        /// <param name="branch">The selected stable branch descriptor.</param>
+        /// <exception cref="ArgumentNullException">Thrown when an argument is null.</exception>
+        public ResponseStage(IList<ITransformFunction> transforms, IResponseFunction response,
+            ResponseBranchDescriptor branch)
+            : this(transforms, response,
+                (branch ?? throw new ArgumentNullException(nameof(branch))).IsFailure
+                    ? BranchPolarity.Fail
+                    : BranchPolarity.NonFail)
+        {
+            _selectedBranchId = branch.Id;
+            _selectedBranchName = branch.Name;
+        }
+
         /// <summary>
         /// Restores a response stage from its serialized form.
         /// </summary>
@@ -112,6 +130,9 @@ namespace RMC.TotalRisk.Systems.Components
 
             // A missing attribute loads a pre-6.7 payload forward as the v1.0-implied Fail branch.
             _branchPolarity = SerializationUtilities.ReadEnum(xElement, nameof(BranchPolarity), BranchPolarity.Fail);
+            if (Guid.TryParse(xElement.Attribute(nameof(SelectedBranchId))?.Value, out Guid branchId))
+                _selectedBranchId = branchId;
+            _selectedBranchName = xElement.Attribute(nameof(SelectedBranchName))?.Value;
 
             var transformsElement = xElement.Element(nameof(Transforms));
             if (transformsElement != null)
@@ -137,6 +158,21 @@ namespace RMC.TotalRisk.Systems.Components
                     $"Unrecognized response function element '{responseChild.Name.LocalName}' in a serialized response stage. " +
                     "The stage cannot be reconstructed faithfully; the serialized form may come from a newer version.");
             }
+
+            if (!_selectedBranchId.HasValue && !string.IsNullOrEmpty(_selectedBranchName))
+            {
+                if (_response is not IBranchingResponseFunction branching)
+                    throw new InvalidOperationException(
+                        "A serialized response stage carries a branch-name fallback, but its response is not branching.");
+                ResponseBranchDescriptor[] matches = branching.GetBranches()
+                    .Where(branch => string.Equals(branch.Name, _selectedBranchName,
+                        StringComparison.Ordinal))
+                    .ToArray();
+                if (matches.Length != 1)
+                    throw new InvalidOperationException(
+                        $"Serialized response-stage branch-name fallback '{_selectedBranchName}' is {(matches.Length == 0 ? "missing" : "ambiguous")}.");
+                _selectedBranchId = matches[0].Id;
+            }
         }
 
         #endregion
@@ -157,6 +193,12 @@ namespace RMC.TotalRisk.Systems.Components
         /// Backing field for <see cref="BranchPolarity"/> — the v1.0-implied Fail branch.
         /// </summary>
         private BranchPolarity _branchPolarity = BranchPolarity.Fail;
+
+        /// <summary>The selected expanded branch id, or null for aggregate Fail/Non-Fail selection.</summary>
+        private Guid? _selectedBranchId;
+
+        /// <summary>The selected expanded branch-name fallback.</summary>
+        private string? _selectedBranchName;
 
         /// <summary>
         /// The ordered transform functions applied to the incoming hazard before the response.
@@ -212,6 +254,27 @@ namespace RMC.TotalRisk.Systems.Components
                     RaisePropertyChange(nameof(BranchPolarity));
                 }
             }
+        }
+
+        /// <summary>The selected expanded branch id, or null for aggregate Fail/Non-Fail selection.</summary>
+        public Guid? SelectedBranchId => _selectedBranchId;
+
+        /// <summary>The selected expanded branch-name migration fallback.</summary>
+        public string? SelectedBranchName => _selectedBranchName;
+
+        /// <summary>Gets the selected expanded branch descriptor.</summary>
+        /// <returns>The matching branch, or null when this stage uses aggregate Fail/Non-Fail selection.</returns>
+        /// <exception cref="InvalidOperationException">Thrown when the stored branch is stale or the response is not branching.</exception>
+        public ResponseBranchDescriptor? GetSelectedBranch()
+        {
+            if (!_selectedBranchId.HasValue) return null;
+            if (_response is not IBranchingResponseFunction branching)
+                throw new InvalidOperationException(
+                    "A response stage selects an expanded branch, but its response function is not branching.");
+            ResponseBranchDescriptor? branch = branching.GetBranches()
+                .FirstOrDefault(item => item.Id == _selectedBranchId.Value);
+            return branch ?? throw new InvalidOperationException(
+                $"The response stage references stale branch id '{_selectedBranchId.Value:D}' on response '{_response.Name}'.");
         }
 
         /// <summary>
@@ -274,6 +337,20 @@ namespace RMC.TotalRisk.Systems.Components
             }
 
             messages.AddRange(_response.Validate().ValidationMessages);
+            if (_selectedBranchId.HasValue)
+            {
+                try
+                {
+                    ResponseBranchDescriptor branch = GetSelectedBranch()!;
+                    BranchPolarity expected = branch.IsFailure ? BranchPolarity.Fail : BranchPolarity.NonFail;
+                    if (_branchPolarity != expected)
+                        messages.Add($"Error: The response stage's branch polarity does not match selected branch '{branch.Name}'.");
+                }
+                catch (InvalidOperationException ex)
+                {
+                    messages.Add($"Error: {ex.Message}");
+                }
+            }
 
             return (messages.FindIndex(m => m.StartsWith("Error:", StringComparison.Ordinal)) < 0, messages);
         }
@@ -295,6 +372,17 @@ namespace RMC.TotalRisk.Systems.Components
         {
             var element = new XElement(nameof(ResponseStage));
             element.SetAttributeValue(nameof(BranchPolarity), _branchPolarity.ToString());
+            if (_selectedBranchId.HasValue)
+            {
+                if (_response is not EventTreeResponse eventTree)
+                    throw new InvalidOperationException(
+                        "Expanded branch identity is currently defined only for EventTreeResponse.");
+                ResponseBranchDescriptor selected = GetSelectedBranch()!;
+                element.SetAttributeValue("SelectedBranchIdentity",
+                    eventTree.GetBranchIdentityToken(selected.Id));
+                element.SetAttributeValue(nameof(SelectedBranchId), selected.Id.ToString("D"));
+                element.SetAttributeValue(nameof(SelectedBranchName), selected.Name);
+            }
 
             var transforms = new XElement(nameof(Transforms));
             for (int i = 0; i < _transforms.Count; i++)
@@ -306,6 +394,20 @@ namespace RMC.TotalRisk.Systems.Components
             element.Add(new XElement(nameof(Response), _response.ToXElement()));
             return element;
         }
+
+        /// <summary>Builds the projected identity form used by failure-mode and component hashing.</summary>
+        /// <returns>The identity form.</returns>
+        internal XElement ToIdentityXElement()
+        {
+            XElement element = ToXElement();
+            if (_response is EventTreeResponse eventTree)
+            {
+                XElement? persisted = element.Element(nameof(Response))?.Elements().SingleOrDefault();
+                persisted?.ReplaceWith(eventTree.ToIdentityXElement());
+            }
+            return element;
+        }
+
 
         #endregion
 
