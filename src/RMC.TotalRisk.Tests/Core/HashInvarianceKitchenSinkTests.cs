@@ -178,7 +178,9 @@ public class HashInvarianceKitchenSinkTests
             () =>
             {
                 var tree = new EventTree();
-                tree.Add(tree.Root.Id, new ChanceNode("Failure", new ProbabilitySource(0.2d)));
+                var failure = new ChanceNode("Failure", new ProbabilitySource(0.2d));
+                tree.Add(tree.Root.Id, failure);
+                tree.LinkIndependent(tree.Root.Id, failure.Id, "Independent failure occurrence");
                 tree.Add(tree.Root.Id, new RemainderNode("No failure"));
                 return new EventTreeResponse(new[] { 0d, 1d }, tree)
                 {

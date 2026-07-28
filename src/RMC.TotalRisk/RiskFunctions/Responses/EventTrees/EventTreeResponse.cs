@@ -20,10 +20,11 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
     /// mutually exclusive end-state probabilities.
     /// </summary>
     /// <remarks>
-    /// This first Phase 10A implementation slice supports scalar, aligned uncertain-tabular, and
-    /// ordinary response-function probability sources. Event-tree-to-event-tree source recursion,
-    /// link nodes, copy/paste fragments, legacy recursive-XML conversion, expanded graph ports,
-    /// and the allocation-free compiled-plan optimization remain explicitly deferred.
+    /// The current Phase 10A implementation supports scalar, uncertain-tabular, ordinary-response,
+    /// and internal/external independent-clone link occurrences. Linked occurrences participate in
+    /// recursive sampling, two-mode serialization, projected hashing, and cycle diagnostics.
+    /// Event-tree probability-source recursion, copy/paste fragments, legacy recursive-XML
+    /// conversion, expanded graph ports, and cached-plan optimization remain explicitly deferred.
     /// </remarks>
     public sealed class EventTreeResponse : ResponseFunctionBase, IBranchingResponseFunction
     {
@@ -40,6 +41,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
         public EventTreeResponse(IEnumerable<double> hazardLevels, EventTree eventTree)
         {
             EventTree = eventTree ?? throw new ArgumentNullException(nameof(eventTree));
+            EventTree.AttachOwner(this);
             SetHazardLevels(hazardLevels);
         }
 
@@ -63,6 +65,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
             XElement treeElement = xElement.Element(nameof(EventTree))
                 ?? throw new InvalidOperationException("The serialized event-tree response has no EventTree element.");
             EventTree = new EventTree(treeElement, resolver, Name);
+            EventTree.AttachOwner(this);
         }
 
         /// <summary>The stable id of the aggregate implicit non-failure branch.</summary>
@@ -80,8 +83,9 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
         /// <summary>The cached read-only hazard view.</summary>
         private ReadOnlyCollection<double>? _readOnlyHazards;
 
-        /// <summary>Sampler dimension assigned to each local uncertain table.</summary>
-        private readonly Dictionary<Guid, int> _localDimensionByNode = new Dictionary<Guid, int>();
+        /// <summary>Occurrence-path sampling bindings created by the latest setup.</summary>
+        private readonly Dictionary<string, SamplingBinding> _samplingBindings =
+            new Dictionary<string, SamplingBinding>(StringComparer.Ordinal);
 
         /// <summary>The canonical identity under which the current sampler was set up.</summary>
         private byte[]? _samplerIdentity;
@@ -109,52 +113,63 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
         public override ResponseFunctionType FunctionType => ResponseFunctionType.EventTree;
 
         /// <inheritdoc/>
-        public override bool IsDeterministic => EventTree.Nodes.OfType<ChanceNode>()
-            .All(node => node.ProbabilitySource.IsDeterministic);
+        public override bool IsDeterministic => EventTreeOccurrencePlan.Compile(this).CanonicalPreOrder
+            .Where(node => node.SourceNode is ChanceNode)
+            .All(node => ((ChanceNode)node.SourceNode).ProbabilitySource.IsDeterministic);
 
         /// <inheritdoc/>
         /// <remarks>
-        /// Counts one dimension for every aligned table plus dimensions recursively reported by
-        /// each distinct referenced response occurrence.
+        /// Counts each expanded independent-link occurrence separately. A linked uncertain table
+        /// therefore owns a distinct local column, and each referenced response occurrence reports
+        /// its full child dimension count.
         /// </remarks>
-        public override int SamplingDimensions => EventTree.Nodes.OfType<ChanceNode>()
-            .Sum(node => node.ProbabilitySource.SamplingDimensions);
+        public override int SamplingDimensions => EventTreeOccurrencePlan.Compile(this).SamplingDimensions;
 
         /// <inheritdoc/>
         /// <remarks>
-        /// Local table dimensions are columns of this function's sampler. Referenced responses are
-        /// set up recursively with metadata-inert content-and-occurrence seeds.
+        /// Local table dimensions are columns of this function's sampler. Repeated references to
+        /// the same live response use an isolated self-contained clone after the first occurrence,
+        /// preventing one occurrence's setup from overwriting another's sampler state.
         /// </remarks>
         public override void SetupSampler(int sampleSize, int seed, SamplingScheme scheme)
         {
             ThrowIfUnusable();
             base.SetupSampler(sampleSize, seed, scheme);
-            _localDimensionByNode.Clear();
+            _samplingBindings.Clear();
 
+            EventTreeOccurrencePlan plan = EventTreeOccurrencePlan.Compile(this);
+            var usedResponseInstances = new HashSet<IResponseFunction>(ReferenceEqualityComparer.Instance);
             int dimension = 0;
             int responseOccurrence = 0;
-            foreach (ChanceNode chance in EventTree.CanonicalPreOrder().OfType<ChanceNode>())
+            foreach (EventTreeOccurrenceNode occurrence in plan.CanonicalPreOrder)
             {
+                if (occurrence.SourceNode is not ChanceNode chance) continue;
                 ProbabilitySource source = chance.ProbabilitySource;
                 if (source.Kind == ProbabilitySourceKind.UncertainTabular)
                 {
-                    _localDimensionByNode.Add(chance.Id, dimension);
+                    _samplingBindings.Add(occurrence.CanonicalPath,
+                        new SamplingBinding(dimension, null));
                     dimension++;
                 }
                 else if (source.Kind == ProbabilitySourceKind.ResponseFunctionReference && source.ResponseFunction != null)
                 {
+                    IResponseFunction sampledFunction = usedResponseInstances.Add(source.ResponseFunction)
+                        ? source.ResponseFunction
+                        : CloneResponseFunction(source.ResponseFunction);
                     byte[] sourceHash = Convert.FromHexString(source.CanonicalToken());
-                    source.ResponseFunction.SetupSampler(sampleSize,
+                    sampledFunction.SetupSampler(sampleSize,
                         SeedHelpers.HashCombine(seed, sourceHash, responseOccurrence++), scheme);
-                    int childDimensions = source.ResponseFunction.SamplingDimensions;
+                    int childDimensions = sampledFunction.SamplingDimensions;
                     for (int realization = 0; realization < sampleSize; realization++)
                     {
                         for (int childDimension = 0; childDimension < childDimensions; childDimension++)
                         {
                             _percentiles![realization, dimension + childDimension] =
-                                ((RiskFunctionBase)source.ResponseFunction).SampledPercentile(realization, childDimension);
+                                ((RiskFunctionBase)sampledFunction).SampledPercentile(realization, childDimension);
                         }
                     }
+                    _samplingBindings.Add(occurrence.CanonicalPath,
+                        new SamplingBinding(-1, sampledFunction));
                     dimension += childDimensions;
                 }
             }
@@ -195,39 +210,56 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
             if (EventTree.Nodes.Any(node => node.Id == ImplicitBranchId))
                 messages.Add("Error: An event-tree node uses the reserved implicit-branch id.");
 
-            var responseSources = EventTree.Nodes.OfType<ChanceNode>()
-                .Select(node => node.ProbabilitySource.ResponseFunction)
-                .Where(function => function != null)
-                .ToArray();
-            for (int i = 0; i < responseSources.Length; i++)
+            EventTreeOccurrencePlan? plan = null;
+            try
             {
-                for (int j = i + 1; j < responseSources.Length; j++)
-                {
-                    if (ReferenceEquals(responseSources[i], responseSources[j]))
-                    {
-                        messages.Add($"Error: Referenced response function '{responseSources[i]!.Name}' is used by more than one chance node; independent repeated response occurrences are deferred beyond the first Phase 10A implementation slice.");
-                        i = responseSources.Length;
-                        break;
-                    }
-                }
+                plan = EventTreeOccurrencePlan.Compile(this);
+            }
+            catch (InvalidOperationException ex)
+            {
+                AddUnique(messages, $"Error: {ex.Message}");
             }
 
-            if (messages.All(message => !message.StartsWith("Error:", StringComparison.Ordinal)))
+            if (plan != null)
             {
-                foreach (EventNodeBase parent in EventTree.DepthFirstPreOrder())
+                for (int i = 0; i < plan.Warnings.Count; i++) AddUnique(messages, plan.Warnings[i]);
+                foreach (EventTreeOccurrenceNode occurrence in plan.CanonicalPreOrder)
                 {
-                    if (parent.Children.Count == 0) continue;
-                    for (int h = 0; h < _hazardLevels.Count; h++)
+                    if (occurrence.SourceNode is not ChanceNode chance) continue;
+                    foreach (string message in chance.ProbabilitySource.Validate(
+                        occurrence.SourceFunction.HazardLevels, occurrence.DisplayName))
+                        AddUnique(messages, message);
+                }
+
+                if (messages.All(message => !message.StartsWith("Error:", StringComparison.Ordinal)))
+                {
+                    foreach (EventTreeOccurrenceNode parent in plan.CanonicalPreOrder)
                     {
-                        double sum = 0d;
-                        double compensation = 0d;
-                        foreach (ChanceNode chance in CanonicalChildren(parent).OfType<ChanceNode>())
-                            AddCompensated(ref sum, ref compensation,
-                                chance.ProbabilitySource.EvaluateMean(_hazardLevels[h], h));
-                        if (sum > 1d)
+                        if (parent.Children.Count == 0) continue;
+                        int remainderCount = parent.Children.Count(child => child.SourceNode is RemainderNode);
+                        if (remainderCount > 1)
                         {
-                            messages.Add($"Warning: Explicit branches of event-tree node '{parent.Name}' sum to {sum.ToString("G17", CultureInfo.InvariantCulture)} at hazard {_hazardLevels[h].ToString("G17", CultureInfo.InvariantCulture)} and will be normalized proportionally.");
-                            break;
+                            AddUnique(messages,
+                                $"Error: Expanded event-tree occurrence '{parent.DisplayName}' has more than one remainder branch.");
+                            continue;
+                        }
+
+                        for (int h = 0; h < _hazardLevels.Count; h++)
+                        {
+                            double sum = 0d;
+                            double compensation = 0d;
+                            foreach (EventTreeOccurrenceNode child in parent.Children)
+                            {
+                                if (child.SourceNode is not ChanceNode) continue;
+                                AddCompensated(ref sum, ref compensation,
+                                    EvaluateSourceMean(child, _hazardLevels[h], h));
+                            }
+                            if (sum > 1d)
+                            {
+                                AddUnique(messages,
+                                    $"Warning: Explicit branches of event-tree occurrence '{parent.DisplayName}' sum to {sum.ToString("G17", CultureInfo.InvariantCulture)} at hazard {_hazardLevels[h].ToString("G17", CultureInfo.InvariantCulture)} and will be normalized proportionally.");
+                                break;
+                            }
                         }
                     }
                 }
@@ -239,12 +271,8 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
         /// <inheritdoc/>
         public IReadOnlyList<ResponseBranchDescriptor> GetBranches()
         {
-            var leaves = EventTree.GetLeaves().OrderBy(node => node.OutputPort).ToArray();
-            var descriptors = new List<ResponseBranchDescriptor>(leaves.Length + 1);
-            for (int i = 0; i < leaves.Length; i++)
-                descriptors.Add(new ResponseBranchDescriptor(leaves[i].Id, leaves[i].Name, leaves[i].IsFailure, leaves[i].OutputPort));
-            descriptors.Insert(0, new ResponseBranchDescriptor(ImplicitBranchId, "Unmodeled", false, 2));
-            return descriptors;
+            EventTreeOccurrencePlan plan = EventTreeOccurrencePlan.Compile(this);
+            return BuildBranchBindings(plan).Select(binding => binding.Descriptor).ToArray();
         }
 
         /// <inheritdoc/>
@@ -406,6 +434,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
         /// <returns>The serialized response.</returns>
         public XElement ToXElement(RiskSerializationMode mode)
         {
+            EventTreeOccurrencePlan.Compile(this);
             var element = new XElement(nameof(EventTreeResponse));
             WriteIdentityAttributes(element);
             element.SetAttributeValue(nameof(SpecifiedHazard), SpecifiedHazard);
@@ -430,6 +459,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
         /// </remarks>
         public override byte[] CanonicalHash()
         {
+            EventTreeOccurrencePlan plan = EventTreeOccurrencePlan.Compile(this);
             var identity = new XElement(nameof(EventTreeResponse));
             var hazards = new XElement(nameof(HazardLevels));
             foreach (double value in _hazardLevels)
@@ -439,7 +469,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                 hazards.Add(level);
             }
             identity.Add(hazards);
-            identity.Add(EventTree.ToIdentityXElement());
+            identity.Add(new XElement(plan.Identity));
             return CanonicalContentHasher.Hash(identity, CanonicalizationRules.ModelRules);
         }
 
@@ -463,45 +493,50 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
         /// <returns>The exhaustive branch sample.</returns>
         private ResponseBranchSample EvaluateBranches(SampleMode mode, double percentile, int realizationIndex)
         {
-            IReadOnlyList<ResponseBranchDescriptor> descriptors = GetBranches();
-            var probabilities = new double[descriptors.Count][];
+            EventTreeOccurrencePlan plan = EventTreeOccurrencePlan.Compile(this);
+            IReadOnlyList<BranchBinding> bindings = BuildBranchBindings(plan);
+            ResponseBranchDescriptor[] descriptors = bindings.Select(binding => binding.Descriptor).ToArray();
+            var probabilities = new double[descriptors.Length][];
             for (int branch = 0; branch < probabilities.Length; branch++) probabilities[branch] = new double[_hazardLevels.Count];
-            var leafIndex = new Dictionary<Guid, int>();
-            int implicitIndex = Enumerable.Range(0, descriptors.Count).Single(i => descriptors[i].Id == ImplicitBranchId);
-            for (int i = 0; i < descriptors.Count; i++)
+
+            int implicitIndex = Enumerable.Range(0, descriptors.Length)
+                .Single(i => descriptors[i].Id == ImplicitBranchId);
+            var leafIndex = new Dictionary<string, int>(StringComparer.Ordinal);
+            for (int i = 0; i < bindings.Count; i++)
             {
-                if (i != implicitIndex) leafIndex.Add(descriptors[i].Id, i);
+                if (bindings[i].Occurrence != null)
+                    leafIndex.Add(bindings[i].Occurrence!.CanonicalPath, i);
             }
 
             for (int h = 0; h < _hazardLevels.Count; h++)
             {
-                var stack = new Stack<(EventNodeBase Node, double PathProbability)>();
-                stack.Push((EventTree.Root, 1d));
+                var stack = new Stack<(EventTreeOccurrenceNode Node, double PathProbability)>();
+                stack.Push((plan.Root, 1d));
                 double implicitCompensation = 0d;
                 while (stack.Count > 0)
                 {
                     var item = stack.Pop();
-                    if (item.Node.IsTerminal)
+                    if (item.Node.Children.Count == 0)
                     {
-                        if (item.Node is not InitiatingNode)
-                            probabilities[leafIndex[item.Node.Id]][h] = item.PathProbability;
+                        if (item.Node.SourceNode is not InitiatingNode)
+                            probabilities[leafIndex[item.Node.CanonicalPath]][h] = item.PathProbability;
                         continue;
                     }
 
-                    IReadOnlyList<EventNodeBase> children = CanonicalChildren(item.Node);
+                    IReadOnlyList<EventTreeOccurrenceNode> children = item.Node.Children;
                     var raw = new double[children.Count];
                     double explicitSum = 0d;
                     double sumCompensation = 0d;
                     int remainderIndex = -1;
                     for (int childIndex = 0; childIndex < children.Count; childIndex++)
                     {
-                        if (children[childIndex] is RemainderNode)
+                        if (children[childIndex].SourceNode is RemainderNode)
                         {
                             remainderIndex = childIndex;
                             continue;
                         }
-                        var chance = (ChanceNode)children[childIndex];
-                        raw[childIndex] = EvaluateSource(chance, h, mode, percentile, realizationIndex);
+                        raw[childIndex] = EvaluateSource(children[childIndex], _hazardLevels[h],
+                            h, mode, percentile, realizationIndex);
                         AddCompensated(ref explicitSum, ref sumCompensation, raw[childIndex]);
                     }
 
@@ -527,29 +562,65 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
         }
 
         /// <summary>Evaluates one chance-node source in the selected sampling mode.</summary>
-        /// <param name="chance">The chance node.</param>
+        /// <param name="occurrence">The expanded chance-node occurrence.</param>
+        /// <param name="hazard">The caller's current hazard value.</param>
         /// <param name="hazardIndex">The hazard index.</param>
         /// <param name="mode">The sampling mode.</param>
         /// <param name="percentile">The shared percentile.</param>
         /// <param name="realizationIndex">The realization index.</param>
         /// <returns>The raw conditional probability.</returns>
-        private double EvaluateSource(ChanceNode chance, int hazardIndex, SampleMode mode, double percentile, int realizationIndex)
+        private double EvaluateSource(EventTreeOccurrenceNode occurrence, double hazard,
+            int hazardIndex, SampleMode mode, double percentile, int realizationIndex)
         {
+            var chance = (ChanceNode)occurrence.SourceNode;
             ProbabilitySource source = chance.ProbabilitySource;
-            double hazard = _hazardLevels[hazardIndex];
-            double value = mode switch
+            int sourceHazardIndex = occurrence.SourceFunction._hazardLevels.IndexOf(hazard);
+            bool aligned = sourceHazardIndex >= 0;
+            double value;
+            if (mode == SampleMode.Mean)
             {
-                SampleMode.Mean => source.EvaluateMean(hazard, hazardIndex),
-                SampleMode.Percentile => source.EvaluatePercentile(hazard, hazardIndex, percentile),
-                SampleMode.Realization => source.EvaluateRealization(hazard, hazardIndex, realizationIndex,
-                    source.Kind == ProbabilitySourceKind.UncertainTabular
-                        ? Percentile(realizationIndex, _localDimensionByNode[chance.Id])
-                        : 0d),
-                _ => throw new InvalidOperationException($"Unsupported event-tree sample mode '{mode}'."),
-            };
+                value = aligned
+                    ? source.EvaluateMean(hazard, sourceHazardIndex)
+                    : source.EvaluateMeanAtHazard(hazard);
+            }
+            else if (mode == SampleMode.Percentile)
+            {
+                value = aligned
+                    ? source.EvaluatePercentile(hazard, sourceHazardIndex, percentile)
+                    : source.EvaluatePercentileAtHazard(hazard, percentile);
+            }
+            else if (mode == SampleMode.Realization)
+            {
+                if (source.Kind == ProbabilitySourceKind.ResponseFunctionReference)
+                {
+                    IResponseFunction sampledFunction = _samplingBindings[occurrence.CanonicalPath].ResponseFunction
+                        ?? throw new InvalidOperationException("The referenced response occurrence has no sampler binding.");
+                    value = sampledFunction.SampleFunction(realizationIndex).CDF(hazard);
+                }
+                else
+                {
+                    double localPercentile = source.Kind == ProbabilitySourceKind.UncertainTabular
+                        ? Percentile(realizationIndex, _samplingBindings[occurrence.CanonicalPath].LocalDimension)
+                        : 0d;
+                    value = aligned
+                        ? source.EvaluateRealization(hazard, sourceHazardIndex, realizationIndex, localPercentile)
+                        : source.EvaluateRealizationAtHazard(hazard, realizationIndex, localPercentile);
+                }
+            }
+            else
+            {
+                throw new InvalidOperationException($"Unsupported event-tree sample mode '{mode}'.");
+            }
+
             if (!double.IsFinite(value) || value < 0d || value > 1d)
-                throw new InvalidOperationException($"Chance node '{chance.Name}' evaluated outside [0, 1]. Call Validate() and correct the source.");
+                throw new InvalidOperationException($"Chance occurrence '{occurrence.DisplayName}' evaluated outside [0, 1]. Call Validate() and correct the source.");
             return value;
+        }
+
+        /// <summary>Evaluates one occurrence's mean source for validation.</summary>
+        private double EvaluateSourceMean(EventTreeOccurrenceNode occurrence, double hazard, int hazardIndex)
+        {
+            return EvaluateSource(occurrence, hazard, hazardIndex, SampleMode.Mean, 0d, -1);
         }
 
         /// <summary>Converts exhaustive branch probabilities to aggregate failure probability.</summary>
@@ -557,15 +628,23 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
         /// <returns>The aggregate hazard/failure-probability curve.</returns>
         private OrderedPairedData AggregateFailureCurve(ResponseBranchSample sample)
         {
+            EventTreeOccurrencePlan plan = EventTreeOccurrencePlan.Compile(this);
+            IReadOnlyList<BranchBinding> bindings = BuildBranchBindings(plan);
+            var indexByPath = new Dictionary<string, int>(StringComparer.Ordinal);
+            for (int i = 0; i < bindings.Count; i++)
+            {
+                if (bindings[i].Occurrence != null)
+                    indexByPath.Add(bindings[i].Occurrence!.CanonicalPath, i);
+            }
+
             var failure = new double[sample.Hazards.Count];
-            var indexById = sample.Branches.Select((branch, index) => (branch.Id, index)).ToDictionary(item => item.Id, item => item.index);
-            var failureLeaves = CanonicalLeaves().Where(node => node.IsFailure).ToArray();
             for (int h = 0; h < failure.Length; h++)
             {
                 double compensation = 0d;
-                foreach (EventNodeBase leaf in failureLeaves)
+                foreach (EventTreeOccurrenceNode leaf in plan.Leaves)
                 {
-                    int branch = indexById[leaf.Id];
+                    if (!leaf.IsFailure) continue;
+                    int branch = indexByPath[leaf.CanonicalPath];
                     AddCompensated(ref failure[h], ref compensation, sample.Probabilities[branch][h]);
                 }
                 failure[h] = ClampRoundoff(failure[h]);
@@ -574,31 +653,98 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                 true, SortOrder.Ascending, false, SortOrder.None);
         }
 
-        /// <summary>Gets terminal nodes in metadata-inert canonical order.</summary>
-        /// <returns>The authored leaves.</returns>
-        private IReadOnlyList<EventNodeBase> CanonicalLeaves()
+        /// <summary>Builds stable direct and linked terminal descriptors for one occurrence plan.</summary>
+        private IReadOnlyList<BranchBinding> BuildBranchBindings(EventTreeOccurrencePlan plan)
         {
-            return EventTree.CanonicalPreOrder()
-                .Where(node => node.IsTerminal && node is not InitiatingNode)
-                .ToArray();
+            var result = new List<BranchBinding>(plan.Leaves.Count + 1)
+            {
+                new BranchBinding(null,
+                    new ResponseBranchDescriptor(ImplicitBranchId, "Unmodeled", false, 2)),
+            };
+            var usedIds = new HashSet<Guid> { ImplicitBranchId };
+            foreach (EventTreeOccurrenceNode leaf in plan.Leaves.Where(leaf => !leaf.IsLinkedOccurrence)
+                .OrderBy(leaf => leaf.SourceNode.OutputPort))
+            {
+                usedIds.Add(leaf.SourceNode.Id);
+                result.Add(new BranchBinding(leaf,
+                    new ResponseBranchDescriptor(leaf.SourceNode.Id, leaf.DisplayName,
+                        leaf.IsFailure, leaf.SourceNode.OutputPort)));
+            }
+
+            var linked = new List<(EventTreeOccurrenceNode Leaf, Guid Id)>();
+            foreach (EventTreeOccurrenceNode leaf in plan.Leaves.Where(leaf => leaf.IsLinkedOccurrence))
+            {
+                int salt = 0;
+                Guid id;
+                do
+                {
+                    id = CreateLinkedBranchId(leaf.PersistencePath, salt++);
+                }
+                while (!usedIds.Add(id));
+                linked.Add((leaf, id));
+            }
+
+            int nextPort = Math.Max(3, EventTree.Nodes.Select(node => node.OutputPort).DefaultIfEmpty(2).Max() + 1);
+            foreach (var item in linked.OrderBy(item => item.Id))
+            {
+                result.Add(new BranchBinding(item.Leaf,
+                    new ResponseBranchDescriptor(item.Id, item.Leaf.DisplayName,
+                        item.Leaf.IsFailure, nextPort++)));
+            }
+            return result.OrderBy(binding => binding.Descriptor.OutputPort).ToArray();
         }
 
-        /// <summary>Gets canonical children without using display order as compute identity.</summary>
-        /// <param name="parent">The parent.</param>
-        /// <returns>The canonical child sequence.</returns>
-        private IReadOnlyList<EventNodeBase> CanonicalChildren(EventNodeBase parent)
+        /// <summary>Creates a stable persisted-occurrence branch id without placing ids on the hash surface.</summary>
+        private static Guid CreateLinkedBranchId(string persistencePath, int salt)
         {
-            return parent.Children
-                .Select((child, order) => new
-                {
-                    Child = child,
-                    Order = order,
-                    Token = CanonicalContentHasher.ToTokenHex(EventTree.SubtreeCanonicalHash(child.Id)),
-                })
-                .OrderBy(item => item.Token, StringComparer.Ordinal)
-                .ThenBy(item => item.Order)
-                .Select(item => item.Child)
-                .ToArray();
+            var identity = new XElement("LinkedEventTreeBranch");
+            identity.SetAttributeValue("PersistencePath", persistencePath);
+            identity.SetAttributeValue("Salt", salt.ToString(CultureInfo.InvariantCulture));
+            byte[] hash = CanonicalContentHasher.Hash(identity, CanonicalizationRules.ModelRules);
+            var bytes = new byte[16];
+            Array.Copy(hash, bytes, bytes.Length);
+            return new Guid(bytes);
+        }
+        /// <summary>Creates an isolated self-contained response occurrence for repeated live references.</summary>
+        private static IResponseFunction CloneResponseFunction(IResponseFunction source)
+        {
+            return RiskFunctionFactory.CreateResponseFunction(source.ToXElement())
+                ?? throw new InvalidOperationException(
+                    $"Referenced response function '{source.Name}' cannot be cloned for an independent occurrence.");
+        }
+
+        /// <summary>Adds a diagnostic once while preserving first-discovery order.</summary>
+        private static void AddUnique(ICollection<string> messages, string message)
+        {
+            if (!messages.Contains(message)) messages.Add(message);
+        }
+
+        /// <summary>One realization-sampling binding keyed by canonical occurrence path.</summary>
+        private sealed class SamplingBinding
+        {
+            internal SamplingBinding(int localDimension, IResponseFunction? responseFunction)
+            {
+                LocalDimension = localDimension;
+                ResponseFunction = responseFunction;
+            }
+
+            internal int LocalDimension { get; }
+
+            internal IResponseFunction? ResponseFunction { get; }
+        }
+
+        /// <summary>Associates one expanded terminal occurrence with its public branch descriptor.</summary>
+        private sealed class BranchBinding
+        {
+            internal BranchBinding(EventTreeOccurrenceNode? occurrence, ResponseBranchDescriptor descriptor)
+            {
+                Occurrence = occurrence;
+                Descriptor = descriptor;
+            }
+
+            internal EventTreeOccurrenceNode? Occurrence { get; }
+
+            internal ResponseBranchDescriptor Descriptor { get; }
         }
 
         /// <summary>Throws when validation reports any error.</summary>

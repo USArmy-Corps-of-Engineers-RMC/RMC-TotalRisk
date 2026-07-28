@@ -27,7 +27,7 @@ Porting sources in order of authority: (1) the partial C# port `C:\GIT\RMC-Total
 | 8 | Numerics.Functions expansion (numerics repo) + RMC.Numerics 2.2.0 package switch | Implementation complete (2026-07-25); 2.2.0 release + package switch pending user push |
 | 8.5 | Polish & optimization: Numerics helper adoption, determinism fixes, dimension-cap removal, optional measures, adjusted marginal LEC, N7 adoption | Complete (2026-07-26) |
 | 9 | Composites + RFA hazard + weighted wrappers + BestFit composite imports | Not started (`CompositeConsequence` + `WeightedConsequenceFunction` pulled forward 2026-07-21) |
-| 10A | Event-tree response + common tree/reference/manipulation foundation | Designed (2026-07-28); implementation not started |
+| 10A | Event-tree response + common tree/reference/manipulation foundation | Partial: foundation + independent-link slices landed (2026-07-28) |
 | 10B | Static fault-tree response with exact repeated-event evaluation | Designed (2026-07-28); starts after 10A exits |
 | 11 | Bivariate + BestFit import + LifeSim | Not started |
 | 12 | Hardening: coverage gate, Linux check, examples, getting-started | Not started |
@@ -544,13 +544,14 @@ unapproved tolerance, correlation, normalization, seed, or probability-formula c
 > `ComponentGraph`, and `RiskAnalysis`. The graph-level event-tree behavior already landed in
 > Phase 6.7 remains the downstream integration contract.
 
-> **Partially landed (2026-07-28):** the first coherent P/T/V vertical slice provides the common
-> branch contracts, controlled event-tree nodes and core mutation/traversal/search operations,
-> scalar/aligned-table/ordinary-response probability sources, mean/percentile/indexed sampling,
-> exhaustive terminal outputs plus aggregate failure, dual-mode XML, projected hash identity,
-> factory/discriminator registration, and three focused analytic/indexed verification tests.
-> Phase 10A remains open for links/clones, the rest of the authoring/topology surface, recursive
-> references/cycles, legacy conversion, expanded graph ports, compiled-plan performance, and the
+> **Partially landed (2026-07-28):** two coherent P/T/V vertical slices provide the common branch
+> contracts, controlled nodes and core mutation/traversal/search operations, scalar/aligned-table/
+> ordinary-response sources, internal/external `IndependentClone` occurrence expansion, recursive
+> occurrence sampling, resolver-backed two-mode XML, full-path cross-function cycle diagnostics,
+> exhaustive outputs, projected hash/seed identity, and five analytic/indexed/link verification
+> tests. Phase 10A remains open for the remaining authoring/topology operations, event-tree
+> probability-source recursion, legacy conversion/templates, expanded graph ports, cached-plan
+> performance, property-based/routing/graph/LHS verification, and the remaining exit gates.
 
 **Scope:** implement the normative [event-tree and fault-tree response design](requirements/EVENT_AND_FAULT_TREE_RESPONSE_DESIGN.md) §§1–15: the controlled event-tree model; scalar/tabular/response probability sources; internal and external independent-clone links; copy/paste/add/insert/delete/move/replace/link/materialize operations; deterministic traversal, topological sort, search, reachability, pruning, and cycle diagnostics; compiled linear-time probability propagation; mean/percentile/indexed response and per-leaf branch outputs; `RiskSerializationMode`, projected canonical identity, legacy XML conversion, recursive sampler discovery, content-derived seeds, and LHS. Per-leaf output ports extend the Phase 6.7 response-port machinery without moving hazard frequency, consequence, or risk math into the tree.
 

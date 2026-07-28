@@ -18,4 +18,4 @@ Pages (mirroring the model-library namespaces; phase numbers per [../ROADMAP.md]
 | support/ | Canonical hashing + content-based seeding, sampling schemes | planned (Phase 3–4 write-up alongside the components/engine) |
 | risk-analysis/ | Components, occurrence-index seeding, engine integration methods | Phases 3–6 |
 
-Phase 10A note (2026-07-28): `response-functions.md` now documents the first P/T/V event-tree vertical slice and its explicit remaining scope; Phase 10A is not complete.
+Phase 10A note (2026-07-28): `response-functions.md` documents the foundation and independent-link P/T/V slices, including occurrence sampling, two-mode references, cycle diagnostics, and projected identity. The remaining scope is explicit; Phase 10A is not complete.

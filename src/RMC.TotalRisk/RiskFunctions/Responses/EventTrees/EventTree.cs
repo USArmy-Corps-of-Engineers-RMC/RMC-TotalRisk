@@ -115,6 +115,10 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
 
         /// <summary>The cached read-only node view.</summary>
         private ReadOnlyCollection<EventNodeBase>? _readOnlyNodes;
+
+        /// <summary>The owning response, assigned once the authored tree is placed in a function.</summary>
+        private EventTreeResponse? _ownerResponse;
+
         /// <summary>The next persistent terminal-branch port; 0/1 are aggregate and 2 is implicit.</summary>
         private int _nextOutputPort = 3;
 
@@ -140,8 +144,54 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                 ? parent.MutableChildren.Count
                 : parent.MutableChildren.FindIndex(child => child is RemainderNode);
             if (index < 0) index = parent.MutableChildren.Count;
+            int priorNextOutputPort = _nextOutputPort;
             AttachNewNode(node, parent, index);
+            try
+            {
+                EnsureExpandedGraphAcyclic();
+            }
+            catch
+            {
+                parent.MutableChildren.Remove(node);
+                _byId.Remove(node.Id);
+                _nodes.Remove(node);
+                node.Detach();
+                _nextOutputPort = priorNextOutputPort;
+                throw;
+            }
             return node.Id;
+        }
+
+        /// <summary>Adds an internal independent-clone link to an authored subtree.</summary>
+        /// <param name="parentId">The structural parent receiving the link occurrence.</param>
+        /// <param name="targetNodeId">The target subtree root in this tree.</param>
+        /// <param name="name">The link occurrence display name.</param>
+        /// <returns>The added link node id.</returns>
+        public Guid LinkIndependent(Guid parentId, Guid targetNodeId, string name = "Independent link")
+        {
+            EventNodeBase target = RequireNode(targetNodeId, "LinkIndependent", "target");
+            var reference = new TreeNodeReference(null, target.Id, nodeName: target.Name);
+            return Add(parentId, new EventTreeLinkNode(name, reference));
+        }
+
+        /// <summary>Adds an external independent-clone link to another event-tree subtree.</summary>
+        /// <param name="parentId">The structural parent receiving the link occurrence.</param>
+        /// <param name="targetFunction">The live external event-tree response.</param>
+        /// <param name="targetNodeId">The target subtree root in the external function.</param>
+        /// <param name="name">The link occurrence display name.</param>
+        /// <returns>The added link node id.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when the target function is null.</exception>
+        /// <exception cref="InvalidOperationException">Thrown when the target node is missing.</exception>
+        public Guid LinkIndependent(Guid parentId, EventTreeResponse targetFunction,
+            Guid targetNodeId, string name = "Independent link")
+        {
+            if (targetFunction == null) throw new ArgumentNullException(nameof(targetFunction));
+            EventNodeBase target = targetFunction.EventTree.FindById(targetNodeId)
+                ?? throw new InvalidOperationException(
+                    $"EventTree LinkIndependent failed: target node '{targetNodeId:D}' was not found in function '{targetFunction.Name}'.");
+            var reference = new TreeNodeReference(targetFunction.Id, target.Id,
+                targetFunction.Name, target.Name);
+            return Add(parentId, new EventTreeLinkNode(name, reference, targetFunction));
         }
 
         /// <summary>Inserts an explicit child before an identified sibling.</summary>
@@ -160,7 +210,21 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                 throw MutationError("Insert", node, sibling, "a remainder branch must be the final presented sibling");
             ValidateNewChild(parent, node, "Insert");
             int index = parent.MutableChildren.IndexOf(sibling);
+            int priorNextOutputPort = _nextOutputPort;
             AttachNewNode(node, parent, index);
+            try
+            {
+                EnsureExpandedGraphAcyclic();
+            }
+            catch
+            {
+                parent.MutableChildren.Remove(node);
+                _byId.Remove(node.Id);
+                _nodes.Remove(node);
+                node.Detach();
+                _nextOutputPort = priorNextOutputPort;
+                throw;
+            }
             return node.Id;
         }
 
@@ -173,6 +237,8 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
         {
             EventNodeBase node = RequireNode(nodeId, "Move", "source");
             EventNodeBase newParent = RequireNode(newParentId, "Move", "target parent");
+            if (newParent is EventTreeLinkNode)
+                throw MutationError("Move", node, newParent, "an event-tree link cannot own authored children");
             if (ReferenceEquals(node, Root)) throw MutationError("Move", node, newParent, "the initiating root cannot be moved");
             if (ReferenceEquals(node, newParent) || IsReachable(node.Id, newParent.Id))
                 throw MutationError("Move", node, newParent, "the move would create a cycle");
@@ -199,17 +265,53 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
             }
             newParent.MutableChildren.Insert(newIndex, node);
             node.Attach(this, newParent);
+            try
+            {
+                EnsureExpandedGraphAcyclic();
+            }
+            catch
+            {
+                newParent.MutableChildren.Remove(node);
+                oldParent.MutableChildren.Insert(oldIndex, node);
+                node.Attach(this, oldParent);
+                throw;
+            }
         }
 
         /// <summary>Deletes an authored subtree without permitting dangling references.</summary>
         /// <param name="nodeId">The subtree root to delete.</param>
-        /// <param name="policy">The reference policy; all policies are equivalent until links land.</param>
-        /// <exception cref="InvalidOperationException">Thrown when the root is selected.</exception>
+        /// <param name="policy">The policy for internal links targeting the selected subtree.</param>
+        /// <exception cref="InvalidOperationException">Thrown when the root is selected or the policy would leave a dangling link.</exception>
+        /// <exception cref="NotSupportedException">Thrown when materialization is requested; that authoring operation remains a later Phase 10A slice.</exception>
         public void Delete(Guid nodeId, TreeDeletePolicy policy = TreeDeletePolicy.RejectIfReferenced)
         {
             EventNodeBase node = RequireNode(nodeId, "Delete", "source");
             if (ReferenceEquals(node, Root)) throw MutationError("Delete", node, Root, "the initiating root cannot be deleted");
             if (!Enum.IsDefined(policy)) throw new ArgumentOutOfRangeException(nameof(policy));
+            EventNodeBase[] subtree = DescendantsAndSelf(node).ToArray();
+            var subtreeIds = new HashSet<Guid>(subtree.Select(item => item.Id));
+            EventTreeLinkNode[] incoming = _nodes.OfType<EventTreeLinkNode>()
+                .Where(link => !subtreeIds.Contains(link.Id)
+                    && !link.IsExternal
+                    && subtreeIds.Contains(link.Target.NodeId))
+                .ToArray();
+            if (incoming.Length > 0 && policy == TreeDeletePolicy.RejectIfReferenced)
+            {
+                throw MutationError("Delete", node, incoming[0],
+                    $"the subtree is referenced by internal link '{incoming[0].Name}'");
+            }
+            if (incoming.Length > 0 && policy == TreeDeletePolicy.MaterializeLinks)
+                throw new NotSupportedException("MaterializeLinks is not available in this Phase 10A link slice; use RejectIfReferenced or CascadeLinks.");
+            if (policy == TreeDeletePolicy.CascadeLinks)
+            {
+                for (int i = 0; i < incoming.Length; i++) RemoveSubtree(incoming[i]);
+            }
+            RemoveSubtree(node);
+        }
+
+        /// <summary>Removes one subtree after reference policy has been resolved.</summary>
+        private void RemoveSubtree(EventNodeBase node)
+        {
             node.Parent!.MutableChildren.Remove(node);
             foreach (EventNodeBase descendant in DescendantsAndSelf(node).Reverse())
             {
@@ -353,6 +455,14 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
         public byte[] SubtreeCanonicalHash(Guid nodeId)
         {
             EventNodeBase node = RequireNode(nodeId, "SubtreeCanonicalHash", "source");
+            if (_ownerResponse != null)
+            {
+                return CanonicalContentHasher.Hash(
+                    EventTreeOccurrencePlan.Compile(_ownerResponse, node).Identity,
+                    CanonicalizationRules.ModelRules);
+            }
+            if (DescendantsAndSelf(node).Any(item => item is EventTreeLinkNode))
+                throw new InvalidOperationException("An event tree containing links must be owned by an EventTreeResponse before its subtree identity can be computed.");
             return CanonicalContentHasher.Hash(BuildIdentity(node), CanonicalizationRules.ModelRules);
         }
 
@@ -388,6 +498,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                 serialized.SetAttributeValue("IsFailure", node.IsFailure);
                 serialized.SetAttributeValue("OutputPort", node.OutputPort.ToString(CultureInfo.InvariantCulture));
                 if (node is ChanceNode chance) serialized.Add(chance.ProbabilitySource.ToXElement(mode));
+                if (node is EventTreeLinkNode link) link.WriteContent(serialized, mode);
                 nodes.Add(serialized);
             }
             element.Add(nodes);
@@ -423,8 +534,8 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                 if (remainderCount > 1) messages.Add($"Error: Event-tree node '{parent.Name}' has more than one remainder branch.");
                 if (remainderCount == 1 && parent.Children[parent.Children.Count - 1] is not RemainderNode)
                     messages.Add($"Error: Event-tree node '{parent.Name}' does not present its remainder branch last.");
-                foreach (ChanceNode chance in parent.Children.OfType<ChanceNode>())
-                    messages.AddRange(chance.ProbabilitySource.Validate(hazards, chance.Name));
+                if (parent is EventTreeLinkNode && parent.Children.Count != 0)
+                    messages.Add($"Error: Event-tree link '{parent.Name}' cannot own authored children.");
             }
             return messages;
         }
@@ -450,7 +561,20 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
         /// <returns>The metadata-free projected tree.</returns>
         internal XElement ToIdentityXElement()
         {
+            if (_ownerResponse != null) return EventTreeOccurrencePlan.Compile(_ownerResponse).Identity;
+            if (_nodes.Any(node => node is EventTreeLinkNode))
+                throw new InvalidOperationException("An event tree containing links must be owned by an EventTreeResponse before its identity can be computed.");
             return new XElement(nameof(EventTree), BuildIdentity(Root));
+        }
+
+        /// <summary>Associates this controlled tree with its sole response-function owner.</summary>
+        /// <param name="owner">The owning response.</param>
+        internal void AttachOwner(EventTreeResponse owner)
+        {
+            if (owner == null) throw new ArgumentNullException(nameof(owner));
+            if (_ownerResponse != null && !ReferenceEquals(_ownerResponse, owner))
+                throw new InvalidOperationException("An EventTree cannot be owned by more than one EventTreeResponse.");
+            _ownerResponse = owner;
         }
 
         /// <summary>Attaches one new node after all mutation checks have passed.</summary>
@@ -482,6 +606,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
         private void ValidateNewChild(EventNodeBase parent, EventNodeBase node, string operation)
         {
             if (node is InitiatingNode) throw MutationError(operation, node, parent, "an initiating node can only be the root");
+            if (parent is EventTreeLinkNode) throw MutationError(operation, node, parent, "an event-tree link cannot own authored children");
             if (node.Owner != null || node.Parent != null) throw MutationError(operation, node, parent, "the source node is already attached");
             if (_byId.ContainsKey(node.Id)) throw MutationError(operation, node, parent, "the source id already exists in the tree");
             ValidateRemainderPlacement(parent, node, null, operation);
@@ -589,8 +714,25 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                     new ProbabilitySource(element.Element(nameof(ProbabilitySource))
                         ?? throw new InvalidOperationException($"Serialized chance node '{name}' has no probability source."), resolver, ownerName)),
                 nameof(RemainderNode) => new RemainderNode(id, name, description, isFailure, outputPort),
+                nameof(EventTreeLinkNode) => ReadLinkNode(element, resolver, ownerName,
+                    id, name, description, isFailure, outputPort),
                 _ => throw new InvalidOperationException($"Unsupported serialized event-tree node '{element.Name.LocalName}'."),
             };
+        }
+
+        /// <summary>Reads one serialized link node after common node attributes are parsed.</summary>
+        private static EventTreeLinkNode ReadLinkNode(XElement element, IRiskFunctionResolver? resolver,
+            string ownerName, Guid id, string name, string description, bool isFailure, int outputPort)
+        {
+            var content = EventTreeLinkNode.ReadContent(element, resolver, ownerName);
+            return new EventTreeLinkNode(id, name, description, isFailure, outputPort,
+                content.Mode, content.Target, content.Function, content.Unresolved);
+        }
+
+        /// <summary>Checks the expanded reference graph after a mutation when this tree has an owner.</summary>
+        private void EnsureExpandedGraphAcyclic()
+        {
+            if (_ownerResponse != null) EventTreeOccurrencePlan.Compile(_ownerResponse);
         }
 
         /// <summary>Reads a required persistent Guid attribute.</summary>

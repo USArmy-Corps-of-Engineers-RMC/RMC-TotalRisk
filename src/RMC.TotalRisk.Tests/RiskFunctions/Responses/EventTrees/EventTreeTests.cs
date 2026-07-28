@@ -84,4 +84,66 @@ public class EventTreeTests
         Assert.IsTrue(tree.StructuralEquals(restored));
         CollectionAssert.AreEqual(tree.SubtreeCanonicalHash(tree.Root.Id), restored.SubtreeCanonicalHash(restored.Root.Id));
     }
+    /// <summary>Verifies internal links participate in deletion reference policies.</summary>
+    [TestMethod]
+    public void Test_Delete_InternalLink_RejectsOrCascades()
+    {
+        var tree = new EventTree();
+        var target = new ChanceNode("Reusable", new ProbabilitySource(0.25d));
+        tree.Add(tree.Root.Id, target);
+        Guid linkId = tree.LinkIndependent(tree.Root.Id, target.Id, "Reuse");
+
+        Assert.ThrowsException<InvalidOperationException>(() => tree.Delete(target.Id));
+        Assert.IsNotNull(tree.FindById(target.Id));
+        Assert.IsNotNull(tree.FindById(linkId));
+
+        tree.Delete(target.Id, RMC.TotalRisk.RiskFunctions.Responses.Trees.TreeDeletePolicy.CascadeLinks);
+
+        Assert.IsNull(tree.FindById(target.Id));
+        Assert.IsNull(tree.FindById(linkId));
+    }
+
+    /// <summary>Verifies a move cannot place authored children beneath a link node.</summary>
+    [TestMethod]
+    public void Test_Move_ToLinkParent_IsRejectedTransactionally()
+    {
+        var tree = new EventTree();
+        var target = new ChanceNode("Target", new ProbabilitySource(0.25d));
+        var movable = new ChanceNode("Movable", new ProbabilitySource(0.5d));
+        tree.Add(tree.Root.Id, target);
+        tree.Add(tree.Root.Id, movable);
+        Guid linkId = tree.LinkIndependent(tree.Root.Id, target.Id, "Reuse");
+        string before = tree.ToXElement().ToString();
+
+        InvalidOperationException exception = Assert.ThrowsException<InvalidOperationException>(() =>
+            tree.Move(movable.Id, linkId));
+
+        StringAssert.Contains(exception.Message, "cannot own authored children");
+        Assert.AreEqual(before, tree.ToXElement().ToString());
+        Assert.AreSame(tree.Root, movable.Parent);
+    }
+
+    /// <summary>Verifies an internal link cycle is rejected without changing the authored tree.</summary>
+    [TestMethod]
+    public void Test_LinkIndependent_CycleRejectedTransactionally()
+    {
+        var tree = new EventTree();
+        var branch = new ChanceNode("Branch", new ProbabilitySource(0.4d));
+        tree.Add(tree.Root.Id, branch);
+        _ = new EventTreeResponse(new[] { 0d, 1d }, tree)
+        {
+            Name = "Cycle owner",
+            SpecifiedHazard = "Stage",
+            HazardUnit = "ft",
+        };
+        int beforeCount = tree.Nodes.Count;
+
+        InvalidOperationException exception = Assert.ThrowsException<InvalidOperationException>(() =>
+            tree.LinkIndependent(branch.Id, branch.Id, "Back edge"));
+
+        StringAssert.Contains(exception.Message, "cycle detected");
+        StringAssert.Contains(exception.Message, "Cycle owner");
+        StringAssert.Contains(exception.Message, "Back edge");
+        Assert.AreEqual(beforeCount, tree.Nodes.Count);
+    }
 }

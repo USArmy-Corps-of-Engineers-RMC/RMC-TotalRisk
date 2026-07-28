@@ -214,6 +214,41 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                 _ => throw new InvalidOperationException($"Unsupported probability source kind '{Kind}'."),
             };
         }
+        /// <summary>Evaluates the mean source at a caller hazard not aligned to this source's owner axis.</summary>
+        internal double EvaluateMeanAtHazard(double hazard)
+        {
+            return Kind switch
+            {
+                ProbabilitySourceKind.DeterministicScalar => ScalarProbability!.Value,
+                ProbabilitySourceKind.UncertainTabular => Table!.CurveSample().GetYFromX(hazard),
+                ProbabilitySourceKind.ResponseFunctionReference => ResponseFunction!.SampleFunction().CDF(hazard),
+                _ => throw new InvalidOperationException($"Unsupported probability source kind '{Kind}'."),
+            };
+        }
+
+        /// <summary>Evaluates a percentile source at a caller hazard not aligned to this source's owner axis.</summary>
+        internal double EvaluatePercentileAtHazard(double hazard, double percentile)
+        {
+            return Kind switch
+            {
+                ProbabilitySourceKind.DeterministicScalar => ScalarProbability!.Value,
+                ProbabilitySourceKind.UncertainTabular => Table!.CurveSample(percentile).GetYFromX(hazard),
+                ProbabilitySourceKind.ResponseFunctionReference => ResponseFunction!.SampleFunction(percentile).CDF(hazard),
+                _ => throw new InvalidOperationException($"Unsupported probability source kind '{Kind}'."),
+            };
+        }
+
+        /// <summary>Evaluates a realization at a caller hazard not aligned to this source's owner axis.</summary>
+        internal double EvaluateRealizationAtHazard(double hazard, int realizationIndex, double localPercentile)
+        {
+            return Kind switch
+            {
+                ProbabilitySourceKind.DeterministicScalar => ScalarProbability!.Value,
+                ProbabilitySourceKind.UncertainTabular => Table!.CurveSample(localPercentile).GetYFromX(hazard),
+                ProbabilitySourceKind.ResponseFunctionReference => ResponseFunction!.SampleFunction(realizationIndex).CDF(hazard),
+                _ => throw new InvalidOperationException($"Unsupported probability source kind '{Kind}'."),
+            };
+        }
 
         /// <summary>Serializes the discriminated source in the requested function-reference mode.</summary>
         /// <param name="mode">The serialization mode.</param>

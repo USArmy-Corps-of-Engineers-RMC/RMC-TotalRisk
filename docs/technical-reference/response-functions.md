@@ -18,7 +18,7 @@ where *F_R* is the conditional CDF of the resistance and *f_S* is the hazard (de
 
 `EventTreeResponse` (Phase 10A) and `FaultTreeResponse` (Phase 10B) remain response functions under this exact contract: they produce conditional fragility `P(F|h)`. Hazard functions manage hazard probability/frequency, and the component risk graph plus `RiskAnalysis` connects responses to consequences and computes risk. The normative [tree-response implementation design](../requirements/EVENT_AND_FAULT_TREE_RESPONSE_DESIGN.md) defines event end-state outputs, exact static fault evaluation, internal/external links, independent clones, controlled authoring operations, graph algorithms, LHS, serialization, hashing, testing, and cost-benefit.
 
-The first coherent `EventTreeResponse` slice landed 2026-07-28. It includes:
+The first two coherent `EventTreeResponse` slices landed 2026-07-28. They include:
 
 - the common immutable branch descriptors/sample contract and tree-reference value object;
 - controlled `EventTree` ownership with add, insert, move, delete, search, ancestry,
@@ -30,7 +30,15 @@ The first coherent `EventTreeResponse` slice landed 2026-07-28. It includes:
 - the legacy sibling normalization, remainder, path-product, and failure-terminal sum rules;
 - explicit node/edge XML with self-contained and by-reference nested function modes; and
 - projected canonical identity independent of display metadata, persistent IDs, and sibling
-  presentation order.
+  presentation order;
+- internal and external `EventTreeLinkNode` references with `IndependentClone` occurrence
+  semantics, including separate epistemic sampler occurrences when one live source is reused;
+- resolver-backed self-contained and by-reference XML, with lenient function/node name fallback
+  and repaired IDs on the next write;
+- a link-expanded immutable occurrence plan used by evaluation, sampling, identity, and validation;
+  and
+- transactional same-tree and cross-function cycle rejection with the complete function/node path
+  in the diagnostic.
 
 For explicit siblings with raw probabilities `q_i` and compensated sum `S`, the conditional rule is:
 
@@ -42,6 +50,14 @@ p_i = q_i/S and p_remainder = 0, when S > 1
 A terminal probability is the product of its conditional path. Aggregate `P(F|h)` is the
 compensated sum of terminals explicitly classified as failure; omitted remainder mass is surfaced
 as a stable implicit non-failure branch.
+Linked external uncertain tables are evaluated at the owning response's hazard ordinates, using
+the same interpolation/extrapolation contract as their `OrderedPairedData`. A link wrapper is
+retained in canonical identity to distinguish a referenced occurrence from authored inline
+content, while persistent IDs, display names, sibling authoring order, and self-contained versus
+by-reference wrappers are projected away. Still open in Phase 10A are fragment copy/paste and the
+remaining authoring/topology operations, event-tree probability-source recursion, legacy XML
+conversion/templates, expanded graph ports, cached allocation-free plans, and remaining gates.
+
 
 ## Contract
 

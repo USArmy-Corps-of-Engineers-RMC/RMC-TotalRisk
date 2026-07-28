@@ -1,13 +1,14 @@
-# Event-tree response — Phase 10A first vertical slice
+# Event-tree response — Phase 10A foundation and independent-link slices
 
 ## Scope and status
 
-`EventTreeVerification` currently verifies the first coherent Phase 10A implementation slice:
+`EventTreeVerification` currently verifies two coherent Phase 10A implementation slices:
 controlled scalar/tabular event trees, legacy conditional-probability algebra, aggregate failure,
-exhaustive terminal outputs, and indexed LHS table sampling. This is a partial family, not the
-Phase 10A exit gate. Internal/external links, legacy recursive XML, graph-connected per-leaf
-consequences, independent branch-routing Monte Carlo, LHS variance reduction, compiled-plan
-performance, and the remaining manipulation surface are still open.
+exhaustive terminal outputs, indexed LHS table sampling, internal/external `IndependentClone`
+links, both serialization modes, and linked-occurrence reproducibility. This remains a partial
+family, not the Phase 10A exit gate. Legacy recursive XML/templates, graph-connected per-leaf
+consequences, independent branch-routing Monte Carlo, LHS variance reduction, thread-count and
+performance gates, and the remaining manipulation/topology surface are still open.
 
 The response computes conditional fragility `P(F|h)` only. Hazard probability, annualization,
 consequences, and risk remain outside the event tree.
@@ -40,7 +41,7 @@ Run in isolation:
 dotnet test src/RMC.TotalRisk.Verification -- --filter "ClassName~EventTreeVerification"
 ```
 
-Observed 2026-07-28: **3/3 passed**.
+Observed 2026-07-28: **5/5 passed**.
 
 | Fixture | Independent expectation | Result |
 |---|---|---|
@@ -48,7 +49,11 @@ Observed 2026-07-28: **3/3 passed**.
 | Over-allocated siblings | failure = `0.8/(0.8+0.7)`; remainder = 0 | Exact within `1e-14` |
 | Indexed uncertainty | 256 realization outputs equal the aligned `UncertainOrderedPairedData.CurveSample(p)` at the response's recorded LHS percentile | Bit-equal |
 
+| Linked subtree parity | internal link and external link after self-contained/by-reference round trip equal an explicitly cloned tree | Bit-equal branch/aggregate curves and canonical hashes |
+| Linked uncertainty reproducibility | two independent occurrences reproduce across XML modes and sibling reordering | Bit-equal for 256 realizations; occurrences remain distinct |
 The unit suite additionally pins nested path products, implicit residual mass, percentile samples,
-same-content LHS reproducibility, metadata/GUID/order hash invariance, compute sensitivity,
-self-contained/by-reference response-source round trips, validation, factory registration, and the
-controlled authoring/traversal surface.
+same-content LHS reproducibility, independent repeated-source sampler occurrences,
+metadata/GUID/name/order/reference-wrapper hash invariance, compute sensitivity, linked external
+hazard-axis interpolation, resolver-backed self-contained/by-reference round trips and ID/name
+repair, useful full-path cross-function cycle diagnostics, validation, factory registration, and
+the controlled authoring/traversal/delete-policy surface.
