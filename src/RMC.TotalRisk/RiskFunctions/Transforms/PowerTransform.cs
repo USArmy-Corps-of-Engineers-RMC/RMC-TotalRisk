@@ -38,9 +38,9 @@ namespace RMC.TotalRisk.RiskFunctions.Transforms
     /// </para>
     /// <para>
     /// Knowledge uncertainty is sampled co-monotonically (one percentile drives the whole curve).
-    /// Sampling dimension D = 1 while <see cref="IsUncertain"/>, else 0 (architecture doc
-    /// §5.8.4); the realization-index overload returns the deterministic function when no
-    /// percentile matrix exists. The <see cref="Sigma"/> attribute is serialized (and therefore
+    /// Sampling dimension D = 1 while <see cref="IsUncertain"/>, else 0
+    /// (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §5.8.4); the realization-index overload
+    /// returns the deterministic function when no percentile matrix exists. The <see cref="Sigma"/> attribute is serialized (and therefore
     /// hashed) only while <see cref="IsUncertain"/> is true — the §5.5.3 recipe-literal
     /// conditional; a deterministic instance whose stored σ differs from the default round-trips
     /// to the default σ, and the discarded value is compute-inert by construction.

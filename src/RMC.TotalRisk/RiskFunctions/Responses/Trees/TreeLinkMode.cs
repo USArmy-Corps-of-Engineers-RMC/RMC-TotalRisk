@@ -2,7 +2,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.Trees
 {
     /// <summary>
     /// Selects whether a tree reference represents an independently sampled occurrence or the
-    /// same logical event. Event trees admit only <see cref="IndependentClone"/> in Phase 10A.
+    /// same logical event. Event trees admit only <see cref="IndependentClone"/>.
     /// </summary>
     public enum TreeLinkMode
     {

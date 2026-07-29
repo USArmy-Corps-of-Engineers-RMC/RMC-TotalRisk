@@ -31,8 +31,8 @@ namespace RMC.TotalRisk.RiskFunctions.Transforms
     /// <c>LinearFunction.ConfidenceLevel</c>, so every hazard level shifts by the same
     /// <c>Normal(0, σ).InverseCDF(p)</c> offset (perfect rank correlation along the curve — the
     /// exact v1.0 behavior). Sampling dimension D = 1 while <see cref="IsUncertain"/>, else 0
-    /// (architecture doc §5.8.4); the realization-index overload returns the deterministic
-    /// function when no percentile matrix exists.
+    /// (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §5.8.4); the realization-index overload
+    /// returns the deterministic function when no percentile matrix exists.
     /// </para>
     /// <para>
     /// The <see cref="Sigma"/> attribute is serialized (and therefore hashed) only while

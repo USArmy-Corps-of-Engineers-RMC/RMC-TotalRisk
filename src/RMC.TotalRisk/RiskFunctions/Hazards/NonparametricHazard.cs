@@ -75,10 +75,10 @@ namespace RMC.TotalRisk.RiskFunctions.Hazards
     /// Sampling dimension D = 1 (one co-monotonic percentile drives every ordinate — the same
     /// restrictive-but-FDA-compatible scheme as the tabular types). The mean curve under
     /// uncertainty is the expected exceedance probability over 10,000 Weibull plotting-position
-    /// percentile curves on a 200-point stratified hazard grid (the landed
-    /// <see cref="TabularHazard"/> Hazard-mode assembly; <c>ExpectedProbabilities</c> reduces
-    /// with a parallel sum, so the mean curve is deterministic only to floating-point reduction
-    /// order — keep this type out of byte-gate fixtures).
+    /// percentile curves on a 200-point stratified hazard grid (the
+    /// <see cref="TabularHazard"/> Hazard-mode assembly; the upstream
+    /// <c>ExpectedProbabilities</c> reduction sums over a fixed chunk count, so the mean curve
+    /// is bit-reproducible at any thread count).
     /// </para>
     /// </remarks>
     public class NonparametricHazard : UnivariateHazardBase
@@ -377,7 +377,7 @@ namespace RMC.TotalRisk.RiskFunctions.Hazards
         /// <remarks>
         /// The mean curve, exactly as in v1.0: under uncertainty, the expected exceedance
         /// probability over 10,000 Weibull plotting-position percentile curves on a 200-point
-        /// stratified hazard grid spanning the full-uncertainty hazard bounds (the landed
+        /// stratified hazard grid spanning the full-uncertainty hazard bounds (the
         /// <see cref="TabularHazard"/> Hazard-mode assembly, with N =
         /// <see cref="EffectiveRecordLength"/>); when deterministic, the derived curve inverted
         /// directly. Improved over v1.0: an unusable state throws instead of returning null.

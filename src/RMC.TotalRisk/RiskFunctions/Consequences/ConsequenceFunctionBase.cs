@@ -17,7 +17,8 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
     ///     Haden Smith, USACE Risk Management Center, cole.h.smith@usace.army.mil
     /// </para>
     /// <para>
-    /// The exposure-branch members (ratified Q-V; architecture doc §6.4.1) are virtual with a
+    /// The exposure-branch members (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §6.4.1) are
+    /// virtual with a
     /// single unit-weight default, so every non-composite consequence type participates in the
     /// engine's branch enumeration without changing shape; only <c>CompositeConsequence</c> in
     /// Mixture mode overrides them with real branches.

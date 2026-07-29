@@ -23,7 +23,8 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
     ///     Haden Smith, USACE Risk Management Center, cole.h.smith@usace.army.mil
     /// </para>
     /// <para>
-    /// New in v1.1 (no v1.0 ancestor); the form follows architecture doc §6.4 and USACE
+    /// New in v1.1 (no v1.0 ancestor); the form follows
+    /// docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §6.4 and USACE
     /// depth-damage conventions (ER 1110-2-1156 / HEC-FDA). The power law is the best-fit
     /// parametric form for observed depth-damage data in the literature, the threshold captures
     /// the damage-initiation depth, and the cap reflects saturation at maximum damage.
@@ -262,8 +263,8 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
 
         /// <inheritdoc/>
         /// <remarks>
-        /// Two independent dimensions while uncertain — one per coefficient (architecture doc
-        /// §6.4) — otherwise zero.
+        /// Two independent dimensions while uncertain — one per coefficient
+        /// (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §6.4) — otherwise zero.
         /// </remarks>
         public override int SamplingDimensions => _isUncertain ? 2 : 0;
 
@@ -503,7 +504,8 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
         /// <inheritdoc/>
         /// <remarks>
         /// The sigma attributes are written only while <see cref="IsUncertain"/> is true, matching
-        /// the canonical-hash recipe (architecture doc §5.5.3): sigma edits on a function that is
+        /// the canonical-hash recipe (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §5.5.3):
+        /// sigma edits on a function that is
         /// not uncertain can never move the hash, because they cannot affect results.
         /// </remarks>
         public override XElement ToXElement()

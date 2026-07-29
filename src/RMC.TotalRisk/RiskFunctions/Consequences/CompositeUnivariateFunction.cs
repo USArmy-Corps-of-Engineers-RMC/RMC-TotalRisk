@@ -21,8 +21,8 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
     /// snapshot linearly interpolated), and stays exact when a child has no knots at all (a
     /// parametric consequence curve is not piecewise linear). The engine only ever evaluates the
     /// returned function pointwise, so nothing requires a tabular snapshot. The negative clamp is
-    /// the legacy composite clamp. When the planned Numerics <c>CompositeFunction</c> lands
-    /// (roadmap Phase 8), this combine is a candidate to fold into it.
+    /// the legacy composite clamp. If a future upstream Numerics <c>CompositeFunction</c>
+    /// expansion covers this combine, it is a candidate to fold into it.
     /// </para>
     /// <para>
     /// A Mixture realization passes a single selected child with weight one, so every composite

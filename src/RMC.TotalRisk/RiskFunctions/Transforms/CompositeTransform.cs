@@ -28,11 +28,11 @@ namespace RMC.TotalRisk.RiskFunctions.Transforms
     /// <para>
     /// New in v1.1 — v1.0 had no composite transform, so there is no legacy behavior to preserve
     /// and no legacy oracle. The combine rides the Numerics <see cref="CompositeFunction"/> in
-    /// <see cref="CompositeFunctionMode.WeightedAverage"/> mode, per the ratified thin-wrapper
-    /// mapping for the transform cluster (architecture doc §6.2).
+    /// <see cref="CompositeFunctionMode.WeightedAverage"/> mode, per the thin-wrapper mapping
+    /// for the transform cluster (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §6.2).
     /// </para>
     /// <para>
-    /// <b>Only <see cref="CompositeFunctionType.Average"/> is supported</b> (ratified Phase 9;
+    /// <b>Only <see cref="CompositeFunctionType.Average"/> is supported</b> (a deliberate restriction;
     /// it is also the default, unlike <c>CompositeConsequence</c>, so a new instance is valid out of
     /// the box). <see cref="CompositeFunctionType.Mixture"/> and
     /// <see cref="CompositeFunctionType.Additive"/> are validation errors:
@@ -43,7 +43,8 @@ namespace RMC.TotalRisk.RiskFunctions.Transforms
     /// analog of the consequence exposure-branch surface — <c>SampledFailureMode</c> chains
     /// transforms deterministically. A mean-only run would therefore collapse the branch and its
     /// loss-exceedance tail would diverge from the mean of the full-uncertainty ensemble: exactly
-    /// the defect ratified Q-V solved for consequences (architecture doc §6.4.1). Deferred until
+    /// the defect the exposure-branch contract solved for consequences
+    /// (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §6.4.1). Deferred until
     /// the engine gains transform-branch enumeration.
     /// </description></item>
     /// <item><description>
@@ -217,7 +218,7 @@ namespace RMC.TotalRisk.RiskFunctions.Transforms
         /// </summary>
         /// <remarks>
         /// Observable, and the composite tracks its membership. Declared order is compute-relevant:
-        /// it drives the child sampler ordinals and the hashed entry order (ratified Q-I).
+        /// it drives the child sampler ordinals and the hashed entry order.
         /// </remarks>
         public ObservableCollection<WeightedTransformFunction> TransformFunctions
         {
@@ -310,7 +311,7 @@ namespace RMC.TotalRisk.RiskFunctions.Transforms
         /// reference, reported precisely instead); a null child entry; weights outside [0, 1] or
         /// not summing to one (±1e-8); an empty child-domain intersection; a circular reference; an
         /// invalid child (summary line only). Warnings (advisory): child axis labels that do not
-        /// match the composite's (the ratified Phase 3 downgrade), and child input domains that
+        /// match the composite's (labels are unhashed metadata and never gate compute), and child input domains that
         /// differ, since the composite evaluates only over their intersection.
         /// </remarks>
         public override (bool IsValid, List<string> ValidationMessages) Validate()
@@ -641,7 +642,7 @@ namespace RMC.TotalRisk.RiskFunctions.Transforms
 
         /// <inheritdoc/>
         /// <remarks>
-        /// Hashes the projected identity form, never the persisted form (the ratified
+        /// Hashes the projected identity form, never the persisted form (the
         /// <c>SystemComponent</c> identity-form exception): the combine mode, the entry count, and
         /// per entry the effective weight and the child's own canonical hash. The weight coercion
         /// under <see cref="CompositeFunctionType.Additive"/> is carried for symmetry with

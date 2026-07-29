@@ -41,12 +41,13 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
     /// the maximum (most severe loading controls).
     /// </para>
     /// <para>
-    /// <b>The mixture is aleatory (ratified Phase 9),</b> exactly as for <c>CompositeHazard</c>:
+    /// <b>The mixture is aleatory by design,</b> exactly as for <c>CompositeHazard</c>:
     /// the combination is one distribution carried through every realization,
     /// <see cref="SamplingDimensions"/> is zero in both modes, and a mixture of deterministic
-    /// children is itself deterministic. The 2024 verification report notes that a composite
-    /// response is the same mixture as a composite hazard, plotted as a CDF against non-exceedance
-    /// probability rather than as exceedance probability — report Tables 44 through 46 verify both.
+    /// children is itself deterministic. The RMC-TotalRisk Verification Report notes that a
+    /// composite response is the same mixture as a composite hazard, plotted as a CDF against
+    /// non-exceedance probability rather than as exceedance probability — its Tables 44 through
+    /// 46 verify both.
     /// </para>
     /// <para>
     /// <b>Ordered-pair curve samples are not emitted</b> (v1.0 parity — the legacy overloads threw
@@ -245,7 +246,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
         /// </summary>
         /// <remarks>
         /// Observable, and the composite tracks its membership. Declared order is compute-relevant:
-        /// it drives the child sampler ordinals and the hashed entry order (ratified Q-I).
+        /// it drives the child sampler ordinals and the hashed entry order.
         /// </remarks>
         public ObservableCollection<WeightedResponseFunction> ResponseFunctions
         {
@@ -375,7 +376,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
         /// <remarks>
         /// Always zero, in both modes: the combination is aleatory and consumes no knowledge draw
         /// of its own. Children own their dimensions and are set up recursively by
-        /// <see cref="SetupSampler"/> (architecture doc §5.8.5).
+        /// <see cref="SetupSampler"/> (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §5.8.5).
         /// </remarks>
         public override int SamplingDimensions => 0;
 
@@ -416,7 +417,8 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
         /// summing to one (±1e-8); a correlation matrix that is missing, wrongly dimensioned, or not
         /// positive definite when the competing-risks dependence requires one; a circular reference;
         /// an invalid child (summary line only). Warnings (advisory): child axis labels that do not
-        /// match the composite's (the ratified Phase 3 downgrade), and a single-entry competing-risks
+        /// match the composite's (labels are unhashed metadata and never gate compute), and a
+        /// single-entry competing-risks
         /// combination, which degenerates to that child.
         /// </remarks>
         public override (bool IsValid, List<string> ValidationMessages) Validate()
@@ -803,7 +805,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
 
         /// <inheritdoc/>
         /// <remarks>
-        /// Hashes the projected identity form, never the persisted form (the ratified
+        /// Hashes the projected identity form, never the persisted form (the
         /// <c>SystemComponent</c> identity-form exception): the combination mode, the interpolation
         /// transforms, the dependence and correlation matrix, the entry count, and per entry the
         /// effective weight and the child's own canonical hash. Three coercions keep inert edits

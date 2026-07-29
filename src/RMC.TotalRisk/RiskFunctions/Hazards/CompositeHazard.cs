@@ -38,23 +38,23 @@ namespace RMC.TotalRisk.RiskFunctions.Hazards
     /// loading controls) under the configured <see cref="Dependency"/>; weights are inert there.
     /// </para>
     /// <para>
-    /// <b>The mixture is aleatory (ratified Phase 9).</b> The weights are the fraction of the event
+    /// <b>The mixture is aleatory by design.</b> The weights are the fraction of the event
     /// population each child describes, so the mixture is a single distribution carried through
     /// every realization — there is no per-realization branch selection and
     /// <see cref="SamplingDimensions"/> is zero in both modes. This is the deliberate divergence
     /// from <c>CompositeConsequence</c>, and it needs no exposure-branch surface: a hazard
     /// realization is <i>already a distribution</i>, so the mixture folds into it losslessly and
-    /// the loss-exceedance tail is exact. (The Q-V defect the consequence composite's exposure
+    /// the loss-exceedance tail is exact. (The defect the consequence composite's exposure
     /// branches solve — collapsing a mixture to its weighted-mean <i>curve</i> — simply does not
     /// arise.) Knowledge uncertainty enters through the children's own posteriors, exactly as
-    /// report Tables 45 and 46 model it.
+    /// Tables 45 and 46 of the RMC-TotalRisk Verification Report model it.
     /// </para>
     /// <para>
     /// <b>Improved over v1.0</b> (each covered by test): the percentile overload is deterministic
     /// and RNG-free — v1.0 built <c>new Random((int)Math.Round(1 + p·100000))</c> and fed children
     /// <c>NextDouble()</c>, so percentiles differing by less than 1e-5 collided onto one seed;
     /// children own their interpolation transforms rather than having the composite's pushed onto
-    /// them (the ratified Phase 3 improvement); the all-empirical union-knot collapse is not ported
+    /// them; the all-empirical union-knot collapse is not ported
     /// (a lossy re-tabulation that <c>CreateEmpiricalCDF()</c> supersedes — the exact combined CDF
     /// agrees at every union knot and is exact between them); an empty composite throws instead of
     /// returning the <see cref="double.MaxValue"/> sentinel that silently poisons integration
@@ -69,7 +69,7 @@ namespace RMC.TotalRisk.RiskFunctions.Hazards
     /// projected identity form — the combination mode, the interpolation transforms, the dependence
     /// (coerced out under Mixture), the entry count, and per entry the effective weight and the
     /// child's own canonical hash — never the persisted form, so the serialization mode and child
-    /// metadata can never move this function's hash (the ratified <c>SystemComponent</c>
+    /// metadata can never move this function's hash (the <c>SystemComponent</c>
     /// identity-form exception).
     /// </para>
     /// </remarks>
@@ -244,7 +244,7 @@ namespace RMC.TotalRisk.RiskFunctions.Hazards
         /// Observable, and the composite tracks its membership: adding, removing, replacing, or
         /// clearing entries attaches and detaches each entry's change subscription and reports the
         /// change as <c>HazardFunctions</c>. Declared order is compute-relevant: it drives the
-        /// child sampler ordinals and the hashed entry order (ratified Q-I).
+        /// child sampler ordinals and the hashed entry order.
         /// </remarks>
         public ObservableCollection<WeightedHazardFunction> HazardFunctions
         {
@@ -375,7 +375,7 @@ namespace RMC.TotalRisk.RiskFunctions.Hazards
         /// <remarks>
         /// Always zero, in both modes: the combination is aleatory and consumes no knowledge draw
         /// of its own. Children own their dimensions and are set up recursively by
-        /// <see cref="SetupSampler"/> (architecture doc §5.8.5).
+        /// <see cref="SetupSampler"/> (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §5.8.5).
         /// </remarks>
         public override int SamplingDimensions => 0;
 
@@ -417,7 +417,7 @@ namespace RMC.TotalRisk.RiskFunctions.Hazards
         /// competing-risks dependence requires one; a circular reference through nested composites;
         /// an invalid child (summary line only — the child reports its own details where it is
         /// stored). Warnings (advisory): child axis labels that do not match the composite's
-        /// (labels are unhashed metadata and never gate compute — the ratified Phase 3 downgrade),
+        /// (labels are unhashed metadata and never gate compute),
         /// and a single-entry competing-risks combination, which degenerates to that child.
         /// </remarks>
         public override (bool IsValid, List<string> ValidationMessages) Validate()
@@ -774,7 +774,7 @@ namespace RMC.TotalRisk.RiskFunctions.Hazards
 
         /// <inheritdoc/>
         /// <remarks>
-        /// Hashes the projected identity form, never the persisted form (the ratified
+        /// Hashes the projected identity form, never the persisted form (the
         /// <c>SystemComponent</c> identity-form exception): the combination mode, the interpolation
         /// transforms, the dependence and correlation matrix, the entry count, and per entry the
         /// effective weight and the child's own canonical hash. Three coercions keep inert edits

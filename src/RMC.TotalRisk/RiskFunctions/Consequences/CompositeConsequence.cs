@@ -44,12 +44,13 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
     /// functions that own their interpolation transforms.
     /// </para>
     /// <para>
-    /// <b>Exposure branches (ratified Q-V, architecture doc §6.4.1):</b> the mixture weights are
+    /// <b>Exposure branches (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §6.4.1):</b> the
+    /// mixture weights are
     /// aleatory exposure probabilities, so the risk engine never draws a branch — it enumerates
     /// the weighted branches through <see cref="SampleExposureBranches()"/> at every hazard point,
     /// in the mean-only and full Monte Carlo paths alike, and each realization's loss-exceedance
     /// curve carries the full day/night spread. <see cref="SamplingDimensions"/> is therefore
-    /// zero: the pre-Q-V selector dimension is gone, and the standalone per-realization mixture
+    /// zero: the superseded selector dimension is gone, and the standalone per-realization mixture
     /// surface (<see cref="SampleFunction(int)"/>, the uncertainty summary) rides an internal
     /// selector matrix generated with the identical seed fold and scheme, keeping those streams
     /// bit-for-bit unchanged.
@@ -62,7 +63,7 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
     /// store never duplicates child function content. <b>Hashing</b> uses a projected identity
     /// form — the combine mode, the entry count, and per entry the effective weight and the
     /// child's own canonical hash — never the persisted form, so the serialization mode and child
-    /// metadata can never move this function's hash (the ratified <c>SystemComponent</c>
+    /// metadata can never move this function's hash (the <c>SystemComponent</c>
     /// identity-form exception). The persisted form must therefore be treated as append-only
     /// contract like any other, but it is not this type's hash surface. Cyclic composites cannot
     /// be serialized or hashed; <see cref="Validate"/> reports them and every compute entry point
@@ -184,12 +185,12 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
         /// <see cref="SetupSampler"/> in Mixture mode, null otherwise.
         /// </summary>
         /// <remarks>
-        /// Under ratified Q-V the selector is no longer an engine sampling dimension
+        /// Under the exposure-branch contract the selector is no longer an engine sampling dimension
         /// (<see cref="SamplingDimensions"/> is zero — the risk engine enumerates branches through
         /// <see cref="SampleExposureBranches()"/> instead of drawing one), but the standalone
         /// ensemble surface keeps its meaning: a sweep of <see cref="SampleFunction(int)"/> over a
         /// set-up sampler still reproduces the exact mixture ensemble. The matrix is generated
-        /// with the same seed fold, scheme, and shape the selector dimension used before Q-V, so
+        /// with the same seed fold, scheme, and shape the superseded selector dimension used, so
         /// pre-existing standalone and verification streams are bit-identical.
         /// </remarks>
         private double[,]? _mixtureSelector;
@@ -298,12 +299,14 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
 
         /// <inheritdoc/>
         /// <remarks>
-        /// Always zero (ratified Q-V, architecture doc §6.4.1): the mixture branch choice is
+        /// Always zero (the exposure-branch contract,
+        /// docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §6.4.1): the mixture branch choice is
         /// aleatory exposure that the risk engine enumerates through
         /// <see cref="SampleExposureBranches()"/> rather than a knowledge-uncertainty dimension it
-        /// draws — so the selector dimension the pre-Q-V design declared in Mixture mode is gone.
-        /// Children own their dimensions and are set up recursively by <see cref="SetupSampler"/>
-        /// (architecture doc §5.8.5); the standalone per-realization mixture surface rides an
+        /// draws — so the selector dimension the superseded design declared in Mixture mode is
+        /// gone. Children own their dimensions and are set up recursively by
+        /// <see cref="SetupSampler"/> (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §5.8.5);
+        /// the standalone per-realization mixture surface rides an
         /// internal selector matrix instead (see <see cref="_mixtureSelector"/>).
         /// </remarks>
         public override int SamplingDimensions => 0;
@@ -315,7 +318,7 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
         /// <inheritdoc/>
         /// <remarks>
         /// Sets up the internal mixture-selector matrix (Mixture mode only — generated with the
-        /// exact seed fold, scheme, and N×1 shape the pre-Q-V selector dimension used, so
+        /// exact seed fold, scheme, and N×1 shape the superseded selector dimension used, so
         /// standalone streams are unchanged), then recurses into every child with a
         /// content-derived seed: <c>SeedHelpers.HashCombine(seed, child.CanonicalHash(), ordinal)</c>.
         /// The ordinal gives identical-content siblings independent draws; the child hash is
@@ -360,7 +363,7 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
         /// circular reference through nested composites; an invalid child (summary line only — the
         /// child reports its own details where it is stored). Warnings (advisory): child axis
         /// labels that do not match the composite's — labels are unhashed metadata and never gate
-        /// compute, the ratified Phase 3 downgrade.
+        /// compute.
         /// </remarks>
         public override (bool IsValid, List<string> ValidationMessages) Validate()
         {
@@ -492,7 +495,7 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
         /// <paramref name="realizationIndex"/> from its own content-seeded matrix (children are
         /// mutually independent), and in Mixture mode the internal selector matrix picks the one
         /// child whose curve is returned — a sweep over the sample size reproduces the exact
-        /// mixture ensemble. The risk engine does not use this path for mixtures (ratified Q-V):
+        /// mixture ensemble. The risk engine does not use this path for mixtures:
         /// it enumerates the weighted branches via <see cref="SampleExposureBranches(double)"/> so
         /// every realization's loss-exceedance curve carries the full exposure spread.
         /// </remarks>
@@ -525,7 +528,8 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
 
         /// <inheritdoc/>
         /// <remarks>
-        /// The composite's real exposure branches (ratified Q-V, architecture doc §6.4.1):
+        /// The composite's real exposure branches
+        /// (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §6.4.1):
         /// Additive and Average composites are genuine pointwise combinations and return a single
         /// unit-weight entry carrying the collapsed mean curve; a Mixture returns one entry per
         /// positively weighted child carrying the child's mean curve, with nested Mixture children
@@ -552,7 +556,7 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
         /// <see cref="SampleExposureBranches()"/> — and every branch curve is sampled
         /// co-monotonically at the given knowledge percentile, the same single-uniform semantic
         /// the percentile overloads already carry. One shared percentile driving both a failure
-        /// composite and its paired non-failure consequence keeps the pair coherent (Q-N).
+        /// composite and its paired non-failure consequence keeps the pair coherent.
         /// </remarks>
         /// <exception cref="InvalidOperationException">Thrown when the composite configuration is invalid.</exception>
         public override IReadOnlyList<(double Weight, IUnivariateFunction Function)> SampleExposureBranches(double percentile)
@@ -790,7 +794,7 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
         /// <inheritdoc/>
         /// <remarks>
         /// Hashes the projected identity form, never the persisted form (the second instance of
-        /// the ratified v0.9 <c>SystemComponent</c> exception): the combine mode, the entry count,
+        /// the <c>SystemComponent</c> identity-form exception): the combine mode, the entry count,
         /// and per entry the effective weight and the child's own canonical hash. Consequences by
         /// construction: the serialization mode can never move the hash (both modes project
         /// identically); child metadata edits are inert (child hashes are themselves

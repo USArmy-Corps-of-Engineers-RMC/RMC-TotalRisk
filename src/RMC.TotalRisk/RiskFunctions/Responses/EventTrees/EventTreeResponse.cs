@@ -23,7 +23,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
     /// mutually exclusive end-state probabilities.
     /// </summary>
     /// <remarks>
-    /// The current Phase 10A implementation supports scalar, uncertain-tabular, ordinary-response,
+    /// The current implementation supports scalar, uncertain-tabular, ordinary-response,
     /// and recursively nested event-tree probability sources together with internal/external
     /// independent-clone link occurrences. It also reads the recursive node XML emitted by the
     /// v1.0 product and writes only the explicit v1.1 graph form. Every nested occurrence
