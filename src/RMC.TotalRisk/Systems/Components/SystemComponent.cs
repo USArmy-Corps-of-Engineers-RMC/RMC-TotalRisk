@@ -36,7 +36,7 @@ namespace RMC.TotalRisk.Systems.Components
     /// Ported from v1.0 <c>SystemComponent</c> with the option surface preserved (defaults,
     /// the CommonCause/MutuallyExclusive dependency coercion, the multivariate-normal off-diagonal
     /// constants <c>1 − √εmach</c> and <c>−1/(D − 1) + √εmach</c>, and the combination caches)
-    /// and one ratified v1.1 restructuring (architecture doc v0.9): v1.0 stored failure modes as
+    /// and one deliberate v1.1 restructuring: v1.0 stored failure modes as
     /// a collection projected by the UI-side <c>RiskDiagram</c> from canvas topology; v1.1 makes
     /// the graph itself the model — <see cref="Graph"/> is the persisted truth, and
     /// <see cref="FailureModes"/> is a fresh, deterministic projection snapshot on every access
@@ -48,7 +48,8 @@ namespace RMC.TotalRisk.Systems.Components
     /// (whose link attributes carry Guids and names), which therefore cannot be the seed-identity
     /// surface. <see cref="CanonicalHash"/> instead hashes a deterministic internal identity form
     /// — the options, the hazard content, and the projected failure modes in path order —
-    /// realizing the architecture doc §5.5.3 recipe. Renaming or re-identifying elements, moving
+    /// realizing the docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §5.5.3 recipe. Renaming or
+    /// re-identifying elements, moving
     /// them on a canvas, or editing descriptions can never change the hash or re-roll Monte Carlo
     /// seeds; equal-content components hash identically and are disambiguated by
     /// <see cref="OccurrenceIndex"/> (§5.5.4).
@@ -64,7 +65,7 @@ namespace RMC.TotalRisk.Systems.Components
     /// response-function-uniqueness error is dropped as obsolete under inline ownership and
     /// occurrence indexing. The v1.0 <c>ProfileHazardFunction</c> (a name-matched
     /// <c>IElement</c> reference) is ported as the structural
-    /// <see cref="ProfileHazardElementId"/> element reference (Q-T closure, Phase 6.6):
+    /// <see cref="ProfileHazardElementId"/> element reference:
     /// resolved at the <see cref="SetupSamplers(int, int, SamplingScheme)"/> freeze point into the transform chain that
     /// remaps every recorded hazard level onto the selected axis, serialized append-only, and
     /// deliberately excluded from the identity form so a reporting-axis flip can never re-roll
@@ -136,7 +137,7 @@ namespace RMC.TotalRisk.Systems.Components
             _hazardThreshold = SerializationUtilities.ReadDouble(xElement, nameof(HazardThreshold));
             _correlationMatrix = SerializationUtilities.ParseMatrix(SerializationUtilities.ReadString(xElement, nameof(CorrelationMatrix)));
 
-            // Appended in Phase 6.6 (Q-T closure); absent on earlier payloads, which load
+            // Append-only attribute; absent on earlier payloads, which load
             // forward as the primary-hazard default.
             string profileId = SerializationUtilities.ReadString(xElement, nameof(ProfileHazardElementId));
             _profileHazardElementId = Guid.TryParse(profileId, out Guid parsedProfileId) ? parsedProfileId : null;
@@ -430,14 +431,15 @@ namespace RMC.TotalRisk.Systems.Components
         /// reaches the hazard root (validated by <see cref="Validate()"/>).
         /// </summary>
         /// <remarks>
-        /// A reporting-axis binding, deliberately <b>seed-inert</b> (Q-T closure): the id is
+        /// A reporting-axis binding, deliberately <b>seed-inert</b>: the id is
         /// serialized append-only on the persistence surface but excluded from the identity form
         /// behind <see cref="CanonicalHash"/>, so selecting or changing the profile axis can
         /// never re-roll Monte Carlo seeds — only the profile surfaces (and the hazard-threshold
         /// probability read from them) move. This is the same hashed-but-seed-inert posture the
         /// analysis options carry (§5.5.3: the options hash never feeds seeds); the asymmetry
-        /// with <see cref="HazardThreshold"/>, which predates the closure inside the identity
-        /// form, is documented in the architecture doc's Q-T resolution.
+        /// with <see cref="HazardThreshold"/>, which sits inside the identity form, is
+        /// deliberate — removing an established identity attribute would move every component
+        /// hash.
         /// </remarks>
         public Guid? ProfileHazardElementId
         {
@@ -672,7 +674,7 @@ namespace RMC.TotalRisk.Systems.Components
         /// (<see cref="SetupSamplers(int, int, SamplingScheme)"/>) calls this before any sampling. Without this call the
         /// perfectly-negative mode's derived matrix never materializes on the compute path (the
         /// sampled component captures the raw <see cref="CorrelationMatrix"/> reference), which
-        /// silently zeroed dependent combination kernels before the Phase 5 correction.
+        /// would silently zero the dependent combination kernels.
         /// </summary>
         internal void EnsureDependencyMatrixCurrent()
         {
@@ -685,7 +687,8 @@ namespace RMC.TotalRisk.Systems.Components
 
         /// <summary>
         /// The component's occurrence index among identical-content components in the current
-        /// analysis (architecture doc §5.5.4): the number of other components with the same
+        /// analysis (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §5.5.4): the number of
+        /// other components with the same
         /// canonical hash that precede it in the canonical ordering. Runtime-only — assigned by
         /// <see cref="AssignOccurrenceIndices"/> before each run; never serialized, never hashed.
         /// </summary>
@@ -706,12 +709,13 @@ namespace RMC.TotalRisk.Systems.Components
 
         /// <summary>
         /// The frozen projection snapshot captured by <see cref="SetupSamplers(int, int, SamplingScheme)"/> — exposed for
-        /// the engine's per-run labeling (Phase 6.7 Q3); null before the samplers are set up.
+        /// the engine's per-run end-state labeling; null before the samplers are set up.
         /// </summary>
         internal IReadOnlyList<FailureMode>? SampledProjection => _sampledModes;
 
         /// <summary>
-        /// The snapshot's end-state group layout (arch doc §7.9), frozen beside the projection
+        /// The snapshot's end-state group layout
+        /// (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §7.9), frozen beside the projection
         /// by <see cref="SetupSamplers(int, int, SamplingScheme)"/> so every realization combines against one structure.
         /// Runtime sampler state: never serialized, never hashed, never cloned.
         /// </summary>
@@ -757,7 +761,7 @@ namespace RMC.TotalRisk.Systems.Components
 
             IRiskElement upstream = root;
             // The port the next connection consumes from the current upstream: a response's
-            // branch port after each stage (the stage's polarity — arch doc §7.9), 0 otherwise,
+            // branch port after each stage (the stage's polarity), 0 otherwise,
             // so projecting the expansion reproduces the chain's polarities bit-identically.
             int upstreamPort = 0;
             Guid? upstreamBranchId = null;
@@ -876,7 +880,7 @@ namespace RMC.TotalRisk.Systems.Components
         }
 
         /// <summary>
-        /// Validates the component for the given analysis mode. Reliability mode (Phase 4c)
+        /// Validates the component for the given analysis mode. Reliability mode
         /// threads through to the graph's and failure modes' relaxed consequence checks —
         /// consequence elements stay the structural terminals but need no functions; everything
         /// else is identical to <see cref="Validate()"/>.
@@ -903,7 +907,7 @@ namespace RMC.TotalRisk.Systems.Components
                 messages.Add($"Error: The failure mode correlation matrix is not positive definite or does not match the combination dimension (the state-group count) for system component '{Name}'.");
             }
 
-            // The profile hazard selection (Q-T): the id must resolve to a transform element in
+            // The profile hazard selection: the id must resolve to a transform element in
             // this graph, carrying a function, whose upstream path reaches the hazard root. The
             // threshold advisory reminds the analyst that a selected profile re-expresses the
             // hazard threshold on the profile axis.
@@ -948,7 +952,8 @@ namespace RMC.TotalRisk.Systems.Components
                 }
             }
 
-            // The cascade state-group rules (arch doc §7.9): claimed non-failure states are
+            // The cascade state-group rules (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md
+            // §7.9): claimed non-failure states are
             // scoped to one state group per component (§7.9.5 — with two claiming groups the
             // exact complement decomposition needs a cross-product enumeration that is
             // deliberately deferred), and the competing method requires every failure state's
@@ -964,7 +969,7 @@ namespace RMC.TotalRisk.Systems.Components
                 messages.Add($"Error: The competing failure-mode method is undefined for system component '{Name}': a failure state rides a Non-Fail branch (an else-chain), so its probability is not monotone in the hazard and no weak-link ordering exists — use Joint, Common Cause, or Mutually Exclusive.");
             }
 
-            // The Q-W branch-explosion guardrail at the component level: joint failure pathways
+            // The branch-explosion guardrail at the component level: joint failure pathways
             // take the cross product of the participating combination units' exposure branches
             // within one consequence type (per-type marginal compute — types never cross;
             // within a unit the exclusive states' branches ADD, across units they MULTIPLY), so
@@ -1008,9 +1013,9 @@ namespace RMC.TotalRisk.Systems.Components
             for (int k = 0; k < typeCount; k++)
             {
                 // Within a combination unit the exclusive states' branch entries ADD; across
-                // units they MULTIPLY (arch doc §7.9). Claimed non-failure states record
+                // units they MULTIPLY. Claimed non-failure states record
                 // complement entries, so they ride the additive bound. Both reduce to the
-                // pre-6.7 per-mode arithmetic under a trivial layout.
+                // pre-cascade per-mode arithmetic under a trivial layout.
                 long perModeBound = 0;
                 for (int s = 0; s < stateModes.Count; s++)
                 {
@@ -1127,8 +1132,9 @@ namespace RMC.TotalRisk.Systems.Components
         }
 
         /// <summary>
-        /// Assigns occurrence indices across an analysis's components (architecture doc §5.5.4
-        /// reference implementation): sort by (canonical hash via
+        /// Assigns occurrence indices across an analysis's components — the
+        /// docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §5.5.4
+        /// reference implementation: sort by (canonical hash via
         /// <see cref="ByteArrayComparer.Instance"/>, declared index), then number each
         /// equal-hash bucket 0..n−1. Recomputed before every run; never persisted.
         /// </summary>
@@ -1176,7 +1182,7 @@ namespace RMC.TotalRisk.Systems.Components
         /// <param name="componentSeed">
         /// The component's content-derived seed —
         /// <c>SeedHelpers.HashCombine(analysisSeed, CanonicalHash(), OccurrenceIndex)</c>
-        /// (architecture doc §5.5.4), computed by the analysis after
+        /// (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §5.5.4), computed by the analysis after
         /// <see cref="AssignOccurrenceIndices"/>.
         /// </param>
         /// <param name="scheme">The knowledge-uncertainty sampling scheme.</param>
@@ -1187,8 +1193,8 @@ namespace RMC.TotalRisk.Systems.Components
         /// identical realizations everywhere it appears — one shared instance is one knowledge
         /// quantity (the single-owner rule; equal-content distinct instances get different
         /// ordinals and draw independently). Consequence functions are not walked: their shared
-        /// knowledge percentiles come from each mode's coupling matrix (Q-N). Forward rule for
-        /// composite hazards/responses (Phase 9): the walk seeds cluster roots only, a root's
+        /// knowledge percentiles come from each mode's coupling matrix. Forward rule for
+        /// composite hazards/responses: the walk seeds cluster roots only, a root's
         /// own <c>SetupSampler</c> owns its subtree, and the dedup set must absorb subtree
         /// members. This is also the per-run freeze point that materializes the effective
         /// failure-mode dependency matrix (<see cref="EnsureDependencyMatrixCurrent"/>) so the
@@ -1262,7 +1268,7 @@ namespace RMC.TotalRisk.Systems.Components
                 ordinal = modes[i].SetupSamplers(sampleSize, componentSeed, ordinal, scheme, seededFunctions, scribe);
             }
 
-            // Resolve the profile transform chain (Q-T) at the same freeze point. The chain's
+            // Resolve the profile transform chain at the same freeze point. The chain's
             // functions are normally the failure modes' own transforms and are already seeded
             // above (the dedup set makes this a no-op); a transform on a reporting-only branch
             // is seeded here at the walk positions AFTER every mode, so the mode streams are a
@@ -1306,8 +1312,8 @@ namespace RMC.TotalRisk.Systems.Components
         }
 
         /// <summary>
-        /// Collects this component's labeled knowledge-input columns for the sensitivity engine
-        /// (Phase 6.6): one column per sampled function dimension plus each mode's consequence
+        /// Collects this component's labeled knowledge-input columns for the sensitivity engine:
+        /// one column per sampled function dimension plus each mode's consequence
         /// coupling columns, in the exact <see cref="SetupSamplers(int, int, SamplingScheme)"/> walk order with the same
         /// reference-identity dedup — one shared instance is one knowledge quantity, so labels
         /// and columns can never drift from the seeded streams. Deterministic functions
@@ -1353,7 +1359,7 @@ namespace RMC.TotalRisk.Systems.Components
             {
                 var mode = modes[i];
 
-                // The coupling columns (the Q-N shared consequence draws), only where an
+                // The coupling columns (the shared consequence draws), only where an
                 // uncertain consequence consumes them.
                 int positions = Math.Max(1, mode.ConsequenceFunctions.Count);
                 for (int k = 0; k < positions; k++)
@@ -1398,7 +1404,7 @@ namespace RMC.TotalRisk.Systems.Components
         }
 
         /// <summary>
-        /// An end state's display label (Phase 6.7 Q3, user-ratified order): the projected
+        /// An end state's display label, resolved in a deliberate fixed order: the projected
         /// consequence terminal's element name (unique within a graph), then the primary
         /// consequence function's name, then the first response's name, then a positional
         /// fallback (the projected <c>FailureMode</c> carries no name of its own).
@@ -1417,7 +1423,7 @@ namespace RMC.TotalRisk.Systems.Components
         }
 
         /// <summary>
-        /// An end state's branch path descriptor (Phase 6.7 Q3): each stage's response name with
+        /// An end state's branch path descriptor: each stage's response name with
         /// its branch polarity, joined along the chain — e.g.
         /// <c>"Initiation[Fail] → Progression[NonFail]"</c>; <c>"Non-Failure"</c> for the
         /// background mode.
@@ -1507,7 +1513,7 @@ namespace RMC.TotalRisk.Systems.Components
             element.SetAttributeValue(nameof(HazardThreshold), SerializationUtilities.FormatDouble(_hazardThreshold));
             element.SetAttributeValue(nameof(CorrelationMatrix),
                 _failureModeDependency == DependencyType.CorrelationMatrix ? SerializationUtilities.FormatMatrix(_correlationMatrix) : string.Empty);
-            // Appended Phase 6.6 (Q-T): persistence only — deliberately absent from the
+            // Append-only attribute: persistence only — deliberately absent from the
             // identity form, so the profile selection can never re-roll seeds.
             element.SetAttributeValue(nameof(ProfileHazardElementId),
                 _profileHazardElementId.HasValue ? _profileHazardElementId.Value.ToString("D") : string.Empty);
@@ -1577,7 +1583,7 @@ namespace RMC.TotalRisk.Systems.Components
         /// <summary>
         /// Builds the canonical identity form realizing the §5.5.3 recipe: the option attributes,
         /// the hazard content inline, and the projected failure modes in path order — each
-        /// annotated with its <c>ResponseNodes</c> occurrence-ordinal sequence (arch doc §7.9), so
+        /// annotated with its <c>ResponseNodes</c> occurrence-ordinal sequence, so
         /// two terminals sharing one response element and two terminals on equal-content duplicate
         /// elements hash differently (shared elements share draws and form exclusive state groups;
         /// duplicates draw independently and combine as separate events). The annotation exists in
@@ -1585,7 +1591,7 @@ namespace RMC.TotalRisk.Systems.Components
         /// it. Identity metadata inside (names, labels) is stripped by the hasher; element ids,
         /// positions, and link attributes never appear at all. The profile hazard selection
         /// (<see cref="ProfileHazardElementId"/>) is deliberately excluded — a reporting-axis
-        /// binding must never re-roll seeds (Q-T closure).
+        /// binding must never re-roll seeds.
         /// </summary>
         /// <returns>The identity form.</returns>
         private XElement BuildIdentityXElement()
@@ -1638,7 +1644,7 @@ namespace RMC.TotalRisk.Systems.Components
             // Response-element occurrence ordinals in first-appearance order over the projected
             // mode list (reference identity): sibling end states sharing a response element share
             // its ordinal, equal-content duplicates get distinct ordinals. Feeds the end-state
-            // group layout and the identity form's topology encoding (arch doc §7.9).
+            // group layout and the identity form's topology encoding.
             var responseOrdinals = new Dictionary<ResponseElement, int>();
             foreach (var terminal in _graph.GetElements<ConsequenceElement>())
             {
@@ -1656,7 +1662,7 @@ namespace RMC.TotalRisk.Systems.Components
         /// the last response become the trailing chain, and the terminal's functions become the
         /// ordered consequence list. The terminal's hazard-source binding projects to a chain
         /// position and dimension; the multiple-consequences flag derives from the last
-        /// response's fan-out on the mode's own exit port (arch doc §7.9).
+        /// response's fan-out on the mode's own exit port.
         /// </summary>
         /// <param name="terminal">The path's consequence element.</param>
         /// <param name="path">The root-first path ending with the terminal.</param>
@@ -1761,10 +1767,10 @@ namespace RMC.TotalRisk.Systems.Components
 
             if (lastResponseElement != null)
             {
-                // Same-port fan-out only (arch doc §7.9): a Fail terminal and a Non-Fail
+                // Same-port fan-out only: a Fail terminal and a Non-Fail
                 // continuation are distinct end states, not "multiple consequences" of one
-                // branch. Pre-6.7 graphs wire port 0 exclusively, so the derived value is
-                // unchanged for every legacy shape.
+                // branch. Graphs authored before the cascade design wire port 0 exclusively,
+                // so the derived value is unchanged for every legacy shape.
                 int fanOut = 0;
                 foreach (var consumer in _graph.GetDownstreamElements(lastResponseElement))
                 {
@@ -1808,10 +1814,10 @@ namespace RMC.TotalRisk.Systems.Components
 
         /// <summary>
         /// The failure-mode combination dimension: the number of combination units in the
-        /// current end-state layout (arch doc §7.9) — exclusive state groups plus standalone
+        /// current end-state layout — exclusive state groups plus standalone
         /// failure states, driving the combination caches, the multivariate normal, and the
-        /// correlation-matrix dimension. Equals the v1.0 failure-path count for every pre-6.7
-        /// layout. Built fresh from the projection (the engine's per-realization reads hit the
+        /// correlation-matrix dimension. Equals the v1.0 failure-path count for every
+        /// pre-cascade layout. Built fresh from the projection (the engine's per-realization reads hit the
         /// count-keyed caches above, so the rebuild cost is a per-realization structural walk at
         /// component scale — the projection's documented cost profile).
         /// </summary>
@@ -1838,7 +1844,7 @@ namespace RMC.TotalRisk.Systems.Components
         /// automatic modes the derived matrix is written back to the correlation-matrix field
         /// (v1.0 behavior); it never serializes from those modes.
         /// </summary>
-        /// <param name="dimension">The combination-unit count D (the failure-path count for pre-6.7 layouts).</param>
+        /// <param name="dimension">The combination-unit count D (the failure-path count for pre-cascade layouts).</param>
         private void UpdateMultivariateNormal(int dimension)
         {
             _mvnForCount = dimension;
@@ -1917,7 +1923,7 @@ namespace RMC.TotalRisk.Systems.Components
         /// <param name="function">The transform function to wrap; null entries are carried (validation reports them).</param>
         /// <param name="upstream">The element the new transform consumes.</param>
         /// <param name="stageRegistry">When non-null, collects the created element for binding-position mapping (stage transforms only).</param>
-        /// <param name="upstreamPort">The upstream output port to consume — a response's branch port when the upstream element closed a stage (arch doc §7.9); 0 otherwise.</param>
+        /// <param name="upstreamPort">The upstream output port to consume — a response's branch port when the upstream element closed a stage; 0 otherwise.</param>
         /// <param name="upstreamBranchId">The stable expanded branch id, or null.</param>
         /// <param name="upstreamBranchName">The expanded branch-name fallback.</param>
         /// <returns>The created element (the new upstream).</returns>

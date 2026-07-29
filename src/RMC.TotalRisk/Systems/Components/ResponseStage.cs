@@ -36,13 +36,14 @@ namespace RMC.TotalRisk.Systems.Components
     /// XML participates in the failure mode's canonical-hash identity surface.
     /// </para>
     /// <para>
-    /// New in Phase 6.7 (arch doc §7.9): <see cref="BranchPolarity"/> records which branch of the
+    /// The cascade end-state design (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §7.9):
+    /// <see cref="BranchPolarity"/> records which branch of the
     /// stage's response chance node the failure mode's path follows — <c>Fail</c> contributes
     /// <c>p(h)</c> and <c>NonFail</c> contributes <c>1 − p(h)</c> to the mode's polarity-product
     /// system response probability. The attribute is always written resolved (the
     /// <c>ConsequenceHazardPosition</c> precedent), a deliberate, documented hash/re-pin event:
-    /// every pre-6.7 stage hash moves once, and a missing attribute loads forward as
-    /// <c>Fail</c> — the v1.0-implied branch.
+    /// every stage hash predating the attribute moved once, and a missing attribute loads
+    /// forward as <c>Fail</c> — the v1.0-implied branch.
     /// </para>
     /// </remarks>
     public sealed class ResponseStage : INotifyPropertyChanged
@@ -89,7 +90,7 @@ namespace RMC.TotalRisk.Systems.Components
         /// defaulting).
         /// </param>
         /// <param name="branchPolarity">
-        /// The branch of the response chance node this stage follows (arch doc §7.9).
+        /// The branch of the response chance node this stage follows.
         /// </param>
         /// <exception cref="ArgumentNullException">Thrown when the transform list is null.</exception>
         public ResponseStage(IList<ITransformFunction> transforms, IResponseFunction? response, BranchPolarity branchPolarity)
@@ -128,7 +129,7 @@ namespace RMC.TotalRisk.Systems.Components
         {
             if (xElement == null) throw new ArgumentNullException(nameof(xElement));
 
-            // A missing attribute loads a pre-6.7 payload forward as the v1.0-implied Fail branch.
+            // A missing attribute loads an earlier payload forward as the v1.0-implied Fail branch.
             _branchPolarity = SerializationUtilities.ReadEnum(xElement, nameof(BranchPolarity), BranchPolarity.Fail);
             if (Guid.TryParse(xElement.Attribute(nameof(SelectedBranchId))?.Value, out Guid branchId))
                 _selectedBranchId = branchId;
@@ -241,7 +242,7 @@ namespace RMC.TotalRisk.Systems.Components
         /// contributes <c>p(h)</c> to the mode's polarity product,
         /// <see cref="BranchPolarity.NonFail"/> (output port 1) contributes <c>1 − p(h)</c>.
         /// Serialized always (resolved-on-write) and part of the canonical-hash identity surface —
-        /// flipping the polarity is a compute edit that moves seeds (arch doc §7.9).
+        /// flipping the polarity is a compute edit that moves seeds.
         /// </summary>
         public BranchPolarity BranchPolarity
         {
@@ -361,8 +362,8 @@ namespace RMC.TotalRisk.Systems.Components
 
         /// <summary>
         /// Serializes the stage to an XElement: the <c>BranchPolarity</c> attribute (always
-        /// written resolved — the Phase 6.7 hash event; a pre-6.7 payload without it loads
-        /// forward as <c>Fail</c>), then the transform chain in order under <c>Transforms</c>,
+        /// written resolved — the documented one-time hash event; an earlier payload without it
+        /// loads forward as <c>Fail</c>), then the transform chain in order under <c>Transforms</c>,
         /// then the response under <c>Response</c>. Attribute names and child order are
         /// append-only contract (the stage XML feeds the failure mode's canonical hash). Null
         /// transform entries are skipped (validation reports them).

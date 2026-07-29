@@ -7,7 +7,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
     /// (and output port) producing it, its chain position, and its advisory display labels.
     /// </summary>
     /// <param name="Element">The upstream element producing the signal (the hazard element or a transform element).</param>
-    /// <param name="OutputPort">The producing output port; 0 until bivariate hazards land (Phase 11).</param>
+    /// <param name="OutputPort">The producing output port; 0 until bivariate hazards are introduced.</param>
     /// <param name="ChainPosition">The chain position of the signal: 0 is the raw hazard, k is the signal after the k-th transform on the path.</param>
     /// <param name="HazardLabel">The hazard-type display label of the signal (e.g., "Peak Flow"). Advisory metadata — never load-bearing.</param>
     /// <param name="HazardUnit">The hazard-unit display label of the signal (e.g., "ft³/s"). Advisory metadata — never load-bearing.</param>

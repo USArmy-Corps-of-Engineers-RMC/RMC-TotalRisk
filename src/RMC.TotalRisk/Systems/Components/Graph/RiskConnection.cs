@@ -17,7 +17,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
     /// input everywhere, two typed inputs on a future bivariate response), and fan-out is derived
     /// by the graph container. Rewiring replaces the connection object — the owning element
     /// property raises change notification. <see cref="SourcePort"/> is 0 for every univariate
-    /// output; a bivariate hazard (Phase 11) additionally exposes port 1
+    /// output; a future bivariate hazard additionally exposes port 1
     /// (<c>HazardDimension.Secondary</c>). Links are object references in memory and are
     /// serialized dual Id + Name by the owning element (the Hydrologics pattern).
     /// </para>

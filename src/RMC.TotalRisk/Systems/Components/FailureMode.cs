@@ -23,8 +23,8 @@ namespace RMC.TotalRisk.Systems.Components
     ///     Haden Smith, USACE Risk Management Center, cole.h.smith@usace.army.mil
     /// </para>
     /// <para>
-    /// Ported from v1.0 <c>FailureMode</c> with the domain surface preserved and three ratified
-    /// v1.1 generalizations (architecture doc v0.9): (1) <b>response chains</b> — v1.0 fixed one
+    /// Ported from v1.0 <c>FailureMode</c> with the domain surface preserved and three deliberate
+    /// v1.1 generalizations: (1) <b>response chains</b> — v1.0 fixed one
     /// response between two transform lists; v1.1 holds ordered <see cref="ResponseStages"/>
     /// (grammar <c>T* (R T*)* C</c>), and the v1.0 members <see cref="HazardToResponse"/> /
     /// <see cref="ResponseFunction"/> survive as views over stage 0; (2) <b>multiple
@@ -205,7 +205,7 @@ namespace RMC.TotalRisk.Systems.Components
         /// <summary>
         /// The N×K consequence coupling matrix (K = one column per consequence position, at least
         /// one): the shared knowledge percentiles that drive each realization's paired
-        /// failure/non-failure consequence samples co-monotonically (Q-N, resolved — the v1.0
+        /// failure/non-failure consequence samples co-monotonically (the v1.0
         /// engine drew one uniform for both sides of the pair). Runtime sampler state: allocated
         /// by <see cref="SetupSamplers"/>, never serialized, never hashed, never cloned.
         /// </summary>
@@ -291,7 +291,7 @@ namespace RMC.TotalRisk.Systems.Components
         /// <summary>
         /// Which hazard dimension the chain consumes: <see cref="HazardDimension.Primary"/> for
         /// univariate hazards (the default), <see cref="HazardDimension.Secondary"/> only when
-        /// the component hazard is bivariate (Phase 11). Compute-relevant — hashed.
+        /// the component hazard is bivariate (future work). Compute-relevant — hashed.
         /// </summary>
         public HazardDimension HazardBinding
         {
@@ -308,7 +308,7 @@ namespace RMC.TotalRisk.Systems.Components
 
         /// <summary>
         /// Which hazard dimension the consequence binding consumes at its bound position.
-        /// <see cref="HazardDimension.Primary"/> until bivariate hazards land (Phase 11).
+        /// <see cref="HazardDimension.Primary"/> until bivariate hazards are introduced.
         /// Compute-relevant — hashed.
         /// </summary>
         public HazardDimension ConsequenceHazardDimension
@@ -527,7 +527,7 @@ namespace RMC.TotalRisk.Systems.Components
         }
 
         /// <summary>
-        /// Validates the failure mode for the given analysis mode. Reliability mode (Phase 4c)
+        /// Validates the failure mode for the given analysis mode. Reliability mode
         /// relaxes the at-least-one-consequence requirement only — a consequence-free mode
         /// computes failure probability through the single zero-consequence branch; every other
         /// check (including validation of any consequences that are present) is identical to
@@ -597,7 +597,7 @@ namespace RMC.TotalRisk.Systems.Components
                 messages.Add($"Error: The consequence hazard position ({_consequenceHazardPosition.Value}) must be between 0 (the raw hazard) and the total stage transform count ({TotalStageTransformCount}).");
             }
 
-            // Every hazard function is univariate until the bivariate cluster lands (Phase 11);
+            // Every hazard function is univariate until the bivariate cluster is introduced;
             // a Secondary dimension cannot be satisfied today and the checks below relax then.
             if (_hazardBinding == HazardDimension.Secondary)
             {
@@ -608,11 +608,12 @@ namespace RMC.TotalRisk.Systems.Components
                 messages.Add("Error: The failure mode consequence hazard dimension is Secondary, which requires a bivariate hazard (not yet supported).");
             }
 
-            // The branch-explosion guardrails under per-type marginal compute (Phase 6.5,
-            // §6.4.1 erratum): each consequence position's exposure branches enumerate
+            // The branch-explosion guardrails under per-type marginal compute
+            // (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §6.4.1 erratum): each
+            // consequence position's exposure branches enumerate
             // separately for that type's results — types are never crossed — so the mode's
-            // per-evaluation branch work is the SUM across its consequence positions, not the
-            // pre-6.5 cross product (which modeled a cross-type coupling the engine never
+            // per-evaluation branch work is the SUM across its consequence positions, not a
+            // cross product (which would model a cross-type coupling the engine never
             // performs). Warn above 64, error above 1024.
             long combinedBranches = 0;
             for (int i = 0; i < _consequenceFunctions.Count; i++)
@@ -650,7 +651,7 @@ namespace RMC.TotalRisk.Systems.Components
         /// responses, trailing transforms, in declared order — seeding each function on its first
         /// encounter with a content-derived seed. Consequence functions are deliberately not in
         /// the walk: they need no percentile matrices, because the coupling matrix supplies their
-        /// shared knowledge percentile (architecture doc §5.8.7 as amended by Q-N).
+        /// shared knowledge percentile (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §5.8.7).
         /// </summary>
         /// <param name="sampleSize">The realization count N.</param>
         /// <param name="componentSeed">The owning component's content-derived seed.</param>
@@ -664,7 +665,7 @@ namespace RMC.TotalRisk.Systems.Components
         /// Two distinct instances with equal content get different ordinals and draw
         /// independently.
         /// </param>
-        /// <param name="scribe">The seed scribe (capture, and optionally apply), or null (Phase 6.6 §5.5.8).</param>
+        /// <param name="scribe">The seed scribe (capture, and optionally apply), or null — the seed-stable perturbation mode (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §5.5.8).</param>
         /// <returns>The next unclaimed ordinal.</returns>
         /// <exception cref="ArgumentNullException">Thrown when the seeded-function set is null.</exception>
         /// <exception cref="ArgumentOutOfRangeException">Thrown when the sample size is not positive.</exception>
@@ -736,7 +737,7 @@ namespace RMC.TotalRisk.Systems.Components
         /// <returns>The sampled failure mode.</returns>
         /// <exception cref="InvalidOperationException">Thrown when sampling by realization index before <see cref="SetupSamplers"/> has run.</exception>
         /// <remarks>
-        /// Multi-stage chains sample every stage since Phase 6.7 (arch doc §7.9): the sampled
+        /// Multi-stage chains sample every stage: the sampled
         /// mode's response probability is the polarity product over the stages.
         /// </remarks>
         public SampledFailureMode Sample(FailureMode? nonFailureMode, int realizationIndex = -1)

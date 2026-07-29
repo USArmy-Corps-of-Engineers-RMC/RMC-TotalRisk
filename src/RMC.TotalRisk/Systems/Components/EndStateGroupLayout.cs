@@ -6,7 +6,8 @@ namespace RMC.TotalRisk.Systems.Components
 {
     /// <summary>
     /// The structural layout of a component's end states for the cascade combination semantics
-    /// (arch doc §7.9): which projected failure modes form mutually-exclusive state groups, which
+    /// (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §7.9): which projected failure modes
+    /// form mutually-exclusive state groups, which
     /// stand alone, which are failure states versus claimed non-failure states, and which
     /// Non-Fail sibling pairs each failure state's excess counterfactual.
     /// </summary>
@@ -23,12 +24,12 @@ namespace RMC.TotalRisk.Systems.Components
     /// response element with <i>distinct</i> signatures form one exclusive state group (their
     /// events are disjoint by construction — they diverge at a shared response via opposite
     /// ports); duplicate and prefix-nested signatures leave the partition and combine as
-    /// standalone units under the ambient <see cref="Core.Enums.FailureModeMethod"/> (the Q2
-    /// ruling, user decision 2026-07-24 — exactly the legacy fan-out semantics). Classification
+    /// standalone units under the ambient <see cref="Core.Enums.FailureModeMethod"/>
+    /// (deliberately preserving the legacy fan-out semantics). Classification
     /// is final-stage polarity (§7.9.2): Fail-final modes are failure states; Non-Fail-final
     /// modes are claimed non-failure states that ride the complement. Chain-authored modes carry
-    /// no ordinals and behave as standalone Fail-final units — every pre-6.7 model produces the
-    /// trivial layout, whose combination kernels are byte-for-byte the pre-cascade paths.
+    /// no ordinals and behave as standalone Fail-final units — every pre-cascade model produces
+    /// the trivial layout, whose combination kernels are byte-for-byte the pre-cascade paths.
     /// </para>
     /// <para>
     /// Public because consuming layers legitimately need the same structure the engine combines
@@ -51,7 +52,7 @@ namespace RMC.TotalRisk.Systems.Components
         /// <param name="claimedStateCount">The number of claimed non-failure states in the layout.</param>
         /// <param name="claimingCascadeCount">The number of cascades carrying claimed states.</param>
         /// <param name="hasNonFailBranchFailureState">Whether any failure state rides a Non-Fail branch.</param>
-        /// <param name="isTrivial">Whether the layout is the pre-6.7 shape.</param>
+        /// <param name="isTrivial">Whether the layout is the trivial pre-cascade shape.</param>
         private EndStateGroupLayout(int[] stateToCombinationUnit, int[][] combinationUnitStates,
             bool[] isFailureState, int[] pairingPartnerState, int[] claimedStateUnit,
             int claimedStateCount, int claimingCascadeCount, bool hasNonFailBranchFailureState, bool isTrivial)
@@ -145,8 +146,8 @@ namespace RMC.TotalRisk.Systems.Components
             }
 
             // Within each cascade: eject duplicate-signature failure states (all copies) and
-            // prefix failure states (the shorter of a nested pair) from the exclusive partition
-            // (the Q2 ruling); resolve each failure state's flipped-final sibling.
+            // prefix failure states (the shorter of a nested pair) from the exclusive
+            // partition; resolve each failure state's flipped-final sibling.
             bool hasNonFailBranchFailure = false;
             foreach (var members in cascadeStates)
             {
@@ -271,7 +272,7 @@ namespace RMC.TotalRisk.Systems.Components
         /// The number of combination units — the entities the failure-mode combination method
         /// operates over: exclusive state groups plus standalone failure states. This is the
         /// dimension of the combination caches, the multivariate normal, and the correlation
-        /// matrix. Equals the failure-path count for every pre-6.7 layout.
+        /// matrix. Equals the failure-path count for every pre-cascade layout.
         /// </summary>
         public int CombinationUnitCount => CombinationUnitStates.Length;
 
@@ -329,8 +330,9 @@ namespace RMC.TotalRisk.Systems.Components
         public bool HasNonFailBranchFailureState { get; }
 
         /// <summary>
-        /// Whether the layout is the pre-6.7 shape: every state is a standalone Fail-final unit
-        /// (all pre-6.7 models, chain-authored modes, and legacy same-branch fan-out). The
+        /// Whether the layout is the trivial pre-cascade shape: every state is a standalone
+        /// Fail-final unit
+        /// (all pre-cascade models, chain-authored modes, and legacy same-branch fan-out). The
         /// combination kernels take the byte-identical pre-cascade paths under a trivial layout.
         /// </summary>
         public bool IsTrivial { get; }

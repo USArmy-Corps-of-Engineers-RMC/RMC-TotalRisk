@@ -289,7 +289,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         }
 
         /// <summary>
-        /// Validates the element for the given analysis mode. Reliability mode (Phase 4c) relaxes
+        /// Validates the element for the given analysis mode. Reliability mode relaxes
         /// the no-functions error only — a consequence element stays the structural path terminal
         /// but needs no functions when the analysis computes failure probability alone. Assigned
         /// functions are still validated in both modes.

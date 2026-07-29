@@ -11,7 +11,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
     /// <summary>
     /// The root element of a system component's risk graph: wraps the hazard (frequency)
     /// function. Output-only — the Hydrologics source analog: no inputs, one output port (two
-    /// when bivariate hazards land in Phase 11).
+    /// once bivariate hazards are introduced).
     /// </summary>
     /// <remarks>
     /// <para>
@@ -109,7 +109,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
 
         /// <inheritdoc/>
         /// <remarks>
-        /// One until bivariate hazard functions land (Phase 11), when this getter becomes
+        /// One until bivariate hazard functions are introduced, when this getter becomes
         /// arity-derived (2 for a bivariate wrapped function) — the only code change bivariate
         /// output ports require.
         /// </remarks>

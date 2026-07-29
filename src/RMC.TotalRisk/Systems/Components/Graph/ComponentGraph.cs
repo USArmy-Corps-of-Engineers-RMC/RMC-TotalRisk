@@ -22,7 +22,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
     ///     Haden Smith, USACE Risk Management Center, cole.h.smith@usace.army.mil
     /// </para>
     /// <para>
-    /// Mirrors the Hydrologics <c>BasinModel</c> container (architecture doc v0.9): elements
+    /// Mirrors the Hydrologics <c>BasinModel</c> container: elements
     /// connect by object reference (consumers store their inputs; fan-out is derived), a Kahn
     /// topological sort doubles as cycle detection, deserialization is construct-then-resolve
     /// (dual Id + Name references through <see cref="RiskElementResolver"/>), and cloning
@@ -436,7 +436,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
                     for (int port = 0; port < hazardElement.OutputCount; port++)
                     {
                         // Port 0 carries the hazard's declared label; further ports label with
-                        // the bivariate cluster (Phase 11).
+                        // the future bivariate cluster.
                         options.Add(new HazardSourceOption(hazardElement, port, 0,
                             port == 0 ? hazardElement.Function?.SpecifiedHazard ?? string.Empty : string.Empty,
                             port == 0 ? hazardElement.Function?.HazardUnit ?? string.Empty : string.Empty));
@@ -638,7 +638,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         }
 
         /// <summary>
-        /// Validates the graph structure for the given analysis mode. Reliability mode (Phase 4c)
+        /// Validates the graph structure for the given analysis mode. Reliability mode
         /// relaxes exactly the consequence-content requirements — consequence elements remain the
         /// structural path terminals but need no functions assigned, and the positional
         /// excess-pairing alignment is not enforced (reliability computes failure probability
@@ -1045,8 +1045,8 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         }
 
         /// <summary>
-        /// Polarity-aware branch-claim checks (arch doc §7.9, advisory per the Phase 6.7 Q2
-        /// ruling): within a cascade-active component — any multi-response path or any Non-Fail
+        /// Polarity-aware branch-claim checks (deliberately advisory):
+        /// within a cascade-active component — any multi-response path or any Non-Fail
         /// port usage — terminals with identical leaf signatures double-count their branch under
         /// the failure-mode combination, and a terminal whose signature is a strict prefix of
         /// another's claims a branch that also continues, overlapping the deeper end states. Both
@@ -1054,7 +1054,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         /// response element whose Fail port has no downstream consumer routes its failure-branch
         /// mass to the background remainder — warned, because it is almost always a modeling
         /// surprise (the unwired Non-Fail port is the v1.0 default and stays silent). Components
-        /// with no cascade machinery in use — every pre-6.7 shape — produce no messages here.
+        /// with no cascade machinery in use — every pre-cascade shape — produce no messages here.
         /// </summary>
         /// <param name="signatures">Each failure terminal's leaf signature: the ordered (response ordinal, exit port) pairs along its path.</param>
         /// <param name="messages">The message sink.</param>

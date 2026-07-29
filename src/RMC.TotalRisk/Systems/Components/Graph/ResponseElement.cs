@@ -32,7 +32,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
     /// </para>
     /// <para>
     /// <see cref="SecondaryInput"/> and its serialized <c>SecondarySource*</c> attributes are
-    /// reserved now for bivariate response functions (Phase 11): a bivariate response consumes
+    /// reserved now for future bivariate response functions: a bivariate response consumes
     /// both outputs of a bivariate hazard. Setting it while the wrapped response is univariate is
     /// an error — the serialized shape needs no change when the capability goes live.
     /// </para>
@@ -177,7 +177,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         }
 
         /// <summary>
-        /// The reserved secondary input for bivariate response functions (Phase 11). Setting it
+        /// The reserved secondary input for future bivariate response functions. Setting it
         /// while the wrapped response is univariate is a validation error.
         /// </summary>
         public RiskConnection? SecondaryInput
@@ -207,14 +207,14 @@ namespace RMC.TotalRisk.Systems.Components.Graph
 
         /// <inheritdoc/>
         /// <remarks>
-        /// One until bivariate response functions land (Phase 11), when this getter becomes
+        /// One until bivariate response functions are introduced, when this getter becomes
         /// arity-derived (2 for a bivariate wrapped function).
         /// </remarks>
         public override int InputCount => 1;
 
         /// <inheritdoc/>
         /// <remarks>
-        /// In the default aggregate view, Phase 6.7's contract remains output port 0 =
+        /// In the default aggregate view, the established contract remains output port 0 =
         /// <b>Fail</b> and output port 1 = <b>Non-Fail</b>. In the opt-in expanded view, only the
         /// branching response's stable terminal descriptors are available; port 2 is the implicit
         /// unmodeled branch and authored or linked terminal ports are append-only from port 3.
@@ -382,7 +382,8 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         /// <remarks>
         /// Errors: missing name (base); no wrapped function; the non-failure sentinel wrapped in
         /// a response element (a non-failure path is a path with NO response element); a secondary
-        /// input while the wrapped response is univariate (reserved for Phase 11); the wrapped
+        /// input while the wrapped response is univariate (reserved for future bivariate
+        /// responses); the wrapped
         /// function's own errors (aggregated with the element name as context).
         /// </remarks>
         public override (bool IsValid, List<string> ValidationMessages) Validate()
