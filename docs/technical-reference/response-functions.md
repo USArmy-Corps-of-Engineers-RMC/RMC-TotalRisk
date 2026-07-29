@@ -1,6 +1,6 @@
 # System Response Functions
 
-> Technical reference for `RMC.TotalRisk.RiskFunctions.Responses` (Phase 2 surface: `TabularResponse`, `ParametricResponse`, `NonFailResponse`). Source of the methodology: RMC-TR-2022-XX, *Quantitative Risk Analysis with RMC-TotalRisk* (docs/reports), System Response Functions chapter.
+> Technical reference for `RMC.TotalRisk.RiskFunctions.Responses` (Phase 2 surface: `TabularResponse`, `ParametricResponse`, `NonFailResponse`). Source of the methodology: RMC-TR-2022-XX, [*Quantitative Risk Analysis with RMC-TotalRisk*](https://usace-rmc.github.io/RMC-Software-Documentation/source-documents/desktop-applications/rmc-totalrisk/technical-reference-manual/RMC-TotalRisk-Technical-Reference-Manual.pdf), System Response Functions chapter.
 
 A **system response function** (fragility curve) describes the conditional probability of failure of the system at each hazard level. "Failure" is the general reliability-engineering limit state — the system fails to meet the demand placed on it — not necessarily fracture, breach, or collapse.
 

@@ -1,6 +1,6 @@
 # Consequence Functions
 
-> Technical reference for `RMC.TotalRisk.RiskFunctions.Consequences` (`TabularConsequence`, `ParametricConsequence`, `CompositeConsequence` + `WeightedConsequenceFunction`). Source of the methodology: RMC-TR-2022-XX, *Quantitative Risk Analysis with RMC-TotalRisk* (docs/reports), Consequence Functions chapter; the parametric form follows USACE depth-damage conventions and the depth-damage literature [9]–[14].
+> Technical reference for `RMC.TotalRisk.RiskFunctions.Consequences` (`TabularConsequence`, `ParametricConsequence`, `CompositeConsequence` + `WeightedConsequenceFunction`). Source of the methodology: RMC-TR-2022-XX, [*Quantitative Risk Analysis with RMC-TotalRisk*](https://usace-rmc.github.io/RMC-Software-Documentation/source-documents/desktop-applications/rmc-totalrisk/technical-reference-manual/RMC-TotalRisk-Technical-Reference-Manual.pdf), Consequence Functions chapter; the parametric form follows USACE depth-damage conventions and the depth-damage literature [9]–[14].
 
 A **consequence function** (damage function) describes the consequences of failure or non-failure — life loss, economic damages — at each hazard level.
 

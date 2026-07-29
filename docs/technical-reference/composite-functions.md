@@ -159,4 +159,4 @@ averaging — the weighted average is the correct and intended tool.
   Functions* (Equation 49, Tables 44–46) and *Composite Consequence Function* (Tables 47–51).
 - [`MODEL_LIBRARY_ARCHITECTURE.md`](../requirements/MODEL_LIBRARY_ARCHITECTURE.md) §5.5.3 (canonical
   content), §5.8.5 (composite recursion), §6.4.1 (exposure branches, ratified Q-V).
-- `docs/reports/Mixture Distribution Overview.docx` and `Competing Risks Overview.docx`.
+- *Mixture Distribution Overview* and *Competing Risks Overview* (RMC technical notes, 2026).

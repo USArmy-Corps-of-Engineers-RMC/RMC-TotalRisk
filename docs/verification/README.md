@@ -1,8 +1,8 @@
 # Verification Results
 
 Living verification documentation for the v1.1 model library — the per-family Markdown
-counterpart of the v1.0 Word report (*Verification of the RMC-TotalRisk Software*, 2024,
-`docs/reports/`). Each page documents one verified family the way the report's sections do:
+counterpart of the v1.0 report ([*RMC-TotalRisk Verification Report*](https://usace-rmc.github.io/RMC-Software-Documentation/source-documents/desktop-applications/rmc-totalrisk/verification-report/RMC-TotalRisk-Verification-Report.pdf),
+2024). Each page documents one verified family the way the report's sections do:
 the math, the scenario inputs, the expected values and where they come from (exact solution,
 analytic oracle, independent Monte Carlo oracle, or published report constants), the engine
 results from an actual run of the family's verification tests, and the percent differences.

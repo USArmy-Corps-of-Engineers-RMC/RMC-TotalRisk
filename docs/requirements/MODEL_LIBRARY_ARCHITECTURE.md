@@ -170,7 +170,7 @@ v0.7 (2026-07-20): Moved to its authoritative home in the RMC-TotalRisk repo (v1
 
 ## 2. Headless constraints
 
-Recap from [CLAUDE.md](../../CLAUDE.md), with the discipline calls each implies:
+The headless constraints, and the discipline calls each implies:
 
 | Constraint | Implication for design |
 |---|---|

@@ -1,6 +1,6 @@
 # Transform Functions
 
-> Technical reference for `RMC.TotalRisk.RiskFunctions.Transforms` (Phase 2 surface: `TabularTransform`; the closed-form `LinearTransform`/`PowerTransform` arrive in Phase 7). Source of the methodology: RMC-TR-2022-XX, *Quantitative Risk Analysis with RMC-TotalRisk* (docs/reports), Transform Functions chapter.
+> Technical reference for `RMC.TotalRisk.RiskFunctions.Transforms` (Phase 2 surface: `TabularTransform`; the closed-form `LinearTransform`/`PowerTransform` arrive in Phase 7). Source of the methodology: RMC-TR-2022-XX, [*Quantitative Risk Analysis with RMC-TotalRisk*](https://usace-rmc.github.io/RMC-Software-Documentation/source-documents/desktop-applications/rmc-totalrisk/technical-reference-manual/RMC-TotalRisk-Technical-Reference-Manual.pdf), Transform Functions chapter.
 
 A **transform function** converts hazard levels from one domain to another — mathematically, function composition (report Eq. 16): given *g* (a frequency function of *x*) and a transform *t*, the composed frequency function of the transformed hazard is *g ∘ t⁻¹*. The canonical example: a peak-flow frequency function becomes a stage frequency function through a flow-to-stage rating curve. Transforms can feed hazard functions, other transform functions (chained), and system response functions.
 
