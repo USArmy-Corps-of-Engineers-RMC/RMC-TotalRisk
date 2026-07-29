@@ -15,7 +15,7 @@ namespace RMC.TotalRisk.Results
     ///     Haden Smith, USACE Risk Management Center, cole.h.smith@usace.army.mil
     /// </para>
     /// <para>
-    /// The multi-consequence axis (Phase 6.5, Q-U closure): <see cref="Curves"/> and the
+    /// The multi-consequence axis: <see cref="Curves"/> and the
     /// <see cref="MinN"/>/<see cref="MaxN"/> extents carry the primary consequence type;
     /// <see cref="AdditionalCurves"/> and the parallel <see cref="AdditionalMinN"/>/
     /// <see cref="AdditionalMaxN"/> extents carry type k at entry k − 1, in declared order.
@@ -81,7 +81,7 @@ namespace RMC.TotalRisk.Results
 
         /// <summary>
         /// This component's attributed contribution to the system's risk on the primary
-        /// consequence type (Phase 6.6 — the % contribution diagnostic; see
+        /// consequence type (the % contribution diagnostic; see
         /// <see cref="RiskContribution"/>): under the additive method the exact Shapley split of
         /// the independent failure union with the component's own means (means add exactly under
         /// the convolution); under the joint method the per-combination attribution accumulated
@@ -214,8 +214,7 @@ namespace RMC.TotalRisk.Results
         /// pass, where they cost one pass over already-recorded points.
         /// </summary>
         /// <param name="includeFailureModes">
-        /// True to also build every failure mode's profiles (the engine's mean-pass behavior —
-        /// Phase 6.6).
+        /// True to also build every failure mode's profiles (the engine's mean-pass behavior).
         /// </param>
         public void CreateProfiles(bool includeFailureModes = false)
         {
@@ -237,8 +236,8 @@ namespace RMC.TotalRisk.Results
         /// Computes the risk-measure catalog on the component (with the hazard threshold) and on
         /// every failure mode (without — v1.0 behavior), across every consequence type. The
         /// primary consequence threshold is declared in the primary type's units; each
-        /// additional type reads its own declared threshold (Phase 6.6) or NaN when none was
-        /// declared — the Phase 6.5 primary-only interim.
+        /// additional type reads its own declared threshold or NaN when none was
+        /// declared.
         /// </summary>
         /// <param name="consequenceThreshold">The consequence threshold for the primary type's assurance measure.</param>
         /// <param name="alpha">The exceedance level for value-at-risk and conditional value-at-risk.</param>
@@ -264,7 +263,7 @@ namespace RMC.TotalRisk.Results
 
         /// <summary>
         /// Finalizes every failure mode's accumulated contribution samples into their stored
-        /// per-type contributions (Phase 6.6). No-ops for modes that accumulated nothing.
+        /// per-type contributions. No-ops for modes that accumulated nothing.
         /// </summary>
         /// <param name="ledger">
         /// True for the one-dimensional path (masses re-derived by the midpoint-trapezoid

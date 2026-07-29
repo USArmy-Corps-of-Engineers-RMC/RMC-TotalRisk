@@ -4,7 +4,7 @@ using System.Collections.Generic;
 namespace RMC.TotalRisk.Results
 {
     /// <summary>
-    /// Convergence diagnostics aggregated across a full-uncertainty ensemble (Phase 6.6):
+    /// Convergence diagnostics aggregated across a full-uncertainty ensemble:
     /// integrator effort and error summaries, and realization-adequacy indicators for the
     /// headline scalar measures. Numbers only — a headless library reports the evidence; the
     /// consuming layer judges adequacy.

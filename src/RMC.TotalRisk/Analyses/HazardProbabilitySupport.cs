@@ -6,8 +6,9 @@ using RMC.TotalRisk.Results;
 namespace RMC.TotalRisk.Analyses;
 
 /// <summary>
-/// Validated natural probability support for a sampled hazard and the shared Appendix D endpoint
-/// completion rule used by recorded risk integration and scalar probability probes.
+/// Validated natural probability support for a sampled hazard and the shared endpoint-completion
+/// rule (RMC-TotalRisk Technical Reference Manual, Appendix D) used by recorded risk integration
+/// and scalar probability probes.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -107,7 +108,8 @@ internal readonly struct HazardProbabilitySupport
     }
 
     /// <summary>
-    /// Evaluates and records the Appendix D endpoint rectangles, reusing one evaluation when both
+    /// Evaluates and records the endpoint rectangles (Technical Reference Manual, Appendix D),
+    /// reusing one evaluation when both
     /// tails meet at the same supported hazard.
     /// </summary>
     /// <param name="recordedInteriorMass">The accepted interior-node mass before endpoint completion.</param>

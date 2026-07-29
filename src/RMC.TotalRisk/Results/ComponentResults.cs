@@ -75,7 +75,7 @@ namespace RMC.TotalRisk.Results
 
         /// <summary>
         /// This component's attributed contribution to the system's risk on the primary
-        /// consequence type (% contribution, Phase 6.6 — see <see cref="RiskContribution"/>);
+        /// consequence type (the % contribution diagnostic — see <see cref="RiskContribution"/>);
         /// null when not computed (older payloads, band realizations). Per-type contributions
         /// ride <see cref="ConsequenceResults.Contribution"/> on
         /// <see cref="AdditionalConsequences"/>.

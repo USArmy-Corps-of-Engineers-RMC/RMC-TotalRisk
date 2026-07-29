@@ -9,7 +9,7 @@ namespace RMC.TotalRisk.Analyses
 {
     /// <summary>
     /// The risk analysis run options: the v1.0 option surface (names, defaults, and validation
-    /// ranges preserved) extracted into its own type, plus the ratified v1.1 additions — the
+    /// ranges preserved) extracted into its own type, plus the deliberate v1.1 additions — the
     /// sampling scheme, the analysis mode, the adaptive-refinement objective, and the
     /// system-risk tail knobs.
     /// </summary>
@@ -19,17 +19,17 @@ namespace RMC.TotalRisk.Analyses
     ///     Haden Smith, USACE Risk Management Center, cole.h.smith@usace.army.mil
     /// </para>
     /// <para>
-    /// The full option surface lands at once (architecture doc v0.13): the fields the
-    /// multi-dimensional system-risk phase reads (<see cref="VegasTailFocusMode"/>,
+    /// The full option surface was defined together, before every engine capability existed:
+    /// the multi-dimensional system-risk fields (<see cref="VegasTailFocusMode"/>,
     /// <see cref="VegasTailFocusParameter"/>, <see cref="SystemConvolutionPoints"/>) and the
-    /// reliability mode (<see cref="Mode"/>) are validated but inert until their engine stages
-    /// enable them — writing the serialized attribute surface once keeps the append-only
+    /// reliability mode (<see cref="Mode"/>) were serialized ahead of the engine stages that
+    /// now read them — writing the serialized attribute surface once keeps the append-only
     /// contract churn-free. The effective v1.0 integration defaults are the
     /// <see cref="SetIntegrationDefaults"/> values (the legacy field initializers were dead
     /// because <c>UseDefaults</c> invoked the reset): one million evaluations, depth 100,
     /// tolerance 1e-8, warm-up 1000·D capped at 50000 over five cycles, and 10000·D final
     /// evaluations capped at 100000 — the component-count scaling of the final evaluations is
-    /// the ratified 4b extension, identical to v1.0 at one component.
+    /// a deliberate v1.1 extension, identical to v1.0 at one component.
     /// </para>
     /// <para>
     /// <b>Hashing:</b> every compute-relevant field participates in the canonical hash through
@@ -245,7 +245,7 @@ namespace RMC.TotalRisk.Analyses
         /// <summary>
         /// The output resolution of stored loss exceedance curves, in [50, 1000]. Purely an
         /// output knob — the exact construction computes statistics before thinning
-        /// (architecture doc §7.7).
+        /// (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §7.7).
         /// </summary>
         public int LECOutputLength
         {
@@ -254,7 +254,7 @@ namespace RMC.TotalRisk.Analyses
         }
 
         /// <summary>
-        /// The knowledge-uncertainty sampling scheme. Latin hypercube by default (the ratified
+        /// The knowledge-uncertainty sampling scheme. Latin hypercube by default (the deliberate
         /// v1.1 variance-reduction upgrade); <see cref="SamplingScheme.MonteCarlo"/> preserves
         /// v1.0 independent sampling.
         /// </summary>
@@ -266,8 +266,7 @@ namespace RMC.TotalRisk.Analyses
 
         /// <summary>
         /// What the analysis computes: full risk, or reliability (annual failure probability)
-        /// only. Reliability lands with its engine stage (Phase 4c) — validated but gated until
-        /// then.
+        /// only.
         /// </summary>
         public RiskAnalysisMode Mode
         {
@@ -288,7 +287,8 @@ namespace RMC.TotalRisk.Analyses
 
         /// <summary>
         /// The system risk aggregation method (v1.0 name). The additive method assumes strictly
-        /// independent components (ratified v0.13 redefinition); cross-component dependence
+        /// independent components (a deliberate v1.1 redefinition —
+        /// docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §7.8); cross-component dependence
         /// belongs to the joint method.
         /// </summary>
         public SystemRiskType SystemRiskMethod
@@ -464,7 +464,7 @@ namespace RMC.TotalRisk.Analyses
 
         /// <summary>
         /// How the joint method sets the VEGAS power-transform tail focus. Automatic by default;
-        /// read by the multi-dimensional engine stage (Phase 4b).
+        /// read by the joint (multi-dimensional) system method.
         /// </summary>
         public VegasTailFocusMode VegasTailFocusMode
         {
@@ -485,7 +485,7 @@ namespace RMC.TotalRisk.Analyses
         /// <summary>
         /// The output resolution of the additive method's FFT system convolution, in
         /// [4096, 1048576] — the linear convolution grid starves order-of-magnitude consequence
-        /// tails below 4096 points (Numerics follow-up N8).
+        /// tails below 4096 points.
         /// </summary>
         public int SystemConvolutionPoints
         {

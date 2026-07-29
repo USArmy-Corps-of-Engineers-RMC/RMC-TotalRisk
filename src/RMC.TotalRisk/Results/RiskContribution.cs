@@ -3,7 +3,7 @@ using System;
 namespace RMC.TotalRisk.Results
 {
     /// <summary>
-    /// One scope's attributed contribution to its parent's risk (Phase 6.6 — the % contribution
+    /// One scope's attributed contribution to its parent's risk (the % contribution
     /// diagnostic): the attributed annualized failure probability, the attributed failure mean,
     /// and the attributed excess (incremental) mean. Stored as raw values — percentages derive
     /// on read via <see cref="ShareOf"/> so the additivity identities stay testable and a zero
@@ -15,7 +15,7 @@ namespace RMC.TotalRisk.Results
     ///     Haden Smith, USACE Risk Management Center, cole.h.smith@usace.army.mil
     /// </para>
     /// <para>
-    /// <b>The attribution scheme (user-ratified 2026-07-24):</b> every failure-mode combination
+    /// <b>The attribution scheme:</b> every failure-mode combination
     /// method already produces an exclusive failure-event decomposition — the mutually-exclusive
     /// normalized marginals, the common-cause adjusted marginals, the competing cumulative
     /// incidence functions, and the joint method's inclusion–exclusion pathways. Within each

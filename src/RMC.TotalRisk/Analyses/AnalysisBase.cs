@@ -25,8 +25,8 @@ namespace RMC.TotalRisk.Analyses
     /// change rather than reprocessing from retained chains, so there is no background reprocess
     /// to serialize against; (2) <see cref="ResetCancellationToken(CancellationToken)"/> links
     /// the fresh run source with a caller-supplied external token, so headless hosts cancel
-    /// through their own token while <see cref="CancelAnalysis"/> keeps working (architecture doc
-    /// §7.3).
+    /// through their own token while <see cref="CancelAnalysis"/> keeps working
+    /// (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §7.3).
     /// </para>
     /// </remarks>
     public abstract class AnalysisBase : IAnalysis

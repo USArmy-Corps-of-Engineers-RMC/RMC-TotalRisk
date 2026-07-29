@@ -17,7 +17,8 @@ namespace RMC.TotalRisk.Results
     ///     Haden Smith, USACE Risk Management Center, cole.h.smith@usace.army.mil
     /// </para>
     /// <para>
-    /// Results are JSON, in-memory only (architecture doc §7.5): model <i>definition</i> types keep
+    /// Results are JSON, in-memory only
+    /// (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §7.5): model <i>definition</i> types keep
     /// <c>ToXElement()</c> as the canonical-hash identity surface, while results replace the v1.0
     /// BinaryFormatter BLOBs — which are deliberately not readable in v1.1; old projects re-run
     /// their analyses. System.Text.Json's default double formatting is the shortest string that

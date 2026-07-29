@@ -21,7 +21,8 @@ namespace RMC.TotalRisk.Results
     ///     Haden Smith, USACE Risk Management Center, cole.h.smith@usace.army.mil
     /// </para>
     /// <para>
-    /// <b>Improved over v1.0</b> (architecture doc §7.7; <c>docs/technical-reference/loss-exceedance-curves.md</c>):
+    /// <b>Improved over v1.0</b> (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §7.7;
+    /// <c>docs/technical-reference/loss-exceedance-curves.md</c>):
     /// the curve is built <i>exactly</i> from the sorted (mass, consequence) pairs — v1.0's 200-bin
     /// log10 histogram plotted at bin midpoints biased every ordinate and conflated output
     /// resolution with compute resolution; the output length is now purely an output-resolution
@@ -31,7 +32,7 @@ namespace RMC.TotalRisk.Results
     /// mean dominates the spread, the normal life-loss case. <c>ValueAtRisk</c> returns 0 (not the
     /// curve's smallest consequence) when the exceedance level exceeds the curve's total
     /// probability. The conditional value-at-risk is the exact piecewise integral of the log-log
-    /// LEC quantile (Phase 6.5) — v1.0 ran adaptive quadrature with library defaults on its
+    /// LEC quantile — v1.0 ran adaptive quadrature with library defaults on its
     /// steepest integrand; the closed form retires that per-realization integration entirely and
     /// is more exact than the quadrature it replaces.
     /// </para>
@@ -332,7 +333,7 @@ namespace RMC.TotalRisk.Results
         /// Hazard", with <see cref="FractionOfFailureProbabilityByHazard"/> as the normalized
         /// companion ("the fraction of the failure probability contributed by hazards at or
         /// below h"). A curve still visibly rising at its largest hazard is a tail-truncation
-        /// witness. Phase 6.6 (the risk-profile catalog).
+        /// witness. Part of the risk-profile catalog.
         /// </remarks>
         public double[] CumulativeFailureProbabilities
         {
@@ -345,7 +346,8 @@ namespace RMC.TotalRisk.Results
         /// recorded expected consequence, Σ<sub>h′ ≤ h</sub> w·E, stored parallel to
         /// <see cref="HazardFrequencyHazards"/> (hazard descending; empty = not computed). The
         /// terminal ordinate is the stream's <see cref="Mean"/> — the profile decomposes the
-        /// expected annual consequence by the hazard range that drives it. Phase 6.6.
+        /// expected annual consequence by the hazard range that drives it. Part of the
+        /// risk-profile catalog.
         /// </summary>
         public double[] CumulativeExpectedConsequences
         {
@@ -359,7 +361,7 @@ namespace RMC.TotalRisk.Results
         /// built on the Fail stream of the primary consequence type only).
         /// </summary>
         /// <remarks>
-        /// Exceedance probability is deliberately the axis (Phase 6.6, user-ratified): a
+        /// Exceedance probability is deliberately the axis: a
         /// hazard-axis response profile is ill-posed when failure modes respond to different
         /// transformed signals, while the exceedance scale is normalized, universal across
         /// transform choices, comparable across components, and independent of the profile-axis
@@ -377,7 +379,7 @@ namespace RMC.TotalRisk.Results
         /// the effective failure probability after the failure-mode combination method (where
         /// mutual-exclusivity normalization, common-cause factors, or competing incidence
         /// functions bend the marginal responses); at failure-mode scope the mode's raw sampled
-        /// response probability. Empty = not computed. Phase 6.6.
+        /// response probability. Empty = not computed. Part of the risk-profile catalog.
         /// </summary>
         public double[] SystemResponseProbabilities
         {
@@ -595,7 +597,7 @@ namespace RMC.TotalRisk.Results
         /// <param name="consequences">The entry consequences, parallel to the probabilities.</param>
         /// <param name="hazardExceedanceProbability">
         /// The driving hazard's annual exceedance probability at the evaluation — the system
-        /// response profile's X coordinate (Phase 6.6). NaN (the default) skips that profile.
+        /// response profile's X coordinate. NaN (the default) skips that profile.
         /// </param>
         /// <exception cref="ArgumentNullException">Thrown when either list is null.</exception>
         public void AddRiskPoint(double hazardLevel, double hazardProbability, List<double> responseProbabilities, List<double> consequences,
@@ -978,11 +980,11 @@ namespace RMC.TotalRisk.Results
 
         /// <summary>
         /// Builds the risk profiles from the recorded risk points on the recorded hazard axis
-        /// (the driving hazard, or the component's selected profile axis — Q-T): the descending
+        /// (the driving hazard, or the component's selected profile axis): the descending
         /// hazard-frequency and conditional-consequence profiles (v1.0 port), the ascending
         /// cumulative-expected-consequence profile, and — when requested — the failure-stream
         /// profiles: the cumulative failure probability by hazard and the system response
-        /// probability against annual exceedance probability (Phase 6.6 catalog).
+        /// probability against annual exceedance probability (the risk-profile catalog).
         /// </summary>
         /// <param name="includeFailureProfiles">
         /// True to also build the failure-stream profiles (<see cref="CumulativeFailureProbabilities"/>
@@ -1048,7 +1050,7 @@ namespace RMC.TotalRisk.Results
             _hazardFrequencyView = null;
             _hazardVsCenView = null;
 
-            // The ascending pass (Phase 6.6): reverse-iterate the descending-sorted points,
+            // The ascending pass: reverse-iterate the descending-sorted points,
             // accumulating the cumulative profiles by exact forward summation; an ordinate
             // completes when its distinct hazard is fully accumulated, so tie mass (VEGAS path
             // only) lands on its own ordinate. Stored descending in hazard (the container
@@ -1199,11 +1201,12 @@ namespace RMC.TotalRisk.Results
         /// that exceedance level the consequence is not realized (v1.0 returned the curve's
         /// smallest consequence). A NaN <paramref name="consequenceThreshold"/> skips the
         /// assurance lookup and leaves <see cref="ConsequenceThresholdProbability"/> NaN — the
-        /// Phase 6.5 secondary-consequence-type convention: the analysis threshold is declared in
-        /// the primary type's units, so it cannot be evaluated on another type's axis (per-type
-        /// thresholds land with the risk-measures phase). The conditional value-at-risk is the
-        /// EXACT segment-by-segment integral of the log-log LEC quantile over [1e-16, α]
-        /// (Phase 6.5): the quantile is piecewise <c>c·(p/p₁)^s</c> in the 1e-16-floored base-10
+        /// secondary-consequence-type convention: the analysis-level threshold is declared in
+        /// the primary type's units, so it cannot be evaluated on another type's axis; a
+        /// secondary type evaluates a threshold only when its own declared per-type threshold
+        /// supplies one. The conditional value-at-risk is the
+        /// EXACT segment-by-segment integral of the log-log LEC quantile over
+        /// [1e-16, α]: the quantile is piecewise <c>c·(p/p₁)^s</c> in the 1e-16-floored base-10
         /// space, so each segment integrates in closed form — replacing the per-realization
         /// adaptive Gauss–Kronrod pass (relative tolerance 1e-8, the engine's deepest recurring
         /// integration) with an O(knots) computation that is more exact than the quadrature it

@@ -15,12 +15,13 @@ namespace RMC.TotalRisk.Results
     ///     Haden Smith, USACE Risk Management Center, cole.h.smith@usace.army.mil
     /// </para>
     /// <para>
-    /// The multi-consequence axis (Phase 6.5, Q-U closure): <see cref="Curves"/> carries the
+    /// The multi-consequence axis: <see cref="Curves"/> carries the
     /// primary consequence type (position 0 of the analysis's declared axis) and
     /// <see cref="AdditionalCurves"/> entry k − 1 carries type k, in declared order — the same
     /// append-only convention every results container uses, so single-type results are
-    /// shape-identical to earlier phases. The failure-mode scope is the per-consequence-terminal
-    /// scope: under the ratified cascade design (Phase 6.7) each terminal is one end state, so
+    /// shape-identical to single-type payloads. The failure-mode scope is the
+    /// per-consequence-terminal
+    /// scope: under the cascade end-state design each terminal is one end state, so
     /// this container is already the end-state results scope.
     /// </para>
     /// </remarks>
@@ -38,14 +39,14 @@ namespace RMC.TotalRisk.Results
         /// <summary>
         /// The failure mode's display name, carried for results labeling. Stamped by the engine
         /// from the projected end state (the consequence terminal's element name when the mode
-        /// came from a graph — Phase 6.7 Q3, user-ratified).
+        /// came from a graph).
         /// </summary>
         public string Name { get; set; } = "Failure Mode Risk";
 
         /// <summary>
         /// The end state's branch path descriptor — each stage's response name with its branch
-        /// polarity, e.g. <c>"Initiation[Fail] → Progression[NonFail]"</c> (Phase 6.7 Q3,
-        /// append-only; null on pre-6.7 payloads and unstamped realizations).
+        /// polarity, e.g. <c>"Initiation[Fail] → Progression[NonFail]"</c> (append-only; null
+        /// on earlier payloads and unstamped realizations).
         /// </summary>
         public string? PathLabel { get; set; }
 
@@ -101,7 +102,7 @@ namespace RMC.TotalRisk.Results
 
         /// <summary>
         /// This mode's attributed contribution to the component's risk on the primary
-        /// consequence type (Phase 6.6 — the % contribution diagnostic; see
+        /// consequence type (the % contribution diagnostic; see
         /// <see cref="RiskContribution"/> for the attribution scheme). Null until finalized —
         /// the "not computed" state older payloads and band realizations carry.
         /// </summary>
@@ -260,7 +261,7 @@ namespace RMC.TotalRisk.Results
         /// <summary>
         /// Computes the risk-measure catalog on every consequence type. The primary consequence
         /// threshold is declared in the primary type's units; each additional type reads its own
-        /// declared threshold (Phase 6.6) or NaN when none was declared.
+        /// declared threshold or NaN when none was declared.
         /// </summary>
         /// <param name="consequenceThreshold">The consequence threshold for the primary type's assurance measure.</param>
         /// <param name="alpha">The exceedance level for value-at-risk and conditional value-at-risk.</param>

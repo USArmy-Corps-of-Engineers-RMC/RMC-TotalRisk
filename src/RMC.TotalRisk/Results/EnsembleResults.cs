@@ -14,7 +14,8 @@ namespace RMC.TotalRisk.Results
     ///     Haden Smith, USACE Risk Management Center, cole.h.smith@usace.army.mil
     /// </para>
     /// <para>
-    /// One of the two persisted results roots (architecture doc §7.5): serialization is
+    /// One of the two persisted results roots
+    /// (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §7.5): serialization is
     /// System.Text.Json through <see cref="ToJson"/>/<see cref="FromJson"/> and the
     /// GZip-compressed byte overloads — the v1.0 BinaryFormatter byte arrays are deliberately not
     /// readable in v1.1; old projects re-run their analyses. Out-of-range indexer reads preserve
@@ -113,7 +114,7 @@ namespace RMC.TotalRisk.Results
 
         /// <summary>
         /// The percentile confidence intervals on every scalar risk measure plus the aggregated
-        /// convergence diagnostics (Phase 6.6), populated by the engine at the end of a
+        /// convergence diagnostics, populated by the engine at the end of a
         /// full-uncertainty run and recomputable from any loaded ensemble via
         /// <see cref="ComputeSummary"/>. Null on older payloads and mean-only runs — "not
         /// computed" (append-only results JSON).

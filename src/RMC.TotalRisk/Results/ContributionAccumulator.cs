@@ -6,7 +6,7 @@ namespace RMC.TotalRisk.Results
     /// <summary>
     /// The runtime side-car that accumulates one scope's attributed contribution samples across
     /// a realization's recording evaluations and finalizes them into a
-    /// <see cref="RiskContribution"/> under the engine's two mass regimes (Phase 6.6). Never
+    /// <see cref="RiskContribution"/> under the engine's two mass regimes. Never
     /// serialized; rows are cleared with the realization's recorded points.
     /// </summary>
     /// <remarks>

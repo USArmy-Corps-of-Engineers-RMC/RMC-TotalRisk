@@ -12,7 +12,7 @@ namespace RMC.TotalRisk.Results
     ///     Haden Smith, USACE Risk Management Center, cole.h.smith@usace.army.mil
     /// </para>
     /// <para>
-    /// The multi-consequence axis (Phase 6.5, Q-U closure): entry k − 1 of a summary container's
+    /// The multi-consequence axis: entry k − 1 of a summary container's
     /// <c>AdditionalConsequences</c> list summarizes declared consequence type k. Streams a
     /// scope never records (the failure-mode scope records Excess and Fail only — v1.0 scope)
     /// summarize as empty defaults, exactly like the primary containers. The type labels are
@@ -63,7 +63,7 @@ namespace RMC.TotalRisk.Results
 
         /// <summary>
         /// This scope's attributed contribution to its parent for this consequence type
-        /// (% contribution, Phase 6.6 — see <see cref="RiskContribution"/>): at failure-mode
+        /// (the % contribution diagnostic — see <see cref="RiskContribution"/>): at failure-mode
         /// scope the mode's contribution to the component; at component scope the component's
         /// contribution to the system. Null when not computed — the system root, older
         /// payloads, and band realizations.

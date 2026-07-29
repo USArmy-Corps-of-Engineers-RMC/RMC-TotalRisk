@@ -29,14 +29,14 @@ namespace RMC.TotalRisk.Results
     /// <c>ExclusivePCMLazy</c>, generated without a dense indicator matrix), weak-link
     /// competing failures through cumulative incidence functions pre-processed over 200
     /// stratified hazard levels, the common-cause adjustment, and the mutually-exclusive
-    /// normalization (with its probability-above-one warning). The profile-axis remap (Q-T
-    /// closure, Phase 6.6): when the component selects a profile hazard element, the sampled
+    /// normalization (with its probability-above-one warning). The profile-axis
+    /// remap: when the component selects a profile hazard element, the sampled
     /// profile transform chain remaps every recorded hazard level — component and mode scope —
     /// onto the profile axis for this realization; unset, recorded hazard levels are the raw
-    /// driving hazard, bit-identical to the pre-6.6 engine.
+    /// driving hazard, bit-identical to the engine without a profile selection.
     /// </para>
     /// <para>
-    /// The ratified Q-V generalization: consequences are weighted exposure branches, so recorded
+    /// The exposure-branch generalization: consequences are weighted exposure branches, so recorded
     /// pathway entries enumerate branch combinations. Joint pathways take the cross product over
     /// the failing modes' branch sets (weights multiply; the combined consequence follows the
     /// joint-consequence rule) and cross the component's own non-failure branches for exact
@@ -46,7 +46,7 @@ namespace RMC.TotalRisk.Results
     /// <see cref="ComponentRiskOutput"/> interim).
     /// </para>
     /// <para>
-    /// Q-U closure (Phase 6.5): the probability structure — response probabilities, pathway
+    /// The multi-consequence axis: the probability structure — response probabilities, pathway
     /// decomposition, combination adjustments, and the total failure probability — is computed
     /// once per evaluation and shared by every consequence type; the consequence kernels then
     /// run per type over that type's branch entries (types never cross), recording into the
@@ -82,7 +82,7 @@ namespace RMC.TotalRisk.Results
 
         /// <summary>
         /// Samples a system component for one realization against a frozen end-state group
-        /// layout (arch doc §7.9).
+        /// layout (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §7.9).
         /// </summary>
         /// <param name="component">The component to sample (supplies the combination configuration and caches).</param>
         /// <param name="projectedModes">The component's projected failure modes, captured once per run.</param>
@@ -112,7 +112,7 @@ namespace RMC.TotalRisk.Results
 
             Hazard = realizationIndex < 0 ? hazardFunction.SampleFunction() : hazardFunction.SampleFunction(realizationIndex);
 
-            // The profile-axis remap (Q-T closure): sample the component's resolved profile
+            // The profile-axis remap: sample the component's resolved profile
             // transform chain for this realization. The chain functions are the same seeded
             // instances the failure-mode chains draw from, so a shared transform samples the
             // identical curve here and in the modes — dedup coherence for free. Null when the
@@ -128,9 +128,9 @@ namespace RMC.TotalRisk.Results
                 }
             }
 
-            // Resolve each end state's projected pairing partner (arch doc §7.9.4): the
+            // Resolve each end state's projected pairing partner (§7.9.4): the
             // flipped-final sibling terminal when wired, else the background non-failure mode
-            // (v1.0 parity — every pre-6.7 layout resolves to the background). State indexes
+            // (v1.0 parity — every pre-cascade layout resolves to the background). State indexes
             // count the non-background modes in projection order — the layout's index space.
             var stateProjected = new List<FailureMode>(projectedModes.Count);
             for (int i = 0; i < projectedModes.Count; i++)
@@ -178,7 +178,7 @@ namespace RMC.TotalRisk.Results
                 _pairedSampled[j] = partner >= 0 ? _fModes[partner] : _nfMode;
             }
 
-            // Compute-workspace scratch (Phase 6.5): mode and type counts are fixed for the life
+            // Compute-workspace scratch: mode and type counts are fixed for the life
             // of the sampled component, so every per-evaluation buffer is sized exactly once
             // here and reused across the realization's thousands of integrand evaluations — a
             // sampled component is realization-owned, never shared across threads. Recording
@@ -254,8 +254,8 @@ namespace RMC.TotalRisk.Results
                 // The competing marginals are the combination units' failure masses — a unit's
                 // mass sums its exclusive members' polarity-product weights (validation admits
                 // only all-Fail signatures under competing, so every mass is monotone and the
-                // ascending curve construction holds — arch doc §7.9.6). A singleton unit's sum
-                // reproduces the pre-6.7 per-mode value bit-identically.
+                // ascending curve construction holds — §7.9.6). A singleton unit's sum
+                // reproduces the pre-cascade per-mode value bit-identically.
                 int unitCount = _layout.CombinationUnitCount;
                 var distributions = new EmpiricalDistribution[unitCount];
                 var responseValues = new List<double>[unitCount];
@@ -368,9 +368,9 @@ namespace RMC.TotalRisk.Results
         private readonly List<SampledFailureMode> _fModes;
 
         /// <summary>
-        /// The frozen end-state group layout over the states (arch doc §7.9): combination
+        /// The frozen end-state group layout over the states: combination
         /// units, failure/claimed classification, and pairing partners. Trivial for every
-        /// pre-6.7 model, where the kernels reduce to the pre-cascade arithmetic.
+        /// pre-cascade model, where the kernels reduce to the pre-cascade arithmetic.
         /// </summary>
         private readonly EndStateGroupLayout _layout;
 
@@ -427,12 +427,12 @@ namespace RMC.TotalRisk.Results
 
         /// <summary>
         /// The sampled profile transform chain mapping the driving hazard onto the selected
-        /// profile axis for this realization (Q-T); null when the primary hazard is the axis.
+        /// profile axis for this realization; null when the primary hazard is the axis.
         /// </summary>
         private readonly IUnivariateFunction[]? _profileTransforms;
 
         /// <summary>
-        /// The reusable per-mode primary-output view (Phase 6.5 allocation elimination — every
+        /// The reusable per-mode primary-output view (reused compute workspace — every
         /// scratch buffer below is realization-owned and reused per evaluation).
         /// </summary>
         private readonly ComponentRiskOutput[] _scratchModeOutputs;
@@ -486,7 +486,7 @@ namespace RMC.TotalRisk.Results
 
         /// <summary>
         /// The reusable per-mode attributed-probability sums of one recording evaluation (the
-        /// % contribution diagnostic, Phase 6.6).
+        /// % contribution diagnostic).
         /// </summary>
         private readonly double[] _scratchContributionProbability;
 
@@ -589,8 +589,8 @@ namespace RMC.TotalRisk.Results
         /// <returns>
         /// The component's primary-type risk output at the evaluation point. The returned output
         /// (and every sink entry) is workspace-backed scratch, valid until the next evaluation
-        /// on this component — consume or copy it before evaluating again (Phase 6.5 allocation
-        /// elimination; the engine's call sites consume within the evaluation).
+        /// on this component — consume or copy it before evaluating again (reused compute
+        /// workspace; the engine's call sites consume within the evaluation).
         /// </returns>
         /// <exception cref="ArgumentNullException">Thrown when the flags or realization sink is null.</exception>
         public ComponentRiskOutput ComputeRisk(double probability, double hazardLevel, RiskComputeFlags flags,
@@ -599,7 +599,7 @@ namespace RMC.TotalRisk.Results
             if (flags == null) throw new ArgumentNullException(nameof(flags));
             if (realization == null) throw new ArgumentNullException(nameof(realization));
 
-            // The profile-axis remap (Q-T closure): recorded hazard levels are the raw driving
+            // The profile-axis remap: recorded hazard levels are the raw driving
             // hazard unless a profile transform chain is selected, in which case every recorded
             // point — component and mode scope alike — carries the composed profile signal for
             // this realization. A single null check when unset keeps the default bit-identical.
@@ -614,7 +614,7 @@ namespace RMC.TotalRisk.Results
             }
 
             // The driving hazard's exceedance probability at this evaluation — the system
-            // response profile's X coordinate (Phase 6.6). Computed from the sampled hazard so
+            // response profile's X coordinate. Computed from the sampled hazard so
             // it is correct on both integration paths (the 1D path's probability argument is
             // the non-exceedance coordinate, but the VEGAS path passes its weight), and only
             // when the coordinate will be recorded.
@@ -648,10 +648,10 @@ namespace RMC.TotalRisk.Results
             }
 
             // The combination structure is type-independent — compute it once and share it with
-            // every consequence kernel. The methods operate over the combination units (arch
-            // doc §7.9): a unit's failure mass is the exact sum of its exclusive members'
+            // every consequence kernel. The methods operate over the combination
+            // units: a unit's failure mass is the exact sum of its exclusive members'
             // weights, and the adjusted mass distributes back to the members conditionally. A
-            // trivial layout (every pre-6.7 model) reduces every step to the pre-cascade
+            // trivial layout (every pre-cascade model) reduces every step to the pre-cascade
             // per-mode arithmetic bit-identically (singleton sums add zero; the conditional
             // ratio is exactly one).
             List<double>? pathwayProbabilities = null;
@@ -809,7 +809,7 @@ namespace RMC.TotalRisk.Results
                 // plus each claimed state's q-scaled branches. The mixture drives the
                 // non-failure scalar, the joint excess pairs, and the complement recording —
                 // one distribution, three consumers. Without claimed states the baseline stays
-                // the raw background branches, bit-identical to the pre-6.7 engine.
+                // the raw background branches, bit-identical to the pre-cascade engine.
                 double[] pairWeights = nonFailWeights;
                 double[] pairValues = nonFailValues;
                 double remainderShare = 1d;
@@ -906,7 +906,7 @@ namespace RMC.TotalRisk.Results
                             // keeps the members exclusive): the state's attributed contribution
                             // is its adjusted probability and the adjusted-scaled means — the
                             // same products the expected-value chains above consume
-                            // (% contribution, Phase 6.6).
+                            // (the % contribution diagnostic).
                             if (accumulateContribution)
                             {
                                 _scratchContributionProbability[j] = adjustedProbabilities[j];
@@ -975,7 +975,7 @@ namespace RMC.TotalRisk.Results
                         totalValues.AddRange(failEntryValues);
 
                         // The complement recording consumes the pair baseline directly: the raw
-                        // background branches without claimed states (bit-identical pre-6.7
+                        // background branches without claimed states (bit-identical pre-cascade
                         // entries), the conditional mixture with them (§7.9.5).
                         var backgroundProbabilities = new List<double>(pairWeights.Length);
                         var backgroundValues = new List<double>(pairValues.Length);
@@ -1051,8 +1051,8 @@ namespace RMC.TotalRisk.Results
         /// <summary>
         /// Maps a profile-axis hazard level back onto the raw driving-hazard axis through this
         /// realization's sampled profile transform chain, walked in reverse with
-        /// <c>InverseFunction</c> (the sensitivity engine's profile-axis-native interpretation,
-        /// Phase 6.6). The identity when no profile is selected. Out-of-range queries clamp per
+        /// <c>InverseFunction</c> (the sensitivity engine's profile-axis-native
+        /// interpretation). The identity when no profile is selected. Out-of-range queries clamp per
         /// the sampled functions' own inverse behavior.
         /// </summary>
         /// <param name="profileLevel">The hazard level on the profile axis.</param>
@@ -1123,7 +1123,7 @@ namespace RMC.TotalRisk.Results
         /// perfectly-positive branch passes the captured correlation matrix even though the
         /// positive joint-probability kernel never reads it: the Numerics overload rejects a
         /// null matrix before dispatching on the dependency, so the v1.0 matrix-free call form
-        /// faulted the run (Phase 5 correction; the matrix is always materialized by the
+        /// faulted the run (the matrix is always materialized by the
         /// component's sampler setup).
         /// </summary>
         /// <param name="responseProbabilities">The combination units' failure masses.</param>
@@ -1273,7 +1273,7 @@ namespace RMC.TotalRisk.Results
         /// weight (state branch mass / unit mass), so within a unit the exclusive states stay
         /// disjoint while across units the weights multiply; the combined consequence follows
         /// the joint-consequence rule, crossed with the component's non-failure branches for
-        /// the exact excess pairs. A singleton unit reproduces the pre-6.7 per-mode arithmetic
+        /// the exact excess pairs. A singleton unit reproduces the pre-cascade per-mode arithmetic
         /// bit-identically. The pathway decomposition is supplied by the caller — it is
         /// type-independent and shared.
         /// </summary>
@@ -1291,11 +1291,11 @@ namespace RMC.TotalRisk.Results
         /// <param name="expectedExcessConsequences">Accumulates Σ excess entry probability × excess.</param>
         /// <param name="minN">The type's running minimum consequence extent.</param>
         /// <param name="maxN">The type's running maximum consequence extent.</param>
-        /// <param name="contributionProbability">The optional per-state attributed-probability sink (% contribution, Phase 6.6); null skips attribution.</param>
+        /// <param name="contributionProbability">The optional per-state attributed-probability sink (the % contribution diagnostic); null skips attribution.</param>
         /// <param name="contributionFailure">The optional per-state attributed failure-value sink, parallel to the probability sink.</param>
         /// <param name="contributionExcess">The optional per-state attributed excess-value sink, parallel to the probability sink.</param>
         /// <remarks>
-        /// The attribution (user-ratified 2026-07-24, generalized to units at Phase 6.7):
+        /// The attribution scheme, generalized from modes to combination units:
         /// within each exclusive pathway tuple the entry probability splits equally among the
         /// participating units (the Shapley value of the union game) and lands on each unit's
         /// picked state — summed over tuples, a unit's share distributes across its members by

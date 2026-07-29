@@ -14,7 +14,7 @@ namespace RMC.TotalRisk.Analyses
     ///     Haden Smith, USACE Risk Management Center, cole.h.smith@usace.army.mil
     /// </para>
     /// <para>
-    /// The consequence-type axis is declared at the analysis level (Phase 6.5, user-ratified):
+    /// The consequence-type axis is declared at the analysis level:
     /// the primary type is the analysis's <c>SpecifiedConsequence</c>/<c>ConsequenceUnit</c>
     /// scalar pair, and each additional type is one of these descriptors, in declared order —
     /// entry k − 1 of <c>RiskAnalysis.AdditionalConsequenceTypes</c> declares consequence
@@ -41,7 +41,7 @@ namespace RMC.TotalRisk.Analyses
         /// <param name="consequenceUnit">The consequence unit label (e.g., "$"). Null coerces to empty.</param>
         /// <param name="consequenceThreshold">
         /// The consequence threshold for this type's assurance measure, in the type's own units
-        /// (Phase 6.6 — the per-type companion of the analysis option, which is declared in the
+        /// (the per-type companion of the analysis option, which is declared in the
         /// primary type's units). NaN (the default) skips the assurance lookup for this type.
         /// </param>
         public ConsequenceTypeDescriptor(string? specifiedConsequence, string? consequenceUnit,
@@ -85,8 +85,8 @@ namespace RMC.TotalRisk.Analyses
         /// <summary>
         /// The consequence threshold for this type's assurance measure
         /// (<c>ConsequenceThresholdProbability</c>), expressed in this type's units. NaN — the
-        /// default, and what pre-6.6 payloads load as — skips the lookup, reproducing the Phase
-        /// 6.5 primary-only interim exactly. Unlike the label attributes this is a measure
+        /// default, and what earlier payloads load as — skips the lookup, reproducing the
+        /// primary-only behavior exactly. Unlike the label attributes this is a measure
         /// input, not display metadata; it still never reaches a hash surface, because the
         /// analysis element is persistence-only (seeds derive from the options seed and the
         /// component identity forms alone).
@@ -107,8 +107,8 @@ namespace RMC.TotalRisk.Analyses
             var element = new XElement(nameof(ConsequenceTypeDescriptor));
             element.SetAttributeValue(nameof(SpecifiedConsequence), SpecifiedConsequence);
             element.SetAttributeValue(nameof(ConsequenceUnit), ConsequenceUnit);
-            // Appended Phase 6.6 (per-type thresholds); absent on earlier payloads, which load
-            // forward as NaN — the primary-only interim.
+            // Append-only attribute; absent on earlier payloads, which load
+            // forward as NaN — the primary-only behavior.
             element.SetAttributeValue(nameof(ConsequenceThreshold), SerializationUtilities.FormatDouble(ConsequenceThreshold));
             return element;
         }

@@ -20,7 +20,8 @@ namespace RMC.TotalRisk.Analyses
     /// </para>
     /// <para>
     /// <b>Why the atoms force a lattice, not <c>EmpiricalDistribution.Convolve</c></b>
-    /// (architecture doc §7.8; <c>docs/technical-reference/loss-exceedance-curves.md</c>): the
+    /// (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §7.8;
+    /// <c>docs/technical-reference/loss-exceedance-curves.md</c>): the
     /// zero-inflation that makes convolution equal to full combination enumeration puts a point
     /// mass at zero consequence — "this component did not fail, so it contributes nothing".
     /// <c>EmpiricalDistribution.Convolve</c> samples continuous <c>PDF</c>s on a uniform grid,
@@ -34,7 +35,7 @@ namespace RMC.TotalRisk.Analyses
     /// </para>
     /// <para>
     /// <b>Why this is not <c>EmpiricalDistribution.ConvolveDiscrete</c>.</b> The atom-aware
-    /// upstream kernel that arrived with roadmap item N8 is pairwise: it derives its lattice step
+    /// upstream kernel is pairwise: it derives its lattice step
     /// from the two operands' spans, so an N-way fold through it re-bins the running result at a
     /// step that changes on every fold. Its deposit splits each atom across two nodes, and that
     /// smearing compounds once per fold. Binning every component **once** onto a single lattice

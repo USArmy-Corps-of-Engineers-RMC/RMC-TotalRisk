@@ -3,7 +3,7 @@ using System;
 namespace RMC.TotalRisk.Results
 {
     /// <summary>
-    /// One input's sensitivity value against an output (Phase 6.6): the labeled knowledge input
+    /// One input's sensitivity value against an output: the labeled knowledge input
     /// and its association measure — a tornado-plot bar.
     /// </summary>
     /// <remarks>

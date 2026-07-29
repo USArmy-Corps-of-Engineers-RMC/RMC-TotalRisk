@@ -59,12 +59,12 @@ namespace RMC.TotalRisk.Results
 
         /// <summary>
         /// The failure mode's display name, copied from the realization (the consequence
-        /// terminal's element name when the mode came from a graph — Phase 6.7 Q3).
+        /// terminal's element name when the mode came from a graph).
         /// </summary>
         public string Name { get; set; } = "Failure Mode Risk";
 
         /// <summary>
-        /// The end state's branch path descriptor (Phase 6.7 Q3, append-only; null on pre-6.7
+        /// The end state's branch path descriptor (append-only; null on earlier
         /// payloads).
         /// </summary>
         public string? PathLabel { get; set; }
@@ -103,7 +103,7 @@ namespace RMC.TotalRisk.Results
 
         /// <summary>
         /// This mode's attributed contribution to the component's risk on the primary
-        /// consequence type (% contribution, Phase 6.6 — see <see cref="RiskContribution"/>);
+        /// consequence type (the % contribution diagnostic — see <see cref="RiskContribution"/>);
         /// null when not computed (older payloads, band realizations). Per-type contributions
         /// ride <see cref="ConsequenceResults.Contribution"/> on
         /// <see cref="AdditionalConsequences"/>.

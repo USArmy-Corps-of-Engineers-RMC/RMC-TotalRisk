@@ -24,25 +24,28 @@ namespace RMC.TotalRisk.Results
     /// Ported from v1.0 <c>SampledFailureMode</c> onto the v1.1 sampler contract: functions are
     /// sampled by realization index from their pre-allocated percentile matrices (never by PRNG
     /// draw), and the failure/non-failure consequence pair shares one knowledge percentile from
-    /// the failure mode's coupling matrix — the v1.0 shared-draw coherence (Q-N, resolved: the
+    /// the failure mode's coupling matrix — the v1.0 shared-draw coherence (the
     /// technical reference draws C_F and C_NF perfectly correlated within a mode so the
-    /// incremental consequence stays consistent on one hazard scenario). Under ratified Q-V the
+    /// incremental consequence stays consistent on one hazard scenario). Under the
+    /// exposure-branch contract the
     /// consequences are held as weighted exposure branches: a mixture consequence contributes one
     /// branch per exposure state in every compute path, so each realization's loss exceedance
     /// curve carries the full day/night spread.
     /// </para>
     /// <para>
-    /// Multi-stage acceptance (Phase 6.7, arch doc §7.9): every response stage is captured —
+    /// Multi-stage acceptance (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §7.9): every
+    /// response stage is captured —
     /// per-stage transform slices, sampled fragilities, and branch polarities — and the system
     /// response probability is the polarity product ∏ᵢ (polarityᵢ = Fail ? pᵢ(h) : 1 − pᵢ(h)),
     /// each stage's fragility evaluated at its own stage-transformed signal. A single-stage
-    /// Fail-polarity mode reproduces the pre-6.7 arithmetic bit-identically (the product's single
-    /// factor multiplies 1.0 exactly). This replaced the Q-X constructor throw.
+    /// Fail-polarity mode reproduces the pre-cascade arithmetic bit-identically (the product's
+    /// single factor multiplies 1.0 exactly). This replaced an earlier constructor throw on
+    /// multi-stage chains.
     /// </para>
     /// <para>
-    /// Q-U closure (Phase 6.5): every consequence position of the mode's ordered
+    /// The multi-consequence axis: every consequence position of the mode's ordered
     /// <c>ConsequenceFunctions</c> list is sampled and computed — position k reads the coupling
-    /// matrix at column k (the per-type Q-N shared draw pairing the failure and non-failure
+    /// matrix at column k (the per-type shared draw pairing the failure and non-failure
     /// consequences of the same type), and type k's results record into the realization's
     /// primary curves (k = 0) or <c>AdditionalCurves[k − 1]</c>. Probability structure (SRP,
     /// pathway decomposition) is computed once and shared by every type; adaptive refinement is
@@ -80,7 +83,7 @@ namespace RMC.TotalRisk.Results
             bool mean = realizationIndex < 0;
 
             // Every stage's transforms and response, sampled from their own content-seeded
-            // matrices (multi-stage acceptance — Phase 6.7; the sampler walk has always covered
+            // matrices (multi-stage acceptance; the sampler walk has always covered
             // all stages). Transforms flatten into one chain array with per-stage offsets so the
             // polarity-product SRP and the consequence-input fold index without allocation.
             var stages = failureMode.ResponseStages;
@@ -146,10 +149,10 @@ namespace RMC.TotalRisk.Results
                 _responseToConsequence[i] = mean ? trailing[i].SampleFunction() : trailing[i].SampleFunction(realizationIndex);
             }
 
-            // Every consequence position, branch-enumerated (Q-V) and coupled per type on one
-            // knowledge percentile (per-type Q-N: position k reads coupling column k, so the
+            // Every consequence position, branch-enumerated and coupled per type on one
+            // knowledge percentile (position k reads coupling column k, so the
             // failure and non-failure consequences of one type share a draw while distinct types
-            // draw independently — the coupling matrix has carried K columns since Phase 3). A
+            // draw independently — the coupling matrix carries K columns). A
             // consequence-free mode (reliability) carries the single zero-consequence branch so
             // failure probability still records.
             var consequences = failureMode.ConsequenceFunctions;
@@ -192,7 +195,7 @@ namespace RMC.TotalRisk.Results
                 }
             }
 
-            // Compute-workspace scratch (Phase 6.5): branch counts are fixed for the life of the
+            // Compute-workspace scratch: branch counts are fixed for the life of the
             // sampled mode, so every per-evaluation buffer is sized exactly once here and reused
             // for the realization's thousands of integrand evaluations — a sampled mode is
             // realization-owned, never shared across threads.
@@ -250,7 +253,7 @@ namespace RMC.TotalRisk.Results
 
         /// <summary>
         /// The per-stage branch polarities: Fail contributes p(h), Non-Fail contributes
-        /// 1 − p(h) to the polarity-product response probability (arch doc §7.9).
+        /// 1 − p(h) to the polarity-product response probability.
         /// </summary>
         private readonly BranchPolarity[] _stagePolarities;
 
@@ -273,7 +276,7 @@ namespace RMC.TotalRisk.Results
 
         /// <summary>
         /// The weighted exposure branches of each paired non-failure consequence type, sampled at
-        /// THIS mode's per-type coupling percentiles (the per-type Q-N shared draw); null when no
+        /// THIS mode's per-type coupling percentiles (the per-type shared draw); null when no
         /// non-failure mode pairs.
         /// </summary>
         private readonly IReadOnlyList<(double Weight, IUnivariateFunction Function)>[]? _nonFailureBranchesByType;
@@ -286,7 +289,8 @@ namespace RMC.TotalRisk.Results
 
         /// <summary>
         /// The reusable per-type output scratch — handed out by <see cref="ComputeRisk"/> and
-        /// valid until the next evaluation on this mode (Phase 6.5 allocation elimination).
+        /// valid until the next evaluation on this mode (reused compute workspace — no
+        /// per-evaluation allocation).
         /// </summary>
         private readonly ComponentRiskOutput[] _scratchOutputs;
 
@@ -324,7 +328,7 @@ namespace RMC.TotalRisk.Results
 
         /// <summary>
         /// Suppresses this mode's own Fail/Excess recording inside <see cref="ComputeRisk"/> —
-        /// set by the sampled component on claimed non-failure states (arch doc §7.9.2): a
+        /// set by the sampled component on claimed non-failure states (§7.9.2): a
         /// Non-Fail-final end state is not a failure, so its entries are recorded by the
         /// component's complement decomposition (into the NonFail streams) rather than here.
         /// </summary>
@@ -361,8 +365,8 @@ namespace RMC.TotalRisk.Results
         /// The end state's weight (system response probability) at a hazard level: the polarity
         /// product over the stages — each stage's sampled fragility CDF, evaluated at that
         /// stage's transformed signal and clamped to [0, 1], contributes p under a Fail polarity
-        /// and 1 − p under Non-Fail (arch doc §7.9). A single-stage Fail mode reproduces the
-        /// pre-6.7 single-CDF arithmetic bit-identically.
+        /// and 1 − p under Non-Fail. A single-stage Fail mode reproduces the
+        /// pre-cascade single-CDF arithmetic bit-identically.
         /// </summary>
         /// <param name="hazardLevel">The hazard level.</param>
         /// <returns>The response probability.</returns>
@@ -388,8 +392,8 @@ namespace RMC.TotalRisk.Results
         /// The hazard level at which the response probability is reached — the inverse of
         /// <see cref="SRP"/> through the transform chain. Exact for a single-stage Fail-polarity
         /// mode only: a multi-stage polarity product is not monotone in the hazard, so no closed
-        /// inverse exists (arch doc §7.9; no engine path consumes this member — numeric
-        /// inversion lands if a consumer ever does).
+        /// inverse exists (no engine path consumes this member — numeric
+        /// inversion can be added if a consumer ever needs it).
         /// </summary>
         /// <param name="probability">The response probability.</param>
         /// <returns>The hazard level.</returns>
@@ -417,8 +421,8 @@ namespace RMC.TotalRisk.Results
         /// <summary>
         /// The hazard signal feeding this mode's consequences: the chain signal at the bound
         /// position (0 = the raw hazard, k = after the k-th stage transform, counted across all
-        /// stages), folded through the trailing response-to-consequence transforms. Phase 6.7
-        /// fixed the pre-cascade fold, which truncated the bound at stage 0's transform count.
+        /// stages), folded through the trailing response-to-consequence transforms. The bound
+        /// counts across all stages (an earlier fold truncated it at stage 0's transform count).
         /// </summary>
         /// <param name="hazardLevel">The raw hazard level.</param>
         /// <returns>The consequence input signal.</returns>
@@ -515,19 +519,19 @@ namespace RMC.TotalRisk.Results
         /// </param>
         /// <param name="recordedHazard">
         /// The hazard coordinate recorded risk points carry — the component's profile-axis
-        /// signal when a profile hazard element is selected (Q-T closure); NaN (the default)
+        /// signal when a profile hazard element is selected; NaN (the default)
         /// records the raw <paramref name="hazardLevel"/>. Evaluation always uses the raw level;
         /// this parameter labels the recorded points only.
         /// </param>
         /// <param name="hazardExceedanceProbability">
         /// The driving hazard's annual exceedance probability at the evaluation — the system
-        /// response profile's X coordinate (Phase 6.6); NaN (the default) skips that profile.
+        /// response profile's X coordinate; NaN (the default) skips that profile.
         /// </param>
         /// <returns>
         /// The mode's primary-type risk output at the evaluation point. The returned output
         /// (and every sink entry) is workspace-backed scratch, valid until the next evaluation
-        /// on this mode — consume or copy it before evaluating again (Phase 6.5 allocation
-        /// elimination; the engine's call sites consume within the evaluation).
+        /// on this mode — consume or copy it before evaluating again (reused compute
+        /// workspace; the engine's call sites consume within the evaluation).
         /// </returns>
         /// <exception cref="ArgumentNullException">Thrown when the flags or realization sink is null.</exception>
         /// <remarks>
@@ -584,7 +588,7 @@ namespace RMC.TotalRisk.Results
         /// </summary>
         /// <param name="typeIndex">The consequence-type position (0 is the primary).</param>
         /// <param name="probability">The hazard non-exceedance probability at the evaluation point.</param>
-        /// <param name="recordedLevel">The hazard coordinate recorded risk points carry (the profile-axis signal when a profile is selected — Q-T; evaluation signals arrive precomputed).</param>
+        /// <param name="recordedLevel">The hazard coordinate recorded risk points carry (the profile-axis signal when a profile is selected; evaluation signals arrive precomputed).</param>
         /// <param name="probabilityOfFailure">The mode's response probability at the hazard level (type-independent).</param>
         /// <param name="consequenceSignal">This mode's consequence input signal (type-independent).</param>
         /// <param name="nonFailSignal">The paired non-failure mode's consequence input signal.</param>

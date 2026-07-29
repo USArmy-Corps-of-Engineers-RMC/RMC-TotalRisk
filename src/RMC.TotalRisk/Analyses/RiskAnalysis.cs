@@ -38,14 +38,15 @@ namespace RMC.TotalRisk.Analyses
     ///     Haden Smith, USACE Risk Management Center, cole.h.smith@usace.army.mil
     /// </para>
     /// <para>
-    /// Ported from the v1.0 engine with the ratified v0.13 corrections
+    /// Ported from the v1.0 engine with deliberate v1.1 corrections
     /// (<c>docs/technical-reference/risk-integration.md</c>,
     /// <c>docs/technical-reference/loss-exceedance-curves.md</c>): the 1D integrator is
     /// <c>AdaptiveGaussKronrod</c> (G10K21) used as an adaptive sampler — the returned integral
     /// is discarded and the recorded risk points are the product, with the refinement objective
     /// selected by <see cref="RiskAnalysisOptions.RiskIntegrand"/>; curves are built exactly from
     /// the recorded (mass, consequence) pairs; and seeding is content-based
-    /// (architecture doc §5.5.4): per-component seeds derive from the analysis seed, the
+    /// (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §5.5.4): per-component seeds derive
+    /// from the analysis seed, the
     /// component's canonical hash, and its occurrence index — never from canvas order, so
     /// renaming, moving, or reordering components can never change results, and results are
     /// bit-identical at any thread count (every parallel write is index-owned; ensemble
@@ -53,14 +54,16 @@ namespace RMC.TotalRisk.Analyses
     /// rather than with parallel reductions — a deliberate determinism-over-throughput choice).
     /// </para>
     /// <para>
-    /// <b>Ownership and persistence (architecture doc §8):</b> components and results arrive
+    /// <b>Ownership and persistence (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §8):</b>
+    /// components and results arrive
     /// through the constructor (the BestFit analysis shape) and <see cref="ToXElement"/> writes
     /// the analysis metadata, the estimated flag, and the options only. Results are JSON
     /// containers; the consuming layer persists them separately.
     /// </para>
     /// <para>
-    /// <b>Multi-component system risk (Phase 4b):</b> the additive method assumes strictly
-    /// independent components (ratified v0.13 — a supplied dependence is a validation error) and
+    /// <b>Multi-component system risk:</b> the additive method assumes strictly
+    /// independent components (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §7.8 — a
+    /// supplied dependence is a validation error) and
     /// builds the true system loss exceedance curves by zero-inflated lattice convolution
     /// (<see cref="SystemConvolution"/>) — the exact enumeration of all component
     /// failure/non-failure combinations, where v1.0 combined two moments and produced no system
@@ -74,7 +77,7 @@ namespace RMC.TotalRisk.Analyses
     /// deterministic per-component failure-probability quadrature probe.
     /// </para>
     /// <para>
-    /// <b>Reliability mode (Phase 4c):</b> <see cref="RiskAnalysisMode.Reliability"/> computes
+    /// <b>Reliability mode:</b> <see cref="RiskAnalysisMode.Reliability"/> computes
     /// annualized failure probability only: consequence functions become optional (the relaxed
     /// mode-aware validation chain), the adaptive refinement objective is forced to
     /// <see cref="RiskIntegrand.TotalProbabilityOfFailure"/> (the configured objective applies to
@@ -84,7 +87,7 @@ namespace RMC.TotalRisk.Analyses
     /// construction).
     /// </para>
     /// <para>
-    /// <b>Declared consequence-type axis (Phase 6.5, user-ratified):</b> the analysis declares
+    /// <b>Declared consequence-type axis:</b> the analysis declares
     /// its ordered consequence types — the primary through
     /// <see cref="SpecifiedConsequence"/>/<see cref="ConsequenceUnit"/> and every additional
     /// position through <see cref="AdditionalConsequenceTypes"/> — and validation strictly
@@ -197,7 +200,7 @@ namespace RMC.TotalRisk.Analyses
         /// <summary>
         /// The number of independent VEGAS recording passes the joint path accumulates loss
         /// exceedance points across (v1.0 recorded a single pass — far too sparse for a tail
-        /// ordinate in D dimensions; ratified v0.13). The recorded masses are self-normalized by
+        /// ordinate in D dimensions). The recorded masses are self-normalized by
         /// the realized weight sum, so a pass count truncated by the evaluation cap stays
         /// consistent.
         /// </summary>
@@ -245,7 +248,7 @@ namespace RMC.TotalRisk.Analyses
         /// The lower Cholesky factor of the joint hazard covariance, extracted once per run so
         /// the VEGAS integrand applies the latent transform in place instead of allocating
         /// through <see cref="MultivariateNormal.InverseCDF(double[])"/> on every evaluation
-        /// (Phase 6.5; the in-place loop replicates the Numerics matrix–vector accumulation
+        /// (the in-place loop replicates the Numerics matrix–vector accumulation
         /// order exactly, so the recorded stream is bit-identical). Run-scoped runtime state.
         /// </summary>
         private double[,]? _jointCholeskyLower;
@@ -274,14 +277,15 @@ namespace RMC.TotalRisk.Analyses
         private int[]? _additiveConvolutionOrder;
 
         /// <summary>
-        /// The declared per-type consequence thresholds for the additional consequence types
-        /// (Phase 6.6), captured once per run from the descriptors — entry k applies to
+        /// The declared per-type consequence thresholds for the additional consequence types,
+        /// captured once per run from the descriptors — entry k applies to
         /// additional type k at every risk-measure site. Run-scoped runtime state.
         /// </summary>
         private double[]? _runAdditionalThresholds;
 
         /// <summary>
-        /// The effective sampler seed map the last run resolved (Phase 6.6, §5.5.8) — the
+        /// The effective sampler seed map the last run resolved
+        /// (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §5.5.8) — the
         /// baseline a perturbation study pins onto its perturbed runs via
         /// <see cref="PinnedSamplerSeeds"/>. Populated by every <see cref="RunAsync"/>; null
         /// before the first run. Runtime-only — never serialized, never hashed.
@@ -289,8 +293,9 @@ namespace RMC.TotalRisk.Analyses
         public SamplerSeedMap? CapturedSamplerSeeds { get; private set; }
 
         /// <summary>
-        /// An optional pinned sampler seed map (Phase 6.6, §5.5.8 — the seed-stable
-        /// perturbation mode): when set, the next run replaces every content-derived sampler
+        /// An optional pinned sampler seed map — the seed-stable
+        /// perturbation mode (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §5.5.8): when
+        /// set, the next run replaces every content-derived sampler
         /// seed — per walk ordinal, including the coupling positions and the joint VEGAS seed
         /// base — with the captured value, so a small numeric perturbation cannot re-roll the
         /// Monte Carlo streams and result deltas are pure parameter effects. The map must fit
@@ -645,16 +650,17 @@ namespace RMC.TotalRisk.Analyses
         /// <returns>The validity flag and established validation messages.</returns>
         /// <remarks>
         /// Errors: no components; the additive method with a component-hazard dependence (the
-        /// ratified v0.13 strict-independence redefinition — dependence belongs to the joint
-        /// method); the joint method above twenty components (the VEGAS dimension limit), with a
+        /// strict-independence definition of the additive method — dependence belongs to the
+        /// joint method); the joint method above twenty components (the VEGAS dimension limit), with a
         /// missing, mis-shaped, or non-positive-definite correlation matrix under the
         /// correlation-matrix dependency, or with a combination cross product beyond the
         /// guardrail; any failure or non-failure path that does not carry the declared
         /// consequence-type axis (count and order always; labels and units when both sides are
         /// non-blank — risk mode only); any projected failure mode with more than one response
-        /// stage (until the event-tree phase); invalid options; and every component's own errors,
+        /// stage (multi-stage engine execution is future work); invalid options; and every
+        /// component's own errors,
         /// aggregated with the component name. Component validation runs mode-aware: reliability
-        /// relaxes exactly the consequence-content requirements (Phase 4c). Advisory: components
+        /// relaxes exactly the consequence-content requirements. Advisory: components
         /// whose driving hazards disagree on non-blank axis labels warn — one analysis models one
         /// hazard axis.
         /// </remarks>
@@ -1047,7 +1053,7 @@ namespace RMC.TotalRisk.Analyses
 
         /// <summary>
         /// Strictly matches every component's failure and non-failure paths against the declared
-        /// consequence-type axis (Phase 6.5, user-ratified): each path must carry exactly one
+        /// consequence-type axis: each path must carry exactly one
         /// consequence function per declared type, in declared order, and a non-blank declared
         /// label or unit must agree (ordinal, case-insensitive) with a non-blank function label
         /// at the same position — blank on either side is a wildcard. Risk mode only: a
@@ -1185,7 +1191,8 @@ namespace RMC.TotalRisk.Analyses
         /// <inheritdoc/>
         /// <exception cref="InvalidOperationException">Thrown when validation reports errors.</exception>
         /// <remarks>
-        /// The run sequence (architecture doc §7.3): the cancelable starting event; the
+        /// The run sequence (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §7.3): the
+        /// cancelable starting event; the
         /// validation gate (which throws — an invalid analysis is a caller error, not a run
         /// outcome); a fresh cancellation source linked with the caller's token; occurrence-index
         /// assignment and the content-based per-component seed walk; then the mean-only pass or
@@ -1240,7 +1247,8 @@ namespace RMC.TotalRisk.Analyses
                 await Task.Run(() =>
                 {
                     RunWorkerObserver?.Invoke();
-                    // The content-based seed walk (architecture doc §5.5.4): occurrence indices
+                    // The content-based seed walk
+                    // (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §5.5.4): occurrence indices
                     // disambiguate identical-content components, and each component's functions
                     // are seeded from (analysis seed, component hash, occurrence index).
                     SystemComponent.AssignOccurrenceIndices(_components);
@@ -1281,7 +1289,7 @@ namespace RMC.TotalRisk.Analyses
                     // reproduces it, so capture(apply(map)) is the map itself.
                     var captured = new SamplerSeedMap(capturedSeeds, _jointSeedBase);
 
-                    // The declared per-type consequence thresholds (Phase 6.6): entry k applies
+                    // The declared per-type consequence thresholds: entry k applies
                     // to additional consequence type k at every measure site this run.
                     _runAdditionalThresholds = new double[RunAdditionalConsequenceTypes.Count];
                     for (int i = 0; i < _runAdditionalThresholds.Length; i++)
@@ -1334,7 +1342,8 @@ namespace RMC.TotalRisk.Analyses
 
         /// <summary>
         /// Serializes the analysis configuration: the metadata, the estimated flag, and the
-        /// options child — nothing else (architecture doc §8). Components and results travel
+        /// options child — nothing else (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §8).
+        /// Components and results travel
         /// through the constructor; the consuming layer persists them separately.
         /// </summary>
         /// <returns>The serialized configuration.</returns>
@@ -1517,7 +1526,7 @@ namespace RMC.TotalRisk.Analyses
                 ensemble[i] = summaries[i];
             }
 
-            // The scalar-measure percentile summary and convergence diagnostics (Phase 6.6):
+            // The scalar-measure percentile summary and convergence diagnostics:
             // curves carry bands through the percentile realizations; the scalar catalog gets
             // its intervals here, reduced from the stored per-realization summaries.
             ensemble.Summary = ensemble.ComputeSummary(_options.ConfidenceIntervalWidth);
@@ -1637,8 +1646,8 @@ namespace RMC.TotalRisk.Analyses
         #region Sensitivity Analysis
 
         /// <summary>
-        /// Computes the sensitivity of one stored scalar risk measure to every knowledge input
-        /// (Phase 6.6): the per-realization measure values already persisted in
+        /// Computes the sensitivity of one stored scalar risk measure to every knowledge input:
+        /// the per-realization measure values already persisted in
         /// <see cref="RiskResults"/> are correlated against the per-function percentile draws,
         /// re-derived bit-exactly from the content seeds — no re-simulation, no integration.
         /// </summary>
@@ -1736,7 +1745,7 @@ namespace RMC.TotalRisk.Analyses
 
         /// <summary>
         /// Computes the sensitivity of the risk at one hazard level to every knowledge input
-        /// (the tornado diagnostic, Phase 6.6): a dedicated content-seeded design (default 100
+        /// (the tornado diagnostic): a dedicated content-seeded design (default 100
         /// realizations) evaluates the failure-mode combination decomposition at the level —
         /// one evaluation per realization, no integration — and correlates the weighted
         /// expected consequence for the risk type against the percentile draws.
@@ -1745,7 +1754,7 @@ namespace RMC.TotalRisk.Analyses
         /// <param name="hazardLevel">
         /// The hazard level — interpreted on the component's selected profile hazard axis when
         /// one is set (each realization inverts its own sampled profile chain back to the
-        /// driving hazard; user-ratified), the raw driving axis otherwise.
+        /// driving hazard), the raw driving axis otherwise.
         /// </param>
         /// <param name="measure">The association measure to report.</param>
         /// <param name="riskType">The risk type whose expected consequence is the output.</param>
@@ -2136,7 +2145,7 @@ namespace RMC.TotalRisk.Analyses
             {
                 // Single-component system results are the component results (v1.0 behavior at
                 // the legacy clone site), cloned per consequence type. The component's system
-                // contribution is its own totals — a 100% share (% contribution, Phase 6.6).
+                // contribution is its own totals — a 100% share of the % contribution diagnostic.
                 realization.Curves = componentRealizations[0].Curves.Clone();
                 for (int k = 0; k < componentRealizations[0].AdditionalCurves.Count; k++)
                 {
@@ -2154,8 +2163,8 @@ namespace RMC.TotalRisk.Analyses
         }
 
         /// <summary>
-        /// Aggregates the additive system realization (strictly independent components, ratified
-        /// v0.13): each risk-type stream's exact recorded pairs are zero-inflated and convolved
+        /// Aggregates the additive system realization (strictly independent components by
+        /// definition): each risk-type stream's exact recorded pairs are zero-inflated and convolved
         /// on the shared consequence lattice — the exact enumeration of all component
         /// failure/non-failure combinations — and the defective stream probabilities are then
         /// restored to the v1.0 system-state semantics: the failure union for Fail and Excess,
@@ -2165,7 +2174,7 @@ namespace RMC.TotalRisk.Analyses
         /// now with the full curve v1.0 never produced. The failure union folds the component
         /// probabilities in the canonical-hash component order — the same association the
         /// convolution uses — so declaration order cannot move the union even at the last bit
-        /// (a Phase 6 reproducibility-pin finding; declaration order previously reassociated the
+        /// (a reproducibility-pin finding; declaration order previously reassociated the
         /// union product by one or two units in the last place).
         /// </summary>
         /// <param name="realization">The system realization to fill.</param>
@@ -2222,7 +2231,7 @@ namespace RMC.TotalRisk.Analyses
                 }
             }
 
-            // The per-component system contribution (% contribution, Phase 6.6): the failure
+            // The per-component system contribution (the % contribution diagnostic): the failure
             // union of strictly independent components splits exactly by the Shapley value
             // φ_i = p_i · E[1/(1 + K_i)], with K_i the Poisson–binomial count of the OTHER
             // components failing — the equal split of every exclusive failure combination,
@@ -2284,7 +2293,7 @@ namespace RMC.TotalRisk.Analyses
 
         /// <summary>
         /// Assigns a single-component system's contribution: the component's own totals — a
-        /// 100% share of the system it constitutes (% contribution, Phase 6.6).
+        /// 100% share of the system it constitutes (the % contribution diagnostic).
         /// </summary>
         /// <param name="component">The finished component realization.</param>
         private static void AssignOwnSystemContribution(ComponentRealization component)
@@ -2398,7 +2407,7 @@ namespace RMC.TotalRisk.Analyses
         /// Thrown when the integration reports failure — an integrand exception was absorbed by
         /// the integrator (<c>ReportFailure</c> is false), so the recorded risk points are
         /// truncated and no result may be published. Surfacing the failure here keeps a faulted
-        /// evaluation from silently reading as zero risk (the Phase 5 correction; the VEGAS
+        /// evaluation from silently reading as zero risk (the VEGAS
         /// call sites carry the same guard).
         /// </exception>
         private QuadratureMassLedger IntegrateComponent(SampledComponent sampled, ComponentRealization componentRealization,
@@ -2456,7 +2465,8 @@ namespace RMC.TotalRisk.Analyses
             : _options.RiskIntegrand;
 
         /// <summary>
-        /// Builds the integrand for the selected refinement objective (architecture doc §7.7).
+        /// Builds the integrand for the selected refinement objective
+        /// (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §7.7).
         /// Every evaluation computes and records the full component risk regardless of the
         /// objective — the objective changes only where the adaptive refinement concentrates.
         /// </summary>
@@ -2505,7 +2515,8 @@ namespace RMC.TotalRisk.Analyses
         }
 
         /// <summary>
-        /// The refinement-objective value at one evaluation (architecture doc §7.7 table).
+        /// The refinement-objective value at one evaluation (the
+        /// docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §7.7 table).
         /// </summary>
         /// <param name="output">The component risk output at the evaluation point.</param>
         /// <param name="probability">The hazard non-exceedance probability.</param>
@@ -2553,7 +2564,7 @@ namespace RMC.TotalRisk.Analyses
         /// Estimates the normalization scales for the balanced objective's three members from
         /// ONE non-recording pre-pass over the stratification-bin edges — each evaluation feeds
         /// all three accumulations, so the pass costs a third of the per-member probes it
-        /// replaces while producing the identical per-member sums (Phase 6.5; the pre-6.5 shape
+        /// replaces while producing the identical per-member sums (an earlier shape
         /// ran three separate sweeps and rebuilt the bins each time). A vanishing scale falls
         /// back to one so the balanced sum stays finite.
         /// </summary>
@@ -2671,8 +2682,8 @@ namespace RMC.TotalRisk.Analyses
         /// </summary>
         /// <param name="token">The run cancellation token.</param>
         /// <remarks>
-        /// The ratified v0.13 heuristic harvested the target from the VEGAS warm-up itself; at
-        /// implementation two facts forced this probe instead (recorded in the phase log): the
+        /// An earlier design harvested the target from the VEGAS warm-up itself; two facts
+        /// forced this probe instead: the
         /// automatic configuration resets the VEGAS bin count, which reallocates the importance
         /// grid — so γ must be set before the warm-up, not after it — and a γ = 1 Monte Carlo
         /// warm-up cannot observe the rare failure probabilities the target needs (that is the
@@ -2904,7 +2915,7 @@ namespace RMC.TotalRisk.Analyses
             var zBuffer = new double[d];
             var latentBuffer = new double[d];
 
-            // The per-component system-contribution accumulators (% contribution, Phase 6.6),
+            // The per-component system-contribution accumulators (the % contribution diagnostic),
             // one row per consequence type, filled through the recording passes in weight terms
             // and scaled by the self-normalization factor with the recorded masses.
             var systemContributionProbability = new double[typeCount][];
@@ -3158,8 +3169,8 @@ namespace RMC.TotalRisk.Analyses
                     componentRealizations[i].ScaleRecordedMass(scale);
                 }
 
-                // Finalize the % contribution attributions under the same self-normalization
-                // (Phase 6.6): the failure-mode accumulators carry weights directly, and the
+                // Finalize the % contribution attributions under the same self-normalization:
+                // the failure-mode accumulators carry weights directly, and the
                 // per-component system attributions scale with the recorded masses.
                 for (int i = 0; i < componentRealizations.Count; i++)
                 {
@@ -3237,13 +3248,13 @@ namespace RMC.TotalRisk.Analyses
         /// <param name="realization">The system realization (extent tracking).</param>
         /// <param name="expectedFailure">The caller's running expected-failure accumulator (kept sequential for bit-identity).</param>
         /// <param name="weight">The evaluation's VEGAS weight — the recorded mass the contribution shares carry.</param>
-        /// <param name="contributionProbability">The optional per-component attributed-probability sink (% contribution, Phase 6.6); null skips attribution.</param>
+        /// <param name="contributionProbability">The optional per-component attributed-probability sink (the % contribution diagnostic); null skips attribution.</param>
         /// <param name="contributionFailure">The optional per-component attributed failure-value sink.</param>
         /// <param name="contributionExcess">The optional per-component attributed excess-value sink.</param>
         /// <param name="tupleFailureValues">The caller's per-participant failure-value scratch (attribution weights).</param>
         /// <param name="tupleExcessValues">The caller's per-participant excess-value scratch (attribution weights).</param>
         /// <remarks>
-        /// The attribution (user-ratified 2026-07-24): within each exclusive component
+        /// The attribution scheme: within each exclusive component
         /// combination tuple, the probability splits equally (the Shapley value of the union
         /// game) and the combined failure and excess values split proportionally to the
         /// participants' own entry values (equal split when a value sum is zero). Attribution
@@ -3660,8 +3671,8 @@ namespace RMC.TotalRisk.Analyses
         }
 
         /// <summary>
-        /// Stamps each component's end-state labels onto a realization (Phase 6.7 Q3,
-        /// user-ratified): the mode name via the terminal-first label chain and the branch path
+        /// Stamps each component's end-state labels onto a realization:
+        /// the mode name via the terminal-first label chain and the branch path
         /// descriptor, read from the frozen projection snapshot so labels can never drift from
         /// the sampled structure.
         /// </summary>
@@ -3685,7 +3696,7 @@ namespace RMC.TotalRisk.Analyses
         }
 
         /// <summary>
-        /// The declared consequence threshold for additional consequence type k (Phase 6.6), or
+        /// The declared consequence threshold for additional consequence type k, or
         /// NaN when none was declared — the run-scoped capture the measure sites read.
         /// </summary>
         /// <param name="typeIndex">The additional-type position (0 = the first additional type).</param>

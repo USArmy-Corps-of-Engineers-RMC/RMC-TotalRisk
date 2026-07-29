@@ -5,7 +5,7 @@ using RMC.TotalRisk.Core.Enums;
 namespace RMC.TotalRisk.Results
 {
     /// <summary>
-    /// One sensitivity query's result (Phase 6.6): the association of every knowledge input
+    /// One sensitivity query's result: the association of every knowledge input
     /// with one risk output — a scalar measure across the stored ensemble, or the risk at a
     /// hazard level — as a labeled entry list in the sampler walk order, with a ranked view for
     /// tornado plots.

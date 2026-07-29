@@ -128,7 +128,7 @@ namespace RMC.TotalRisk.Results
         /// </summary>
         /// <param name="primaryType">
         /// True when this curve set is the primary consequence type's (enables the Fail stream's
-        /// failure profiles — Phase 6.6 catalog).
+        /// failure profiles — the risk-profile catalog).
         /// </param>
         public void CreateProfiles(bool primaryType = false)
         {

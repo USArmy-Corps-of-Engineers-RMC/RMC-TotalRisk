@@ -12,15 +12,17 @@ namespace RMC.TotalRisk.Results
     ///     Haden Smith, USACE Risk Management Center, cole.h.smith@usace.army.mil
     /// </para>
     /// <para>
-    /// The scalar members preserve the v1.0 shape. The three entry lists activate the v1.0 TODO
-    /// (<c>ComponentRiskOutput.vb:39</c>): they carry the within-component pathway distribution —
-    /// one entry per recorded failure pathway/branch — so the joint system-risk method (Phase 4b)
+    /// The scalar members preserve the v1.0 shape. The three entry lists realize a capability
+    /// v1.0 declared but never implemented (the commented-out design intent at
+    /// <c>ComponentRiskOutput.vb:39</c>): they carry the within-component pathway distribution —
+    /// one entry per recorded failure pathway/branch — so the joint system-risk method
     /// can enumerate real component failure/non-failure combinations instead of collapsing each
     /// component to its conditional mean (the documented v1.0 system-tail defect). Documented
     /// limitation: <see cref="ExcessConsequences"/> entries are computed against the
     /// branch-weighted mean non-failure consequence — the recorded curves carry the exact
     /// failure/non-failure branch pairs, but the list surface collapses the non-failure spread
-    /// (architecture doc §7.8; the shared-exposure follow-up owns lifting this).
+    /// (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §7.8; lifting this is tracked as
+    /// future work).
     /// </para>
     /// </remarks>
     public class ComponentRiskOutput
@@ -80,7 +82,7 @@ namespace RMC.TotalRisk.Results
         public List<double> ExcessConsequences { get; }
 
         /// <summary>
-        /// Clears the output for reuse as compute-workspace scratch (Phase 6.5): the entry lists
+        /// Clears the output for reuse as compute-workspace scratch: the entry lists
         /// empty in place (capacity retained — the allocation-elimination point) and the scalars
         /// zero. The sampled compute paths hand out reused instances that stay valid until the
         /// next evaluation on the owning sampled object.

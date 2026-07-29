@@ -16,7 +16,7 @@ namespace RMC.TotalRisk.Results
     /// <para>
     /// The parallel entries contribute probability mass
     /// <c>HazardProbabilityMass · ResponseProbabilities[i]</c> at consequence
-    /// <c>Consequences[i]</c>. A failure mode records one entry per exposure branch (ratified Q-V)
+    /// <c>Consequences[i]</c>. A failure mode records one entry per exposure branch
     /// and a component pathway records one entry per branch combination, so the full set of
     /// <c>(mass, consequence)</c> pairs across all points is the exact discretized loss
     /// distribution the curve is built from. Risk points are runtime working state — never

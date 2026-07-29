@@ -259,7 +259,7 @@ namespace RMC.TotalRisk.Analyses
         /// Assembles the risk-profile percentiles for one component and one consequence type
         /// onto the four percentile realizations: the hazard-frequency, conditional-consequence,
         /// and cumulative-expected-consequence profiles on all five risk-type streams (v1.0
-        /// banded all five — the Total-only interim was a parity gap, restored Phase 6.6), plus
+        /// banded all five — an interim Total-only build was a parity gap, since closed), plus
         /// — for the primary consequence type — the Fail stream's cumulative failure probability
         /// on the hazard grid and the system response profile on its own log-spaced
         /// exceedance-probability grid.

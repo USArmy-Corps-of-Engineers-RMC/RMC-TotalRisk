@@ -6,7 +6,7 @@ namespace RMC.TotalRisk.Results
 {
     /// <summary>
     /// Percentile confidence intervals on every scalar risk measure across a full-uncertainty
-    /// ensemble (Phase 6.6): four <see cref="SystemRiskResults"/> trees — Lower, Upper, Median,
+    /// ensemble: four <see cref="SystemRiskResults"/> trees — Lower, Upper, Median,
     /// and Mean — whose every scalar (the ten-measure catalog at system, per-component,
     /// per-failure-mode, and per-consequence-type scope, plus the contribution values and the
     /// integrator diagnostics) is the ensemble percentile or mean of that measure, together
@@ -18,8 +18,8 @@ namespace RMC.TotalRisk.Results
     ///     Haden Smith, USACE Risk Management Center, cole.h.smith@usace.army.mil
     /// </para>
     /// <para>
-    /// The curve percentile bands landed with the Phase 4 engine; the scalar catalog carried no
-    /// intervals until this container. Each measure is reduced <b>independently</b> —
+    /// The curve percentile bands predate this container; the scalar catalog carried no
+    /// intervals until it. Each measure is reduced <b>independently</b> —
     /// percentile-consistent per measure, not one coherent realization: the 95th percentile of
     /// the value-at-risk is not the value-at-risk of the 95th-percentile curve, which is
     /// precisely why the scalars need their own reduction. NaN values (a measure a realization
