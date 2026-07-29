@@ -19,7 +19,8 @@ namespace RMC.TotalRisk.Core.Interfaces
     /// <c>SampleResponseFunction</c> overloads returning <see cref="OrderedPairedData"/>, the
     /// distribution-form <c>SampleFunction</c> overloads, the monotonicity check, and the
     /// hazard/probability bounds. One documented v1.1 semantic change: the integer overloads take a
-    /// REALIZATION INDEX into the pre-allocated percentile matrix (architecture doc §5.8) — v1.0's
+    /// REALIZATION INDEX into the pre-allocated percentile matrix
+    /// (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §5.8) — v1.0's
     /// <c>SampleResponseFunction(int)</c> treated the integer as a PRNG seed.
     /// </para>
     /// </remarks>

@@ -10,7 +10,8 @@ namespace RMC.TotalRisk.Core.Enums
     ///     Haden Smith, USACE Risk Management Center, cole.h.smith@usace.army.mil
     /// </para>
     /// <para>
-    /// Architecture doc §7.9 (cascading end states, Phase 6.7). The numeric values are explicit
+    /// The cascading end-state design (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §7.9).
+    /// The numeric values are explicit
     /// because they double as the response element's output-port indices: port 0 is the Fail
     /// branch every v1.0-era connection already targets, port 1 is the Non-Fail branch the cascade
     /// design adds. A stage's contribution to its failure mode's system response probability is

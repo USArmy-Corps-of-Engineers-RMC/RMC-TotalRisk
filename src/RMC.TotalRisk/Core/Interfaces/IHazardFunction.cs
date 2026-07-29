@@ -17,7 +17,7 @@ namespace RMC.TotalRisk.Core.Interfaces
     /// The v1.0 domain surface is preserved verbatim: the mean and percentile
     /// <c>SampleFunction</c> overloads and the <c>meanOnly</c>-qualified hazard bounds. The
     /// realization-index overload is the v1.1 addition backing per-function Latin hypercube
-    /// sampling (architecture doc §5.8).
+    /// sampling (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §5.8).
     /// </para>
     /// </remarks>
     public interface IHazardFunction : IRiskFunction

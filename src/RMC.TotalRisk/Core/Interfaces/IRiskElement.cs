@@ -17,7 +17,7 @@ namespace RMC.TotalRisk.Core.Interfaces
     ///     Haden Smith, USACE Risk Management Center, cole.h.smith@usace.army.mil
     /// </para>
     /// <para>
-    /// Mirrors the Hydrologics <c>IBasinElement</c> contract (architecture doc v0.9): elements
+    /// Mirrors the Hydrologics <c>IBasinElement</c> contract: elements
     /// connect by object reference and form a directed acyclic graph validated by the owning
     /// <see cref="ComponentGraph"/>. Elements are the authoring/topology surface only — they are
     /// deliberately <b>not</b> <see cref="IRiskFunction"/> and expose no canonical hash: seeding
@@ -79,13 +79,13 @@ namespace RMC.TotalRisk.Core.Interfaces
 
         /// <summary>
         /// The number of input slots the element exposes: 0 for hazards, 1 elsewhere (2 for a
-        /// bivariate response when Phase 11 lands).
+        /// future bivariate response).
         /// </summary>
         int InputCount { get; }
 
         /// <summary>
         /// The number of output ports the element exposes: 0 for consequences (terminal), 1
-        /// elsewhere (2 for a bivariate hazard when Phase 11 lands).
+        /// elsewhere (2 for a future bivariate hazard).
         /// </summary>
         int OutputCount { get; }
 

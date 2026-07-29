@@ -4,8 +4,9 @@ using System.Collections.Generic;
 namespace RMC.TotalRisk.Core
 {
     /// <summary>
-    /// A captured snapshot of every sampler seed one analysis run resolved (Phase 6.6 — the
-    /// §5.5.8 seed-stable perturbation mode): per component, the effective seed at each sampler
+    /// A captured snapshot of every sampler seed one analysis run resolved — the seed-stable
+    /// perturbation mode (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §5.5.8): per
+    /// component, the effective seed at each sampler
     /// walk ordinal (function positions and the failure modes' coupling positions), plus the
     /// joint system's VEGAS seed base. Pinning a captured map onto a perturbed model replays
     /// the identical Monte Carlo streams, so result deltas are pure parameter effects.
@@ -59,9 +60,10 @@ namespace RMC.TotalRisk.Core
     }
 
     /// <summary>
-    /// The sampler walk's seed scribe (Phase 6.6): captures each resolved seed by walk ordinal
-    /// and, in pinned runs, overrides the content-derived seed with the captured one — the one
-    /// mechanism serving both halves of the §5.5.8 seed-stable perturbation mode.
+    /// The sampler walk's seed scribe: captures each resolved seed by walk ordinal and, in
+    /// pinned runs, overrides the content-derived seed with the captured one — the one
+    /// mechanism serving both halves of the seed-stable perturbation mode
+    /// (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §5.5.8).
     /// </summary>
     /// <remarks>
     /// <para>

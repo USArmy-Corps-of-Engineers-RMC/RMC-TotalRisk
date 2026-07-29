@@ -2,7 +2,7 @@ namespace RMC.TotalRisk.Core.Enums
 {
     /// <summary>
     /// The scalar risk-measure catalog a stored ensemble carries per risk-type stream — the
-    /// output selector of the measure-level sensitivity analysis (Phase 6.6), mirroring the
+    /// output selector of the measure-level sensitivity analysis, mirroring the
     /// <c>SummaryRiskResults</c> property order.
     /// </summary>
     /// <remarks>

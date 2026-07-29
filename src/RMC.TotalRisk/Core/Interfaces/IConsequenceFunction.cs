@@ -20,8 +20,9 @@ namespace RMC.TotalRisk.Core.Interfaces
     /// the hazard bounds. The realization-index overload is the v1.1 sampler addition.
     /// </para>
     /// <para>
-    /// The exposure-branch surface (<see cref="SampleExposureBranches()"/> and friends) is the
-    /// ratified Q-V contract (architecture doc §6.4.1): mixture weights are aleatory exposure
+    /// The exposure-branch surface (<see cref="SampleExposureBranches()"/> and friends) follows
+    /// the exposure-branch contract (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §6.4.1):
+    /// mixture weights are aleatory exposure
     /// probabilities (which day/night state occurs), not knowledge uncertainty, so the risk engine
     /// enumerates the weighted branches at every hazard point — in the mean-only and full Monte
     /// Carlo paths alike — instead of collapsing a mixture to its weighted-mean curve. Collapsing
@@ -89,7 +90,7 @@ namespace RMC.TotalRisk.Core.Interfaces
         /// Samples the weighted exposure branches at a fixed knowledge-uncertainty percentile: the
         /// branch set is structural (weights identical to <see cref="SampleExposureBranches()"/>),
         /// and every branch curve is sampled co-monotonically at the given percentile — the same
-        /// shared draw that couples paired failure and non-failure consequences (Q-N).
+        /// shared draw that couples paired failure and non-failure consequences.
         /// </summary>
         /// <param name="percentile">The percentile in (0, 1) driving every branch's co-monotonic sample.</param>
         /// <returns>The weighted branches at the given knowledge percentile.</returns>

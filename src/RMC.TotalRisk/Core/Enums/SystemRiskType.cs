@@ -12,7 +12,8 @@ namespace RMC.TotalRisk.Core.Enums
     /// <para>
     /// The type name and member names are preserved verbatim from v1.0 (the options property that
     /// carries this enum is named <c>SystemRiskMethod</c>, also the v1.0 name). The semantics of
-    /// <see cref="AdditiveRiskMethod"/> changed in v1.1 (architecture doc v0.13): additive
+    /// <see cref="AdditiveRiskMethod"/> changed in v1.1
+    /// (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §7.8): additive
     /// aggregation now assumes strictly independent components — supplying a hazard dependency or
     /// correlation matrix under the additive method is a validation error — which is exactly the
     /// assumption that lets the system loss exceedance curve be built by FFT convolution of

@@ -20,7 +20,8 @@ namespace RMC.TotalRisk.Core
     ///     Haden Smith, USACE Risk Management Center, cole.h.smith@usace.army.mil
     /// </para>
     /// <para>
-    /// Each function owns its sampler (architecture doc §5.8): <see cref="SetupSampler"/>
+    /// Each function owns its sampler (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §5.8):
+    /// <see cref="SetupSampler"/>
     /// pre-allocates an N×D percentile matrix, where D is <see cref="SamplingDimensions"/>, and
     /// per-realization sampling reads row <c>realizationIndex</c> via
     /// <see cref="Percentile(int, int)"/>. Functions with D = 0 (deterministic, or posterior-indexed
@@ -198,7 +199,7 @@ namespace RMC.TotalRisk.Core
         /// Virtual for container function types whose persisted form is not their identity
         /// surface: a composite function hashes a projected identity form (mode, weights, child
         /// content hashes) so serialization mode and child metadata can never move its hash — the
-        /// same ratified exception <c>SystemComponent</c> established.
+        /// same identity-projection exception <c>SystemComponent</c> established.
         /// </remarks>
         public virtual byte[] CanonicalHash()
         {
@@ -273,9 +274,8 @@ namespace RMC.TotalRisk.Core
 
         /// <summary>
         /// Reads the pre-allocated percentile for a realization and sampling dimension — the
-        /// public read the sensitivity engine correlates against (Phase 6.6): the percentile
-        /// row IS the function's knowledge draw, re-derivable bit-exactly from the content
-        /// seeds.
+        /// public read the sensitivity engine correlates against: the percentile row IS the
+        /// function's knowledge draw, re-derivable bit-exactly from the content seeds.
         /// </summary>
         /// <param name="realizationIndex">The realization row, in [0, <see cref="SampleSize"/>).</param>
         /// <param name="dimension">The sampling dimension column, in [0, <see cref="SamplingDimensions"/>).</param>

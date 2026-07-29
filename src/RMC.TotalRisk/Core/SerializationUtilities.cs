@@ -131,8 +131,8 @@ namespace RMC.TotalRisk.Core
         /// <returns>The serialized text.</returns>
         /// <remarks>
         /// The correlation-matrix serialization shared by every type carrying a
-        /// <c>DependencyType.CorrelationMatrix</c> option — <c>SystemComponent</c> since Phase 3,
-        /// and the competing-risks composites since Phase 9. Promoted here from
+        /// <c>DependencyType.CorrelationMatrix</c> option — <c>SystemComponent</c> and the
+        /// competing-risks composites. Promoted here from
         /// <c>SystemComponent</c> unchanged: the text format is byte-identical, so no persisted
         /// form and no canonical hash moves.
         /// </remarks>

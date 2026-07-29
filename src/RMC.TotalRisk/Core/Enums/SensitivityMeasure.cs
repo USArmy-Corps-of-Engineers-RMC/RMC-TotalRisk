@@ -2,7 +2,7 @@ namespace RMC.TotalRisk.Core.Enums
 {
     /// <summary>
     /// The association measure a sensitivity analysis reports between a sampled knowledge input
-    /// and a risk output (Phase 6.6; the legacy v1.0 member names preserved).
+    /// and a risk output (the legacy v1.0 member names preserved).
     /// </summary>
     /// <remarks>
     /// <para>
@@ -13,8 +13,8 @@ namespace RMC.TotalRisk.Core.Enums
     /// Runtime-only — never serialized (no hash surface). <see cref="SensitivityIndex"/> is the
     /// squared Pearson correlation, the v1.0 definition: because the unified engine's inputs
     /// are the independent per-function knowledge draws (near-orthogonal under Latin hypercube
-    /// stratification), r² estimates the same main-effect variance share as the TR Appendix G
-    /// regression form (Eq. 249–250) — the documented equivalence ratified 2026-07-24 — and the
+    /// stratification), r² estimates the same main-effect variance share as the regression form
+    /// of the RMC-TotalRisk Technical Reference Manual, Appendix G (Eq. 249–250), and the
     /// indices sum to at most one across inputs.
     /// </para>
     /// </remarks>

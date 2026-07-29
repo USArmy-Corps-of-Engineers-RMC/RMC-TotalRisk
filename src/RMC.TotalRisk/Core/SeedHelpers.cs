@@ -18,7 +18,8 @@ namespace RMC.TotalRisk.Core
     /// </para>
     /// <para>
     /// The engine combines the analysis seed with each component's canonical hash and occurrence
-    /// index (architecture doc §5.5.4), and each component combines its own seed with each owned
+    /// index (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §5.5.4), and each component
+    /// combines its own seed with each owned
     /// function's canonical hash and structural ordinal (§5.8.7) — both through
     /// <see cref="HashCombine(int, byte[], int)"/>. The SHA-256 mix guarantees that any change to
     /// any input produces an unrelated seed, while identical inputs always reproduce the same seed

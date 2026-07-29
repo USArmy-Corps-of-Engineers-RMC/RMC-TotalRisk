@@ -14,7 +14,8 @@ namespace RMC.TotalRisk.Core
     /// </para>
     /// <para>
     /// The canonical ordering of system components is "sort by <c>CanonicalHash()</c>, then by
-    /// declared array index for ties" (architecture doc §5.5.4). This comparer supplies the first
+    /// declared array index for ties" (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §5.5.4).
+    /// This comparer supplies the first
     /// key: an ordinal, element-by-element comparison with shorter-prefix arrays ordered first,
     /// matching <see cref="MemoryExtensions.SequenceCompareTo{T}(ReadOnlySpan{T}, ReadOnlySpan{T})"/>.
     /// </para>

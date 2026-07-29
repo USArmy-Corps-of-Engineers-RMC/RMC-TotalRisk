@@ -40,7 +40,7 @@ namespace RMC.TotalRisk.Core
     /// <para>
     ///     <b>References:</b>
     ///     RMC (2026). RMC-TotalRisk Model Library Architecture, §5.5 Canonical hashing and
-    ///     content-based seeding (v0.6 XML-canonicalization mechanism, adapted from the
+    ///     content-based seeding (the XML-canonicalization mechanism, adapted from the
     ///     Hydrologics implementation of the same specification).
     /// </para>
     /// </remarks>

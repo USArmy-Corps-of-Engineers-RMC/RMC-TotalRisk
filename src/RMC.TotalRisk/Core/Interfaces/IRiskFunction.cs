@@ -25,8 +25,8 @@ namespace RMC.TotalRisk.Core.Interfaces
     /// orchestration: components and failure modes walk heterogeneous function chains calling
     /// <see cref="SetupSampler(int, int, SamplingScheme)"/>, <see cref="SamplingDimensions"/>, and
     /// <see cref="CanonicalHash"/> uniformly. There is deliberately no broader "model" root
-    /// abstraction — the engine consumes functions by role, and no consumer of "any model" exists
-    /// (architecture doc v0.8).
+    /// abstraction — the engine consumes functions by role, and no consumer of "any model"
+    /// exists.
     /// </para>
     /// <para>
     /// <see cref="Name"/>, <see cref="Description"/>, and the axis labels are identity/display
