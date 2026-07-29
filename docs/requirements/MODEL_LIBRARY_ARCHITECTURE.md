@@ -170,7 +170,7 @@ v0.7 (2026-07-20): Moved to its authoritative home in the RMC-TotalRisk repo (v1
 
 ## 2. Headless constraints
 
-Recap from [CLAUDE.md](CLAUDE.md), with the discipline calls each implies:
+Recap from [CLAUDE.md](../../CLAUDE.md), with the discipline calls each implies:
 
 | Constraint | Implication for design |
 |---|---|
@@ -432,7 +432,7 @@ This is the single biggest behavioral change vs. v1. **Read carefully — it cha
 
 #### 5.5.1 The v1 reproducibility bug
 
-Legacy [`RiskDiagram.RefreshSystemComponents()`](RMC-TotalRisk/RMC.TotalRisk.IO/Project/Elements/Risk%20Analysis/Support/Diagram/RiskDiagram.cs) sorts nodes by `(TopPosition, LeftPosition)`. The dictionary preserves insertion order. [`RiskAnalysis.Estimate()`](RMC-TotalRisk/RMC.TotalRisk.IO/Project/Elements/Risk%20Analysis/RiskAnalysis.cs) iterates components in that order, handing each one a seed via `prng.Next()`. **Drag a node on the canvas → reorder → different seed → different MC realizations.**
+Legacy `RiskDiagram.RefreshSystemComponents()` (Dev repo, `RMC-TotalRisk/RMC.TotalRisk.IO/Project/Elements/Risk Analysis/Support/Diagram/RiskDiagram.cs`) sorts nodes by `(TopPosition, LeftPosition)`. The dictionary preserves insertion order. `RiskAnalysis.Estimate()` (same folder, `RiskAnalysis.cs`) iterates components in that order, handing each one a seed via `prng.Next()`. **Drag a node on the canvas → reorder → different seed → different MC realizations.**
 
 Verbatim from the user: *"a user can create a risk analysis with the exact same input, but change locations in the DAG, and because of the seed dependency, they will get slightly different results."*
 
@@ -690,7 +690,7 @@ v0.7 (2026-07-20): **No per-file license headers.** Files start with `using` dir
 
 Legacy v1 draws every knowledge-uncertainty percentile from a `Random` instance — independent uniform Monte Carlo. At N=1000–10000 realizations the standard error scales as N⁻¹ᐟ². Latin Hypercube Sampling stratifies each marginal and typically cuts variance 5–50× at the same N. LHS at N=1000 generally matches MC at N=10000 for risk integrals.
 
-The Numerics library exposes LHS at [`Numerics/Sampling/LatinHypercube.cs`](file://C:/GIT/numerics/Numerics/Sampling/LatinHypercube.cs):
+The Numerics library exposes LHS at `Numerics/Sampling/LatinHypercube.cs`:
 
 ```csharp
 public static double[,] LatinHypercube.Random(int sampleSize, int dimension, int seed = -1);
@@ -1864,8 +1864,8 @@ Small after Phase 2.0 — the types are thin wrappers over `Numerics.Functions` 
 ### Phase 2.6 — Cleanup
 - Retire `BuildInfo.cs` smoke seed + its `InternalsVisibleTo` declaration.
 - Fix `RMC.TotalRisk.IO.csproj` `<AssemblyName>` collision (remove the override; let it default to `RMC.TotalRisk.IO`).
-- Update [ROADMAP.md](ROADMAP.md) to reflect actual port order.
-- Append Phase 2 decision log to [MEMORY.md](MEMORY.md).
+- Update [ROADMAP.md](../ROADMAP.md) to reflect actual port order.
+- Append the Phase 2 decision log to the Dev repo's root `MEMORY.md`.
 
 ### Definition of done (whole Phase 2)
 

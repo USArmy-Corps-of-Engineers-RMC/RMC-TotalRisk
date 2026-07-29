@@ -1,4 +1,4 @@
-# Engine Performance Measurements (Phase 6.5)
+# Engine Performance Measurements
 
 Wall-clock measurements from `PerfHarness`, recorded per optimization commit. **One fixture
 per invocation** (the session workflow rule — measurement rounds stay in the minutes):
@@ -348,6 +348,7 @@ fold through it re-bins the running result at a step that changes on every fold,
 two-node atom deposit smears once per re-bin. The engine bins every component once onto a single
 lattice sized to the summed support and folds by integer shift, which is exact by comparison. The
 reason is recorded in the type's remarks so the next sweep does not re-litigate it.
+
 ## Phase 8.6 — endpoint mass, lazy enumeration, and allocation recovery (2026-07-27)
 
 The approved endpoint rectangles and result manifest deliberately move result bytes; the scalar
