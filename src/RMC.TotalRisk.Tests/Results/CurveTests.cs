@@ -422,7 +422,7 @@ public class CurveTests
             Assert.AreEqual(first.LECConsequences[i] * 1000d, second.LECConsequences[i], 1e-9 * Math.Max(1d, second.LECConsequences[i]));
         }
     }
-    /// <summary>Builds the Phase 6.6 profile-catalog fixture: three final-mass points with entry lists and exceedance coordinates.</summary>
+    /// <summary>Builds the profile-catalog fixture: three final-mass points with entry lists and exceedance coordinates.</summary>
     private static Curve CatalogFixture(bool withExceedance = true)
     {
         var curve = new Curve { IsExhaustive = false };
@@ -433,7 +433,7 @@ public class CurveTests
     }
 
     /// <summary>
-    /// Verifies the Phase 6.6 profile catalog at hand-computed points: the ascending cumulative
+    /// Verifies the profile catalog at hand-computed points: the ascending cumulative
     /// failure probability and expected consequence (stored descending), their terminal
     /// identities against the exact curve's mass balance and mean, the system response profile
     /// on the exceedance axis, monotonicity, and the self-normalizing fraction views.
@@ -510,7 +510,7 @@ public class CurveTests
     }
 
     /// <summary>
-    /// Verifies the profile-catalog arrays round-trip through JSON and that a pre-6.6 payload
+    /// Verifies the profile-catalog arrays round-trip through JSON and that an earlier payload
     /// without them loads forward with empty arrays ("not computed").
     /// </summary>
     [TestMethod]
@@ -535,7 +535,7 @@ public class CurveTests
         CollectionAssert.AreEqual(curve.SystemResponseExceedanceProbabilities, restored.SystemResponseExceedanceProbabilities);
         CollectionAssert.AreEqual(curve.SystemResponseProbabilities, restored.SystemResponseProbabilities);
 
-        // Act / Assert — the pre-6.6 shape (no catalog members) loads forward with empty arrays.
+        // Act / Assert — the earlier shape (no catalog members) loads forward with empty arrays.
         const string legacyJson = "{\"IsExhaustive\":false,\"TotalProbability\":0.2,\"Mean\":1.5," +
             "\"LECConsequences\":[10,5],\"LECProbabilities\":[0.1,0.2]," +
             "\"HazardFrequencyHazards\":[3,1],\"HazardFrequencyProbabilities\":[0.1,0.2]}";

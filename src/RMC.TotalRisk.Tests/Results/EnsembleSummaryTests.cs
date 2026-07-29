@@ -6,8 +6,8 @@ using RMC.TotalRisk.Results;
 namespace RMC.TotalRisk.Tests.Results;
 
 /// <summary>
-/// Unit tests for <see cref="EnsembleSummary"/> — the scalar-measure percentile reduction
-/// (Phase 6.6): agreement with direct percentile calls, NaN filtering, contribution and
+/// Unit tests for <see cref="EnsembleSummary"/> — the scalar-measure percentile
+/// reduction: agreement with direct percentile calls, NaN filtering, contribution and
 /// diagnostic reduction, the convergence indicators, and the append-only serialization.
 /// </summary>
 [TestClass]
@@ -154,7 +154,7 @@ public class EnsembleSummaryTests
         Assert.AreEqual(ensemble.Summary.Lower.Total.Mean, restored.Summary.Lower.Total.Mean, 0d);
         Assert.AreEqual(ensemble.Summary.Convergence.TotalFunctionEvaluations, restored.Summary.Convergence.TotalFunctionEvaluations, 0d);
 
-        // The pre-6.6 shape (member absent) loads forward as null, and the reduction rebuilds
+        // The earlier shape (member absent) loads forward as null, and the reduction rebuilds
         // identically from the loaded realizations.
         string legacyJson = System.Text.RegularExpressions.Regex.Replace(ensemble.ToJson(), "\"Summary\":\\{.*\\}(?=,\"|\\}$)", "\"Summary\":null");
         var legacy = EnsembleResults.FromJson(legacyJson)!;

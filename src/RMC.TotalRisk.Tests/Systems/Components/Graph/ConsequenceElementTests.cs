@@ -327,7 +327,7 @@ public class ConsequenceElementTests
     }
 
     /// <summary>
-    /// Verifies the mode-aware validation overload (Phase 4c): a function-free element errors in
+    /// Verifies the mode-aware validation overload: a function-free element errors in
     /// risk mode (and through the parameterless override), passes in reliability mode, and any
     /// functions that are present are still validated in both modes.
     /// </summary>

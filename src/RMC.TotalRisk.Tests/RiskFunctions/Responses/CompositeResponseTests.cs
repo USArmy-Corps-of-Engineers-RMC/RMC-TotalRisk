@@ -313,7 +313,7 @@ public class CompositeResponseTests
     }
 
     /// <summary>
-    /// Verifies all three ordered-pair curve overloads throw — the ratified v1.0-parity decision
+    /// Verifies all three ordered-pair curve overloads throw — a deliberate v1.0-parity decision
     /// (the engine consumes the distribution form exclusively, and a union-knot re-tabulation would
     /// be wrong between knots under the weakest-link rule).
     /// </summary>

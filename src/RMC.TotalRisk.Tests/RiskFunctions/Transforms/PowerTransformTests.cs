@@ -55,7 +55,8 @@ public class PowerTransformTests
         Assert.IsFalse(t.IsDeterministic);
         Assert.AreEqual(1, t.SamplingDimensions);
 
-        // The sampling dimension follows the uncertainty flag (architecture doc §5.8.4).
+        // The sampling dimension follows the uncertainty flag
+        // (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §5.8.4).
         t.IsUncertain = false;
         Assert.IsTrue(t.IsDeterministic);
         Assert.AreEqual(0, t.SamplingDimensions);

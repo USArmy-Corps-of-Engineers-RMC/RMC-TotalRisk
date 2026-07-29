@@ -70,9 +70,9 @@ public class ConsequenceTypeDescriptorTests
     }
 
     /// <summary>
-    /// Verifies the per-type consequence threshold (Phase 6.6): the default is NaN (the
-    /// primary-only interim), an explicit value round-trips through serialization, and a
-    /// pre-6.6 form without the attribute loads forward as NaN.
+    /// Verifies the per-type consequence threshold: the default is NaN (the primary-only
+    /// interim), an explicit value round-trips through serialization, and an earlier form
+    /// without the attribute loads forward as NaN.
     /// </summary>
     [TestMethod]
     public void Test_ConsequenceThreshold_DefaultRoundTripAndForwardLoad()
@@ -90,7 +90,7 @@ public class ConsequenceTypeDescriptorTests
         var nanRestored = new ConsequenceTypeDescriptor(plain.ToXElement());
         Assert.IsTrue(double.IsNaN(nanRestored.ConsequenceThreshold));
 
-        // The pre-6.6 shape (attribute absent) loads forward as NaN.
+        // The earlier shape (attribute absent) loads forward as NaN.
         var legacy = declared.ToXElement();
         legacy.Attribute(nameof(ConsequenceTypeDescriptor.ConsequenceThreshold))!.Remove();
         var forward = new ConsequenceTypeDescriptor(legacy);

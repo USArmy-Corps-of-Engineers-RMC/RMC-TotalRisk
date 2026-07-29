@@ -38,7 +38,8 @@ public class ResponseElementTests
         // Act
         var element = new ResponseElement("Breach");
 
-        // Assert — port 0 = Fail, port 1 = Non-Fail (arch doc §7.9, Phase 6.7).
+        // Assert — port 0 = Fail, port 1 = Non-Fail
+        // (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §7.9).
         Assert.AreEqual(1, element.InputCount);
         Assert.AreEqual(2, element.OutputCount);
         Assert.IsNull(element.Function);
@@ -78,7 +79,7 @@ public class ResponseElementTests
         Assert.IsFalse(sentinelValid);
         Assert.IsTrue(sentinelMessages.Any(m => m.Contains("non-failure response sentinel")));
 
-        // The secondary input is reserved until bivariate responses land (Phase 11).
+        // The secondary input is reserved for future bivariate responses.
         var secondary = new ResponseElement("Breach")
         {
             Function = Fragility(),

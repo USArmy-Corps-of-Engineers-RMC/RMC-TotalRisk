@@ -15,7 +15,7 @@ namespace RMC.TotalRisk.Tests.Core;
 /// </summary>
 /// <remarks>
 /// The helpers are delegate-friendly on purpose: functions register via <see cref="IRiskFunction"/>,
-/// and Phase 3's <c>SystemComponent</c>/<c>FailureMode</c> (which share no root interface with
+/// and <c>SystemComponent</c>/<c>FailureMode</c> (which share no root interface with
 /// functions) register via their <c>ToXElement</c>/<c>CanonicalHash</c> members directly.
 /// </remarks>
 public static class HashInvariance

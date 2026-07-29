@@ -19,7 +19,7 @@ namespace RMC.TotalRisk.Tests.Analyses;
 
 /// <summary>
 /// Unit tests for <see cref="RiskAnalysis"/> — the mean-only and full-uncertainty smokes with
-/// their decomposition identities and dense-reference parity, the ratified Q-V mixture-exposure
+/// their decomposition identities and dense-reference parity, the mixture exposure-branch
 /// behavior, the stage gates with pinned messages, the event lifecycle, options-only
 /// serialization, and same-seed reproducibility.
 /// </summary>
@@ -409,7 +409,7 @@ public class RiskAnalysisTests
     }
 
     /// <summary>
-    /// Verifies the Phase 6.7 multi-stage acceptance end to end: a component carrying a
+    /// Verifies the multi-stage acceptance end to end: a component carrying a
     /// single-stage mode AND a two-stage progression chain (each its own singleton combination
     /// unit) integrates to the same mean-only total risk as a dense independent trapezoid over
     /// the same sampled math, whose per-mode probabilities now include the polarity product.
@@ -475,7 +475,8 @@ public class RiskAnalysisTests
     }
 
     /// <summary>
-    /// Verifies the ratified Q-V mixture exposure: the mean-only mean matches the flattened
+    /// Verifies the mixture exposure-branch enumeration
+    /// (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §6.4.1): the mean-only mean matches the flattened
     /// (average) composite exactly, while the loss-exceedance spread is strictly larger because
     /// the branches are enumerated instead of collapsed — the corrected v1.0 day/night defect.
     /// </summary>
@@ -519,11 +520,11 @@ public class RiskAnalysisTests
 
     /// <summary>
     /// Verifies the validation catalog with its pinned messages: the empty analysis, the
-    /// additive method's strict-independence requirement (ratified v0.13), the joint method's
-    /// dimension limit and correlation-matrix checks, and the transitional Phase 6.7 cascade
+    /// additive method's strict-independence requirement, the joint method's
+    /// dimension limit and correlation-matrix checks, and the transitional cascade
     /// gate (single-terminal chains compute; state-group configurations wait for the group
     /// layer). Two independent additive components and reliability mode now validate — their
-    /// Phase 4 gates are gone, as is the Q-X multi-stage gate.
+    /// original gates are gone, as is the multi-stage constructor throw.
     /// </summary>
     [TestMethod]
     public async Task Test_Validate_StageGates_PinnedMessages()
@@ -538,7 +539,7 @@ public class RiskAnalysisTests
             structured.Select(i => i.ToLegacyMessage()).ToList(),
             empty.Validate().ValidationMessages);
 
-        // Two independent additive components validate (the Phase 4b gate is gone).
+        // Two independent additive components validate (the earlier single-component gate is gone).
         var two = new RiskAnalysis(new[] { Component(Consequence("A", 300d)), Component(Consequence("B", 300d)) });
         Assert.IsTrue(two.Validate().IsValid);
 
@@ -560,13 +561,13 @@ public class RiskAnalysisTests
         jointMatrix.Options.HazardCorrelationMatrix = new[,] { { 1d, 0.5d }, { 0.5d, 1d } };
         Assert.IsTrue(jointMatrix.Validate().IsValid, "A valid matrix passes.");
 
-        // Reliability mode validates (the Phase 4c gate is gone).
+        // Reliability mode validates (its earlier gate is gone).
         var reliability = new RiskAnalysis(new[] { Component(Consequence("A", 300d)) });
         reliability.Options.Mode = RiskAnalysisMode.Reliability;
         Assert.IsTrue(reliability.Validate().IsValid);
 
-        // The Q-X multi-stage gate is gone: a single-terminal two-stage chain validates and
-        // computes (Phase 6.7 multi-stage acceptance).
+        // The earlier multi-stage constructor throw is gone: a single-terminal two-stage chain
+        // validates and computes under the multi-stage acceptance.
         var multiStage = Component(Consequence("A", 300d));
         var chained = new FailureMode(
             new List<ResponseStage>
@@ -900,7 +901,8 @@ public class RiskAnalysisTests
         Assert.IsFalse(analysis.IsRunning);
     }
     /// <summary>
-    /// Verifies options-only serialization (architecture doc §8) and the results-through-
+    /// Verifies options-only serialization (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §8)
+    /// and the results-through-
     /// constructor round trip.
     /// </summary>
     [TestMethod]
@@ -957,7 +959,7 @@ public class RiskAnalysisTests
         return component;
     }
 
-    /// <summary>Builds a consequence-free component for reliability mode (Phase 4c).</summary>
+    /// <summary>Builds a consequence-free component for reliability mode.</summary>
     private static SystemComponent ReliabilityComponent(string name, IResponseFunction? response = null)
     {
         var component = new SystemComponent { Name = name };
@@ -967,7 +969,7 @@ public class RiskAnalysisTests
     }
 
     /// <summary>
-    /// Verifies the additive system aggregation (Phase 4b): the convolved system mean equals the
+    /// Verifies the additive system aggregation: the convolved system mean equals the
     /// sum of the component means (the v1.0 mean-parity gate, exact by construction), the system
     /// failure probability is the independent union with the v1.0 stream-probability semantics,
     /// independent variances add, the decomposition identity holds, and — the headline v1.1
@@ -1020,7 +1022,7 @@ public class RiskAnalysisTests
     }
 
     /// <summary>
-    /// Verifies reliability mode on a single consequence-free component (Phase 4c): risk-mode
+    /// Verifies reliability mode on a single consequence-free component: risk-mode
     /// validation rejects the model, reliability-mode validation accepts it, and the annualized
     /// failure probability matches a dense independent reference at every level — failure mode,
     /// component, and system.
@@ -1073,7 +1075,7 @@ public class RiskAnalysisTests
     }
 
     /// <summary>
-    /// Verifies multi-component reliability (Phase 4b + 4c): the additive system annualized
+    /// Verifies multi-component reliability: the additive system annualized
     /// failure probability is the independent union of the component probabilities.
     /// </summary>
     [TestMethod]
@@ -1163,7 +1165,7 @@ public class RiskAnalysisTests
     }
 
     /// <summary>
-    /// The Phase 6.5 mean-pass equivalence pin (Q-U closure): adding a second consequence type
+    /// The multi-consequence mean-pass equivalence pin: adding a second consequence type
     /// leaves the primary type's mean-pass results bit-identical to the single-type run (the
     /// mean pass is seed-free and refinement is primary-driven), and a secondary type that is an
     /// exact scalar multiple of the primary reproduces every stream scaled — with identical
@@ -1215,7 +1217,7 @@ public class RiskAnalysisTests
         Assert.IsTrue(double.IsNaN(secondary.Total.ConsequenceThresholdProbability));
         Assert.IsFalse(double.IsNaN(primary.Total.ConsequenceThresholdProbability));
 
-        // The summary tree carries the secondary axis with the declared labels (Phase 6.5).
+        // The summary tree carries the secondary axis with the declared labels.
         var summary = twoType.RiskResults![0]!;
         Assert.AreEqual(1, summary.AdditionalConsequences.Count);
         Assert.AreEqual("Damages", summary.AdditionalConsequences[0].SpecifiedConsequence);
@@ -1315,7 +1317,7 @@ public class RiskAnalysisTests
 
     /// <summary>
     /// Verifies the declared consequence-type axis round-trips through the configuration
-    /// serialization (Phase 6.5): order and labels survive, and an axis-free legacy form
+    /// serialization: order and labels survive, and an axis-free legacy form
     /// restores the single-type declaration.
     /// </summary>
     [TestMethod]
@@ -1348,7 +1350,7 @@ public class RiskAnalysisTests
     }
 
     /// <summary>
-    /// Verifies the declared-axis count gate (Phase 6.5, user-ratified): every failure and
+    /// Verifies the declared-axis count gate: every failure and
     /// non-failure path must carry exactly one consequence function per declared type — a
     /// two-type declaration over single-consequence paths errors, the two-type component
     /// satisfies it, and the two-type component under the legacy single-type declaration errors
@@ -1460,10 +1462,10 @@ public class RiskAnalysisTests
     }
 
     /// <summary>
-    /// Verifies the per-type consequence thresholds (Phase 6.6): a declared secondary threshold
+    /// Verifies the per-type consequence thresholds: a declared secondary threshold
     /// computes the secondary assurance measure at every scope — and on an exactly scaled
     /// secondary axis, the scaled threshold reads the same probability as the primary — while
-    /// an undeclared secondary threshold preserves the Phase 6.5 primary-only interim (NaN).
+    /// an undeclared secondary threshold preserves the primary-only interim (NaN).
     /// </summary>
     [TestMethod]
     public async Task Test_PerTypeConsequenceThresholds_ComputedAndInterimPreserved()
@@ -1564,7 +1566,7 @@ public class RiskAnalysisTests
     }
 
     /// <summary>
-    /// Verifies the Phase 6.6 profile catalog on the mean pass: the cumulative failure
+    /// Verifies the profile catalog on the mean pass: the cumulative failure
     /// probability (terminal ≡ the Fail mass balance) and system response profile on the
     /// primary Fail stream only, the cumulative expected consequence on every stream (terminal
     /// ≡ the stream mean), the 1D exceedance axis ≡ 1 − p, and the failure-mode profiles built
@@ -1609,7 +1611,7 @@ public class RiskAnalysisTests
         Assert.IsTrue(srpY[srpX.Length - 1] > srpY[0],
             "The combined response must rise toward rare (small-exceedance) hazards for a monotone fragility.");
 
-        // Failure-mode profiles are built on the mean tree (Phase 6.6 — mean pass only).
+        // Failure-mode profiles are built on the mean tree (mean pass only).
         var mode = component.FailureModes[0].Curves.Fail;
         Assert.IsTrue(mode.HazardFrequencyHazards.Length > 2, "Mode-scope profiles must build on the mean pass.");
         Assert.IsTrue(mode.CumulativeFailureProbabilities.Length > 2);

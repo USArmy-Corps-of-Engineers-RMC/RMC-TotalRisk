@@ -13,7 +13,8 @@ using RMC.TotalRisk.Systems.Components;
 namespace RMC.TotalRisk.Tests.Analyses;
 
 /// <summary>
-/// Unit tests for the seed-stable perturbation mode (Phase 6.6, §5.5.8) — the captured sampler
+/// Unit tests for the seed-stable perturbation mode
+/// (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §5.5.8) — the captured sampler
 /// seed map and its pinned replay: apply(captured) reproduces a run bit-for-bit, pinning
 /// isolates a parameter perturbation from seed re-rolls, shape mismatches fault loudly, and
 /// the map never touches any serialization surface.

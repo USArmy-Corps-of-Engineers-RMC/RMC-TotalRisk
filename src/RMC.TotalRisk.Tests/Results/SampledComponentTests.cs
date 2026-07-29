@@ -20,7 +20,7 @@ namespace RMC.TotalRisk.Tests.Results;
 
 /// <summary>
 /// Unit tests for <see cref="SampledComponent"/> — the four failure-mode combination rules
-/// against direct probability-kernel calls at known points, the Q-V branch entries, the
+/// against direct probability-kernel calls at known points, the exposure-branch entries, the
 /// non-failure recording, and extent tracking.
 /// </summary>
 [TestClass]
@@ -111,7 +111,8 @@ public class SampledComponentTests
     }
 
     /// <summary>
-    /// Builds the partial-damage cascade via graph wiring (arch doc §7.9): the stage hazard
+    /// Builds the partial-damage cascade via graph wiring
+    /// (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §7.9): the stage hazard
     /// feeds an initiation fragility (10 → 20) whose Fail port continues to a progression
     /// fragility (10 → 30); the progression's Fail port carries full-breach damages (600 at
     /// full scale), its Non-Fail port partial damages (150), and a response-free background
@@ -692,7 +693,7 @@ public class SampledComponentTests
     }
 
     /// <summary>
-    /// Verifies the profile-axis remap (Q-T): with the rating element selected, every recorded
+    /// Verifies the profile-axis remap: with the rating element selected, every recorded
     /// risk point — component and mode scope — and the hazard extents carry the composed profile
     /// signal T(h) = h/2, while the evaluation itself (the SRP through the mode chain) is
     /// untouched.
@@ -840,8 +841,8 @@ public class SampledComponentTests
     }
 
     /// <summary>
-    /// Verifies the unset default records the raw driving hazard (bit-identical pre-6.6
-    /// behavior) and that selecting the profile changes recorded coordinates only — every
+    /// Verifies the unset default records the raw driving hazard (bit-identical to the
+    /// pre-remap behavior) and that selecting the profile changes recorded coordinates only — every
     /// computed output is identical between the two runs.
     /// </summary>
     [TestMethod]

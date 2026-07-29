@@ -309,7 +309,7 @@ public class FailureModeTests
         sentinelInChain.ResponseStages.Add(new ResponseStage(new List<ITransformFunction>(), new NonFailResponse()));
         Assert.IsFalse(sentinelInChain.Validate().IsValid);
 
-        // Secondary dimensions require a bivariate hazard (Phase 11) and error today.
+        // Secondary dimensions require a bivariate hazard (a future capability) and error today.
         var secondaryBinding = ChainMode();
         secondaryBinding.HazardBinding = HazardDimension.Secondary;
         Assert.IsFalse(secondaryBinding.Validate().IsValid);
@@ -478,7 +478,7 @@ public class FailureModeTests
         HashInvariance.AssertComputeSensitive(fm6.CanonicalHash,
             () => fm6.ConsequenceFunctions.Add(Consequence("Stage", "ft", "Life Loss", "lives")));
 
-        // Flipping a stage's branch polarity swaps p(h) for 1 − p(h) — a compute edit (Phase 6.7).
+        // Flipping a stage's branch polarity swaps p(h) for 1 − p(h) — a compute edit.
         var fm8 = ChainMode();
         HashInvariance.AssertComputeSensitive(fm8.CanonicalHash,
             () => fm8.ResponseStages[0].BranchPolarity = BranchPolarity.NonFail);
@@ -622,10 +622,11 @@ public class FailureModeTests
     }
 
     /// <summary>
-    /// Verifies the mode-level branch guardrails under per-type marginal compute (Phase 6.5,
-    /// §6.4.1 erratum): the SUM of exposure branches across the mode's consequence positions
+    /// Verifies the mode-level branch guardrails under per-type marginal compute
+    /// (the docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §6.4.1 erratum): the SUM of
+    /// exposure branches across the mode's consequence positions
     /// warns above 64 and errors above 1024 — consequence types never cross, so two 33-branch
-    /// mixtures are 66 branches of per-evaluation work (a warning), not the pre-6.5 product
+    /// mixtures are 66 branches of per-evaluation work (a warning), not the earlier product
     /// bound's 1089 (which modeled a cross-type coupling the engine never performs).
     /// </summary>
     [TestMethod]
@@ -667,7 +668,7 @@ public class FailureModeTests
     }
 
     /// <summary>
-    /// Verifies the mode-aware validation overload (Phase 4c): a consequence-free mode fails
+    /// Verifies the mode-aware validation overload: a consequence-free mode fails
     /// risk-mode validation with the pinned message, passes reliability-mode validation, and a
     /// null consequence slot stays an error in both modes (a wiring defect, not a relaxation).
     /// </summary>

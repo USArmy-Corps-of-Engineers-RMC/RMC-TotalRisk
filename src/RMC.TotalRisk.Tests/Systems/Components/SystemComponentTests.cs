@@ -99,7 +99,8 @@ public class SystemComponentTests
     }
 
     /// <summary>
-    /// Builds the partial-damage cascade by wiring both response ports (arch doc §7.9): the flow
+    /// Builds the partial-damage cascade by wiring both response ports
+    /// (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §7.9): the flow
     /// hazard feeds an initiation response; its Fail port continues to a progression response
     /// whose Fail port carries full-breach damages and whose Non-Fail port carries partial
     /// damages; a response-free background path completes the component.
@@ -318,7 +319,7 @@ public class SystemComponentTests
     }
 
     /// <summary>
-    /// Verifies the cascade projection (arch doc §7.9): exit ports become stage polarities,
+    /// Verifies the cascade projection (§7.9): exit ports become stage polarities,
     /// sibling end states share response occurrence ordinals, and terminal names are stamped.
     /// </summary>
     [TestMethod]
@@ -358,7 +359,7 @@ public class SystemComponentTests
     }
 
     /// <summary>
-    /// Verifies the multiple-consequences flag is port-aware (arch doc §7.9): a Fail terminal
+    /// Verifies the multiple-consequences flag is port-aware (§7.9): a Fail terminal
     /// and a Non-Fail terminal are distinct end states, not fan-out of one branch; two terminals
     /// on the same port still flag.
     /// </summary>
@@ -724,7 +725,7 @@ public class SystemComponentTests
     }
 
     /// <summary>
-    /// Verifies the identity form distinguishes response-sharing topology (arch doc §7.9): two
+    /// Verifies the identity form distinguishes response-sharing topology (§7.9): two
     /// terminals fed by ONE response element (shared draws, one chance node) and two terminals
     /// fed by equal-content DUPLICATE elements (independent draws, separate events) carry
     /// identical mode XML but must hash differently — the topology changes the exclusivity
@@ -862,7 +863,7 @@ public class SystemComponentTests
             "Reordering consequence elements reorders the projected failure modes, which is a compute edit.");
     }
 
-    /// <summary>Verifies the occurrence-index scheme (architecture doc §5.5.4).</summary>
+    /// <summary>Verifies the occurrence-index scheme (§5.5.4).</summary>
     [TestMethod]
     public void Test_AssignOccurrenceIndices_Scheme()
     {
@@ -1145,7 +1146,7 @@ public class SystemComponentTests
     }
 
     /// <summary>
-    /// Verifies the component-level Q-W guardrails on the joint method: the cross product of the
+    /// Verifies the component-level branch-explosion guardrails on the joint method: the cross product of the
     /// failure modes' primary exposure branches warns above 64 and errors above 1024.
     /// </summary>
     [TestMethod]
@@ -1173,8 +1174,8 @@ public class SystemComponentTests
     }
 
     /// <summary>
-    /// Verifies the profile hazard selection (Q-T) round-trips through both serialization modes
-    /// and that a pre-6.6 payload without the attribute loads forward as the primary-hazard
+    /// Verifies the profile hazard selection round-trips through both serialization modes
+    /// and that an earlier payload without the attribute loads forward as the primary-hazard
     /// default.
     /// </summary>
     [TestMethod]
@@ -1200,7 +1201,7 @@ public class SystemComponentTests
         var byReference = new SystemComponent(component.ToXElement(RiskSerializationMode.ByReference), resolver);
         Assert.AreEqual(rating.Id, byReference.ProfileHazardElementId);
 
-        // Act / Assert — a payload with the attribute removed (the pre-6.6 shape) loads null.
+        // Act / Assert — a payload with the attribute removed (the earlier shape) loads null.
         var legacy = component.ToXElement();
         legacy.Attribute(nameof(SystemComponent.ProfileHazardElementId))!.Remove();
         var forward = new SystemComponent(legacy);
@@ -1208,7 +1209,7 @@ public class SystemComponentTests
     }
 
     /// <summary>
-    /// Verifies the profile hazard selection is seed-inert (the ratified Q-T classification):
+    /// Verifies the profile hazard selection is seed-inert (a deliberate classification):
     /// selecting, changing, or clearing the profile element never moves the canonical hash.
     /// </summary>
     [TestMethod]

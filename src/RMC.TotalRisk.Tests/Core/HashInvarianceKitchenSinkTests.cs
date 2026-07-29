@@ -35,19 +35,19 @@ public class HashInvarianceKitchenSinkTests
     public sealed record RegistryEntry(string TypeName, Func<IRiskFunction> Factory, Action<IRiskFunction> ComputeMutation);
 
     /// <summary>
-    /// The registry. PHASE LANDING CHECKLIST: add one entry per new concrete function type.
-    /// (Phase 3's SystemComponent/FailureMode assert the same contract in their own test classes
+    /// The registry. LANDING CHECKLIST: add one entry per new concrete function type.
+    /// (SystemComponent/FailureMode assert the same contract in their own test classes
     /// via the delegate-based <see cref="HashInvariance"/> helpers.)
     /// </summary>
     private static IEnumerable<RegistryEntry> RegisteredTypes()
     {
-        // Phase 1 — the kernel stub proving the scaffold itself.
+        // The kernel stub proving the scaffold itself.
         yield return new RegistryEntry(
             nameof(StubRiskFunction),
             () => new StubRiskFunction { Name = "Stub", Description = "Rep", SpecifiedHazard = "Flow", HazardUnit = "cfs", Value = 2.5 },
             f => ((StubRiskFunction)f).Value = 99.5);
 
-        // Phase 2 — core input functions. (NonFailResponse is deliberately absent: it carries no
+        // Core input functions. (NonFailResponse is deliberately absent: it carries no
         // compute content by design; its content-free hashing is pinned in NonFailResponseTests.)
         yield return new RegistryEntry(
             nameof(TabularHazard),
@@ -66,14 +66,14 @@ public class HashInvarianceKitchenSinkTests
                 new[] { new UncertainOrdinate(0d, new Deterministic(0d)), new UncertainOrdinate(2d, new Deterministic(3d)) },
                 true, SortOrder.Ascending, false, SortOrder.None, UnivariateDistributionType.Deterministic));
 
-        // Phase 7 — the nonparametric hazard (inputs-only identity: the derived table never
+        // The nonparametric hazard (inputs-only identity: the derived table never
         // serializes, so only input edits can move the hash).
         yield return new RegistryEntry(
             nameof(NonparametricHazard),
             () => new NonparametricHazard { Name = "Graphical", SpecifiedHazard = "Flow", HazardUnit = "cfs" },
             f => ((NonparametricHazard)f).EffectiveRecordLength = 200);
 
-        // Phase 7 — closed-form transforms, registered uncertain so the conditional sigma
+        // Closed-form transforms, registered uncertain so the conditional sigma
         // attribute participates in the hash surface.
         yield return new RegistryEntry(
             nameof(LinearTransform),
@@ -100,7 +100,7 @@ public class HashInvarianceKitchenSinkTests
             () => new TabularConsequence { Name = "Damages", SpecifiedHazard = "Stage", HazardUnit = "ft", SpecifiedConsequence = "Damages", ConsequenceUnit = "$" },
             f => ((TabularConsequence)f).HazardTransform = Transform.Logarithmic);
 
-        // Pre-Phase-4 consequence-cluster completion — an uncertain instance so the conditional
+        // The parametric consequence — an uncertain instance so the conditional
         // sigma attributes participate in the hash surface.
         yield return new RegistryEntry(
             nameof(ParametricConsequence),
@@ -138,7 +138,7 @@ public class HashInvarianceKitchenSinkTests
             },
             f => ((CompositeConsequence)f).CompositeFunctionType = CompositeFunctionType.Mixture);
 
-        // Phase 9 — the composite hazard. Registered in Mixture mode so the weights participate in
+        // The composite hazard. Registered in Mixture mode so the weights participate in
         // the hash surface; the mutation flips the combination rule, which changes results.
         yield return new RegistryEntry(
             nameof(CompositeHazard),
@@ -155,7 +155,7 @@ public class HashInvarianceKitchenSinkTests
             },
             f => ((CompositeHazard)f).CompositeCombinationType = CompositeCombinationType.CompetingRisks);
 
-        // Phase 9 — the composite response, registered in Mixture mode for the same reason.
+        // The composite response, registered in Mixture mode for the same reason.
         yield return new RegistryEntry(
             nameof(CompositeResponse),
             () => new CompositeResponse(new[]
@@ -172,7 +172,7 @@ public class HashInvarianceKitchenSinkTests
             f => ((CompositeResponse)f).ProbabilityTransform = Transform.NormalZ);
 
 
-        // Phase 10A — deterministic event-tree vertical slice.
+        // The event-tree response — a nested tree behind an independent structural link.
         yield return new RegistryEntry(
             nameof(EventTreeResponse),
             () =>
@@ -209,7 +209,7 @@ public class HashInvarianceKitchenSinkTests
                 nestedChance.ProbabilitySource = new ProbabilitySource(0.3d);
             });
 
-        // Phase 9 — the composite transform (Average-only; the mutation nudges a weight).
+        // The composite transform (Average-only; the mutation nudges a weight).
         yield return new RegistryEntry(
             nameof(CompositeTransform),
             () => new CompositeTransform(new[]

@@ -99,7 +99,7 @@ public class ResponseStageTests
     public void Test_Serialization_AttributeContract()
     {
         // Act — a default stage still writes the resolved polarity (the
-        // ConsequenceHazardPosition resolved-on-write precedent; the Phase 6.7 hash event).
+        // ConsequenceHazardPosition resolved-on-write precedent; a deliberate hash event).
         var xml = new ResponseStage().ToXElement();
 
         // Assert — attributes.
@@ -115,7 +115,7 @@ public class ResponseStageTests
     }
 
     /// <summary>
-    /// Verifies polarity round-trips, and that a pre-6.7 payload (no polarity attribute) loads
+    /// Verifies polarity round-trips, and that an earlier payload (no polarity attribute) loads
     /// forward as the v1.0-implied Fail branch.
     /// </summary>
     [TestMethod]
@@ -131,7 +131,7 @@ public class ResponseStageTests
         Assert.AreEqual(BranchPolarity.NonFail, restored.BranchPolarity);
         Assert.AreEqual(original.ToXElement().ToString(), restored.ToXElement().ToString());
 
-        // A pre-6.7 payload without the attribute loads forward as Fail.
+        // An earlier payload without the attribute loads forward as Fail.
         var legacy = original.ToXElement();
         legacy.Attribute(nameof(ResponseStage.BranchPolarity))!.Remove();
         Assert.AreEqual(BranchPolarity.Fail, new ResponseStage(legacy).BranchPolarity);

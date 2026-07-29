@@ -13,8 +13,9 @@ namespace RMC.TotalRisk.Tests.Results;
 
 /// <summary>
 /// Unit tests for <see cref="SampledFailureMode"/> — known-point response and consequence math,
-/// the Q-N shared-percentile pairing, the Q-V branch-enumerated recording shape, the clamping
-/// flags, and the multi-stage polarity-product math (Phase 6.7, arch doc §7.9).
+/// the shared-percentile consequence pairing, the branch-enumerated recording shape, the clamping
+/// flags, and the multi-stage polarity-product math
+/// (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §7.9).
 /// </summary>
 [TestClass]
 public class SampledFailureModeTests
@@ -95,7 +96,7 @@ public class SampledFailureModeTests
     }
 
     /// <summary>
-    /// Verifies the Q-N shared draw: identical-content failure and non-failure consequences,
+    /// Verifies the shared failure/non-failure coupling draw: identical-content consequences,
     /// paired at the same coupling percentile, sample the identical curve — the excess is exactly
     /// zero in every realization. Independent draws would differ almost surely. The pin runs a
     /// single-failure-mode component under the competing method, whose component excess IS the
@@ -128,7 +129,7 @@ public class SampledFailureModeTests
     }
 
     /// <summary>
-    /// Verifies the Q-V recording shape: a day/night mixture consequence records one Fail entry
+    /// Verifies the exposure-branch recording shape: a day/night mixture consequence records one Fail entry
     /// per exposure branch with weight-scaled probabilities and branch-specific consequences.
     /// </summary>
     [TestMethod]
@@ -222,7 +223,7 @@ public class SampledFailureModeTests
     }
 
     /// <summary>
-    /// Verifies the multi-stage polarity product (Phase 6.7): each stage's fragility evaluates
+    /// Verifies the multi-stage polarity product: each stage's fragility evaluates
     /// at its own stage-transformed signal, Fail contributes p and Non-Fail contributes 1 − p,
     /// and the single-stage view is unchanged.
     /// </summary>
@@ -253,7 +254,7 @@ public class SampledFailureModeTests
     }
 
     /// <summary>
-    /// Verifies the consequence-input fold spans every stage's transforms (the Phase 6.7 fix —
+    /// Verifies the consequence-input fold spans every stage's transforms (the cascade fix —
     /// the pre-cascade fold truncated the bound at stage 0's transform count): position 2 folds
     /// stage 0's and stage 1's transforms in chain order.
     /// </summary>
@@ -279,12 +280,12 @@ public class SampledFailureModeTests
     }
 
     /// <summary>
-    /// Pins the cascade knowledge-sampling contract (user directive 2026-07-24): every stage's
+    /// Pins the cascade knowledge-sampling contract: every stage's
     /// response uncertainty samples independently like any other function — two equal-content
     /// uncertain fragilities in one chain draw different curves at a realization — while ONE
     /// shared instance wired into sibling end states stays one knowledge quantity (its Fail and
     /// Non-Fail branches must ride the same sampled curve). The only cross-function coupling
-    /// remains the Q-N failure/non-failure consequence pairing.
+    /// remains the failure/non-failure consequence pairing.
     /// </summary>
     [TestMethod]
     public void Test_MultiStage_ResponseKnowledge_IndependentPerStage()
@@ -370,7 +371,7 @@ public class SampledFailureModeTests
     }
 
     /// <summary>
-    /// Verifies the InverseSRP policy (arch doc §7.9): exact for a single-stage Fail-polarity
+    /// Verifies the InverseSRP policy (§7.9): exact for a single-stage Fail-polarity
     /// mode, unsupported for cascades and Non-Fail polarities (a polarity product has no
     /// monotone inverse; no engine path consumes the member).
     /// </summary>

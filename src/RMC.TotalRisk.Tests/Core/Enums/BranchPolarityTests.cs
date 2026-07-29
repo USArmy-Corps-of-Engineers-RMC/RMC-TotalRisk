@@ -6,7 +6,8 @@ namespace RMC.TotalRisk.Tests.Core.Enums;
 
 /// <summary>
 /// Unit tests for <see cref="BranchPolarity"/> — the member names and explicit values double as
-/// response-element output-port indices and are serialized canonical-hash contract (arch doc §7.9).
+/// response-element output-port indices and are serialized canonical-hash contract
+/// (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §7.9).
 /// </summary>
 [TestClass]
 public class BranchPolarityTests
@@ -20,7 +21,7 @@ public class BranchPolarityTests
             new[] { "Fail", "NonFail" },
             Enum.GetNames<BranchPolarity>());
 
-        // Explicit values are the response element's output-port indices (arch doc §7.9).
+        // Explicit values are the response element's output-port indices (§7.9).
         Assert.AreEqual(0, (int)BranchPolarity.Fail);
         Assert.AreEqual(1, (int)BranchPolarity.NonFail);
     }

@@ -29,7 +29,7 @@ public class CurvesTests
     }
 
     /// <summary>
-    /// The zero-ulp gate on the percentile post-processing kernel (Phase 6.5):
+    /// The zero-ulp gate on the percentile post-processing kernel:
     /// <see cref="Curve.InterpolateLogLogDescending"/> must reproduce
     /// <c>OrderedPairedData.GetYFromX(x, Logarithmic, Logarithmic)</c> bit-for-bit — end
     /// clamps, exact ordinate hits, the 1e-16 log floor region, flat segments, and interior

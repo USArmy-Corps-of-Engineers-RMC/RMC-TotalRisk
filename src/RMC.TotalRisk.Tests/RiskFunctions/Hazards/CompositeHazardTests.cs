@@ -165,7 +165,7 @@ public class CompositeHazardTests
         Assert.IsFalse(Composite(CompositeCombinationType.Mixture,
             (NormalChild("A", 100d, 20d), 0.4d), (NormalChild("B", 60d, 15d), 0.4d)).Validate().IsValid);
 
-        // A child whose labels differ is a warning, not an error (the ratified Phase 3 downgrade).
+        // A child whose labels differ is a warning, not an error (a deliberate downgrade).
         var mismatched = NormalChild("Odd", 100d, 20d);
         mismatched.HazardUnit = "m3/s";
         var warned = Composite(CompositeCombinationType.Mixture, (mismatched, 1d));

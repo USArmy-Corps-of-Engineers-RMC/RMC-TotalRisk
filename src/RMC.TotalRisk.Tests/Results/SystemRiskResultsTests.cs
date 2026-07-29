@@ -39,7 +39,7 @@ public class SystemRiskResultsTests
     }
 
     /// <summary>
-    /// Verifies the multi-consequence capture (Phase 6.5): additional types summarize at every
+    /// Verifies the multi-consequence capture: additional types summarize at every
     /// scope with the declared labels echoed from the realization, and the summary round-trips
     /// through the ensemble JSON.
     /// </summary>

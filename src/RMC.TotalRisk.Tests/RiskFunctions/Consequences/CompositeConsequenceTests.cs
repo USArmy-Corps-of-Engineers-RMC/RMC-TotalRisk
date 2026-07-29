@@ -311,8 +311,8 @@ public class CompositeConsequenceTests
     }
 
     /// <summary>
-    /// Verifies the composite's own sampling dimensions are zero in every mode (ratified Q-V: the
-    /// mixture branch choice is enumerated exposure, not a drawn sampler dimension; the standalone
+    /// Verifies the composite's own sampling dimensions are zero in every mode (the exposure-branch
+    /// contract: the mixture branch choice is enumerated exposure, not a drawn sampler dimension; the standalone
     /// per-realization mixture surface rides an internal selector matrix instead).
     /// </summary>
     [TestMethod]
@@ -622,7 +622,7 @@ public class CompositeConsequenceTests
     }
 
     /// <summary>
-    /// Verifies the ratified Q-V exposure-branch enumeration: a Mixture returns one weighted
+    /// Verifies the exposure-branch enumeration: a Mixture returns one weighted
     /// branch per positively weighted child carrying the child's mean curve, with weights summing
     /// to one and zero-weight children skipped as unreachable.
     /// </summary>
@@ -710,7 +710,7 @@ public class CompositeConsequenceTests
 
     /// <summary>
     /// Verifies the percentile overload samples every branch co-monotonically at the shared
-    /// knowledge percentile — the exact draw the failure/non-failure coupling (Q-N) shares.
+    /// knowledge percentile — the exact draw the failure/non-failure coupling shares.
     /// </summary>
     [TestMethod]
     public void Test_SampleExposureBranches_Percentile_CoMonotonicWithChildren()
@@ -802,7 +802,7 @@ public class CompositeConsequenceTests
 
     /// <summary>
     /// Verifies the standalone per-realization mixture surface still requires its sampler and
-    /// still reproduces the mixture ensemble after the Q-V dimension change (the selector matrix
+    /// still reproduces the mixture ensemble after the exposure-branch dimension change (the selector matrix
     /// moved inside; the stream is unchanged).
     /// </summary>
     [TestMethod]

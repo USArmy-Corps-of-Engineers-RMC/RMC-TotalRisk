@@ -106,7 +106,7 @@ public class CompositeTransformTests
     }
 
     /// <summary>
-    /// Verifies the ratified mode restriction: only Average is supported, and the other two members
+    /// Verifies the deliberate mode restriction: only Average is supported, and the other two members
     /// are errors carrying the reason.
     /// </summary>
     [TestMethod]

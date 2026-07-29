@@ -45,7 +45,7 @@ public class ParametricConsequenceTests
         return c;
     }
 
-    /// <summary>Verifies the spec (architecture doc §6.4) default construction state.</summary>
+    /// <summary>Verifies the spec (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §6.4) default construction state.</summary>
     [TestMethod]
     public void Test_Defaults_MatchSpec()
     {

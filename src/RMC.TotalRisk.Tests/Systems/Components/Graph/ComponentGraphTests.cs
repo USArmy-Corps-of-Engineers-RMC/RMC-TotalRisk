@@ -313,7 +313,7 @@ public class ComponentGraphTests
         Assert.IsTrue(graph3.Validate().ValidationMessages.Any(
             m => m.Contains("hazard-source binding") && m.Contains("output port 1")));
 
-        // A response's Non-Fail port (1) is legal since Phase 6.7; port 2 is out of range.
+        // A response's Non-Fail port (1) is legal; port 2 is out of range.
         var (graph4, _, _, response4, fail4, _) = LeveeGraph();
         fail4.Input = new RiskConnection(response4, 1);
         Assert.IsFalse(graph4.Validate().ValidationMessages.Any(m => m.Contains("output port")),
@@ -373,7 +373,8 @@ public class ComponentGraphTests
     }
 
     /// <summary>
-    /// Verifies the polarity-aware branch-claim advisories (arch doc §7.9, Q2 ruling): duplicate
+    /// Verifies the polarity-aware branch-claim advisories
+    /// (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §7.9): duplicate
     /// leaf signatures and prefix-nested claims warn inside cascade-active graphs but stay legal,
     /// legacy same-port fan-out stays silent, and an unwired Fail port warns.
     /// </summary>

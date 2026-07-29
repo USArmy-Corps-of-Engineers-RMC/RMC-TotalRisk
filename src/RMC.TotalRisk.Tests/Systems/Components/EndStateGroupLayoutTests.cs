@@ -9,9 +9,10 @@ using RMC.TotalRisk.Systems.Components;
 namespace RMC.TotalRisk.Tests.Systems.Components;
 
 /// <summary>
-/// Unit tests for <see cref="EndStateGroupLayout"/> — leaf-signature grouping, the Q2
+/// Unit tests for <see cref="EndStateGroupLayout"/> — leaf-signature grouping, the
 /// duplicate/prefix standalone ejection, final-polarity classification, flipped-final-sibling
-/// pairing, and the trivial-layout detection every pre-6.7 model relies on (arch doc §7.9).
+/// pairing, and the trivial-layout detection every pre-cascade model relies on
+/// (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §7.9).
 /// </summary>
 [TestClass]
 public class EndStateGroupLayoutTests
@@ -39,7 +40,7 @@ public class EndStateGroupLayoutTests
     /// <summary>
     /// Verifies chain-authored modes (no ordinals) and legacy same-branch fan-out (identical
     /// signatures) both produce the trivial layout — every state a standalone Fail-final unit,
-    /// so the engine takes the pre-6.7 arithmetic.
+    /// so the engine takes the pre-cascade arithmetic.
     /// </summary>
     [TestMethod]
     public void Test_Build_TrivialLayouts()
@@ -51,8 +52,8 @@ public class EndStateGroupLayoutTests
         Assert.AreEqual(2, chain.CombinationUnitCount);
         CollectionAssert.AreEqual(new[] { -1, -1 }, chain.PairingPartnerState);
 
-        // Legacy fan-out: identical signatures eject to standalone units (the Q2 ruling) —
-        // exactly today's flat combination.
+        // Legacy fan-out: identical signatures eject to standalone units (deliberately
+        // preserving the legacy fan-out semantics) — exactly today's flat combination.
         var fanOut = EndStateGroupLayout.Build(new[]
         {
             Mode(new[] { 0 }, BranchPolarity.Fail),
@@ -116,7 +117,7 @@ public class EndStateGroupLayoutTests
     }
 
     /// <summary>
-    /// Verifies the Q2 prefix ejection: a terminal claiming a branch a continuation also claims
+    /// Verifies the prefix ejection: a terminal claiming a branch a continuation also claims
     /// leaves the partition (standalone unit — flat combination), while the deeper leaf stays.
     /// </summary>
     [TestMethod]
@@ -129,8 +130,8 @@ public class EndStateGroupLayoutTests
             Mode(new[] { 0, 1 }, BranchPolarity.Fail, BranchPolarity.Fail),
         });
 
-        // Assert — two standalone units; the flat combination applies (Q2), so the layout is
-        // trivial and the engine arithmetic is the pre-6.7 path.
+        // Assert — two standalone units; the flat combination applies, so the layout is
+        // trivial and the engine arithmetic is the pre-cascade path.
         Assert.AreEqual(2, layout.CombinationUnitCount);
         Assert.IsTrue(layout.IsTrivial);
     }

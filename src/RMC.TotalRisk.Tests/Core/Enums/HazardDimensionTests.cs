@@ -20,7 +20,7 @@ public class HazardDimensionTests
             new[] { "Primary", "Secondary" },
             Enum.GetNames<HazardDimension>());
 
-        // Explicit values are port indices (architecture doc §6.5).
+        // Explicit values are port indices (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §6.5).
         Assert.AreEqual(0, (int)HazardDimension.Primary);
         Assert.AreEqual(1, (int)HazardDimension.Secondary);
     }

@@ -19,7 +19,7 @@ using RMC.TotalRisk.Systems.Components.Graph;
 namespace RMC.TotalRisk.Tests.Analyses;
 
 /// <summary>
-/// Unit tests for the unified sensitivity engine (Phase 6.6) — the measure-level and
+/// Unit tests for the unified sensitivity engine — the measure-level and
 /// hazard-level outputs against seed-rederived knowledge inputs: enum pins, the input-column
 /// walk (labels, coupling columns, shared-instance dedup), the scope model, rank-exactness on
 /// monotone maps, the profile-axis-native hazard interpretation, the null contracts, and the
@@ -176,8 +176,8 @@ public class SensitivityTests
 
     /// <summary>
     /// Verifies the input-column walk: an uncertain consequence contributes its coupling
-    /// column (consequences are outside the sampler walk — their knowledge is the Q-N shared
-    /// draw), and one response instance shared by two modes contributes exactly one column
+    /// column (consequences are outside the sampler walk — their knowledge is the shared
+    /// failure/non-failure coupling draw), and one response instance shared by two modes contributes exactly one column
     /// (one instance = one knowledge quantity).
     /// </summary>
     [TestMethod]
@@ -327,7 +327,7 @@ public class SensitivityTests
     }
 
     /// <summary>
-    /// Verifies the profile-axis-native interpretation (user-ratified): with a deterministic
+    /// Verifies the profile-axis-native interpretation: with a deterministic
     /// rating selected as the profile axis, the tornado at profile level T(h) is bit-identical
     /// to the raw-axis tornado at h on the unprofiled clone — each realization inverts its own
     /// sampled chain, and the seed-inert selector leaves the draws untouched.

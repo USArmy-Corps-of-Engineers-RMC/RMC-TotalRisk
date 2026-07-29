@@ -90,7 +90,7 @@ public class SystemRealizationTests
     }
 
     /// <summary>
-    /// Verifies the multi-consequence surface (Phase 6.5): EnsureAdditionalCurves cascades the
+    /// Verifies the multi-consequence surface: EnsureAdditionalCurves cascades the
     /// slots through the tree with fresh extent slots, and the additional curves, extents, and
     /// declared labels survive the JSON round trip bit-faithfully.
     /// </summary>

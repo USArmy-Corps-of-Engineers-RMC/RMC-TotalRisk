@@ -23,7 +23,7 @@ public class CanonicalizationRulesTests
         string[] audited =
         {
             "Id", "Name", "Description",
-            // Appended with Phase 10A expanded response outputs: persistence addresses and
+            // Appended with the expanded response outputs: persistence addresses and
             // migration labels, not projected compute identity.
             "SelectedBranchId", "SelectedBranchName",
             "SourceBranchId", "SourceBranch",
@@ -32,7 +32,7 @@ public class CanonicalizationRulesTests
             "SpecifiedHazard", "HazardUnit", "TransformedHazard", "TransformedHazardUnit",
             "SpecifiedConsequence", "ConsequenceUnit",
             "NameOnDisk", "Guid", "LeftPosition", "TopPosition", "ChartSettings",
-            // Appended with the Phase 4 analysis options: records who wrote the integration
+            // Appended with the analysis options: records who wrote the integration
             // settings, not what they are.
             "UseDefaults",
         };
