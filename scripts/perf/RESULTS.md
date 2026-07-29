@@ -404,12 +404,18 @@ characterization measurements under the existing harness convention.
 |---|---:|---:|---:|---:|---:|
 | uncached baseline (`cd48c768` + fixture) | 0.086353 | 51.70 | 1.157486 | 1,695.75 | n/a |
 | compiled-plan cache | **0.031395** | **20.55** | **0.239866** | **99.77** | **1** |
+| Phase 10A close (`--reps 3`) | **0.035477** | **20.55** | **0.283314** | **99.79** | **1** |
 
 That matched pair is 2.75x faster with 2.52x less allocation during setup and 4.83x faster with
 17.00x less allocation across repeated indexed reads. Evaluation is one parent-before-child pass
 over the 1,104 compiled edges for each hazard ordinate. The measurement deliberately includes
 public immutable branch-sample construction; the remaining 99.77 MB is predominantly the 745 x 33
 public output matrix repeated 32 times, not occurrence compilation or graph search.
+
+The phase-close row is the mandatory isolated invocation
+`dotnet run -c Release --project scripts/perf/PerfHarness -- --reps 3 F5`. Its ordinary wall-clock
+movement remains within the workstation variation described above; allocations, the single-plan
+publication count, expanded shape, and result hash are the deterministic regression signals.
 
 The byte gate is identical before and after caching:
 

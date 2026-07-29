@@ -20,9 +20,11 @@ namespace RMC.TotalRisk.Verification.RiskFunctions.Responses;
 /// products and direct uncertainty-table samples. This partial family covers scalar and aligned
 /// tables, recursive response probability sources, internal/external independent-clone links,
 /// two-mode round trips, occurrence-level LHS reproducibility, legacy recursive XML conversion,
-/// representative shipped templates, and graph-connected arbitrary n-way per-leaf consequences.
-/// Routing Monte Carlo, aggregate LHS variance, thread-count reproducibility, and performance
-/// remain future rows in the normative verification plan.
+/// representative shipped templates, graph-connected arbitrary n-way per-leaf consequences,
+/// independent fixed-seed branch-routing Monte Carlo, aggregate LHS variance reduction with
+/// complete strata coverage, and end-to-end sequential/multi-worker/default-scheduler
+/// reproducibility. The isolated F5 harness supplies the family performance and byte-gate
+/// evidence recorded in <c>scripts/perf/RESULTS.md</c>.
 /// </summary>
 /// <remarks>
 /// <para>

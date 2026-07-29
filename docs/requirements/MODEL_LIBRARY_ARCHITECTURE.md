@@ -2,6 +2,12 @@
 
 > Living architectural specification for `RMC.TotalRisk.dll` — the headless .NET 10 compute library at the heart of the v1.1.0 modernization. **Authoritative home (since 2026-07-20): `docs/requirements/` in the RMC-TotalRisk repo**; the phased plan implementing this spec is [../ROADMAP.md](../ROADMAP.md). The copy at the `C:\GIT\RMC-TotalRisk-Dev` root is frozen with a pointer here, and legacy porting-source paths referenced below (e.g., `RMC-TotalRisk/RMC.TotalRisk.IO/...`) live in that Dev repo. The locked sections are the contract every cluster-port PR references.
 
+**Status**: 2026-07-28 — **v0.22** (Phase 10A complete). The common/event-tree foundation now
+meets every applicable definition-of-done gate in the normative tree-response design: controlled
+authoring/references, recursive LHS, two-mode persistence, projected identity, expanded stable
+ports, immutable compiled evaluation, fixed-seed property/routing/LHS/thread evidence, >90% fast
+coverage, and hash-gated F5 performance. Phase 10B exact static fault trees are unblocked, not begun.
+
 **Status**: 2026-07-28 — **v0.21** (Phases 10A/10B design ratification). [EVENT_AND_FAULT_TREE_RESPONSE_DESIGN.md](EVENT_AND_FAULT_TREE_RESPONSE_DESIGN.md) is the normative specialization for tree response functions. It resolves Q-B and Q-O: event and fault trees create conditional fragility only; event links are independent compiled clones; fault links explicitly distinguish shared logical events from independent clones; both gain controlled authoring/graph algorithms, recursive LHS, two-mode references, and projected identity; static fault probability uses an exact ROBDD. Secondary-hazard event nodes are excluded, while `WeightedHazardLevel` remains active bivariate-response scope. Phase 10 is split into 10A common/event foundation and 10B fault trees.
 
 **Status**: 2026-07-25 — **v0.19** (Phase 9 partial landing: composite hazard, transform, and response. **Q-Y ADDED AND RESOLVED** — composite mixtures are aleatory only; see §11 Q-Y, the amended §5.5.3 hash rows for the three composites, the corrected §5.8.4 dimension rows (both were pre-Q-V), and the practitioner doctrine in `docs/technical-reference/composite-functions.md`.)

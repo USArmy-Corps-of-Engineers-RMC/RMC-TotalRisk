@@ -342,6 +342,21 @@ namespace RMC.TotalRisk.Analyses
         /// </summary>
         internal Action? RunWorkerObserver { get; set; }
 
+        /// <summary>
+        /// Optional internal cap on ensemble scheduling concurrency. Null preserves the production
+        /// <see cref="ParallelOptions"/> default; friend tests set a positive value to prove that
+        /// index-owned realization writes and sequential reductions are thread-count invariant.
+        /// Runtime-only: never serialized, hashed, or copied into a model/run snapshot.
+        /// </summary>
+        internal int? MaximumDegreeOfParallelismOverride { get; set; }
+
+        /// <summary>
+        /// Optional internal ensemble-iteration observer. Friend tests record executing thread
+        /// IDs to prove a capped run actually used multiple workers. Null in production and
+        /// runtime-only: never serialized, hashed, or copied into a model/run snapshot.
+        /// </summary>
+        internal Action? EnsembleWorkerObserver { get; set; }
+
 
         /// <summary>Backing field for <see cref="Name"/>.</summary>
         private string _name = "Risk Analysis";
@@ -1471,8 +1486,12 @@ namespace RMC.TotalRisk.Analyses
             var flagsPerRealization = new RiskComputeFlags[realizationCount];
             long completed = 0;
 
-            Parallel.For(0, realizationCount, new ParallelOptions { CancellationToken = token }, index =>
+            var parallelOptions = new ParallelOptions { CancellationToken = token };
+            if (MaximumDegreeOfParallelismOverride.HasValue)
+                parallelOptions.MaxDegreeOfParallelism = MaximumDegreeOfParallelismOverride.Value;
+            Parallel.For(0, realizationCount, parallelOptions, index =>
             {
+                EnsembleWorkerObserver?.Invoke();
                 var flags = new RiskComputeFlags();
                 var realization = ComputeRealization(index, flags, token);
                 realizations[index] = realization;

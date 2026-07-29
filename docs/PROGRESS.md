@@ -1,5 +1,51 @@
 # Progress Log
 
+## 2026-07-28 - Phase 10A event-tree response COMPLETE
+
+**Goal and authority:** close every remaining Phase 10A gate without changing production probability
+propagation, sibling normalization, remainder/path products, interpolation, sampling, seed recipes,
+tolerances, clipping, canonical identity, serialization/reference semantics, or reduction order.
+The only production surface added is an internal, runtime-only scheduling cap and null-by-default
+iteration observer used to prove actual thread-count invariance; neither is serialized, hashed, or
+copied into a run snapshot, and production defaults are unchanged.
+
+**Fixed-seed properties:** `EventTreePropertyTests` generates 128 valid small trees from seeds
+`0x10A20261`..`0x10A20264` (32 cases each), spanning shallow/deep/wide topology, every sibling-sum
+regime, both remainder forms, terminal classifications, scalar/aligned-table/nested sources,
+internal/external repeated clones, and both XML modes. An independent recursive oracle checks every
+terminal, aggregate failure, and mass conservation. Round trips, explicit materialization,
+metadata/GUID/name/order invariance, and compute sensitivity are pinned. Failures report a
+deterministically minimized self-contained XML counterexample after at most 32 accepted
+branch/subtree removals or scalar-source simplifications.
+
+**Verification closure:** the independent BCL router uses seed **10,202,671**, **N=1,000,000**, and
+12 simultaneous terminal/aggregate comparisons under a finite-sample Hoeffding union bound with
+familywise `alpha=1e-6`; maximum error **0.001039** is below the common bound
+**0.00291492404603552**. Aggregate SRS/LHS uses **N=256**, **R=12**, seeds
+**10,202,731..10,202,742**, exact expectation 0.4, and complete two-dimension strata checks:
+sample variances are **1.2758276684807033e-5** versus **3.3868001385987057e-10**, ratio
+**37,670.592189374926**. The production expanded five-port analysis uses seed **10,202,791** and 100
+LHS realizations: sequential, capped four-worker, and two default runs are bit-identical in
+aggregate/per-leaf curves, full JSON, hashes, complete seed maps, and stable IDs/ports; observed
+unique executing thread identities were 1, 5, and 23/26.
+
+**Coverage and performance:** the Release fast suite is **781/781** and unit-only library coverage is
+**90.40% (12,257/13,584)**. Final isolated F5 median-of-three: one published plan; 1,105
+instructions, 1,104 edges, 745 branches; setup **0.035477 s / 20.55 MB**; 32 indexed reads
+**0.283314 s / 99.79 MB**; unchanged SHA-256
+`2ae3925bfb7488cbfa4bd516cc2d4eb7d71c6f84bfff9f4891873a2bfd811349`. Wall-clock movement is
+ordinary workstation variation; the deterministic allocation shape, plan count, and hash are stable.
+
+**Final gates:** warning-free `dotnet build`; Release fast suite **781/781**; isolated
+`EventTreeVerification` **14/14**; coverage **90.40%**; traceability **142 legacy methods / 49
+report scenarios**; code/XML-doc/namespace/dependency validation green; isolated final F5/hash green;
+and unstaged whitespace validation green.
+
+**Status:** isolated `EventTreeVerification` is **14/14**. The roadmap, normative design,
+architecture history, technical reference/map, verification page/map, performance ledger, and
+ported-types matrix now record complete evidence. Phase 10A is complete and Phase 10B is unblocked;
+Phase 10B was not begun in this session.
+
 ## 2026-07-28 - Phase 10A immutable compiled-plan/performance slice landed (PARTIAL)
 
 **Goal:** reuse one immutable expanded event-tree occurrence/evaluation plan across all read paths, invalidate every affected owner when live compute content changes, preserve exact rollback, and characterize a large repeated-link tree without changing any established numerical rule.

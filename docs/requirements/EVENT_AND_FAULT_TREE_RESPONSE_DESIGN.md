@@ -1,8 +1,10 @@
 # Event-Tree and Fault-Tree Response Functions
 
 > **Status:** Normative implementation design, approved for Phases 10A and 10B (2026-07-28).
-> **Implementation:** Phase 10A now includes the immutable compiled occurrence/evaluation cache,
-> complete dependency invalidation, transactional cache rollback, and the recorded F5 event-tree fixture.
+> **Implementation:** Phase 10A is complete: the controlled event-tree model, recursive sources,
+> independent links, both XML modes, projected identity, expanded graph outputs, immutable compiled
+> plan, fixed-seed property/routing/LHS/thread verification, >90% coverage, and recorded F5 fixture
+> satisfy the applicable §17 gates. Phase 10B is unblocked but has not begun.
 > **Applies to:** `RMC.TotalRisk.dll`, its fast unit tests, and `RMC.TotalRisk.Verification`.
 > **Authority:** This document specializes, but does not replace, [MODEL_LIBRARY_ARCHITECTURE.md](MODEL_LIBRARY_ARCHITECTURE.md). If an implementation discovery would change a probability rule, sampling rule, canonical-hash contract, or reference-result contract described here, stop and obtain Haden Smith's approval before changing the design.
 
@@ -350,6 +352,11 @@ remainder, path-product, and aggregate ordering exactly. The F5 measurements and
 gate are recorded in `scripts/perf/RESULTS.md`; no new performance threshold or numerical allowance
 was introduced.
 
+Phase-close evidence is the 128-case fixed-seed property corpus, `EventTreeVerification` 14/14,
+the million-route simultaneous-binomial oracle, 12-replicate aggregate SRS/LHS comparison,
+sequential/four-worker/two-default production reproducibility, 781/781 fast tests, 90.40%
+(12,257/13,584) unit-only line coverage, and the one-plan F5 byte gate.
+
 ## 10. Serialization and canonical identity
 
 The canonical v1.1 XML shape is explicit and versioned. Node collections serialize once and structural relationships use IDs; recursive duplicate serialization is forbidden. Attribute order and existing attribute names become contract when the implementation lands.
@@ -426,7 +433,7 @@ Warnings versus errors must follow existing response validation: correctable sha
 
 ### Phase 10A — common foundation and event-tree response
 
-> **Implementation status (2026-07-28, partial):** six landed vertical slices now cover the
+> **Implementation status (2026-07-28, COMPLETE):** the landed Phase 10A implementation covers the
 > common contracts, controlled transactional authoring/topology, recursive sources and independent
 > links, legacy conversion/templates, and risk-graph end-state integration. The graph slice keeps
 > the ordinary response view at ports 0 = Fail and 1 = Non-Fail and adds an opt-in expanded view:
@@ -442,9 +449,10 @@ Warnings versus errors must follow existing response validation: correctable sha
 > and projected canonical identity understand arbitrary n-way leaves; graph-connected consequence
 > probabilities are independently verified and aggregate failure remains unchanged. The established
 > raw/normalized sibling, residual, interpolation, sampling, seed, and reference rules are
-> unchanged. Phase 10A remains open for immutable compiled-plan caching/invalidation, large-tree
-> performance, property-based testing, branch-routing Monte Carlo, aggregate LHS variance
-> reduction, and the remaining thread-count, coverage, and performance gates.
+> unchanged. The immutable compiled plan/F5 fixture, fixed-seed 128-case property corpus,
+> independent branch-routing Monte Carlo, aggregate LHS variance reduction, actual multi-worker
+> reproducibility, 90.40% coverage, and final performance run close every applicable gate. Phase
+> 10B is therefore unblocked; its exact fault-tree implementation remains separate future work.
 
 1. Add append-only discriminators, common tree interfaces/results, source/link/reference types, and diagnostic codes.
 2. Add the controlled `EventTree` authoring model and transactional manipulation/search/topology APIs.
@@ -492,6 +500,9 @@ Every public class receives a corresponding test class in a mirrored folder. Fas
 
 Property-based tests should generate small valid trees and compare traversal mass conservation, clone equivalence, serialization equivalence, and fault BDD outputs against exhaustive Boolean enumeration. Generation must use fixed seeds and print the minimized serialized counterexample on failure.
 
+Phase 10A satisfies the event-tree portion with four generator seeds, 128 cases, and a bounded
+deterministic branch/subtree/source minimizer. Fault BDD generation remains a Phase 10B gate.
+
 ## 15. Verification plan
 
 ### 15.1 `EventTreeVerification`
@@ -506,6 +517,11 @@ Property-based tests should generate small valid trees and compare traversal mas
 - Pin same-seed/thread-count/round-trip/metadata bit identity and LHS variance reduction.
 
 Legacy `Test_Product` contains no assertion and does not exercise `EventTreeResponse`; it must not be cited as a compute oracle. Its simple multiplication idea may seed an analytic test, but expected values are independently derived and documented.
+
+Phase 10A closure: the isolated family is 14/14. Routing uses seed 10,202,671 and N=1,000,000 with
+a 12-comparison finite-sample Hoeffding union bound at familywise `alpha=1e-6`; LHS uses N=256, R=12, seeds
+10,202,731..10,202,742 and an affine exact expectation; thread reproducibility uses seed 10,202,791
+and 100 realizations. Full derivations, measurements, and limitations are on the results page.
 
 ### 15.2 `FaultTreeVerification`
 
@@ -555,6 +571,12 @@ Phase 10A or 10B is complete only when all applicable items below are true:
 - performance fixtures and result hashes are recorded, resource limits are exercised, and no accuracy-reducing fallback exists;
 - `validate-code-xml-docs.ps1` and `validate-verification-traceability.ps1` pass; and
 - `ROADMAP.md`, `PROGRESS.md`, architecture status/history, technical-reference map, verification map, references, and this document reflect the landed behavior.
+
+**Phase 10A closure evidence (2026-07-28):** every applicable item above is satisfied. The complete
+P/T/V matrix row, 781/781 fast suite, 90.40% unit-only coverage, isolated 14/14 verification,
+current/legacy templates, two-mode/hash/seed/branch-output/manipulation contracts, deterministic
+property/routing/LHS/thread evidence, one-plan F5 performance/hash record, validators, and all maps
+are current. Phase 10B is unblocked and was not started as part of this closure.
 
 ## References
 

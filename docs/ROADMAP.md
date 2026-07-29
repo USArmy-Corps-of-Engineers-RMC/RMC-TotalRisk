@@ -544,7 +544,7 @@ unapproved tolerance, correlation, normalization, seed, or probability-formula c
 > `ComponentGraph`, and `RiskAnalysis`. The Phase 6.7 binary graph contract remains intact;
 > the opt-in expanded view is its additive downstream extension.
 
-> **Partially landed (2026-07-28):** seven coherent vertical slices provide the common branch
+> **COMPLETE (2026-07-28):** the landed implementation provides the common branch
 > contracts, controlled nodes and authoring, recursive probability sources and independent links,
 > current and legacy two-mode XML, projected identity, exhaustive terminal propagation, and an
 > immutable instance-scoped compiled plan. The graph slice integrates arbitrary n-way end states:
@@ -557,18 +557,19 @@ unapproved tolerance, correlation, normalization, seed, or probability-formula c
 > per-leaf sampling all use that shared surface. Complete direct/recursive dependency tracking and
 > fingerprints prevent stale reuse; validated mutations invalidate lazily and failed edits restore
 > the exact cache/port/sampler state. F5 records a 1,105-instruction repeated-link tree with an
-> unchanged result hash and material setup/read reductions. Eleven isolated verification tests
-> remain green, including graph-connected consequences against an independent n-way path-product
-> oracle. Phase 10A remains open for property-based testing, branch-routing Monte Carlo, aggregate
-> LHS variance reduction, and the remaining thread-count, coverage, and phase-close performance gates.
+> unchanged result hash and stable cached allocation shape. The fixed-seed 128-case property corpus,
+> independent million-route Monte Carlo, 12-replicate SRS/LHS comparison, and production
+> sequential/four-worker/default scheduling test close the remaining gates. The isolated family is
+> 14/14, fast suite 781/781, coverage 90.40% (12,257/13,584), and final F5 median is recorded.
+> Phase 10B is unblocked; no Phase 10B implementation began here.
 
 **Scope:** implement the normative [event-tree and fault-tree response design](requirements/EVENT_AND_FAULT_TREE_RESPONSE_DESIGN.md) §§1–15: the controlled event-tree model; scalar/tabular/response probability sources; internal and external independent-clone links; copy/paste/add/insert/delete/move/replace/link/materialize operations; deterministic traversal, topological sort, search, reachability, pruning, and cycle diagnostics; compiled linear-time probability propagation; mean/percentile/indexed response and per-leaf branch outputs; `RiskSerializationMode`, projected canonical identity, legacy XML conversion, recursive sampler discovery, content-derived seeds, and LHS. Per-leaf output ports extend the Phase 6.7 response-port machinery without moving hazard frequency, consequence, or risk math into the tree.
 
 `SecondaryHazardNode` is excluded: both legacy implementations comment it out, no factory/template/test uses it, and it is not active v1.0 behavior. `WeightedHazardLevel` is **not** dead: legacy `BivariateResponse` uses it, so it remains in Phase 11 rather than Phase 10A.
 
-**Verification:** `EventTreeVerification` converts and asserts the legacy `TestIO` shape and exact shipped `Basic` and `Concrete Dam Gate Failure` templates against independent terminal-for-terminal path-product/mass-conservation oracles; pins indexed child parity, independent-link versus explicit-clone equivalence, nested response sampling, serialization-mode parity, and reproducibility/hash invariance; and verifies graph-connected arbitrary n-way per-leaf consequences against an independent path-product oracle while preserving aggregate failure parity. Remaining gates add fixed-seed Monte Carlo branch routing, aggregate LHS variance reduction, thread-count reproducibility, and performance/property-based coverage. Legacy `Test_Product` has no assertion and does not construct an event tree; it is not a compute oracle.
+**Verification:** `EventTreeVerification` converts and asserts the legacy `TestIO` shape and exact shipped `Basic` and `Concrete Dam Gate Failure` templates against independent terminal-for-terminal path-product/mass-conservation oracles; pins indexed child parity, independent-link versus explicit-clone equivalence, nested response sampling, serialization-mode parity, and reproducibility/hash invariance; verifies graph-connected arbitrary n-way per-leaf consequences; and closes independent fixed-seed routing, aggregate LHS variance, and thread-count reproducibility. Fast fixed-seed properties and isolated F5/coverage gates complete the evidence. Legacy `Test_Product` has no assertion and does not construct an event tree; it is not a compute oracle.
 
-**Exit criteria:** common/event-tree family P/T/V; ≥90% fast-suite coverage retained; performance fixture and verification results recorded; all manipulation/reference/branch-output/LHS/hash gates in the normative design green.
+**Exit criteria (met):** common/event-tree family P/T/V; ≥90% fast-suite coverage retained; performance fixture and verification results recorded; all manipulation/reference/branch-output/LHS/hash gates in the normative design green.
 
 ## Phase 10B — Static fault-tree response (designed 2026-07-28)
 

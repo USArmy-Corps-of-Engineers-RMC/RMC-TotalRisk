@@ -85,18 +85,17 @@ the test executable with a TRX report:
 | [Composite response](composite-response.md) | `CompositeResponseVerification` | NEW Phase 9 family: the shared Table 44 scenario read on the fragility (probability) axis + exact weakest-link probability identities (union under independence, maximum under comonotonic) + a hazard-grid index-parity band oracle | ✅ Verified (2026-07-25) |
 | [Composite transform](composite-transform.md) | `CompositeTransformVerification` | NEW Phase 9 greenfield family (no legacy implementation, no report table): exact linear-combination algebra forward and inverse, exact Normal theory for the ω²-additive ensemble variance (the check that discriminates independent from co-monotonic child seeding), and a realization-for-realization identity against the independently reproduced child-seed recipe | ✅ Verified (2026-07-25) |
 | [Composite engine scenarios](composite-engine.md) | `CompositeEngineVerification` | All four executable `Test_Composite.vb` configurations and the risk-analysis mixture identity behind the full engine, checked against independent fixed quadrature and child-engine identities | ✅ Verified (2026-07-27) |
-| [Event-tree response - foundation through compiled planning and graph integration](event-tree.md) | `EventTreeVerification` | Analytic path products/normalization, aligned-table LHS parity, explicit-clone link parity, two-mode resolver round trips, nested caller-hazard/LHS parity, legacy conversion/templates, graph-connected arbitrary n-way per-leaf consequences, and hash-gated compiled-plan parity/performance | 🟡 Seven slices (11/11 numerically verified, 2026-07-28); Phase 10A verification remains open |
+| [Event-tree response - Phase 10A complete](event-tree.md) | `EventTreeVerification` | Analytic path products/normalization, aligned-table/nested/link/two-mode/legacy/template/per-leaf parity, independent million-route Monte Carlo, aggregate SRS/LHS variance reduction, thread-count bit identity, fixed-seed generated properties, coverage, and hash-gated compiled-plan performance | ✅ Verified (14/14 isolated; Phase 10A complete 2026-07-28) |
 
-## Remaining tree-response verification
+## Tree-response phase status
 
-The foundation, independent-link, recursive-source, legacy-conversion/template, graph-integration,
-and compiled-plan slices are executable and documented above. Controlled authoring/topology,
-stale-connection behavior, cache invalidation/rollback, bit parity, and large-tree concurrency are
-covered by fast tests; the numerical graph test independently checks every connected n-way leaf and
-aggregate parity. F5 records the event-tree setup/read/allocation characteristics with an unchanged
-byte gate. Still open are property-based testing, branch-routing Monte Carlo, aggregate LHS variance
-reduction, and the remaining thread-count/coverage/phase-close performance gates. Phase 10B
-will add `FaultTreeVerification`. The complete gates are specified in the normative [event-tree and fault-tree response design](../requirements/EVENT_AND_FAULT_TREE_RESPONSE_DESIGN.md) §15.
+The Phase 10A foundation, independent-link, recursive-source, legacy/template, graph-integration,
+compiled-plan, fixed-seed property, routing, LHS, thread-count, coverage, and performance gates are
+executable and documented above. Controlled authoring/topology, stale connections, cache
+invalidation/rollback, bit parity, and large-tree concurrency remain fast-test tripwires; the
+isolated numerical family is 14/14 and F5 retains one compiled plan plus its unchanged byte gate.
+Phase 10A is complete. Phase 10B is unblocked and will add `FaultTreeVerification`; it was not begun
+as part of this closure. Its gates remain specified in the normative [event-tree and fault-tree response design](../requirements/EVENT_AND_FAULT_TREE_RESPONSE_DESIGN.md) §15.
 
 **Forensic traceability closure.** The
 [legacy traceability matrix](legacy-traceability.csv) accounts for all 142 legacy test methods

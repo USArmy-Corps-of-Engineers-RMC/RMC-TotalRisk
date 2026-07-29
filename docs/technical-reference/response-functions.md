@@ -136,9 +136,12 @@ defaults to reject when a connected terminal would disappear; cascade clears onl
 that branch; materialize succeeds only when exact link materialization retains its ID and port.
 The graph never fabricates an equivalent-looking replacement for a deleted direct terminal.
 
-Still open in Phase 10A are property-based testing, branch-routing Monte Carlo, aggregate LHS
-variance reduction, and the remaining thread-count, coverage, and phase-close performance exit
-gates. The event-tree F5 compiled-plan performance characterization is recorded and hash-gated.
+Phase 10A is complete. Four fixed generator seeds cover 128 valid property cases with deterministic
+counterexample minimization; independent fixed-seed routing, affine aggregate SRS/LHS variance,
+and production sequential/multi-worker/default scheduling close the numerical and reproducibility
+gates. The fast suite retains 90.40% unit-only library coverage, and the one-plan F5 compiled-plan
+performance characterization remains allocation- and hash-gated. Phase 10B is unblocked but its
+exact fault-tree implementation has not begun.
 
 
 ## Contract

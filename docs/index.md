@@ -10,7 +10,7 @@ Development documentation for the v1.1 effort. The v1.0 end-user documentation (
 | [verification/](verification/README.md) | Per-family verification results (the living v1.1 counterpart of the 2024 Word report) |
 | [references.md](references.md) | Consolidated IEEE-numbered bibliography |
 | [requirements/MODEL_LIBRARY_ARCHITECTURE.md](requirements/MODEL_LIBRARY_ARCHITECTURE.md) | Normative model-library architecture spec (layout, contracts, seeding, sampling, clusters, engine) |
-| [requirements/EVENT_AND_FAULT_TREE_RESPONSE_DESIGN.md](requirements/EVENT_AND_FAULT_TREE_RESPONSE_DESIGN.md) | Normative Phase 10A/10B implementation design: conditional-fragility boundary, event/fault math, references, authoring, LHS, tests, performance, and cost-benefit |
+| [requirements/EVENT_AND_FAULT_TREE_RESPONSE_DESIGN.md](requirements/EVENT_AND_FAULT_TREE_RESPONSE_DESIGN.md) | Normative tree-response design: Phase 10A event foundation complete; Phase 10B exact fault trees unblocked; conditional-fragility boundary, math, references, authoring, LHS, tests, and performance |
 | [requirements/SHARED_FUNCTIONS_STRATEGY.md](requirements/SHARED_FUNCTIONS_STRATEGY.md) | Cross-repo strategy: shared function math in Numerics; BestFit import contract |
 | [technical-reference/](technical-reference/README.md) | Per-family math documentation (grows per phase) |
 | verification-requests/ | Specs for user-executed reference runs that produce committed benchmark data (created as needed) |
