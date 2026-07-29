@@ -409,7 +409,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
 
             if (_secondaryInput != null)
             {
-                messages.Add($"Error: The response element '{Name}' has a secondary input, which is reserved for bivariate response functions (Phase 11).");
+                messages.Add($"Error: The response element '{Name}' has a secondary input, which is reserved for future bivariate response functions.");
             }
 
             return (messages.FindIndex(m => m.StartsWith("Error:", StringComparison.Ordinal)) < 0, messages);

@@ -87,7 +87,7 @@ public class ResponseElementTests
         };
         var (secondaryValid, secondaryMessages) = secondary.Validate();
         Assert.IsFalse(secondaryValid);
-        Assert.IsTrue(secondaryMessages.Any(m => m.Contains("reserved for bivariate")));
+        Assert.IsTrue(secondaryMessages.Any(m => m.Contains("reserved for future bivariate")));
     }
 
     /// <summary>Verifies connection serialization including the reserved secondary triple.</summary>

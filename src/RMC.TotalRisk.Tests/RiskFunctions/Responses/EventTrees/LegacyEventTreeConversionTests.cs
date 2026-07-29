@@ -174,7 +174,7 @@ public class LegacyEventTreeConversionTests
             (LegacyRoot("HazardLevels", "0|1", new XElement("Node",
                 new XAttribute("Type", "SecondaryHazardNode"), new XAttribute("Name", "Secondary"))), "SecondaryHazardNode"),
             (LegacyRoot("HazardLevels", "0|1", new XElement("Node",
-                new XAttribute("Type", "WeightedHazardLevel"), new XAttribute("Name", "Bivariate"))), "Phase 11"),
+                new XAttribute("Type", "WeightedHazardLevel"), new XAttribute("Name", "Bivariate"))), "bivariate-response"),
             (LegacyRoot("HazardLevels", "0|1", new XElement("Node",
                 new XAttribute("Type", "UnknownNode"), new XAttribute("Name", "Mystery"))), "UnknownNode"),
             (LegacyRoot("HazardLevels", "0|1", new XElement("Node",

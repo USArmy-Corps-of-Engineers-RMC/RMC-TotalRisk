@@ -214,7 +214,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                 if (!Guid.TryParse(target, out Guid targetId) || targetId == Guid.Empty)
                     throw MigrationError(path, $"legacy EventNode ReferenceNode id '{target}' is invalid");
                 throw MigrationError(path,
-                    $"legacy EventNode probability reference '{target}' is unsupported because its shared-probability semantics cannot be represented by a Phase 10A IndependentClone structural link without changing results");
+                    $"legacy EventNode probability reference '{target}' is unsupported because its shared-probability semantics cannot be represented by an IndependentClone structural link without changing results");
             }
             throw MigrationError(path, $"unsupported legacy probability source '{sourceKind}'");
         }
@@ -350,10 +350,10 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
         {
             if (string.Equals(type, "SecondaryHazardNode", StringComparison.Ordinal))
                 throw MigrationError(path,
-                    "SecondaryHazardNode is excluded from Phase 10A by the ratified event-tree design");
+                    "SecondaryHazardNode is excluded by the event-tree design");
             if (string.Equals(type, "WeightedHazardLevel", StringComparison.Ordinal))
                 throw MigrationError(path,
-                    "WeightedHazardLevel belongs to the Phase 11 bivariate-response port and cannot be loaded as an event-tree node");
+                    "WeightedHazardLevel belongs to the future bivariate-response capability and cannot be loaded as an event-tree node");
         }
 
         /// <summary>Reads a persistent node id, accepting both legacy casing variants.</summary>
