@@ -49,14 +49,14 @@ namespace RMC.TotalRisk.Analyses
         /// <summary>
         /// Assembles the five risk-type LEC percentile curves onto the target curve sets: at
         /// each grid consequence, the realizations' exceedance probabilities are interpolated
-        /// (log-log â€” v1.0 behavior), sorted for the percentile levels, and summed sequentially
+        /// (log-log — v1.0 behavior), sorted for the percentile levels, and summed sequentially
         /// for the mean.
         /// </summary>
         /// <param name="realizations">The realization ensemble.</param>
         /// <param name="source">Selects the source curve set from a realization.</param>
         /// <param name="target">Selects the target curve set by percentile slot (0 lower, 1 upper, 2 median, 3 mean).</param>
         /// <param name="consequenceGrid">The shared descending consequence grid.</param>
-        /// <param name="tail">The percentile tail level, (1 âˆ’ width)/2.</param>
+        /// <param name="tail">The percentile tail level, (1 − width)/2.</param>
         /// <param name="token">The run cancellation token.</param>
         internal static void AssembleLecPercentiles(SystemRealization[] realizations,
             Func<SystemRealization, Curves> source, Func<int, Curves> target,
@@ -159,7 +159,7 @@ namespace RMC.TotalRisk.Analyses
         /// <summary>
         /// Assembles one percentile curve family: each realization merge-walks the shared
         /// descending grid once with the monotone-cursor log-log interpolator
-        /// (<see cref="Curve.InterpolateLogLogDescending"/> â€” bit-identical to the per-query
+        /// (<see cref="Curve.InterpolateLogLogDescending"/> — bit-identical to the per-query
         /// Numerics interpolation it replaces, O(n + m) per realization instead of a binary
         /// search per ordinate, in parallel over realizations); then per grid ordinate
         /// (parallel, index-owned) the values are compacted in realization order, summed
@@ -259,8 +259,8 @@ namespace RMC.TotalRisk.Analyses
         /// Assembles the risk-profile percentiles for one component and one consequence type
         /// onto the four percentile realizations: the hazard-frequency, conditional-consequence,
         /// and cumulative-expected-consequence profiles on all five risk-type streams (v1.0
-        /// banded all five â€” the Total-only interim was a parity gap, restored Phase 6.6), plus
-        /// â€” for the primary consequence type â€” the Fail stream's cumulative failure probability
+        /// banded all five — the Total-only interim was a parity gap, restored Phase 6.6), plus
+        /// — for the primary consequence type — the Fail stream's cumulative failure probability
         /// on the hazard grid and the system response profile on its own log-spaced
         /// exceedance-probability grid.
         /// </summary>
@@ -334,7 +334,7 @@ namespace RMC.TotalRisk.Analyses
 
         /// <summary>
         /// Builds a descending log-spaced grid over [minimum, maximum] with the given ordinate
-        /// count â€” the system response profile's exceedance-probability ladder.
+        /// count — the system response profile's exceedance-probability ladder.
         /// </summary>
         /// <param name="minimum">The positive grid minimum.</param>
         /// <param name="maximum">The grid maximum (greater than the minimum).</param>

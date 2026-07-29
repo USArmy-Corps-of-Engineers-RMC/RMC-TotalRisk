@@ -28,7 +28,7 @@ namespace RMC.TotalRisk.Analyses
 {
     /// <summary>
     /// The Monte Carlo risk analysis: content-seeded knowledge-uncertainty sampling over the
-    /// owned system components, adaptive Gaussâ€“Kronrod integration of the risk integrand, exact
+    /// owned system components, adaptive Gauss–Kronrod integration of the risk integrand, exact
     /// loss-exceedance-curve construction with the full risk-measure catalog, and percentile
     /// post-processing of the ensemble.
     /// </summary>
@@ -41,28 +41,28 @@ namespace RMC.TotalRisk.Analyses
     /// Ported from the v1.0 engine with the ratified v0.13 corrections
     /// (<c>docs/technical-reference/risk-integration.md</c>,
     /// <c>docs/technical-reference/loss-exceedance-curves.md</c>): the 1D integrator is
-    /// <c>AdaptiveGaussKronrod</c> (G10K21) used as an adaptive sampler â€” the returned integral
+    /// <c>AdaptiveGaussKronrod</c> (G10K21) used as an adaptive sampler — the returned integral
     /// is discarded and the recorded risk points are the product, with the refinement objective
     /// selected by <see cref="RiskAnalysisOptions.RiskIntegrand"/>; curves are built exactly from
     /// the recorded (mass, consequence) pairs; and seeding is content-based
-    /// (architecture doc Â§5.5.4): per-component seeds derive from the analysis seed, the
-    /// component's canonical hash, and its occurrence index â€” never from canvas order, so
+    /// (architecture doc §5.5.4): per-component seeds derive from the analysis seed, the
+    /// component's canonical hash, and its occurrence index — never from canvas order, so
     /// renaming, moving, or reordering components can never change results, and results are
     /// bit-identical at any thread count (every parallel write is index-owned; ensemble
     /// reductions run in a sequential post-pass, and percentile means are summed sequentially
-    /// rather than with parallel reductions â€” a deliberate determinism-over-throughput choice).
+    /// rather than with parallel reductions — a deliberate determinism-over-throughput choice).
     /// </para>
     /// <para>
-    /// <b>Ownership and persistence (architecture doc Â§8):</b> components and results arrive
+    /// <b>Ownership and persistence (architecture doc §8):</b> components and results arrive
     /// through the constructor (the BestFit analysis shape) and <see cref="ToXElement"/> writes
     /// the analysis metadata, the estimated flag, and the options only. Results are JSON
     /// containers; the consuming layer persists them separately.
     /// </para>
     /// <para>
     /// <b>Multi-component system risk (Phase 4b):</b> the additive method assumes strictly
-    /// independent components (ratified v0.13 â€” a supplied dependence is a validation error) and
+    /// independent components (ratified v0.13 — a supplied dependence is a validation error) and
     /// builds the true system loss exceedance curves by zero-inflated lattice convolution
-    /// (<see cref="SystemConvolution"/>) â€” the exact enumeration of all component
+    /// (<see cref="SystemConvolution"/>) — the exact enumeration of all component
     /// failure/non-failure combinations, where v1.0 combined two moments and produced no system
     /// curve at all; the reported stream probabilities keep the v1.0 system-state semantics
     /// (failure union, its complement). The joint method integrates the correlated hazard
@@ -70,7 +70,7 @@ namespace RMC.TotalRisk.Analyses
     /// component combinations instead of collapsing each component to its conditional mean (the
     /// documented v1.0 system-tail defect), accumulating recorded points across five recording
     /// passes with the masses self-normalized so the exhaustive budget is exactly one, and
-    /// exposing the VEGAS power-transform tail focus (Î³) with an automatic heuristic driven by a
+    /// exposing the VEGAS power-transform tail focus (γ) with an automatic heuristic driven by a
     /// deterministic per-component failure-probability quadrature probe.
     /// </para>
     /// <para>
@@ -79,19 +79,19 @@ namespace RMC.TotalRisk.Analyses
     /// mode-aware validation chain), the adaptive refinement objective is forced to
     /// <see cref="RiskIntegrand.TotalProbabilityOfFailure"/> (the configured objective applies to
     /// risk mode), and the annualized failure probability is read as the Fail stream's total
-    /// probability at every level â€” failure mode, component, and system (the same containers
+    /// probability at every level — failure mode, component, and system (the same containers
     /// serve both modes; a consequence-free model's curves are degenerate at zero consequence by
     /// construction).
     /// </para>
     /// <para>
     /// <b>Declared consequence-type axis (Phase 6.5, user-ratified):</b> the analysis declares
-    /// its ordered consequence types â€” the primary through
+    /// its ordered consequence types — the primary through
     /// <see cref="SpecifiedConsequence"/>/<see cref="ConsequenceUnit"/> and every additional
-    /// position through <see cref="AdditionalConsequenceTypes"/> â€” and validation strictly
+    /// position through <see cref="AdditionalConsequenceTypes"/> — and validation strictly
     /// matches each component's failure and non-failure paths against the declaration: counts
     /// and order always, labels and units whenever both sides are non-blank (blank is a
     /// wildcard). The declaration is label metadata: it can never enter a canonical hash, so it
-    /// never gates or rewires compute for a valid model â€” validity may depend on metadata
+    /// never gates or rewires compute for a valid model — validity may depend on metadata
     /// consistency while results identity depends only on compute-relevant content.
     /// </para>
     /// <para>
@@ -131,7 +131,7 @@ namespace RMC.TotalRisk.Analyses
 
         /// <summary>
         /// Initializes a risk analysis from its serialized configuration, with the components
-        /// and previously computed results supplied by the consuming layer â€” the BestFit
+        /// and previously computed results supplied by the consuming layer — the BestFit
         /// constructor shape (configuration from XML; model and results through arguments).
         /// </summary>
         /// <param name="components">The system components the analysis owns, in declared order.</param>
@@ -185,7 +185,7 @@ namespace RMC.TotalRisk.Analyses
 
         /// <summary>
         /// The engine's probability floor: the integration domain is
-        /// [1e-16, 1 âˆ’ 1e-16] in hazard non-exceedance probability (v1.0 constant).
+        /// [1e-16, 1 − 1e-16] in hazard non-exceedance probability (v1.0 constant).
         /// </summary>
         private const double ProbabilityFloor = 1e-16;
 
@@ -196,7 +196,7 @@ namespace RMC.TotalRisk.Analyses
 
         /// <summary>
         /// The number of independent VEGAS recording passes the joint path accumulates loss
-        /// exceedance points across (v1.0 recorded a single pass â€” far too sparse for a tail
+        /// exceedance points across (v1.0 recorded a single pass — far too sparse for a tail
         /// ordinate in D dimensions; ratified v0.13). The recorded masses are self-normalized by
         /// the realized weight sum, so a pass count truncated by the evaluation cap stays
         /// consistent.
@@ -236,7 +236,7 @@ namespace RMC.TotalRisk.Analyses
 
         /// <summary>
         /// The correlated component-hazard latent structure for the joint method (v1.0
-        /// off-diagonal constants; identity under independence). Run-scoped runtime state â€”
+        /// off-diagonal constants; identity under independence). Run-scoped runtime state —
         /// rebuilt by every run, never serialized, never hashed.
         /// </summary>
         private MultivariateNormal? _jointMultivariateNormal;
@@ -245,7 +245,7 @@ namespace RMC.TotalRisk.Analyses
         /// The lower Cholesky factor of the joint hazard covariance, extracted once per run so
         /// the VEGAS integrand applies the latent transform in place instead of allocating
         /// through <see cref="MultivariateNormal.InverseCDF(double[])"/> on every evaluation
-        /// (Phase 6.5; the in-place loop replicates the Numerics matrixâ€“vector accumulation
+        /// (Phase 6.5; the in-place loop replicates the Numerics matrix–vector accumulation
         /// order exactly, so the recorded stream is bit-identical). Run-scoped runtime state.
         /// </summary>
         private double[,]? _jointCholeskyLower;
@@ -268,14 +268,14 @@ namespace RMC.TotalRisk.Analyses
         /// <summary>
         /// The additive convolution order: component indices sorted by canonical hash, so the
         /// sequential pairwise convolution associates identically however the components are
-        /// declared â€” reordering components can never move the system curves by
+        /// declared — reordering components can never move the system curves by
         /// association-rounding. Run-scoped runtime state.
         /// </summary>
         private int[]? _additiveConvolutionOrder;
 
         /// <summary>
         /// The declared per-type consequence thresholds for the additional consequence types
-        /// (Phase 6.6), captured once per run from the descriptors â€” entry k applies to
+        /// (Phase 6.6), captured once per run from the descriptors — entry k applies to
         /// additional type k at every risk-measure site. Run-scoped runtime state.
         /// </summary>
         private double[]? _runAdditionalThresholds;
@@ -429,7 +429,7 @@ namespace RMC.TotalRisk.Analyses
         private readonly ReadOnlyCollection<string> _computationWarningsView;
 
         /// <summary>
-        /// The analysis display name. Metadata â€” serialized, stripped from the canonical hash.
+        /// The analysis display name. Metadata — serialized, stripped from the canonical hash.
         /// </summary>
         public string Name
         {
@@ -445,7 +445,7 @@ namespace RMC.TotalRisk.Analyses
         }
 
         /// <summary>
-        /// The analysis description. Metadata â€” serialized, stripped from the canonical hash.
+        /// The analysis description. Metadata — serialized, stripped from the canonical hash.
         /// </summary>
         public string Description
         {
@@ -493,12 +493,12 @@ namespace RMC.TotalRisk.Analyses
         }
 
         /// <summary>
-        /// The declared consequence types beyond the primary, in order: entry k âˆ’ 1 declares
+        /// The declared consequence types beyond the primary, in order: entry k − 1 declares
         /// consequence-type position k of the analysis's axis (position 0 is the
         /// <see cref="SpecifiedConsequence"/>/<see cref="ConsequenceUnit"/> pair). Empty declares
         /// the legacy single-type axis. Validation strictly matches every component's failure and
         /// non-failure paths against the declared axis in risk mode; reliability mode carries no
-        /// consequences and ignores it. Metadata â€” serialized, never hashed.
+        /// consequences and ignores it. Metadata — serialized, never hashed.
         /// </summary>
         public ObservableCollection<ConsequenceTypeDescriptor> AdditionalConsequenceTypes => _additionalConsequenceTypes;
 
@@ -598,7 +598,7 @@ namespace RMC.TotalRisk.Analyses
 
         /// <summary>
         /// The computational warnings raised by the last run (negative consequences clamped,
-        /// mutually-exclusive probabilities normalized, exhaustive mass-balance drift) â€” the
+        /// mutually-exclusive probabilities normalized, exhaustive mass-balance drift) — the
         /// headless replacement for the v1.0 messenger surface.
         /// </summary>
         public IReadOnlyList<string> ComputationWarnings => _computationWarningsView;
@@ -645,17 +645,17 @@ namespace RMC.TotalRisk.Analyses
         /// <returns>The validity flag and established validation messages.</returns>
         /// <remarks>
         /// Errors: no components; the additive method with a component-hazard dependence (the
-        /// ratified v0.13 strict-independence redefinition â€” dependence belongs to the joint
+        /// ratified v0.13 strict-independence redefinition — dependence belongs to the joint
         /// method); the joint method above twenty components (the VEGAS dimension limit), with a
         /// missing, mis-shaped, or non-positive-definite correlation matrix under the
         /// correlation-matrix dependency, or with a combination cross product beyond the
         /// guardrail; any failure or non-failure path that does not carry the declared
         /// consequence-type axis (count and order always; labels and units when both sides are
-        /// non-blank â€” risk mode only); any projected failure mode with more than one response
+        /// non-blank — risk mode only); any projected failure mode with more than one response
         /// stage (until the event-tree phase); invalid options; and every component's own errors,
         /// aggregated with the component name. Component validation runs mode-aware: reliability
         /// relaxes exactly the consequence-content requirements (Phase 4c). Advisory: components
-        /// whose driving hazards disagree on non-blank axis labels warn â€” one analysis models one
+        /// whose driving hazards disagree on non-blank axis labels warn — one analysis models one
         /// hazard axis.
         /// </remarks>
         private (bool IsValid, List<string> ValidationMessages) ValidateMessages()
@@ -683,7 +683,7 @@ namespace RMC.TotalRisk.Analyses
                     if (_options.ComponentHazardDependency == DependencyType.CorrelationMatrix &&
                         !IsHazardCorrelationMatrixValid())
                     {
-                        messages.Add($"Error: The component hazard correlation matrix must be a positive-definite {_components.Count}Ã—{_components.Count} matrix (one row per component).");
+                        messages.Add($"Error: The component hazard correlation matrix must be a positive-definite {_components.Count}×{_components.Count} matrix (one row per component).");
                     }
 
                     // The system-level combination guardrail: the joint integrand crosses the
@@ -1050,9 +1050,9 @@ namespace RMC.TotalRisk.Analyses
         /// consequence-type axis (Phase 6.5, user-ratified): each path must carry exactly one
         /// consequence function per declared type, in declared order, and a non-blank declared
         /// label or unit must agree (ordinal, case-insensitive) with a non-blank function label
-        /// at the same position â€” blank on either side is a wildcard. Risk mode only: a
+        /// at the same position — blank on either side is a wildcard. Risk mode only: a
         /// reliability model carries no consequences, so the axis is inert there. Null function
-        /// entries are skipped here â€” they are already component-level errors.
+        /// entries are skipped here — they are already component-level errors.
         /// </summary>
         /// <param name="messages">The message sink.</param>
         private void ValidateConsequenceTypeAxis(List<string> messages)
@@ -1102,7 +1102,7 @@ namespace RMC.TotalRisk.Analyses
 
         /// <summary>
         /// Determines whether two axis labels disagree: both must be non-blank and differ under
-        /// an ordinal case-insensitive comparison (the graph alignment comparison semantics) â€”
+        /// an ordinal case-insensitive comparison (the graph alignment comparison semantics) —
         /// blank on either side is a wildcard.
         /// </summary>
         /// <param name="declared">The declared axis label.</param>
@@ -1118,7 +1118,7 @@ namespace RMC.TotalRisk.Analyses
         /// Warns when the components' driving hazards disagree on non-blank axis labels: one
         /// analysis models one hazard axis (the hazard-type companion of the declared
         /// consequence-type axis), so a label mismatch usually means a mis-assembled system.
-        /// Advisory only â€” labels are unhashed display metadata.
+        /// Advisory only — labels are unhashed display metadata.
         /// </summary>
         /// <param name="messages">The message sink.</param>
         private void ValidateHazardAxisConsistency(List<string> messages)
@@ -1159,7 +1159,7 @@ namespace RMC.TotalRisk.Analyses
 
         /// <summary>
         /// Determines whether the options' hazard correlation matrix is usable for the joint
-        /// method: present, one row per component, and positive definite (Cholesky) â€” the same
+        /// method: present, one row per component, and positive definite (Cholesky) — the same
         /// check the component applies to its failure-mode matrix.
         /// </summary>
         /// <returns>True when the matrix is usable.</returns>
@@ -1176,7 +1176,7 @@ namespace RMC.TotalRisk.Analyses
             }
             catch (Exception)
             {
-                // A decomposition failure means the matrix is not usable â€” exactly what this
+                // A decomposition failure means the matrix is not usable — exactly what this
                 // check reports; the validation message carries the remedy.
                 return false;
             }
@@ -1185,8 +1185,8 @@ namespace RMC.TotalRisk.Analyses
         /// <inheritdoc/>
         /// <exception cref="InvalidOperationException">Thrown when validation reports errors.</exception>
         /// <remarks>
-        /// The run sequence (architecture doc Â§7.3): the cancelable starting event; the
-        /// validation gate (which throws â€” an invalid analysis is a caller error, not a run
+        /// The run sequence (architecture doc §7.3): the cancelable starting event; the
+        /// validation gate (which throws — an invalid analysis is a caller error, not a run
         /// outcome); a fresh cancellation source linked with the caller's token; occurrence-index
         /// assignment and the content-based per-component seed walk; then the mean-only pass or
         /// the parallel full-uncertainty ensemble with percentile post-processing. Validation,
@@ -1240,7 +1240,7 @@ namespace RMC.TotalRisk.Analyses
                 await Task.Run(() =>
                 {
                     RunWorkerObserver?.Invoke();
-                    // The content-based seed walk (architecture doc Â§5.5.4): occurrence indices
+                    // The content-based seed walk (architecture doc §5.5.4): occurrence indices
                     // disambiguate identical-content components, and each component's functions
                     // are seeded from (analysis seed, component hash, occurrence index).
                     SystemComponent.AssignOccurrenceIndices(_components);
@@ -1255,7 +1255,7 @@ namespace RMC.TotalRisk.Analyses
                     }
 
                     // The canonical component order (hashes sorted): the additive convolution
-                    // associates in it, and the system seed base folds in it (Â§7.3 erratum) â€”
+                    // associates in it, and the system seed base folds in it (§7.3 erratum) —
                     // so declaration order can never move the convolved curves or the VEGAS
                     // stream identity.
                     var order = new int[_components.Count];
@@ -1334,7 +1334,7 @@ namespace RMC.TotalRisk.Analyses
 
         /// <summary>
         /// Serializes the analysis configuration: the metadata, the estimated flag, and the
-        /// options child â€” nothing else (architecture doc Â§8). Components and results travel
+        /// options child — nothing else (architecture doc §8). Components and results travel
         /// through the constructor; the consuming layer persists them separately.
         /// </summary>
         /// <returns>The serialized configuration.</returns>
@@ -1358,7 +1358,7 @@ namespace RMC.TotalRisk.Analyses
 
         #endregion
 
-        #region Private Helpers â€” Run Paths
+        #region Private Helpers — Run Paths
 
         /// <summary>
         /// Clears every publicly visible artifact from a prior or failed run.
@@ -1446,7 +1446,7 @@ namespace RMC.TotalRisk.Analyses
 
         /// <summary>
         /// The mean-only pass: one realization on the expected input functions (mixture
-        /// exposure branches enumerated, never flattened â€” Â§6.4.1), published as the mean
+        /// exposure branches enumerated, never flattened — §6.4.1), published as the mean
         /// results and a single-entry summary ensemble, staged for atomic publication.
         /// </summary>
         /// <param name="progressReporter">The optional progress sink.</param>
@@ -2156,15 +2156,15 @@ namespace RMC.TotalRisk.Analyses
         /// <summary>
         /// Aggregates the additive system realization (strictly independent components, ratified
         /// v0.13): each risk-type stream's exact recorded pairs are zero-inflated and convolved
-        /// on the shared consequence lattice â€” the exact enumeration of all component
-        /// failure/non-failure combinations â€” and the defective stream probabilities are then
+        /// on the shared consequence lattice — the exact enumeration of all component
+        /// failure/non-failure combinations — and the defective stream probabilities are then
         /// restored to the v1.0 system-state semantics: the failure union for Fail and Excess,
         /// its complement for NonFail (the convolution's own recorded mass measures "any positive
         /// consequence", which quantizes zero-valued events into the atom). The convolved system
-        /// mean equals the sum of the component means by construction â€” the v1.0 additive answer,
+        /// mean equals the sum of the component means by construction — the v1.0 additive answer,
         /// now with the full curve v1.0 never produced. The failure union folds the component
-        /// probabilities in the canonical-hash component order â€” the same association the
-        /// convolution uses â€” so declaration order cannot move the union even at the last bit
+        /// probabilities in the canonical-hash component order — the same association the
+        /// convolution uses — so declaration order cannot move the union even at the last bit
         /// (a Phase 6 reproducibility-pin finding; declaration order previously reassociated the
         /// union product by one or two units in the last place).
         /// </summary>
@@ -2182,7 +2182,7 @@ namespace RMC.TotalRisk.Analyses
                 ConvolveSystemStreams(realization.AdditionalCurves[k], componentRealizations, c => c.AdditionalCurves[typeIndex]);
             }
 
-            // The failure union is type-independent â€” every type's defective streams carry the
+            // The failure union is type-independent — every type's defective streams carry the
             // same system-state probabilities.
             var order = _additiveConvolutionOrder!;
             var failureProbabilities = new double[componentRealizations.Count];
@@ -2208,7 +2208,7 @@ namespace RMC.TotalRisk.Analyses
                 realization.AdditionalCurves[k].ComputeRiskMeasures(AdditionalThresholdAt(k), _options.Alpha);
             }
 
-            // The system support tops out at the sum of the component maxima â€” widen the
+            // The system support tops out at the sum of the component maxima — widen the
             // percentile grid extent to each type's convolved Total curve.
             if (realization.Curves.Total.LECConsequences.Length > 0)
             {
@@ -2341,7 +2341,7 @@ namespace RMC.TotalRisk.Analyses
         /// <remarks>
         /// The components enter the sequential convolution in canonical-hash order (computed at
         /// run start), so the floating-point association is identical however the components are
-        /// declared â€” component reordering stays bit-inert on the system curves.
+        /// declared — component reordering stays bit-inert on the system curves.
         /// </remarks>
         private void ConvolveSystemStream(Curve target, IReadOnlyList<ComponentRealization> componentRealizations,
             Func<ComponentRealization, Curves> scope, Func<Curves, Curve> stream)
@@ -2376,7 +2376,7 @@ namespace RMC.TotalRisk.Analyses
         }
 
         /// <summary>
-        /// Runs the adaptive Gaussâ€“Kronrod pass for one component: the integrator is an
+        /// Runs the adaptive Gauss–Kronrod pass for one component: the integrator is an
         /// importance sampler whose recorded evaluations populate the risk points; its returned
         /// value is discarded and its evaluation count and true error estimate are kept as
         /// diagnostics.
@@ -2386,16 +2386,16 @@ namespace RMC.TotalRisk.Analyses
         /// <param name="realization">The system realization (diagnostics).</param>
         /// <param name="flags">The realization's computational-warning flags.</param>
         /// <param name="realizationIndex">
-        /// The realization index, or âˆ’1 for the mean pass. Ensemble realizations (index â‰¥ 0)
+        /// The realization index, or −1 for the mean pass. Ensemble realizations (index ≥ 0)
         /// integrate at the relaxed <see cref="RiskAnalysisOptions.EnsembleTolerance"/> /
-        /// <see cref="RiskAnalysisOptions.EnsembleMinDepth"/> discipline â€” the v1.0 philosophy:
+        /// <see cref="RiskAnalysisOptions.EnsembleMinDepth"/> discipline — the v1.0 philosophy:
         /// ensemble statistics average integration noise, so the ~4,200-evaluation forced floor
         /// of the full discipline is spent only where a single answer is published (the mean
         /// pass, mean-only runs, and the deterministic probes).
         /// </param>
         /// <param name="token">The active run cancellation token.</param>
         /// <exception cref="InvalidOperationException">
-        /// Thrown when the integration reports failure â€” an integrand exception was absorbed by
+        /// Thrown when the integration reports failure — an integrand exception was absorbed by
         /// the integrator (<c>ReportFailure</c> is false), so the recorded risk points are
         /// truncated and no result may be published. Surfacing the failure here keeps a faulted
         /// evaluation from silently reading as zero risk (the Phase 5 correction; the VEGAS
@@ -2447,7 +2447,7 @@ namespace RMC.TotalRisk.Analyses
 
         /// <summary>
         /// The effective adaptive-refinement objective: reliability mode always refines on the
-        /// failure probability (its natural pairing â€” a consequence-free model's consequence
+        /// failure probability (its natural pairing — a consequence-free model's consequence
         /// objectives are identically zero, which would defeat the adaptivity); risk mode uses
         /// the configured objective.
         /// </summary>
@@ -2456,7 +2456,7 @@ namespace RMC.TotalRisk.Analyses
             : _options.RiskIntegrand;
 
         /// <summary>
-        /// Builds the integrand for the selected refinement objective (architecture doc Â§7.7).
+        /// Builds the integrand for the selected refinement objective (architecture doc §7.7).
         /// Every evaluation computes and records the full component risk regardless of the
         /// objective — the objective changes only where the adaptive refinement concentrates.
         /// </summary>
@@ -2505,7 +2505,7 @@ namespace RMC.TotalRisk.Analyses
         }
 
         /// <summary>
-        /// The refinement-objective value at one evaluation (architecture doc Â§7.7 table).
+        /// The refinement-objective value at one evaluation (architecture doc §7.7 table).
         /// </summary>
         /// <param name="output">The component risk output at the evaluation point.</param>
         /// <param name="probability">The hazard non-exceedance probability.</param>
@@ -2551,7 +2551,7 @@ namespace RMC.TotalRisk.Analyses
 
         /// <summary>
         /// Estimates the normalization scales for the balanced objective's three members from
-        /// ONE non-recording pre-pass over the stratification-bin edges â€” each evaluation feeds
+        /// ONE non-recording pre-pass over the stratification-bin edges — each evaluation feeds
         /// all three accumulations, so the pass costs a third of the per-member probes it
         /// replaces while producing the identical per-member sums (Phase 6.5; the pre-6.5 shape
         /// ran three separate sweeps and rebuilt the bins each time). A vanishing scale falls
@@ -2584,9 +2584,9 @@ namespace RMC.TotalRisk.Analyses
 
         /// <summary>
         /// Builds the stratified hazard bins seeding the adaptive integrator (50 hazard-space
-        /// bins mapped to probability â€” v1.0 constants), injecting the discontinuity of a
+        /// bins mapped to probability — v1.0 constants), injecting the discontinuity of a
         /// discontinuous objective as a bin boundary so no quadrature panel spans the jump
-        /// (Â§7.7): the tail objective switches at p = Î±, and the threshold objective crosses
+        /// (§7.7): the tail objective switches at p = α, and the threshold objective crosses
         /// where the consequence passes the threshold (located by Brent's method on this
         /// realization's chain when a sign change brackets it).
         /// </summary>
@@ -2623,7 +2623,7 @@ namespace RMC.TotalRisk.Analyses
         }
 
         /// <summary>
-        /// Builds the plain 50-bin hazard stratification in probability space (v1.0 constants) â€”
+        /// Builds the plain 50-bin hazard stratification in probability space (v1.0 constants) —
         /// shared by the risk integral's seeding and the tail-focus quadrature probe.
         /// </summary>
         /// <param name="sampled">The sampled component.</param>
@@ -2660,11 +2660,11 @@ namespace RMC.TotalRisk.Analyses
 
         #endregion
 
-        #region Private Helpers â€” Joint System Integration
+        #region Private Helpers — Joint System Integration
 
         /// <summary>
         /// Prepares the run-scoped joint-method state: the correlated-hazard latent structure,
-        /// the 2^D component combination caches (all-zero row first â€” the v1.0 engine-level
+        /// the 2^D component combination caches (all-zero row first — the v1.0 engine-level
         /// layout), and, under the automatic tail-focus mode, the deterministic per-component
         /// failure-probability quadrature probe that sets the VEGAS power-transform target. A
         /// no-op outside the multi-component joint method.
@@ -2674,10 +2674,10 @@ namespace RMC.TotalRisk.Analyses
         /// The ratified v0.13 heuristic harvested the target from the VEGAS warm-up itself; at
         /// implementation two facts forced this probe instead (recorded in the phase log): the
         /// automatic configuration resets the VEGAS bin count, which reallocates the importance
-        /// grid â€” so Î³ must be set before the warm-up, not after it â€” and a Î³ = 1 Monte Carlo
+        /// grid — so γ must be set before the warm-up, not after it — and a γ = 1 Monte Carlo
         /// warm-up cannot observe the rare failure probabilities the target needs (that is the
-        /// very problem the transform solves). The adaptive Gaussâ€“Kronrod probe of
-        /// AFP_i = âˆ« P_F,i(p) dp on the mean sample is deterministic, costs about a thousand
+        /// very problem the transform solves). The adaptive Gauss–Kronrod probe of
+        /// AFP_i = ∫ P_F,i(p) dp on the mean sample is deterministic, costs about a thousand
         /// evaluations per component once per run, and measures the failure probabilities to
         /// quadrature accuracy.
         /// </remarks>
@@ -2694,7 +2694,7 @@ namespace RMC.TotalRisk.Analyses
             int d = _components.Count;
             _jointMultivariateNormal = BuildHazardMultivariateNormal(d, out var covariance);
 
-            // Extract the lower Cholesky factor once â€” the same construction the multivariate
+            // Extract the lower Cholesky factor once — the same construction the multivariate
             // normal performs internally on the same covariance, so the factor bits are
             // identical and the integrand's in-place latent transform reproduces
             // MultivariateNormal.InverseCDF exactly.
@@ -2722,8 +2722,8 @@ namespace RMC.TotalRisk.Analyses
 
         /// <summary>
         /// Builds the correlated component-hazard latent structure per the dependency option,
-        /// with the exact v1.0 off-diagonal constants: identity (independent), <c>1 âˆ’ âˆšÎµmach</c>
-        /// (perfectly positive), <c>âˆ’1/(D âˆ’ 1) + âˆšÎµmach</c> (perfectly negative), or the
+        /// with the exact v1.0 off-diagonal constants: identity (independent), <c>1 − √εmach</c>
+        /// (perfectly positive), <c>−1/(D − 1) + √εmach</c> (perfectly negative), or the
         /// analysis-validated user matrix.
         /// </summary>
         /// <param name="dimension">The component count D.</param>
@@ -2754,13 +2754,13 @@ namespace RMC.TotalRisk.Analyses
         /// <summary>
         /// The deterministic annual-failure-probability probe: integrates one component's
         /// combined failure probability over its hazard probability domain on the mean sample
-        /// with adaptive Gaussâ€“Kronrod â€” the one call site where the integral's returned value is
+        /// with adaptive Gauss–Kronrod — the one call site where the integral's returned value is
         /// the product.
         /// </summary>
         /// <param name="component">The component to probe (its samplers are already set up).</param>
         /// <returns>The component's annualized failure probability on the mean sample.</returns>
         /// <exception cref="InvalidOperationException">
-        /// Thrown when the probe integration reports failure â€” a swallowed integrand exception
+        /// Thrown when the probe integration reports failure — a swallowed integrand exception
         /// would otherwise feed a truncated probability into the tail-focus target (the same
         /// guard as <see cref="IntegrateComponent"/>).
         /// </exception>
@@ -2806,11 +2806,11 @@ namespace RMC.TotalRisk.Analyses
         }
 
         /// <summary>
-        /// Applies the VEGAS power-transform tail focus per the configured mode â€” always before
-        /// the warm-up, because raising the bin count reallocates the importance grid (setting Î³
+        /// Applies the VEGAS power-transform tail focus per the configured mode — always before
+        /// the warm-up, because raising the bin count reallocates the importance grid (setting γ
         /// after the warm-up would discard it). Automatic uses the probe-derived target through
-        /// <c>ConfigureForRareEvents</c>; manual applies the user's Î³ with the same bin-count and
-        /// grid-damping adjustments when Î³ exceeds one; none leaves Î³ = 1 â€” sampling identical to
+        /// <c>ConfigureForRareEvents</c>; manual applies the user's γ with the same bin-count and
+        /// grid-damping adjustments when γ exceeds one; none leaves γ = 1 — sampling identical to
         /// v1.0.
         /// </summary>
         /// <param name="integrator">The VEGAS integrator to configure.</param>
@@ -2837,8 +2837,8 @@ namespace RMC.TotalRisk.Analyses
         /// <summary>
         /// The joint system-risk pass: VEGAS integrates over the D-dimensional hypercube of
         /// correlated hazard probabilities, and each evaluation computes every component's risk,
-        /// enumerates the exclusive component failure/non-failure combinations, and â€” the v1.1
-        /// correction of the documented v1.0 system-tail defect â€” crosses the failing components'
+        /// enumerates the exclusive component failure/non-failure combinations, and — the v1.1
+        /// correction of the documented v1.0 system-tail defect — crosses the failing components'
         /// recorded pathway/branch entries (conditional weights from the per-pathway lists)
         /// instead of collapsing each component to its conditional mean. Non-failing components
         /// contribute their branch-weighted mean non-failure consequence (the documented
@@ -2850,12 +2850,12 @@ namespace RMC.TotalRisk.Analyses
         /// <param name="componentRealizations">The per-component realization sinks.</param>
         /// <param name="realization">The system realization.</param>
         /// <param name="flags">The realization's computational-warning flags.</param>
-        /// <param name="realizationIndex">The realization index, or âˆ’1 for the mean pass.</param>
+        /// <param name="realizationIndex">The realization index, or −1 for the mean pass.</param>
         /// <param name="token">The run cancellation token.</param>
         /// <exception cref="InvalidOperationException">Thrown when the VEGAS integration fails.</exception>
         /// <remarks>
         /// The legacy engine's <c>tPF</c> accumulator (incremented twice per combination when
-        /// recording) is not carried forward â€” the failure union is the Fail stream's recorded
+        /// recording) is not carried forward — the failure union is the Fail stream's recorded
         /// mass, and no scalar duplicates it. The exclusive-probability enumeration inherits the
         /// legacy convergence shortcut, which can truncate the deepest combinations of a
         /// high-dimensional system; the mass it drops is bounded by the enumeration tolerance
@@ -2879,7 +2879,7 @@ namespace RMC.TotalRisk.Analyses
                 maximums[i] = 1d - ProbabilityFloor;
             }
 
-            // Pre-allocated evaluation buffers â€” the integrand allocates nothing it controls.
+            // Pre-allocated evaluation buffers — the integrand allocates nothing it controls.
             // The primary consequence type drives the VEGAS objective; secondary types are
             // computed and recorded during the recording passes only.
             var hazardLevels = new double[d];
@@ -2937,9 +2937,9 @@ namespace RMC.TotalRisk.Analyses
                 bool recordSecondary = recording && typeCount > 1;
 
                 // Correlated hazard probabilities through the latent normal: the in-place
-                // Cholesky transform replicating MultivariateNormal.InverseCDF exactly â€” the
-                // full-row accumulation order of the Numerics matrixâ€“vector product, with the
-                // zero mean folded in â€” without its per-evaluation allocations.
+                // Cholesky transform replicating MultivariateNormal.InverseCDF exactly — the
+                // full-row accumulation order of the Numerics matrix–vector product, with the
+                // zero mean folded in — without its per-evaluation allocations.
                 for (int j = 0; j < d; j++)
                 {
                     zBuffer[j] = Normal.StandardZ(point[j]);
@@ -2960,7 +2960,7 @@ namespace RMC.TotalRisk.Analyses
                     hazardLevels[i] = sampledComponents[i].Hazard.InverseCDF(probability);
 
                     // The VEGAS weight is the recorded probability-mass coordinate (v1.0
-                    // semantics â€” the component sinks record mass = weight directly).
+                    // semantics — the component sinks record mass = weight directly).
                     if (recordSecondary)
                     {
                         sampledComponents[i].ComputeRisk(weight, hazardLevels[i], flags, componentRealizations[i], recording, outputsByType[i]);
@@ -3002,7 +3002,7 @@ namespace RMC.TotalRisk.Analyses
                 }
 
                 // The exclusive component failure/non-failure combinations. Conditional on the
-                // hazard levels, component failures are independent â€” dependence enters only
+                // hazard levels, component failures are independent — dependence enters only
                 // through the correlated hazards (the v1.0 model). Combinations are generated on
                 // demand, so nothing here is bounded by a 2^D matrix.
                 var enumeration = Probability.IndependentExclusiveLazy(failureProbabilities,
@@ -3186,7 +3186,7 @@ namespace RMC.TotalRisk.Analyses
                 }
             }
 
-            // Build the component curves from the recorded masses (no mass re-derivation â€” the
+            // Build the component curves from the recorded masses (no mass re-derivation — the
             // VEGAS weights are the masses), then the system curves and measures, per
             // consequence type.
             for (int i = 0; i < componentRealizations.Count; i++)
@@ -3454,12 +3454,12 @@ namespace RMC.TotalRisk.Analyses
 
         #endregion
 
-        #region Private Helpers â€” Percentile Post-Processing
+        #region Private Helpers — Percentile Post-Processing
 
         /// <summary>
         /// Builds the mean, median, and confidence-bound curve sets from the realization
         /// ensemble: loss exceedance percentiles on a shared consequence grid (the Total
-        /// percentile curve is read from each realization's Total curve â€” the v1.0
+        /// percentile curve is read from each realization's Total curve — the v1.0
         /// failure-plus-non-failure reconstruction is deleted), and hazard-profile percentiles
         /// on per-component hazard grids. Percentile assembly parallelizes over grid ordinates
         /// with index-owned writes; means are summed sequentially per ordinate.
@@ -3519,7 +3519,7 @@ namespace RMC.TotalRisk.Analyses
             var mean = CreatePercentileRealization("Mean", componentCount, additionalTypes, realizations[0]);
             var targets = new[] { lower, upper, median, mean };
 
-            // The shared consequence grid, descending (v1.0 orientation), per consequence type â€”
+            // The shared consequence grid, descending (v1.0 orientation), per consequence type —
             // types live on their own magnitude scales.
             double gridMin = minN < 1d ? 0d : minN;
             var consequenceGrid = maxN > gridMin ? RiskPercentileAssembler.BuildDescendingGrid(gridMin, maxN, _options.LECOutputLength)
@@ -3629,7 +3629,7 @@ namespace RMC.TotalRisk.Analyses
         }
 
         /// <summary>
-        /// Stamps the declared consequence-type labels onto a realization â€” one entry per
+        /// Stamps the declared consequence-type labels onto a realization — one entry per
         /// computed type including the primary (display metadata; positions past the declaration
         /// stamp blank).
         /// </summary>
