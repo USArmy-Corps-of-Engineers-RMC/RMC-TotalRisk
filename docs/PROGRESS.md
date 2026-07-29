@@ -1,5 +1,15 @@
 # Progress Log
 
+## 2026-07-29 — Phases 0–10A review remediation, session 1 (encoding, statuses, links)
+
+**Goal:** land the zero-decision slice of the full Phases 0–10A review remediation — repair the comment-encoding damage, reconcile stale status tracking, and remove unresolvable links and internal-tooling references from the published docs — and assemble the review's decision packet for technical-authority rulings.
+
+**Landed:** 111 double-encoded UTF-8 sequences repaired in `RiskAnalysis.cs`/`RiskPercentileAssembler.cs` (all comment sites plus one user-facing validation message; a diff-shape witness confirmed no other executable change). Roadmap summary rows corrected (9 partial, 10A complete, the missing 8.6 row added, the 12 coverage-gate note); ported-types Later row updated with AGENTS.md regenerated; architecture doc §11 refiled (eight resolved questions moved out of Open, Q-Z records the upstream N12 resolution and the renamed reproducibility pin, the status log restored to reverse-chronological order, a retired-numbering note added); shared-functions strategy N4/§6/§8 reconciled. Four unresolvable architecture-doc links fixed; ten local plan-file citations and internal-tooling wording removed from this log; perf-results title and three missing entry separators corrected.
+
+**Verified:** build 0 warnings; Release fast suite 781/781; code/XML-doc/namespace/dependency/traceability validators green; F1 and F5 results hashes reproduced bit-identically after the encoding repair (`4c1472d2…`, `2ae3925b…`).
+
+**Next:** the review's decision packet (12 rulings, including the upstream Numerics `NegativeJointProbability` Fréchet-bound defect — no v1.1 call sites) awaits technical-authority direction. Remaining remediation sequence: comment-language sweeps (library, then tests+verification), technical-reference/verification doc overhaul plus the four new reference pages, parity-closure recordings (equivalent-annual-damages math on the future cost-benefit scope; the event-tree node-sensitivity disposition), the Numerics hygiene/ruling sessions, the 2.2.0 release gate, and the package switch.
+
 ## 2026-07-28 - Phase 10A event-tree response COMPLETE
 
 **Goal and authority:** close every remaining Phase 10A gate without changing production probability
