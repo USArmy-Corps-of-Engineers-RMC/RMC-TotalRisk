@@ -1,5 +1,19 @@
 # Progress Log
 
+## 2026-07-29 — Review remediation, session 2 (the twelve technical-authority rulings)
+
+**Goal:** execute the review's decision packet one ruling at a time under the technical authority's boxed answers, with the full gate stack per change.
+
+**Landed (numerics, five commits `13e6092`…`9400317`):** `NegativeJointProbability` fixed to the Fréchet–Hoeffding bound max(0, Σp−(n−1)) with indicated-count semantics on the indicator overload, six pins including the 0.8/0.9→0.7 anchor (D1). The bias-correction proportion restored to the published plotting-position form count(≤)/(B+1) over successful replicates — the (count+1) numerator matched no published estimator (Efron eq. 14.14, the boot package, SciPy all checked); two pins added, including the zero-bias identity at the bootstrap median (D2). MCMC behavior changes ratified keep-both; the ARWMH push-rule and NUTS acceptance pins were found already present, and `MCMCResults.AcceptanceRates` now documents its per-sampler meaning (D3). Seven golden-fixture pins read v2.1.4-format XML captured verbatim from the pre-batch build — capture also established the 2.1.4 scalar writer faulted on table-bearing types, so no legacy tableless files exist (D4; D5 keep-strict release-noted). A constant kernel-density sample now yields a near-point-mass bandwidth (magnitude × 1e-9; 1e-9 absolute for zero) instead of magnitude-proportional fabricated spread; single observations follow the same rule; four tests re-pinned (D6). `DefaultMVNUNISeed` is static readonly with the shared-seed error-correlation caveat documented and a three-dimensional bit-reproducibility pin (D7). Numerics suites 2008/2008 on all four target frameworks per commit.
+
+**Landed (this repo, three commits):** report citations link the published RMC documentation site and the architecture doc states the headless constraints as its own normative content (D8/D9, `3d28df0`); Phase 10B scope gains the headless node-importance analysis in the roadmap and the normative tree design, the Phase 12 scope records the declined v1.0 wall-clock head-to-head, and the phase-language policy is recorded in the process guide (D10–D12, `c421ec4`).
+
+**F4 byte-gate finding (`92d8775`):** the cross-repo tripwire found F4 at `846234f1…` against the recorded pin. Bisecting with fixed engine states exonerated the environment (the 8.5-close pair reproduces the old hash bit-exactly today) and every session commit, isolating the movement to the pre-existing numerics boundary-clipping commit `eb6718b` (2026-07-27), whose measurement-ordering gap left the F4 row stale. F1/F2/F3/F5 reproduce their pins. Re-pinned with approval and provenance; standing rule added: close-out byte-gate rounds run every committed fixture after the session's final upstream commit.
+
+**Verified:** build 0 warnings; Release fast suite 781/781; doc/traceability validators green; F1 `4c1472d2…`, F2 `876ce063…`, F3 `6469666e…`, F4 `846234f1…` (re-pinned), F5 `2ae3925b…`.
+
+**Next:** the comment-language sweeps (T2 library, T3 tests+verification) under the ratified phase-language policy; the technical-reference/verification doc overhaul and four new reference pages; the remaining input-function API-parity diff; 2.2.0 release notes must enumerate the ruling outcomes (D1, D2, D4/D5 strictness, D6 convention, D7, the MCMC changes with their BestFit impact).
+
 ## 2026-07-29 — Phases 0–10A review remediation, session 1 (encoding, statuses, links)
 
 **Goal:** land the zero-decision slice of the full Phases 0–10A review remediation — repair the comment-encoding damage, reconcile stale status tracking, and remove unresolvable links and internal-tooling references from the published docs — and assemble the review's decision packet for technical-authority rulings.
