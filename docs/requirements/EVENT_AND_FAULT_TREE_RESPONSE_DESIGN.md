@@ -1,6 +1,8 @@
 # Event-Tree and Fault-Tree Response Functions
 
 > **Status:** Normative implementation design, approved for Phases 10A and 10B (2026-07-28).
+> **Implementation:** Phase 10A now includes the immutable compiled occurrence/evaluation cache,
+> complete dependency invalidation, transactional cache rollback, and the recorded F5 event-tree fixture.
 > **Applies to:** `RMC.TotalRisk.dll`, its fast unit tests, and `RMC.TotalRisk.Verification`.
 > **Authority:** This document specializes, but does not replace, [MODEL_LIBRARY_ARCHITECTURE.md](MODEL_LIBRARY_ARCHITECTURE.md). If an implementation discovery would change a probability rule, sampling rule, canonical-hash contract, or reference-result contract described here, stop and obtain Haden Smith's approval before changing the design.
 
@@ -316,6 +318,37 @@ Performance improvements must be measured against a checked-in fixture before ac
 - no result movement beyond an explicitly documented floating-point ordering allowance approved before re-pinning.
 
 An optimization is rejected if it changes probability semantics, replaces exact fault evaluation with approximation, weakens range checks, or reduces reproducibility/accuracy. Result hashes are gates, not permission to change algorithms.
+
+### 9.1 Phase 10A implementation status
+
+Each `EventTreeResponse` owns one instance-scoped immutable occurrence/evaluation plan and an
+optional immutable branch-address plan prepared only when branch discovery, serialization,
+evaluation, graph projection, or sampler setup requires ports. Identity-only reads do not allocate
+ports, preserving the established serialization surface. Publication uses a per-instance lock and
+volatile references; repeated read-only evaluation performs no plan writes and shares no global
+cache.
+
+The occurrence plan captures canonical parent-before-child instructions, primitive child indices,
+expanded leaves, projected identity, sampler dimensions, and every direct or recursive dependency.
+Controlled event-tree responses propagate compute revisions. Local uncertain tables and ordinary
+referenced responses additionally carry canonical fingerprints, so suppressed collection events or
+in-place distribution edits cannot retain a stale plan. Metadata (`Name`, `Description`, IDs, hazard
+labels/units, and display-only node edits) remains cache-inert.
+
+Add, insert, move, replace, delete, materialize, paste, and prune invalidate only after expanded
+cycle validation succeeds. Probability-source replacement, local/nested table edits, direct and
+nested event-tree sources, internal/external independent links, and resolver-backed live functions
+invalidate every affected owner; unrelated response instances remain untouched. Coordinated
+tree and graph checkpoints collectively preserve topology, IDs, child order, append-only branch
+allocation, links/connections, the exact occurrence/branch cache state, and compute revision. A
+failed edit restores that state; hashes and configured sampler observations remain unchanged, while
+already-notified dependent owners may remain invalidated but equivalently rebuildable.
+
+Evaluation is a single parent-before-child pass over compiled edges using primitive mass and raw
+probability arrays. It retains the approved compensated sibling sum, normalization, residual,
+remainder, path-product, and aggregate ordering exactly. The F5 measurements and unchanged byte
+gate are recorded in `scripts/perf/RESULTS.md`; no new performance threshold or numerical allowance
+was introduced.
 
 ## 10. Serialization and canonical identity
 

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Linq;
@@ -53,6 +54,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                 _nodes.Add(node);
                 _byId.Add(node.Id, node);
                 node.Attach(this, null);
+                SubscribeNode(node);
             }
 
             Guid rootId = ReadRequiredGuid(xElement, "RootNodeId");
@@ -135,6 +137,10 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
         /// <summary>Append-only output-port assignments for expanded linked-leaf branches.</summary>
         private readonly Dictionary<Guid, int> _linkedBranchPorts = new Dictionary<Guid, int>();
 
+        /// <summary>The attached nodes currently observed for direct compute-property edits.</summary>
+        private readonly HashSet<EventNodeBase> _subscribedNodes =
+            new HashSet<EventNodeBase>(ReferenceEqualityComparer.Instance);
+
         /// <summary>Current occurrence paths for linked or materialized branch addresses.</summary>
         private readonly Dictionary<Guid, string> _linkedBranchPaths = new Dictionary<Guid, string>();
 
@@ -169,19 +175,16 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                 ? parent.MutableChildren.Count
                 : parent.MutableChildren.FindIndex(child => child is RemainderNode);
             if (index < 0) index = parent.MutableChildren.Count;
-            int priorNextOutputPort = _nextOutputPort;
-            AttachNewNode(node, parent, index);
+            MutationSnapshot snapshot = CaptureMutationSnapshot();
             try
             {
+                AttachNewNode(node, parent, index);
                 EnsureExpandedGraphAcyclic();
+                NotifyStructureChanged();
             }
             catch
             {
-                parent.MutableChildren.Remove(node);
-                _byId.Remove(node.Id);
-                _nodes.Remove(node);
-                node.Detach();
-                _nextOutputPort = priorNextOutputPort;
+                RestoreMutationSnapshot(snapshot);
                 throw;
             }
             return node.Id;
@@ -235,19 +238,16 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                 throw MutationError("Insert", node, sibling, "a remainder branch must be the final presented sibling");
             ValidateNewChild(parent, node, "Insert");
             int index = parent.MutableChildren.IndexOf(sibling);
-            int priorNextOutputPort = _nextOutputPort;
-            AttachNewNode(node, parent, index);
+            MutationSnapshot snapshot = CaptureMutationSnapshot();
             try
             {
+                AttachNewNode(node, parent, index);
                 EnsureExpandedGraphAcyclic();
+                NotifyStructureChanged();
             }
             catch
             {
-                parent.MutableChildren.Remove(node);
-                _byId.Remove(node.Id);
-                _nodes.Remove(node);
-                node.Detach();
-                _nextOutputPort = priorNextOutputPort;
+                RestoreMutationSnapshot(snapshot);
                 throw;
             }
             return node.Id;
@@ -278,27 +278,27 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
             }
             ValidateRemainderPlacement(newParent, node, before, "Move");
 
+            MutationSnapshot snapshot = CaptureMutationSnapshot();
             EventNodeBase oldParent = node.Parent!;
             int oldIndex = oldParent.MutableChildren.IndexOf(node);
             int newIndex = before == null ? newParent.MutableChildren.Count : newParent.MutableChildren.IndexOf(before);
-            oldParent.MutableChildren.RemoveAt(oldIndex);
-            if (ReferenceEquals(oldParent, newParent) && oldIndex < newIndex) newIndex--;
-            if (node is not RemainderNode && before == null)
-            {
-                int remainderIndex = newParent.MutableChildren.FindIndex(child => child is RemainderNode);
-                if (remainderIndex >= 0) newIndex = remainderIndex;
-            }
-            newParent.MutableChildren.Insert(newIndex, node);
-            node.Attach(this, newParent);
             try
             {
+                oldParent.MutableChildren.RemoveAt(oldIndex);
+                if (ReferenceEquals(oldParent, newParent) && oldIndex < newIndex) newIndex--;
+                if (node is not RemainderNode && before == null)
+                {
+                    int remainderIndex = newParent.MutableChildren.FindIndex(child => child is RemainderNode);
+                    if (remainderIndex >= 0) newIndex = remainderIndex;
+                }
+                newParent.MutableChildren.Insert(newIndex, node);
+                node.Attach(this, newParent);
                 EnsureExpandedGraphAcyclic();
+                NotifyStructureChanged();
             }
             catch
             {
-                newParent.MutableChildren.Remove(node);
-                oldParent.MutableChildren.Insert(oldIndex, node);
-                node.Attach(this, oldParent);
+                RestoreMutationSnapshot(snapshot);
                 throw;
             }
         }
@@ -321,6 +321,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                 _byId.Remove(descendant.Id);
                 _nodes.Remove(descendant);
                 descendant.MutableChildren.Clear();
+                UnsubscribeNode(descendant);
                 descendant.Detach();
             }
         }
@@ -460,8 +461,11 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
             EventNodeBase node = RequireNode(nodeId, "SubtreeCanonicalHash", "source");
             if (_ownerResponse != null)
             {
+                EventTreeOccurrencePlan plan = ReferenceEquals(node, Root)
+                    ? _ownerResponse.GetOccurrencePlan()
+                    : EventTreeOccurrencePlan.Compile(_ownerResponse, node);
                 return CanonicalContentHasher.Hash(
-                    EventTreeOccurrencePlan.Compile(_ownerResponse, node).Identity,
+                    plan.Identity,
                     CanonicalizationRules.ModelRules);
             }
             if (DescendantsAndSelf(node).Any(item => item is EventTreeLinkNode))
@@ -576,7 +580,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
         /// <returns>The metadata-free projected tree.</returns>
         internal XElement ToIdentityXElement()
         {
-            if (_ownerResponse != null) return EventTreeOccurrencePlan.Compile(_ownerResponse).Identity;
+            if (_ownerResponse != null) return _ownerResponse.GetOccurrencePlan().Identity;
             if (_nodes.Any(node => node is EventTreeLinkNode))
                 throw new InvalidOperationException("An event tree containing links must be owned by an EventTreeResponse before its identity can be computed.");
             return new XElement(nameof(EventTree), BuildIdentity(Root));
@@ -592,6 +596,46 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
             _ownerResponse = owner;
         }
 
+        /// <summary>Observes one attached node for compute-relevant property replacement.</summary>
+        /// <param name="node">The attached node.</param>
+        private void SubscribeNode(EventNodeBase node)
+        {
+            if (_subscribedNodes.Add(node)) node.PropertyChanged += NodePropertyChanged;
+        }
+
+        /// <summary>Stops observing one detached node.</summary>
+        /// <param name="node">The detached node.</param>
+        private void UnsubscribeNode(EventNodeBase node)
+        {
+            if (_subscribedNodes.Remove(node)) node.PropertyChanged -= NodePropertyChanged;
+        }
+
+        /// <summary>Reconciles node subscriptions after transactional topology restoration.</summary>
+        private void ReconcileNodeSubscriptions()
+        {
+            var current = new HashSet<EventNodeBase>(_nodes, ReferenceEqualityComparer.Instance);
+            foreach (EventNodeBase node in _subscribedNodes.Where(node => !current.Contains(node)).ToArray())
+                UnsubscribeNode(node);
+            for (int i = 0; i < _nodes.Count; i++) SubscribeNode(_nodes[i]);
+        }
+
+        /// <summary>Invalidates the owner plan after a direct compute-relevant node edit.</summary>
+        private void NodePropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (sender is not EventNodeBase node) return;
+            if (e.PropertyName == nameof(EventNodeBase.Name)
+                || e.PropertyName == nameof(EventNodeBase.Description)) return;
+            if (e.PropertyName == nameof(EventNodeBase.IsFailure)
+                && !node.IsTerminal && node is not EventTreeLinkNode) return;
+            _ownerResponse?.NotifyTreeComputeChanged();
+        }
+
+        /// <summary>Invalidates the owner plan after one validated structural mutation.</summary>
+        private void NotifyStructureChanged()
+        {
+            _ownerResponse?.NotifyTreeComputeChanged();
+        }
+
         /// <summary>Attaches one new node after all mutation checks have passed.</summary>
         /// <param name="node">The new node.</param>
         /// <param name="parent">The parent, or null for initial root construction.</param>
@@ -601,6 +645,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
             _nodes.Add(node);
             _byId.Add(node.Id, node);
             node.Attach(this, parent);
+            SubscribeNode(node);
             if (node is not InitiatingNode && node.OutputPort < 3) AssignNextOutputPort(node);
             if (parent != null) parent.MutableChildren.Insert(childIndex, node);
         }

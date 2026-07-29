@@ -1,19 +1,20 @@
-# Event-tree response - Phase 10A foundation through graph integration
+# Event-tree response - Phase 10A foundation through compiled planning and graph integration
 
 ## Scope and status
 
-`EventTreeVerification` now verifies the numerically observable behavior from the first six
+`EventTreeVerification` now verifies the numerically observable behavior from the first seven
 Phase 10A slices: controlled scalar/tabular event trees, legacy conditional-probability algebra,
 aggregate failure, exhaustive terminal outputs, indexed LHS table sampling, internal/external
 `IndependentClone` links, direct and multi-level nested `EventTreeResponse` probability sources,
 both serialization modes, occurrence reproducibility, recursive v1.0 XML conversion and shipped
-templates, and graph-connected arbitrary n-way per-leaf consequences. The authoring-only fragment,
-mutation, stable-port, stale-connection, and topology APIs are covered by fast structural parity
-and rollback tests. This is a partial family, not the Phase 10A exit gate.
+templates, and graph-connected arbitrary n-way per-leaf consequences. The seventh slice adds an
+immutable compiled occurrence/evaluation plan, complete dependency invalidation and rollback, and
+the F5 large repeated-link performance fixture. The cache is numerically inert, so this slice adds
+fast structural/bit-parity tests rather than a new statistical oracle. This remains a partial family,
+not the Phase 10A exit gate.
 
-Still open are immutable compiled-plan caching/invalidation; large-tree performance;
-property-based testing; independent branch-routing Monte Carlo; aggregate LHS variance reduction;
-and the remaining thread-count, coverage, and performance exit gates.
+Still open are property-based testing, independent branch-routing Monte Carlo, aggregate LHS
+variance reduction, and the remaining thread-count, coverage, and phase-close performance gates.
 
 The response computes conditional fragility `P(F|h)` only. Hazard probability, annualization,
 consequences, and risk remain outside the event tree.
@@ -104,6 +105,8 @@ discovery for arbitrary n-way splits/remainders, branch-ID/name/port migration, 
 modes and live resolver reuse, rename/metadata/reorder/copy-paste/materialize/prune stability, every
 connection slot, stale diagnostics, all three deletion policies, observer-failure rollback, exact
 per-leaf mean/indexed projection and grouping, plus canonical hash/seed invariance and selected-path sensitivity.
+Compiled-plan tests add every mutation category, metadata retention, silent-table fingerprints,
+direct/nested/internal/external/resolver dependencies, unrelated-tree isolation, and exact rollback.
 
 `LegacyEventTreeConversionTests` adds the exact `TestIO` direct-factory import; both wrapper forms;
 both hazard/GUID spellings; scalar, compact/table, ordinary-response, and nested-response sources;
@@ -111,3 +114,19 @@ current-only self-contained/by-reference writes with repaired IDs; metadata, ID,
 seed invariance; deterministic malformed/missing/excluded/unsupported diagnostics; and proof that
 failed conversion or converted-source cycle detection leaves an already configured live sampler
 unchanged.
+
+## Compiled-plan parity and performance
+
+Repeated reads share one published plan, including concurrent first publication on a 259-node
+deep/wide fast fixture. Fresh/self-contained/by-reference equivalents retain bit-identical
+canonical hashes, fixed-seed indexed aggregate curves, every per-leaf ordinate, and stable ports.
+Failed mutation and sampler setup preserve the prior plan identity/build count and every public
+sampler-observable value. Existing `EventTreeVerification` expectations therefore remain unchanged.
+
+The isolated Release F5 fixture expands 24 external independent links into 1,105 instructions,
+1,104 edges, and 745 branches over 33 hazards. Median-of-three setup changed from 0.086353 s /
+51.70 MB to 0.031395 s / 20.55 MB; 32 indexed reads changed from 1.157486 s / 1,695.75 MB to
+0.239866 s / 99.77 MB. Both sides produce byte gate
+`2ae3925bfb7488cbfa4bd516cc2d4eb7d71c6f84bfff9f4891873a2bfd811349`. These are measured
+characteristics, not a newly invented threshold; full details are in the
+[performance results](../../scripts/perf/RESULTS.md).

@@ -51,6 +51,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
             {
                 AttachDetachedSubtree(cloneRoot, parent, insertionIndex);
                 EnsureExpandedGraphAcyclic();
+                NotifyStructureChanged();
                 return cloneRoot.Id;
             }
             catch (Exception ex)
@@ -101,6 +102,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                 }
                 AttachDetachedSubtree(replacementRoot, parent, insertionIndex);
                 EnsureExpandedGraphAcyclic();
+                NotifyStructureChanged();
                 return replacementRoot.Id;
             }
             catch (Exception ex)
@@ -127,6 +129,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
             {
                 Guid rootId = MaterializeLinkCore(link);
                 EnsureExpandedGraphAcyclic();
+                NotifyStructureChanged();
                 return rootId;
             }
             catch (Exception ex)
@@ -154,7 +157,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                 return BreadthFirst().Select(node => new TreeNodeReference(null, node.Id, nodeName: node.Name)).ToArray();
             }
 
-            EventTreeOccurrencePlan plan = EventTreeOccurrencePlan.Compile(_ownerResponse);
+            EventTreeOccurrencePlan plan = _ownerResponse.GetOccurrencePlan();
             var result = new List<TreeNodeReference>(plan.CanonicalPreOrder.Count);
             var queue = new Queue<EventTreeOccurrenceNode>();
             queue.Enqueue(plan.Root);
@@ -199,9 +202,11 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                     _byId.Remove(unreachable[i].Id);
                     _nodes.Remove(unreachable[i]);
                     unreachable[i].MutableChildren.Clear();
+                    UnsubscribeNode(unreachable[i]);
                     unreachable[i].Detach();
                 }
                 EnsureExpandedGraphAcyclic();
+                NotifyStructureChanged();
                 return preview;
             }
             catch (Exception ex)
@@ -273,6 +278,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                 ApplyIncomingReferencePolicy(node, removedIds, policy);
                 RemoveSubtree(node);
                 EnsureExpandedGraphAcyclic();
+                NotifyStructureChanged();
             }
             catch (Exception ex)
             {
@@ -529,6 +535,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                 _nodes.Add(item.Node);
                 _byId.Add(item.Node.Id, item.Node);
                 item.Node.Attach(this, item.Parent);
+                SubscribeNode(item.Node);
                 if (item.Node.OutputPort < 3) AssignNextOutputPort(item.Node);
                 for (int i = item.Node.Children.Count - 1; i >= 0; i--)
                     stack.Push((item.Node.Children[i], item.Node));
@@ -608,7 +615,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
         private MutationSnapshot CaptureMutationSnapshot()
         {
             return new MutationSnapshot(_nodes, _linkedBranchPorts, _linkedBranchPaths,
-                _nextOutputPort);
+                _nextOutputPort, _ownerResponse?.CreateCompiledPlanCheckpoint());
         }
 
         /// <summary>Restores topology, ownership, ids, child order, and output-port allocation after failure.</summary>
@@ -644,6 +651,9 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
             foreach (KeyValuePair<Guid, string> branch in snapshot.LinkedBranchPaths)
                 _linkedBranchPaths.Add(branch.Key, branch.Value);
             _nextOutputPort = snapshot.NextOutputPort;
+            ReconcileNodeSubscriptions();
+            if (_ownerResponse != null && snapshot.CompiledPlanCheckpoint != null)
+                _ownerResponse.RestoreCompiledPlanCheckpoint(snapshot.CompiledPlanCheckpoint);
         }
 
         /// <summary>The event-tree-specific immutable payload held by a public fragment.</summary>
@@ -720,7 +730,8 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
             /// <summary>Captures the current nodes, parentage, child order, and port allocator.</summary>
             internal MutationSnapshot(IReadOnlyList<EventNodeBase> nodes,
                 IReadOnlyDictionary<Guid, int> linkedBranchPorts,
-                IReadOnlyDictionary<Guid, string> linkedBranchPaths, int nextOutputPort)
+                IReadOnlyDictionary<Guid, string> linkedBranchPaths, int nextOutputPort,
+                object? compiledPlanCheckpoint)
             {
                 Nodes = nodes.ToArray();
                 Parents = Nodes.ToDictionary(node => node, node => node.Parent);
@@ -728,6 +739,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                 LinkedBranchPorts = new Dictionary<Guid, int>(linkedBranchPorts);
                 LinkedBranchPaths = new Dictionary<Guid, string>(linkedBranchPaths);
                 NextOutputPort = nextOutputPort;
+                CompiledPlanCheckpoint = compiledPlanCheckpoint;
             }
 
             internal IReadOnlyList<EventNodeBase> Nodes { get; }
@@ -741,6 +753,9 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
             internal IReadOnlyDictionary<Guid, string> LinkedBranchPaths { get; }
 
             internal int NextOutputPort { get; }
+
+            /// <summary>The owning response's exact pre-mutation cache state, when attached.</summary>
+            internal object? CompiledPlanCheckpoint { get; }
         }
     }
 }

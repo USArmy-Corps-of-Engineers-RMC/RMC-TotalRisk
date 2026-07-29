@@ -544,21 +544,23 @@ unapproved tolerance, correlation, normalization, seed, or probability-formula c
 > `ComponentGraph`, and `RiskAnalysis`. The Phase 6.7 binary graph contract remains intact;
 > the opt-in expanded view is its additive downstream extension.
 
-> **Partially landed (2026-07-28):** six coherent vertical slices provide the common branch
+> **Partially landed (2026-07-28):** seven coherent vertical slices provide the common branch
 > contracts, controlled nodes and authoring, recursive probability sources and independent links,
-> current and legacy two-mode XML, projected identity, and exhaustive terminal propagation. The
-> sixth slice integrates arbitrary n-way end states with the graph: `ResponseElement` opts into
-> expanded outputs; the aggregate view remains ports 0 = Fail and 1 = Non-Fail; expanded port 2 is
+> current and legacy two-mode XML, projected identity, exhaustive terminal propagation, and an
+> immutable instance-scoped compiled plan. The graph slice integrates arbitrary n-way end states:
+> `ResponseElement` opts into expanded outputs; the aggregate view remains ports 0 = Fail and 1 = Non-Fail; expanded port 2 is
 > the implicit unmodeled non-failure branch; authored and linked terminals receive append-only ports
 > from 3. Connections and projected stages persist stable branch ID first and exact name fallback
 > second, while materialization preserves linked occurrence IDs/ports. Graph-aware delete applies
 > reject, cascade-disconnect, or exact link-materialize behavior transactionally. Factory/resolver,
 > both XML modes, validation, end-state grouping, projected canonical hash/seed identity, and exact
-> per-leaf sampling all use that shared surface. Eleven isolated verification tests remain green,
-> including graph-connected consequences against an independent n-way path-product oracle. Phase
-> 10A remains open for immutable compiled-plan caching/invalidation, large-tree performance,
-> property-based testing, branch-routing Monte Carlo, aggregate LHS variance reduction, and the
-> remaining thread-count, coverage, and performance exit gates.
+> per-leaf sampling all use that shared surface. Complete direct/recursive dependency tracking and
+> fingerprints prevent stale reuse; validated mutations invalidate lazily and failed edits restore
+> the exact cache/port/sampler state. F5 records a 1,105-instruction repeated-link tree with an
+> unchanged result hash and material setup/read reductions. Eleven isolated verification tests
+> remain green, including graph-connected consequences against an independent n-way path-product
+> oracle. Phase 10A remains open for property-based testing, branch-routing Monte Carlo, aggregate
+> LHS variance reduction, and the remaining thread-count, coverage, and phase-close performance gates.
 
 **Scope:** implement the normative [event-tree and fault-tree response design](requirements/EVENT_AND_FAULT_TREE_RESPONSE_DESIGN.md) §§1–15: the controlled event-tree model; scalar/tabular/response probability sources; internal and external independent-clone links; copy/paste/add/insert/delete/move/replace/link/materialize operations; deterministic traversal, topological sort, search, reachability, pruning, and cycle diagnostics; compiled linear-time probability propagation; mean/percentile/indexed response and per-leaf branch outputs; `RiskSerializationMode`, projected canonical identity, legacy XML conversion, recursive sampler discovery, content-derived seeds, and LHS. Per-leaf output ports extend the Phase 6.7 response-port machinery without moving hazard frequency, consequence, or risk math into the tree.
 

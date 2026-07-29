@@ -31,6 +31,11 @@ Fixtures:
   ~110k evaluations per realization, far too heavy for an iteration fixture, and optimization
   deltas are relative on identical code paths.
 - **F3** — F1 carrying a second consequence type (the Phase 6.5 axis; measures the ×K cost).
+- **F5** (added Phase 10A) — a large `EventTreeResponse` with 24 independent external-link
+  occurrences of one 46-node deep/wide target subtree. Its compiled form has 1,105 occurrence
+  instructions, 1,104 edges, and 745 exhaustive branches over 33 hazard ordinates. It measures
+  sampler setup plus 32 indexed exhaustive-branch reads at N = 64; the byte gate hashes every
+  final branch classification and probability ordinate.
 
 Each fixture also reports the process-wide allocated-bytes delta and GC collection counts of
 the final full run (`GC.GetTotalAllocatedBytes(precise)`) — the direct signal for the
@@ -386,3 +391,30 @@ During the alternating round, current-code wall medians also ranged to 30.843 s 
 13.387 s for F3 before immediate repeats returned 26.839 s and 10.503 s; hashes and allocations
 were stable. The paired results are retained so future gates can distinguish deterministic
 regression signals from this workstation's timing noise.
+
+## Phase 10A - event-tree compiled-plan cache (2026-07-28)
+
+F5 was run alone in Release with `--reps 3` on HADEN (22 logical processors). The baseline is
+commit `cd48c768` with the new fixture applied but before compiled-plan reuse; the final row is the
+immutable instance-scoped occurrence/evaluation cache, complete dependency invalidation, and the
+primitive-index linear evaluator. No acceptance threshold was introduced; these are reproducible
+characterization measurements under the existing harness convention.
+
+| F5 state | Setup median (s) | Setup allocation (MB) | 32 indexed reads (s) | Read allocation (MB) | Published plans |
+|---|---:|---:|---:|---:|---:|
+| uncached baseline (`cd48c768` + fixture) | 0.086353 | 51.70 | 1.157486 | 1,695.75 | n/a |
+| compiled-plan cache | **0.031395** | **20.55** | **0.239866** | **99.77** | **1** |
+
+That matched pair is 2.75x faster with 2.52x less allocation during setup and 4.83x faster with
+17.00x less allocation across repeated indexed reads. Evaluation is one parent-before-child pass
+over the 1,104 compiled edges for each hazard ordinate. The measurement deliberately includes
+public immutable branch-sample construction; the remaining 99.77 MB is predominantly the 745 x 33
+public output matrix repeated 32 times, not occurrence compilation or graph search.
+
+The byte gate is identical before and after caching:
+
+- F5 `2ae3925bfb7488cbfa4bd516cc2d4eb7d71c6f84bfff9f4891873a2bfd811349`
+
+The unchanged hash demonstrates bit-identical branch classifications and probabilities. Fast tests
+separately pin aggregate curves, per-leaf curves, canonical hashes, seeded indexed samples, stable
+ports, concurrent read-only publication, mutation invalidation, and rollback state.

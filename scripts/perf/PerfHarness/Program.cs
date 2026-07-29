@@ -11,6 +11,8 @@ using RMC.TotalRisk.Core.Enums;
 using RMC.TotalRisk.RiskFunctions.Consequences;
 using RMC.TotalRisk.RiskFunctions.Hazards;
 using RMC.TotalRisk.RiskFunctions.Responses;
+using RMC.TotalRisk.RiskFunctions.Responses.EventTrees;
+using RMC.TotalRisk.RiskFunctions.Responses.Trees;
 using RMC.TotalRisk.Systems.Components;
 
 namespace RMC.TotalRisk.PerfHarness
@@ -33,10 +35,11 @@ namespace RMC.TotalRisk.PerfHarness
     /// — a two-component joint system at N = 200; <b>F3</b> — F1 with a second consequence type
     /// (the Phase 6.5 axis); <b>F4</b> — a dependent competing-risks component, the one shape whose
     /// cost is dominated by construction rather than integration, because the incidence factory
-    /// evaluates a multivariate-normal rectangle integral per unit per hazard level. Each fixture
-    /// reports the mean-only and full-uncertainty medians of
-    /// three runs plus the SHA-256 of the concatenated results JSON (mean, lower, upper, median
-    /// realizations and the summary ensemble).
+    /// evaluates a multivariate-normal rectangle integral per unit per hazard level; <b>F5</b> -
+    /// a large event tree with repeated independent external-link occurrences, measured directly
+    /// at setup and evaluation boundaries. Each engine fixture reports the mean-only and
+    /// full-uncertainty medians of three runs plus the SHA-256 of the concatenated results JSON
+    /// (mean, lower, upper, median realizations and the summary ensemble).
     /// </para>
     /// </remarks>
     public static class Program
@@ -54,7 +57,7 @@ namespace RMC.TotalRisk.PerfHarness
         /// <c>--reps 3</c> for the committed baseline/final table rows.</summary>
         private static int _reps = 1;
 
-        /// <summary>Runs the requested fixtures (args: optional <c>--reps N</c> plus fixture names among F1 F2 F3 F4; default all).</summary>
+        /// <summary>Runs the requested fixtures (args: optional <c>--reps N</c> plus fixture names among F1 F2 F3 F4 F5; default all).</summary>
         /// <param name="args">Optional repetition count and fixture filter.</param>
         /// <returns>Zero on success.</returns>
         public static int Main(string[] args)
@@ -85,6 +88,7 @@ namespace RMC.TotalRisk.PerfHarness
             if (All("F2")) Measure("F2 joint two-component, N=200 (reduced VEGAS budget)", () => BuildF2());
             if (All("F3")) Measure("F3 = F1 + second consequence type", () => BuildF3());
             if (All("F4")) Measure("F4 dependent competing risks, 4 modes, N=200", () => BuildF4());
+            if (All("F5")) MeasureEventTree();
             return 0;
         }
 
@@ -128,6 +132,61 @@ namespace RMC.TotalRisk.PerfHarness
             Console.WriteLine($"  full-MC   median: {fullMedian,10:F3} s");
             Console.WriteLine($"  full-MC allocated: {allocatedBytes / (1024d * 1024d * 1024d),8:F2} GB (GC gen0/1/2: {gen0}/{gen1}/{gen2})");
             Console.WriteLine($"  results SHA-256:  {hash}");
+            Console.WriteLine();
+        }
+
+        /// <summary>
+        /// Measures the Phase 10A large event-tree fixture at the sampler-setup and repeated-read
+        /// boundaries. The result hash covers every branch ordinate from the final indexed read.
+        /// </summary>
+        private static void MeasureEventTree()
+        {
+            const int sampleSize = 64;
+            const int evaluations = 32;
+            const int seed = 24681357;
+
+            EventTreeResponse warm = BuildF5();
+            warm.SetupSampler(sampleSize, seed, SamplingScheme.LatinHypercube);
+            ResponseBranchSample warmSample = warm.SampleBranches(0);
+
+            long setupAllocatedBytes = 0;
+            double setupMedian = Median(() =>
+            {
+                EventTreeResponse response = BuildF5();
+                long allocatedBefore = GC.GetTotalAllocatedBytes(precise: true);
+                double elapsed = Time(() => response.SetupSampler(
+                    sampleSize, seed, SamplingScheme.LatinHypercube));
+                setupAllocatedBytes = GC.GetTotalAllocatedBytes(precise: true) - allocatedBefore;
+                return elapsed;
+            });
+
+            long evaluationAllocatedBytes = 0;
+            ResponseBranchSample finalSample = warmSample;
+            double evaluationMedian = Median(() =>
+            {
+                EventTreeResponse response = BuildF5();
+                response.SetupSampler(sampleSize, seed, SamplingScheme.LatinHypercube);
+                long allocatedBefore = GC.GetTotalAllocatedBytes(precise: true);
+                double elapsed = Time(() =>
+                {
+                    for (int i = 0; i < evaluations; i++)
+                        finalSample = response.SampleBranches(i % sampleSize);
+                });
+                evaluationAllocatedBytes = GC.GetTotalAllocatedBytes(precise: true) - allocatedBefore;
+                return elapsed;
+            });
+
+            Console.WriteLine("F5 large event tree, 24 repeated independent links");
+            Console.WriteLine($"  expanded nodes:       {warm.CompiledInstructionCount,10}");
+            Console.WriteLine($"  expanded edges:       {warm.CompiledEdgeCount,10}");
+            Console.WriteLine($"  compiled plans:       {warm.CompiledPlanBuildCount,10}");
+            Console.WriteLine($"  authored nodes:       {warm.EventTree.Nodes.Count,10}");
+            Console.WriteLine($"  expanded branches:   {warmSample.Branches.Count,10}");
+            Console.WriteLine($"  setup median:         {setupMedian,10:F6} s");
+            Console.WriteLine($"  setup allocated:      {setupAllocatedBytes / (1024d * 1024d),10:F2} MB");
+            Console.WriteLine($"  {evaluations,2} indexed reads:     {evaluationMedian,10:F6} s");
+            Console.WriteLine($"  reads allocated:      {evaluationAllocatedBytes / (1024d * 1024d),10:F2} MB");
+            Console.WriteLine($"  result SHA-256:       {BranchSampleHash(finalSample)}");
             Console.WriteLine();
         }
 
@@ -176,6 +235,25 @@ namespace RMC.TotalRisk.PerfHarness
                 System.IO.File.WriteAllText($"{_dumpPath}.{label.Split(' ')[0]}.json", payload);
             }
             byte[] digest = SHA256.HashData(Encoding.UTF8.GetBytes(payload));
+            return Convert.ToHexString(digest).ToLowerInvariant();
+        }
+
+        /// <summary>Computes the deterministic byte gate for one exhaustive event-tree sample.</summary>
+        /// <param name="sample">The branch sample.</param>
+        /// <returns>The lowercase SHA-256 digest.</returns>
+        private static string BranchSampleHash(ResponseBranchSample sample)
+        {
+            var builder = new StringBuilder();
+            for (int branch = 0; branch < sample.Branches.Count; branch++)
+            {
+                builder.Append(sample.Branches[branch].IsFailure ? '1' : '0').Append('|');
+                for (int h = 0; h < sample.Hazards.Count; h++)
+                {
+                    builder.Append(sample.Probabilities[branch][h]
+                        .ToString("G17", CultureInfo.InvariantCulture)).Append('|');
+                }
+            }
+            byte[] digest = SHA256.HashData(Encoding.UTF8.GetBytes(builder.ToString()));
             return Convert.ToHexString(digest).ToLowerInvariant();
         }
 
@@ -322,6 +400,62 @@ namespace RMC.TotalRisk.PerfHarness
             if (twoTypes) nonFailure.ConsequenceFunctions.Add(Consequence("Non-Failure Damages", "Damages", "$", 250_000d));
             component.AddFailureMode(nonFailure);
             return component;
+        }
+
+        /// <summary>
+        /// Builds a large event response whose 24 external links independently expand one
+        /// 46-node deep/wide target subtree. The explicit scalar sources keep the fixture focused
+        /// on occurrence compilation, branch mapping, and evaluation rather than distribution cost.
+        /// </summary>
+        private static EventTreeResponse BuildF5()
+        {
+            double[] hazards = new double[33];
+            for (int i = 0; i < hazards.Length; i++) hazards[i] = i;
+
+            var targetTree = new EventTree();
+            var targetRoot = new ChanceNode("Reusable sequence", new ProbabilitySource(0.65d));
+            targetTree.Add(targetTree.Root.Id, targetRoot);
+            AddEventTreeLevel(targetTree, targetRoot, 4);
+            var target = new EventTreeResponse(hazards, targetTree)
+            {
+                Name = "Reusable target",
+                SpecifiedHazard = "Stage",
+                HazardUnit = "ft",
+            };
+
+            var ownerTree = new EventTree();
+            for (int i = 0; i < 24; i++)
+                ownerTree.LinkIndependent(ownerTree.Root.Id, target, targetRoot.Id,
+                    $"Independent occurrence {i + 1}");
+            return new EventTreeResponse(hazards, ownerTree)
+            {
+                Name = "Large linked event tree",
+                SpecifiedHazard = "Stage",
+                HazardUnit = "ft",
+            };
+        }
+
+        /// <summary>Adds one recursively branching target-tree level with an explicit remainder.</summary>
+        /// <param name="tree">The target tree.</param>
+        /// <param name="parent">The current parent.</param>
+        /// <param name="remainingDepth">The number of binary levels still to add.</param>
+        private static void AddEventTreeLevel(EventTree tree, EventNodeBase parent,
+            int remainingDepth)
+        {
+            if (remainingDepth == 0) return;
+            var first = new ChanceNode($"A{remainingDepth}", new ProbabilitySource(0.35d))
+            {
+                IsFailure = remainingDepth % 2 == 0,
+            };
+            var second = new ChanceNode($"B{remainingDepth}", new ProbabilitySource(0.45d))
+            {
+                IsFailure = remainingDepth % 2 != 0,
+            };
+            tree.Add(parent.Id, first);
+            tree.Add(parent.Id, second);
+            tree.Add(parent.Id, new RemainderNode($"R{remainingDepth}"));
+            AddEventTreeLevel(tree, first, remainingDepth - 1);
+            AddEventTreeLevel(tree, second, remainingDepth - 1);
         }
 
         /// <summary>Builds a clamped linear tabular consequence over (0, 30) ft.</summary>

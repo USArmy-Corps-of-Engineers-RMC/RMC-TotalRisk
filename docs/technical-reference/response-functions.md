@@ -18,7 +18,7 @@ where *F_R* is the conditional CDF of the resistance and *f_S* is the hazard (de
 
 `EventTreeResponse` (Phase 10A) and `FaultTreeResponse` (Phase 10B) remain response functions under this exact contract: they produce conditional fragility `P(F|h)`. Hazard functions manage hazard probability/frequency, and the component risk graph plus `RiskAnalysis` connects responses to consequences and computes risk. The normative [tree-response implementation design](../requirements/EVENT_AND_FAULT_TREE_RESPONSE_DESIGN.md) defines event end-state outputs, exact static fault evaluation, internal/external links, independent clones, controlled authoring operations, graph algorithms, LHS, serialization, hashing, testing, and cost-benefit.
 
-The first six coherent `EventTreeResponse` slices landed 2026-07-28. They include:
+The first seven coherent `EventTreeResponse` slices landed 2026-07-28. They include:
 
 - the common immutable branch descriptors/sample contract and tree-reference value object;
 - controlled `EventTree` ownership with add, insert, move, delete, search, ancestry,
@@ -41,8 +41,8 @@ The first six coherent `EventTreeResponse` slices landed 2026-07-28. They includ
   semantics, including separate epistemic sampler occurrences when one live source is reused;
 - resolver-backed self-contained and by-reference XML, with lenient function/node name fallback
   and repaired IDs on the next write;
-- a link-expanded immutable occurrence plan used by evaluation, sampling, identity, and validation;
-  and
+- an instance-scoped cached, immutable, link-expanded occurrence/evaluation plan used by branch
+  discovery, evaluation, sampling, serialization preparation, identity, and validation; and
 - transactional same-tree and cross-function cycle rejection with the complete function/node path
   in the diagnostic.
 - direct and multi-level `EventTreeResponse` probability sources evaluated at each caller hazard
@@ -66,7 +66,10 @@ The first six coherent `EventTreeResponse` slices landed 2026-07-28. They includ
   terminal ports, exact-name migration fallback, both XML modes, validation, end-state grouping,
   and projected per-leaf hash/seed identity; and
 - graph-aware reject/cascade/materialize deletion with complete tree, connection, port-registry,
-  hash, ID, and configured-sampler rollback after any failed edit.
+  hash, ID, configured-sampler, and compiled-cache rollback after any failed edit;
+- complete revision/event invalidation across direct and nested event-tree sources and internal or
+  external links, with canonical-fingerprint fallbacks for mutable Numerics tables and live ordinary
+  resolver-backed responses whose content can change without a collection event.
 
 The conversion authority is the partial C#
 `RMC.TotalRisk.IO/Project/Elements/Response Function/EventTreeResponse.cs`, the released VB
@@ -98,6 +101,22 @@ copies the exact child percentile columns into the owner's flattened sampler. A 
 compile, clone, capacity check, or child setup restores the owner's prior sample size, percentile
 matrix, sampler identity, and occurrence bindings exactly.
 
+The owning `EventTreeResponse` publishes one immutable occurrence plan behind a per-instance lock
+and volatile reference. The plan contains canonical parent-before-child instructions, primitive
+child indices, leaves, projected identity, and recursive dependency snapshots. An immutable
+branch-address plan is prepared separately and lazily so canonical-hash reads retain the prior
+behavior of not allocating linked ports. Concurrent read-only callers reuse the same published
+objects; there is no singleton, mutable global cache, per-hazard graph search, or reference
+resolution in the evaluation path.
+
+Controlled add/insert/move/replace/delete/materialize/paste/prune operations publish invalidation
+only after tentative expanded-cycle validation succeeds. Node probability-source replacement and
+direct, nested, internal-link, external-link, table, ordinary-response, and resolver-backed live
+dependency edits invalidate affected owners. Names, descriptions, IDs, hazard labels/units, and
+other projected metadata do not. Tree and graph transaction checkpoints collectively preserve
+occurrence/branch-plan state, compute revision, topology, IDs, branch-port allocation, and
+connections; hashes and configured sampler observations remain unchanged after rollback.
+
 Nested response content and a selected expanded branch both participate in projected canonical
 identity. The branch contribution is its metadata-free compute-occurrence path; persistent branch
 IDs, names, output ports, and duplicate-sibling occurrence ordinals remain outside the hash. This
@@ -117,9 +136,9 @@ defaults to reject when a connected terminal would disappear; cascade clears onl
 that branch; materialize succeeds only when exact link materialization retains its ID and port.
 The graph never fabricates an equivalent-looking replacement for a deleted direct terminal.
 
-Still open in Phase 10A are immutable compiled-plan caching/invalidation; large-tree performance;
-property-based testing; branch-routing Monte Carlo; aggregate LHS variance reduction; and the
-remaining thread-count, coverage, and performance exit gates.
+Still open in Phase 10A are property-based testing, branch-routing Monte Carlo, aggregate LHS
+variance reduction, and the remaining thread-count, coverage, and phase-close performance exit
+gates. The event-tree F5 compiled-plan performance characterization is recorded and hash-gated.
 
 
 ## Contract

@@ -1,8 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
+using System.ComponentModel;
 using System.Globalization;
 using System.Linq;
+using System.Threading;
 using System.Xml.Linq;
 using Numerics.Data;
 using Numerics.Distributions;
@@ -25,8 +28,10 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
     /// independent-clone link occurrences. It also reads the recursive node XML emitted by the
     /// v1.0 product and writes only the explicit v1.1 graph form. Every nested occurrence
     /// participates in recursive sampling, two-mode serialization, projected hashing, and mixed
-    /// source/link cycle diagnostics. Expanded graph ports and cached-plan optimization remain
-    /// explicitly deferred.
+    /// source/link cycle diagnostics. Expanded graph ports are append-only. An instance-scoped
+    /// immutable occurrence/evaluation plan is published once and invalidated through controlled
+    /// revisions plus defensive live-content fingerprints; branch-address preparation remains lazy
+    /// so identity-only reads do not mutate persistence state.
     /// </remarks>
     public sealed class EventTreeResponse : ResponseFunctionBase, IBranchingResponseFunction
     {
@@ -96,6 +101,21 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
         /// <summary>The canonical identity under which the current sampler was set up.</summary>
         private byte[]? _samplerIdentity;
 
+        /// <summary>Serializes plan publication, invalidation, and rollback restoration.</summary>
+        private readonly object _compiledPlanSync = new object();
+
+        /// <summary>The immutable instance-scoped plan published for concurrent readers.</summary>
+        private CompiledEventTreePlan? _compiledPlan;
+
+        /// <summary>The optional immutable branch-address preparation for the current plan.</summary>
+        private CompiledBranchPlan? _compiledBranches;
+
+        /// <summary>The controlled compute-state revision observed by dependent plans.</summary>
+        private long _computeRevision;
+
+        /// <summary>Instance-scoped diagnostic count of successfully published plans.</summary>
+        private long _compiledPlanBuildCount;
+
         /// <summary>The controlled authored event tree.</summary>
         public EventTree EventTree { get; }
 
@@ -112,6 +132,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
             _hazardLevels.Clear();
             _hazardLevels.AddRange(replacement);
             _samplerIdentity = null;
+            InvalidateCompiledPlan(false);
             RaisePropertyChange(nameof(HazardLevels));
         }
 
@@ -119,7 +140,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
         public override ResponseFunctionType FunctionType => ResponseFunctionType.EventTree;
 
         /// <inheritdoc/>
-        public override bool IsDeterministic => EventTreeOccurrencePlan.Compile(this).IsDeterministic;
+        public override bool IsDeterministic => GetCompiledPlan().Occurrences.IsDeterministic;
 
         /// <inheritdoc/>
         /// <remarks>
@@ -127,7 +148,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
         /// therefore owns a distinct local column, and each referenced response occurrence reports
         /// its full child dimension count.
         /// </remarks>
-        public override int SamplingDimensions => EventTreeOccurrencePlan.Compile(this).SamplingDimensions;
+        public override int SamplingDimensions => GetCompiledPlan().Occurrences.SamplingDimensions;
 
         /// <inheritdoc/>
         /// <remarks>
@@ -147,7 +168,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
             try
             {
                 ThrowIfUnusable();
-                EventTreeOccurrencePlan plan = EventTreeOccurrencePlan.Compile(this);
+                EventTreeOccurrencePlan plan = GetCompiledPlan().Occurrences;
                 base.SetupSampler(sampleSize, seed, scheme);
                 var nextBindings = new Dictionary<string, SamplingBinding>(StringComparer.Ordinal);
                 int dimension = 0;
@@ -274,7 +295,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
             EventTreeOccurrencePlan? plan = null;
             try
             {
-                plan = EventTreeOccurrencePlan.Compile(this);
+                plan = GetCompiledPlan().Occurrences;
             }
             catch (InvalidOperationException ex)
             {
@@ -332,8 +353,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
         /// <inheritdoc/>
         public IReadOnlyList<ResponseBranchDescriptor> GetBranches()
         {
-            EventTreeOccurrencePlan plan = EventTreeOccurrencePlan.Compile(this);
-            return BuildBranchBindings(plan).Select(binding => binding.Descriptor).ToArray();
+            return GetCompiledBranchPlan().CreateDescriptors();
         }
 
         /// <inheritdoc/>
@@ -495,8 +515,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
         /// <returns>The serialized response.</returns>
         public XElement ToXElement(RiskSerializationMode mode)
         {
-            EventTreeOccurrencePlan plan = EventTreeOccurrencePlan.Compile(this);
-            _ = BuildBranchBindings(plan);
+            _ = GetCompiledBranchPlan();
             var element = new XElement(nameof(EventTreeResponse));
             WriteIdentityAttributes(element);
             element.SetAttributeValue(nameof(SpecifiedHazard), SpecifiedHazard);
@@ -521,7 +540,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
         /// </remarks>
         public override byte[] CanonicalHash()
         {
-            EventTreeOccurrencePlan plan = EventTreeOccurrencePlan.Compile(this);
+            EventTreeOccurrencePlan plan = GetCompiledPlan().Occurrences;
             return CanonicalHash(plan);
         }
 
@@ -538,7 +557,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
         /// <returns>The metadata- and persistence-free response identity.</returns>
         internal XElement ToIdentityXElement()
         {
-            return BuildIdentityXElement(EventTreeOccurrencePlan.Compile(this));
+            return BuildIdentityXElement(GetCompiledPlan().Occurrences);
         }
 
         /// <summary>Builds projected identity from a previously compiled occurrence plan.</summary>
@@ -553,7 +572,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                 hazards.Add(level);
             }
             identity.Add(hazards);
-            identity.Add(new XElement(plan.Identity));
+            identity.Add(plan.Identity);
             return identity;
         }
 
@@ -577,67 +596,69 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
         /// <returns>The exhaustive branch sample.</returns>
         private ResponseBranchSample EvaluateBranches(SampleMode mode, double percentile, int realizationIndex)
         {
-            EventTreeOccurrencePlan plan = EventTreeOccurrencePlan.Compile(this);
-            IReadOnlyList<BranchBinding> bindings = BuildBranchBindings(plan);
-            ResponseBranchDescriptor[] descriptors = bindings.Select(binding => binding.Descriptor).ToArray();
+            CompiledBranchPlan compiled = GetCompiledBranchPlan();
+            IReadOnlyList<EventTreeEvaluationInstruction> instructions =
+                compiled.Occurrences.EvaluationInstructions;
+            ResponseBranchDescriptor[] descriptors = compiled.CreateDescriptors();
             var probabilities = new double[descriptors.Length][];
-            for (int branch = 0; branch < probabilities.Length; branch++) probabilities[branch] = new double[_hazardLevels.Count];
-
-            int implicitIndex = Enumerable.Range(0, descriptors.Length)
-                .Single(i => descriptors[i].Id == ImplicitBranchId);
-            var leafIndex = new Dictionary<string, int>(StringComparer.Ordinal);
-            for (int i = 0; i < bindings.Count; i++)
-            {
-                if (bindings[i].Occurrence != null)
-                    leafIndex.Add(bindings[i].Occurrence!.CanonicalPath, i);
-            }
+            for (int branch = 0; branch < probabilities.Length; branch++)
+                probabilities[branch] = new double[_hazardLevels.Count];
+            var masses = new double[instructions.Count];
+            var rawProbabilities = new double[instructions.Count];
 
             for (int h = 0; h < _hazardLevels.Count; h++)
             {
-                var stack = new Stack<(EventTreeOccurrenceNode Node, double PathProbability)>();
-                stack.Push((plan.Root, 1d));
+                Array.Clear(masses);
+                masses[0] = 1d;
                 double implicitCompensation = 0d;
-                while (stack.Count > 0)
+                for (int instructionIndex = 0; instructionIndex < instructions.Count;
+                    instructionIndex++)
                 {
-                    var item = stack.Pop();
-                    if (item.Node.Children.Count == 0)
+                    EventTreeEvaluationInstruction instruction = instructions[instructionIndex];
+                    EventTreeOccurrenceNode occurrence = instruction.Occurrence;
+                    if (instruction.ChildCount == 0)
                     {
-                        if (item.Node.SourceNode is not InitiatingNode)
-                            probabilities[leafIndex[item.Node.CanonicalPath]][h] = item.PathProbability;
+                        if (occurrence.SourceNode is not InitiatingNode)
+                        {
+                            int branchIndex = compiled.BranchIndexByPath[occurrence.CanonicalPath];
+                            probabilities[branchIndex][h] = masses[instructionIndex];
+                        }
                         continue;
                     }
 
-                    IReadOnlyList<EventTreeOccurrenceNode> children = item.Node.Children;
-                    var raw = new double[children.Count];
                     double explicitSum = 0d;
                     double sumCompensation = 0d;
-                    int remainderIndex = -1;
-                    for (int childIndex = 0; childIndex < children.Count; childIndex++)
+                    int remainderChild = -1;
+                    for (int childOrdinal = 0; childOrdinal < instruction.ChildCount; childOrdinal++)
                     {
-                        if (children[childIndex].SourceNode is RemainderNode)
+                        int childIndex = instruction.ChildIndex(childOrdinal);
+                        EventTreeOccurrenceNode child = instructions[childIndex].Occurrence;
+                        if (child.SourceNode is RemainderNode)
                         {
-                            remainderIndex = childIndex;
+                            remainderChild = childIndex;
                             continue;
                         }
-                        raw[childIndex] = EvaluateSource(children[childIndex], _hazardLevels[h],
-                            h, mode, percentile, realizationIndex);
-                        AddCompensated(ref explicitSum, ref sumCompensation, raw[childIndex]);
+                        rawProbabilities[childIndex] = EvaluateSource(child,
+                            _hazardLevels[h], h, mode, percentile, realizationIndex);
+                        AddCompensated(ref explicitSum, ref sumCompensation,
+                            rawProbabilities[childIndex]);
                     }
 
                     double scale = explicitSum > 1d ? 1d / explicitSum : 1d;
                     double residual = explicitSum < 1d ? 1d - explicitSum : 0d;
-                    if (remainderIndex < 0 && residual > 0d)
+                    if (remainderChild < 0 && residual > 0d)
                     {
-                        double contribution = item.PathProbability * residual;
-                        double current = probabilities[implicitIndex][h];
+                        double contribution = masses[instructionIndex] * residual;
+                        double current = probabilities[compiled.ImplicitBranchIndex][h];
                         AddCompensated(ref current, ref implicitCompensation, contribution);
-                        probabilities[implicitIndex][h] = current;
+                        probabilities[compiled.ImplicitBranchIndex][h] = current;
                     }
-
-                    for (int childIndex = children.Count - 1; childIndex >= 0; childIndex--)
+                    for (int childOrdinal = 0; childOrdinal < instruction.ChildCount; childOrdinal++)
                     {
-                        double conditional = childIndex == remainderIndex ? residual : raw[childIndex] * scale;
-                        stack.Push((children[childIndex], item.PathProbability * conditional));
+                        int childIndex = instruction.ChildIndex(childOrdinal);
+                        double conditional = childIndex == remainderChild
+                            ? residual : rawProbabilities[childIndex] * scale;
+                        masses[childIndex] = masses[instructionIndex] * conditional;
                     }
                 }
             }
@@ -712,14 +733,8 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
         /// <returns>The aggregate hazard/failure-probability curve.</returns>
         private OrderedPairedData AggregateFailureCurve(ResponseBranchSample sample)
         {
-            EventTreeOccurrencePlan plan = EventTreeOccurrencePlan.Compile(this);
-            IReadOnlyList<BranchBinding> bindings = BuildBranchBindings(plan);
-            var indexByPath = new Dictionary<string, int>(StringComparer.Ordinal);
-            for (int i = 0; i < bindings.Count; i++)
-            {
-                if (bindings[i].Occurrence != null)
-                    indexByPath.Add(bindings[i].Occurrence!.CanonicalPath, i);
-            }
+            CompiledBranchPlan compiled = GetCompiledBranchPlan();
+            EventTreeOccurrencePlan plan = compiled.Occurrences;
 
             var failure = new double[sample.Hazards.Count];
             for (int h = 0; h < failure.Length; h++)
@@ -728,7 +743,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                 foreach (EventTreeOccurrenceNode leaf in plan.Leaves)
                 {
                     if (!leaf.IsFailure) continue;
-                    int branch = indexByPath[leaf.CanonicalPath];
+                    int branch = compiled.BranchIndexByPath[leaf.CanonicalPath];
                     AddCompensated(ref failure[h], ref compensation, sample.Probabilities[branch][h]);
                 }
                 failure[h] = ClampRoundoff(failure[h]);
@@ -742,8 +757,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
         {
             var result = new List<BranchBinding>(plan.Leaves.Count + 1)
             {
-                new BranchBinding(null,
-                    new ResponseBranchDescriptor(ImplicitBranchId, "Unmodeled", false, 2)),
+                new BranchBinding(null, ImplicitBranchId, 2),
             };
             var usedIds = new HashSet<Guid> { ImplicitBranchId };
             foreach (EventTreeOccurrenceNode leaf in plan.Leaves)
@@ -777,11 +791,9 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                         leaf.PersistencePath);
                 }
 
-                result.Add(new BranchBinding(leaf,
-                    new ResponseBranchDescriptor(branchId, leaf.DisplayName,
-                        leaf.IsFailure, outputPort)));
+                result.Add(new BranchBinding(leaf, branchId, outputPort));
             }
-            return result.OrderBy(binding => binding.Descriptor.OutputPort).ToArray();
+            return result.OrderBy(binding => binding.OutputPort).ToArray();
         }
 
         /// <summary>Gets the metadata-free projected identity of one selected branch.</summary>
@@ -791,9 +803,8 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
         internal string GetBranchIdentityToken(Guid branchId)
         {
             if (branchId == ImplicitBranchId) return "ImplicitUnmodeled";
-            EventTreeOccurrencePlan plan = EventTreeOccurrencePlan.Compile(this);
-            BranchBinding? binding = BuildBranchBindings(plan)
-                .FirstOrDefault(item => item.Descriptor.Id == branchId);
+            BranchBinding? binding = GetCompiledBranchPlan().Bindings
+                .FirstOrDefault(item => item.BranchId == branchId);
             if (binding?.Occurrence == null)
                 throw new InvalidOperationException(
                     $"Event-tree response '{Name}' does not expose branch '{branchId:D}'.");
@@ -829,6 +840,262 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
             if (!messages.Contains(message)) messages.Add(message);
         }
 
+        /// <summary>Returns the current immutable plan, compiling and publishing it once when stale.</summary>
+        private CompiledEventTreePlan GetCompiledPlan()
+        {
+            while (true)
+            {
+                CompiledEventTreePlan? current = Volatile.Read(ref _compiledPlan);
+                if (current != null)
+                {
+                    if (current.Occurrences.Dependencies.IsCurrent()) return current;
+                    TryInvalidateCompiledPlan(current, true);
+                    continue;
+                }
+
+                CompiledEventTreePlan? candidate = null;
+                lock (_compiledPlanSync)
+                {
+                    if (_compiledPlan != null) continue;
+                    EventTreeOccurrencePlan occurrences = EventTreeOccurrencePlan.Compile(this);
+                    candidate = new CompiledEventTreePlan(occurrences);
+                    if (!occurrences.Dependencies.IsCurrent()) continue;
+                    occurrences.Dependencies.Attach(this);
+                    if (!occurrences.Dependencies.IsCurrent())
+                    {
+                        occurrences.Dependencies.Detach(this);
+                        continue;
+                    }
+                    Volatile.Write(ref _compiledPlan, candidate);
+                    Interlocked.Increment(ref _compiledPlanBuildCount);
+                }
+
+                if (candidate.Occurrences.Dependencies.IsCurrent()) return candidate;
+                TryInvalidateCompiledPlan(candidate, true);
+            }
+        }
+
+        /// <summary>Returns immutable branch addressing prepared once for the current occurrence plan.</summary>
+        private CompiledBranchPlan GetCompiledBranchPlan()
+        {
+            while (true)
+            {
+                CompiledEventTreePlan plan = GetCompiledPlan();
+                CompiledBranchPlan? current = Volatile.Read(ref _compiledBranches);
+                if (current != null && ReferenceEquals(current.Occurrences, plan.Occurrences))
+                    return current;
+
+                lock (_compiledPlanSync)
+                {
+                    plan = GetCompiledPlan();
+                    current = _compiledBranches;
+                    if (current != null && ReferenceEquals(current.Occurrences, plan.Occurrences))
+                        return current;
+
+                    var candidate = new CompiledBranchPlan(plan.Occurrences,
+                        BuildBranchBindings(plan.Occurrences));
+                    if (!ReferenceEquals(_compiledPlan, plan)) continue;
+                    Volatile.Write(ref _compiledBranches, candidate);
+                    return candidate;
+                }
+            }
+        }
+
+        /// <summary>Returns the cached occurrence plan to the owning tree's inspection surface.</summary>
+        internal EventTreeOccurrencePlan GetOccurrencePlan()
+        {
+            return GetCompiledPlan().Occurrences;
+        }
+
+        /// <summary>The controlled compute revision observed by dependent event-tree plans.</summary>
+        internal long ComputeRevision => Interlocked.Read(ref _computeRevision);
+
+        /// <summary>Raised internally after this response's compute state becomes stale.</summary>
+        internal event EventHandler? ComputeStateChanged;
+
+        /// <summary>
+        /// The number of plans this instance has published. This internal diagnostic seam proves
+        /// reuse/invalidation without exposing cache mechanics in the public model API.
+        /// </summary>
+        internal long CompiledPlanBuildCount => Interlocked.Read(ref _compiledPlanBuildCount);
+
+        /// <summary>The current expanded instruction count for tests and the performance harness.</summary>
+        internal int CompiledInstructionCount => GetCompiledPlan().Occurrences.EvaluationInstructions.Count;
+
+        /// <summary>The current expanded edge count for tests and the performance harness.</summary>
+        internal int CompiledEdgeCount => GetCompiledPlan().Occurrences.ExpandedEdgeCount;
+
+        /// <summary>An opaque identity for proving that repeated reads reuse one immutable plan.</summary>
+        internal object CompiledPlanIdentity => GetCompiledPlan();
+
+        /// <summary>Invalidates this instance and propagates compute staleness to dependent owners.</summary>
+        /// <param name="raisePropertyChange">Whether to notify ordinary function observers.</param>
+        private void InvalidateCompiledPlan(bool raisePropertyChange)
+        {
+            lock (_compiledPlanSync)
+            {
+                CompiledEventTreePlan? current = _compiledPlan;
+                current?.Occurrences.Dependencies.Detach(this);
+                Volatile.Write(ref _compiledPlan, null);
+                Volatile.Write(ref _compiledBranches, null);
+                Interlocked.Increment(ref _computeRevision);
+            }
+            ComputeStateChanged?.Invoke(this, EventArgs.Empty);
+            if (raisePropertyChange) RaisePropertyChange(nameof(EventTree));
+        }
+
+        /// <summary>Invalidates after one committed controlled-tree edit.</summary>
+        internal void NotifyTreeComputeChanged()
+        {
+            InvalidateCompiledPlan(true);
+        }
+
+        /// <summary>Invalidates only the stale plan observed by one racing reader.</summary>
+        /// <param name="expected">The plan that failed its dependency check.</param>
+        /// <param name="raisePropertyChange">Whether to notify ordinary function observers.</param>
+        /// <returns>True when the expected plan was still current and was invalidated.</returns>
+        private bool TryInvalidateCompiledPlan(CompiledEventTreePlan expected,
+            bool raisePropertyChange)
+        {
+            lock (_compiledPlanSync)
+            {
+                if (!ReferenceEquals(_compiledPlan, expected)) return false;
+                expected.Occurrences.Dependencies.Detach(this);
+                Volatile.Write(ref _compiledPlan, null);
+                Volatile.Write(ref _compiledBranches, null);
+                Interlocked.Increment(ref _computeRevision);
+            }
+            ComputeStateChanged?.Invoke(this, EventArgs.Empty);
+            if (raisePropertyChange) RaisePropertyChange(nameof(EventTree));
+            return true;
+        }
+
+        /// <summary>Invalidates when a nested or external event-tree dependency changes.</summary>
+        internal void DependencyEventTreeChanged(object? sender, EventArgs e)
+        {
+            InvalidateCompiledPlan(true);
+        }
+
+        /// <summary>Invalidates when a directly or recursively owned uncertain table changes membership.</summary>
+        internal void DependencyTableCollectionChanged(object? sender,
+            NotifyCollectionChangedEventArgs e)
+        {
+            InvalidateCompiledPlan(true);
+        }
+
+        /// <summary>Invalidates for compute-relevant edits to an ordinary referenced response.</summary>
+        internal void DependencyFunctionPropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(Name) || e.PropertyName == nameof(Description)
+                || e.PropertyName == nameof(SpecifiedHazard) || e.PropertyName == nameof(HazardUnit)
+                || e.PropertyName == nameof(Id)) return;
+            InvalidateCompiledPlan(true);
+        }
+
+        /// <summary>Captures the exact owner cache/revision state for an authoring transaction.</summary>
+        internal object CreateCompiledPlanCheckpoint()
+        {
+            lock (_compiledPlanSync)
+                return new CompiledPlanCheckpoint(_compiledPlan, _compiledBranches,
+                    _computeRevision, _compiledPlanBuildCount);
+        }
+
+        /// <summary>Restores the exact owner cache/revision state after authoring rollback.</summary>
+        internal void RestoreCompiledPlanCheckpoint(object checkpoint)
+        {
+            if (checkpoint is not CompiledPlanCheckpoint state)
+                throw new ArgumentException("The event-tree compiled-plan checkpoint is invalid.",
+                    nameof(checkpoint));
+            lock (_compiledPlanSync)
+            {
+                _compiledPlan?.Occurrences.Dependencies.Detach(this);
+                _computeRevision = state.ComputeRevision;
+                _compiledPlan = state.Plan;
+                _compiledBranches = state.Branches;
+                _compiledPlanBuildCount = state.PlanBuildCount;
+                _compiledPlan?.Occurrences.Dependencies.Attach(this);
+            }
+        }
+
+        /// <summary>One exact cache/revision authoring checkpoint.</summary>
+        private sealed class CompiledPlanCheckpoint
+        {
+            internal CompiledPlanCheckpoint(CompiledEventTreePlan? plan,
+                CompiledBranchPlan? branches, long computeRevision, long planBuildCount)
+            {
+                Plan = plan;
+                Branches = branches;
+                ComputeRevision = computeRevision;
+                PlanBuildCount = planBuildCount;
+            }
+
+            internal CompiledEventTreePlan? Plan { get; }
+
+            /// <summary>The pre-mutation branch-address plan, when already prepared.</summary>
+            internal CompiledBranchPlan? Branches { get; }
+
+            internal long ComputeRevision { get; }
+
+            /// <summary>The pre-mutation diagnostic publication count.</summary>
+            internal long PlanBuildCount { get; }
+        }
+
+        /// <summary>An immutable published occurrence/evaluation plan.</summary>
+        private sealed class CompiledEventTreePlan
+        {
+            internal CompiledEventTreePlan(EventTreeOccurrencePlan occurrences)
+            {
+                Occurrences = occurrences;
+            }
+
+            internal EventTreeOccurrencePlan Occurrences { get; }
+        }
+
+        /// <summary>
+        /// Immutable branch addressing prepared independently so identity-only reads retain their
+        /// pre-caching serialization behavior.
+        /// </summary>
+        private sealed class CompiledBranchPlan
+        {
+            internal CompiledBranchPlan(EventTreeOccurrencePlan occurrences,
+                IReadOnlyList<BranchBinding> bindings)
+            {
+                Occurrences = occurrences;
+                Bindings = Array.AsReadOnly(bindings.ToArray());
+                var branchIndexByPath = new Dictionary<string, int>(StringComparer.Ordinal);
+                int implicitIndex = -1;
+                for (int i = 0; i < Bindings.Count; i++)
+                {
+                    if (Bindings[i].Occurrence == null)
+                        implicitIndex = i;
+                    else
+                        branchIndexByPath.Add(Bindings[i].Occurrence!.CanonicalPath, i);
+                }
+                if (implicitIndex < 0)
+                    throw new InvalidOperationException("The compiled event tree has no implicit branch address.");
+                ImplicitBranchIndex = implicitIndex;
+                BranchIndexByPath = new ReadOnlyDictionary<string, int>(
+                    branchIndexByPath);
+            }
+
+            internal EventTreeOccurrencePlan Occurrences { get; }
+
+            internal IReadOnlyList<BranchBinding> Bindings { get; }
+
+            internal IReadOnlyDictionary<string, int> BranchIndexByPath { get; }
+
+            internal int ImplicitBranchIndex { get; }
+
+            /// <summary>Creates descriptors with current metadata over immutable addresses.</summary>
+            internal ResponseBranchDescriptor[] CreateDescriptors()
+            {
+                var descriptors = new ResponseBranchDescriptor[Bindings.Count];
+                for (int i = 0; i < Bindings.Count; i++)
+                    descriptors[i] = Bindings[i].CreateDescriptor();
+                return descriptors;
+            }
+        }
+
         /// <summary>One realization-sampling binding keyed by canonical occurrence path.</summary>
         private sealed class SamplingBinding
         {
@@ -846,15 +1113,28 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
         /// <summary>Associates one expanded terminal occurrence with its public branch descriptor.</summary>
         private sealed class BranchBinding
         {
-            internal BranchBinding(EventTreeOccurrenceNode? occurrence, ResponseBranchDescriptor descriptor)
+            internal BranchBinding(EventTreeOccurrenceNode? occurrence, Guid branchId,
+                int outputPort)
             {
                 Occurrence = occurrence;
-                Descriptor = descriptor;
+                BranchId = branchId;
+                OutputPort = outputPort;
             }
 
             internal EventTreeOccurrenceNode? Occurrence { get; }
 
-            internal ResponseBranchDescriptor Descriptor { get; }
+            internal Guid BranchId { get; }
+
+            internal int OutputPort { get; }
+
+            /// <summary>Creates a descriptor with the current compute-inert display name.</summary>
+            internal ResponseBranchDescriptor CreateDescriptor()
+            {
+                return Occurrence == null
+                    ? new ResponseBranchDescriptor(BranchId, "Unmodeled", false, OutputPort)
+                    : new ResponseBranchDescriptor(BranchId, Occurrence.DisplayName,
+                        Occurrence.IsFailure, OutputPort);
+            }
         }
 
         /// <summary>Throws when validation reports any error.</summary>

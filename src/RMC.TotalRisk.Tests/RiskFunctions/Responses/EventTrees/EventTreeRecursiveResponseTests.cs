@@ -378,6 +378,8 @@ public class EventTreeRecursiveResponseTests
         outer.SetupSampler(4, 86420, SamplingScheme.LatinHypercube);
         double percentileBefore = outer.SampledPercentile(0, 0);
         double valueBefore = outer.SampleResponseFunction(0)[0].Y;
+        object planBefore = outer.CompiledPlanIdentity;
+        long planBuildsBefore = outer.CompiledPlanBuildCount;
 
         InvalidOperationException capacity = Assert.ThrowsException<InvalidOperationException>(() =>
             outer.SetupSampler(5, 86420, SamplingScheme.LatinHypercube));
@@ -388,6 +390,8 @@ public class EventTreeRecursiveResponseTests
         Assert.AreEqual(4, outer.SampleSize);
         Assert.AreEqual(percentileBefore, outer.SampledPercentile(0, 0));
         Assert.AreEqual(valueBefore, outer.SampleResponseFunction(0)[0].Y);
+        Assert.AreSame(planBefore, outer.CompiledPlanIdentity);
+        Assert.AreEqual(planBuildsBefore, outer.CompiledPlanBuildCount);
 
         ProbabilitySource originalSource = local.ProbabilitySource;
         local.ProbabilitySource = new ProbabilitySource(outer);
