@@ -16,7 +16,8 @@ using RMC.TotalRisk.Systems.Components.Graph;
 namespace RMC.TotalRisk.Verification.Analyses;
 
 /// <summary>
-/// Cascading response end states — the Phase 6.7 verification family (arch doc §7.9): hand-rolled
+/// Cascading response end states — the cascade verification family
+/// (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §7.9): hand-rolled
 /// Monte Carlo oracles for the two-stage cascade with a partial-damage state, the across-group
 /// combination matrix (joint, mutually exclusive, competing), the saturated-stage single-stage
 /// equivalence, reliability mode, system aggregation smokes, and the reproducibility pins.
@@ -1141,7 +1142,7 @@ public class CascadeEndStateVerification
             "Renames, id reassignment, and the XML round-trip must be bit-identical (ports and polarities survive persistence).");
 
         // The counter-pin: rewiring the partial terminal onto the Fail port (a duplicate-leaf
-        // claim — legal per the Q2 ruling) changes the computed results.
+        // claim — legal, preserving the legacy fan-out semantics) changes the computed results.
         var rewired = UncertainCascade();
         var partial = (ConsequenceElement)rewired.Components[0].Graph.GetElement("Partial Damage")!;
         var progression = rewired.Components[0].Graph.GetElement("Progression")!;

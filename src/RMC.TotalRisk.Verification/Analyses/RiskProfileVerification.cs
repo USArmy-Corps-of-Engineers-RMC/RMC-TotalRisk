@@ -17,7 +17,7 @@ using RMC.TotalRisk.Systems.Components.Graph;
 namespace RMC.TotalRisk.Verification.Analyses;
 
 /// <summary>
-/// Risk-profile verification (Phase 6.6) — the Q-T profile-axis remap and the profile catalog:
+/// Risk-profile verification — the profile-axis remap and the profile catalog:
 /// the pushforward of the profile axis is exact at recorded knots and leaves every non-profile
 /// output bit-identical; the hazard threshold reads equivalently on the raw and profile axes at
 /// a shared knot; the cumulative failure probability, cumulative expected consequence, and
@@ -44,11 +44,12 @@ namespace RMC.TotalRisk.Verification.Analyses;
 /// <para>
 /// <b>Tolerances:</b> identity asserts (terminal ordinate vs the stored mass balance / mean)
 /// are exact bookkeeping and use 1e-12 relative. Oracle comparisons of the terminals use 1e-4
-/// relative — the documented Numerics N7 recorded-mass interim envelope (measured ≈ 3e-6 in the
-/// Phase 5 EAD family) plus the dense-trapezoid oracle's own O(h²) error at 200,001 ordinates
+/// relative — the quadrature mass-accounting residual envelope (measured ≈ 3e-6 in the
+/// EAD family under the earlier midpoint-trapezoid partition, since replaced by the
+/// recorded-mass ledger) plus the dense-trapezoid oracle's own O(h²) error at 200,001 ordinates
 /// (≈ 1e-9). Interior cumulative probes use 2e-3 relative of the terminal: the engine's
-/// ascending cumulate at ordinate j carries the midpoint-trapezoid partition, so it represents
-/// the integral to the midpoint between adjacent recorded probabilities — a half-interval
+/// ascending cumulate at ordinate j is a partial sum of the per-abscissa masses, representing
+/// the integral only to within the local inter-node spacing — a half-interval
 /// discretization allowance at the mean pass's recorded density (measured well inside the
 /// bound). Per-knot response comparisons are exact interpolation chains on both sides and use
 /// 1e-9 relative.
@@ -387,8 +388,8 @@ public class RiskProfileVerification
     /// <summary>
     /// Verifies the catalog against the independent quadrature oracle on the two-mode joint
     /// scenario: terminal identities (exact bookkeeping), terminals vs the oracle integrals
-    /// (the recorded-mass interim envelope), interior cumulative ordinates vs partial oracle
-    /// integrals (the midpoint-partition allowance), and the response profile's exact per-knot
+    /// (the mass-accounting residual envelope), interior cumulative ordinates vs partial oracle
+    /// integrals (the half-interval allowance), and the response profile's exact per-knot
     /// union and exceedance coordinates.
     /// </summary>
     [TestMethod]

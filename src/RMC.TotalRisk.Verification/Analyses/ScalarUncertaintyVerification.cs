@@ -12,7 +12,7 @@ using RMC.TotalRisk.Systems.Components;
 namespace RMC.TotalRisk.Verification.Analyses;
 
 /// <summary>
-/// Scalar-measure confidence-interval verification (Phase 6.6) — the ensemble summary that
+/// Scalar-measure confidence-interval verification — the ensemble summary that
 /// gives the risk-measure catalog percentile intervals: verified on an analytically solvable
 /// knowledge structure where every per-realization mean is an exact monotone (linear) map of a
 /// single stratified knowledge draw, so the ensemble quantiles have closed-form targets; plus
@@ -40,7 +40,7 @@ namespace RMC.TotalRisk.Verification.Analyses;
 /// for the draw offset and the percentile interpolation). The asserts use exactly that
 /// self-derived bound, computed from the analytic map in-test. The ensemble mean uses the
 /// conservative plain Monte Carlo bound 4·σ/√N (LHS variance is far smaller for this linear
-/// statistic — the Phase 6 LHS family measured a ×10⁴ reduction), with σ = M₀ · 0.1.
+/// statistic — the LHS variance-reduction family measured a ×10⁴ reduction), with σ = M₀ · 0.1.
 /// </para>
 /// </remarks>
 [TestClass]
@@ -160,8 +160,8 @@ public class ScalarUncertaintyVerification
 
         // The APF is knowledge-free on this scenario — a near-degenerate interval. It is not
         // bit-degenerate: the adaptive refinement follows the consequence draw, so each
-        // realization records a slightly different point set and the re-derived mass (the N7
-        // interim) differs at the ~1e-12 relative scale; 1e-9 bounds that placement noise.
+        // realization records a slightly different point set and its recorded per-abscissa
+        // mass differs at the ~1e-12 relative scale; 1e-9 bounds that placement noise.
         Assert.AreEqual(summary.Lower.Fail.TotalProbability, summary.Upper.Fail.TotalProbability,
             1e-9 * Math.Max(1e-12, summary.Upper.Fail.TotalProbability),
             "A knowledge-free failure probability must produce a (mass-noise) degenerate interval.");

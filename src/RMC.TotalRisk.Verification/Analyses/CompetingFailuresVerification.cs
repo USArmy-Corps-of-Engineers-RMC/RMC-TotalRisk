@@ -14,7 +14,7 @@ using RMC.TotalRisk.Systems.Components;
 namespace RMC.TotalRisk.Verification.Analyses;
 
 /// <summary>
-/// Weak-link competing failure modes — the Phase 5 conversion of the legacy
+/// Weak-link competing failure modes — the conversion of the legacy
 /// <c>Test_MC_CompetingFailures</c> family: one system component with 2 or 5 potential failure
 /// modes racing to first failure, across the four dependency options, verified against an
 /// independent brute-force Monte Carlo oracle and pinned to the 2024 verification report's
@@ -45,8 +45,8 @@ namespace RMC.TotalRisk.Verification.Analyses;
 /// <b>Documented deviations:</b> the legacy 5-PFM Positive body is a broken code path — its
 /// multivariate generation is commented out, it computes an unused Cholesky product, and it
 /// assigns one shared standard normal to every mode from an in-loop stream. This port replaces
-/// it with the correct r = 1 − √ε equicorrelated oracle matching every sibling method (the
-/// ratified improve-on-port decision; the report published no constants for that case).
+/// it with the correct r = 1 − √ε equicorrelated oracle matching every sibling method (a
+/// deliberate improve-on-port decision; the report published no constants for that case).
 /// </para>
 /// <para>
 /// <b>Engine side:</b> the engine pre-processes cumulative incidence functions over 200

@@ -18,7 +18,7 @@ using RMC.TotalRisk.Systems.Components;
 namespace RMC.TotalRisk.Verification.Analyses;
 
 /// <summary>
-/// NFIP assurance — the Phase 6 conversion of the legacy
+/// NFIP assurance — the conversion of the legacy
 /// <c>Test_NFIP_Assurance_TOL_50/55/60/65/70</c> annual-probability-of-inundation oracles (LP3 flow
 /// frequency → log-interpolated rating transform → prior-to-overtopping fragility → API), the
 /// 2024 verification report's Table 104 pins, and the full-uncertainty assurance computation
@@ -42,7 +42,7 @@ namespace RMC.TotalRisk.Verification.Analyses;
 /// <c>SystemComponent.HazardThreshold</c> carries the top-of-levee threshold expressed in FLOW
 /// units — the rating's stage ordinates are the integers 0–100, so each TOL stage maps to an
 /// exact rating knot and the flow-space threshold is algebraically identical to the stage-space
-/// one for the strictly increasing rating (the profile-axis remap remains open question Q-T).
+/// one for the strictly increasing rating (so the fixture needs no profile-axis remap).
 /// </para>
 /// <para>
 /// <b>Oracle</b> (ported from the legacy bodies at N = 1,000,000; legacy 10M dropped 10× per
@@ -811,7 +811,7 @@ public class NfipAssuranceVerification
         analysis.Options.Mode = RiskAnalysisMode.Reliability;
         analysis.Options.EstimateMeanRiskOnly = false;
         analysis.Options.Realizations = AssuranceRealizations;
-        // The ensemble discipline is pinned to full quadrature rigor (Phase 6.5): this test
+        // The ensemble discipline is pinned to full quadrature rigor: this test
         // compares each realization's API to an exact per-parameter-set quadrature oracle and
         // pins the assurance fraction exactly, so the engine's relaxed ensemble default (a
         // deliberate accuracy split whose relaxed path the MultiConsequence ensemble family

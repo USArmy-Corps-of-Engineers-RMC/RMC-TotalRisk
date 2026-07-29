@@ -13,8 +13,8 @@ using RMC.TotalRisk.Systems.Components;
 namespace RMC.TotalRisk.Verification.Analyses;
 
 /// <summary>
-/// Combination-method consistency — a NEW Phase 5 family of engine-only property tests
-/// grounded in the failure-mode-combination technical note: the system failure probability
+/// Combination-method consistency — a family of engine-only property tests with no legacy
+/// counterpart, grounded in the failure-mode-combination technical note: the system failure probability
 /// depends on the marginal response curves and the dependency structure, NOT on the
 /// combination method; the unimodal (Fréchet) bounds order the unions; the background risk is
 /// invariant to every combination option; the adaptive-refinement objective steers only where

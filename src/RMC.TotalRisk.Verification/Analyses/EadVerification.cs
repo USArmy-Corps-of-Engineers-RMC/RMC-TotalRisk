@@ -12,7 +12,7 @@ using RMC.TotalRisk.Systems.Components;
 namespace RMC.TotalRisk.Verification.Analyses;
 
 /// <summary>
-/// Expected annual damage — the Phase 5 conversion of the legacy <c>Test_EAD</c> oracle
+/// Expected annual damage — the conversion of the legacy <c>Test_EAD</c> oracle
 /// (<c>Test_RiskAnalysis.vb:2375</c>): Monte Carlo integration of one eight-knot
 /// damage-frequency curve, verified three ways — an exact closed form, the ported Monte Carlo
 /// oracle, and two equivalent engine mappings of the same curve.

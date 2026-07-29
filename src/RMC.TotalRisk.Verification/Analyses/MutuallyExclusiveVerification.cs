@@ -15,7 +15,7 @@ using RMC.TotalRisk.Systems.Components;
 namespace RMC.TotalRisk.Verification.Analyses;
 
 /// <summary>
-/// Mutually exclusive failure modes — the Phase 5 conversion of the legacy
+/// Mutually exclusive failure modes — the conversion of the legacy
 /// <c>Test_MC_MutuallyExclusive</c> family: one system component with 2 or 5 potential failure
 /// modes treated as exclusive events, their marginal probabilities normalized whenever the sum
 /// exceeds one, verified against an independent Monte Carlo oracle.

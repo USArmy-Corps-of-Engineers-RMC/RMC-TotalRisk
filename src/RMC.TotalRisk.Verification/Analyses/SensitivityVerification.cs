@@ -14,7 +14,7 @@ using RMC.TotalRisk.Systems.Components;
 namespace RMC.TotalRisk.Verification.Analyses;
 
 /// <summary>
-/// Sensitivity verification (Phase 6.6) — the unified engine correlating knowledge inputs
+/// Sensitivity verification — the unified engine correlating knowledge inputs
 /// against stored scalar measures and against risk at a hazard level: the analytic
 /// uniform-versus-normal-quantile Pearson correlation on an exactly linear knowledge map, rank
 /// exactness and the inert-input noise bound, an independent recomputation of the association

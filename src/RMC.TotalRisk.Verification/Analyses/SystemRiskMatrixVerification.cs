@@ -16,7 +16,7 @@ using RMC.TotalRisk.Systems.Components;
 namespace RMC.TotalRisk.Verification.Analyses;
 
 /// <summary>
-/// Multi-component system risk across the correlation × aggregation matrix — the Phase 6
+/// Multi-component system risk across the correlation × aggregation matrix — the
 /// conversion of the legacy <c>Test_MC_SystemRisk</c> family: 2 components with 2 failure modes
 /// each (additive rule), and 2 or 5 components with 1 failure mode each across all four
 /// joint-consequence rules, under the four component-hazard dependency options, verified against
@@ -60,7 +60,7 @@ namespace RMC.TotalRisk.Verification.Analyses;
 /// </para>
 /// <para>
 /// <b>Engine mapping:</b> the Independent groups run the ADDITIVE system method (deterministic
-/// Gauss–Kronrod + exact lattice convolution — asserted on the full Phase 5 catalog) for the
+/// Gauss–Kronrod + exact lattice convolution — asserted on the full joint-family assert catalog) for the
 /// additive rule, and the JOINT method (VEGAS with the engine-level combination enumeration,
 /// tail focus off) for every rule. The dependent groups run the joint method only — the v1.1
 /// additive method is defined for strictly independent components. Dependencies map to the
@@ -68,18 +68,18 @@ namespace RMC.TotalRisk.Verification.Analyses;
 /// PerfectlyNegative, r = 0.5 → CorrelationMatrix. <b>Documented deviation:</b> the legacy
 /// 2-component 2-failure-mode Positive/Negative bodies used r = 1 − ε and −1 + ε; this port
 /// uses the engine constants 1 − √ε and −1 + √ε (statistically indistinguishable,
-/// Cholesky-stable — the same deviation Phase 5 ratified for the 5-PFM joint family).
+/// Cholesky-stable — the same deliberately accepted deviation as the 5-PFM joint family).
 /// </para>
 /// <para>
 /// <b>Tolerances</b> (docs/verification.md): oracle-side standard errors computed in-run (mean
 /// SE = σ̂/√N; σ SE by the delta method; probability SEs binomial). The additive engine is
 /// deterministic, so its asserts carry oracle error only, with the documented lattice
-/// allowances on the tail measures (value-at-risk compared in probability space with the 4b
-/// output-resolution slack; conditional value-at-risk at k·SE plus a 0.5% lattice/thinning
+/// allowances on the tail measures (value-at-risk compared in probability space with the
+/// documented output-resolution slack; conditional value-at-risk at k·SE plus a 0.5% lattice/thinning
 /// envelope). The joint engine is itself Monte Carlo: stream means combine the oracle SE with
 /// the run's reported VEGAS standard error (a conservative proxy for every stream), and
 /// probability asserts combine binomially at the recorded evaluation count (5 recording passes
-/// × the final evaluations) — the Phase 4b convention. Report pins use the report's own 10M
+/// × the final evaluations) — the joint-method convention. Report pins use the report's own 10M
 /// sampling error (4·σ̂/√10⁷) plus a 0.1% tabulation allowance, plus the engine VEGAS error on
 /// joint-method pins.
 /// </para>
@@ -384,11 +384,12 @@ public class SystemRiskMatrixVerification
         analysis.Options.ConsequenceThreshold = Threshold;
         analysis.Options.Alpha = Alpha;
         // Tail focus off: γ = 1 sampling, identical to v1.0 — the tail-focus modes are audited
-        // separately by SystemRiskVerification's N9 gate, and γ > 1 only adds Monte Carlo noise
+        // separately by SystemRiskVerification's γ-audit, and γ > 1 only adds Monte Carlo noise
         // to the bulk quantities this matrix asserts.
         analysis.Options.VegasTailFocusMode = VegasTailFocusMode.None;
         // The exceedance probes read the output LEC surface; the maximum output resolution keeps
-        // the thinning error an order below the statistical tolerance (the Phase 5 finding).
+        // the thinning error an order below the statistical tolerance (the finding the joint
+        // family documents).
         analysis.Options.LECOutputLength = 1000;
         // The additive lattice at the default 4,096 nodes quantizes the five-component support
         // (Σ max ≈ 4,200) to ≈ 1 loss unit — at the failure distribution's high-density
@@ -733,7 +734,7 @@ public class SystemRiskMatrixVerification
         var summary = analysis.RiskResults![0]!;
         var curves = analysis.MeanRiskResults!.Curves;
 
-        // The five summary means (v1.0-parity per the ratified policy).
+        // The five summary means (v1.0-parity per the means-versus-tails policy).
         Assert.AreEqual(streams.Fail.Mean, summary.Fail.Mean, K * streams.Fail.MeanSe, $"{label}: failure risk mean.");
         Assert.AreEqual(streams.NonFail.Mean, summary.NonFail.Mean, K * streams.NonFail.MeanSe, $"{label}: non-failure risk mean.");
         Assert.AreEqual(streams.Total.Mean, summary.Total.Mean, K * streams.Total.MeanSe, $"{label}: total risk mean.");
@@ -746,7 +747,7 @@ public class SystemRiskMatrixVerification
         Assert.AreEqual(1d - oracle.FailureUnion, summary.NonFail.TotalProbability, K * oracle.FailureUnionSe,
             $"{label}: the non-failure stream's total probability must complement the failure union.");
 
-        // Dispersion (Monte-Carlo-parity per the ratified policy; the lattice quantization is
+        // Dispersion (Monte-Carlo-parity per the means-versus-tails policy; the lattice quantization is
         // an order below these statistical tolerances at 4096 nodes).
         Assert.AreEqual(streams.Fail.Sigma, summary.Fail.StandardDeviation, K * streams.Fail.SigmaSe,
             $"{label}: failure risk standard deviation.");
@@ -794,7 +795,8 @@ public class SystemRiskMatrixVerification
             $"{label}: conditional value-at-risk at α = {Alpha}.");
 
         // The report pins (the engine is deterministic on this path, so the tolerance is the
-        // report's own 10M sampling error plus the 0.1% tabulation allowance — Phase 5 formula).
+        // report's own 10M sampling error plus the 0.1% tabulation allowance — the joint
+        // family's pin formula).
         AssertReportPins(family, DependencyType.Independent, JointConsequenceType.Additive,
             streams, summary, 0d, label);
 
@@ -893,7 +895,7 @@ public class SystemRiskMatrixVerification
     /// the scenario was published: tolerance = the report's own 10M sampling error (4·σ̂/√10⁷,
     /// σ̂ from this oracle's matching stream) plus a 0.2% tabulation allowance, plus the
     /// engine's reported VEGAS error on joint-method runs. The tabulation allowance is twice
-    /// the Phase 5 single-component figure because the report sampled the exact distributions
+    /// the single-component families' figure because the report sampled the exact distributions
     /// while this scenario tabulates them, and the z-grid bias adds coherently across the
     /// summed components — measured ≈ 0.12% relative on the five-component background stream
     /// (whose report constant itself sits ≈ 3.8 of its own standard errors from five times the
@@ -1062,7 +1064,7 @@ public class SystemRiskMatrixVerification
     }
 
     /// <summary>
-    /// The 5-component additive-path reproducibility pin (extends the Phase 4b 2-component pin):
+    /// The 5-component additive-path reproducibility pin (extends the 2-component pin):
     /// reversing the component declaration order and renaming every component and function is
     /// bit-inert on the system results — content seeding plus the canonical-hash convolution
     /// order — and the per-component results follow content identity through the shuffle.

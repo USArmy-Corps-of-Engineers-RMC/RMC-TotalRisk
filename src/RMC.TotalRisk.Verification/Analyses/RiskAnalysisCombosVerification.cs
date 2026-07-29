@@ -16,9 +16,9 @@ using RMC.TotalRisk.Systems.Components;
 namespace RMC.TotalRisk.Verification.Analyses;
 
 /// <summary>
-/// The Phase 6 conversion of the legacy <c>Test_RiskAnalysis</c> N-element/N-failure-mode
+/// The conversion of the legacy <c>Test_RiskAnalysis</c> N-element/N-failure-mode
 /// combination oracles: the 3- and 4-failure-mode single-component joint groups (the two
-/// failure-mode counts Phase 5's 2/5-PFM families did not cover), the 3- and 4-component
+/// failure-mode counts the 2/5-PFM joint families did not cover), the 3- and 4-component
 /// system groups (the component counts the <c>Test_MC_SystemRisk</c> matrix did not cover),
 /// and the negative-correlation average-rule system scenario — each verified against an
 /// independent brute-force Monte Carlo oracle at the legacy seeds and realization counts.
@@ -45,7 +45,7 @@ namespace RMC.TotalRisk.Verification.Analyses;
 /// correlation is the 5-dimensional equicorrelation −1/4.</description></item>
 /// <item><description><c>Test_1Element_2PFM</c> (negative/minimum body) and
 /// <c>Test_1Element_5PFM</c> (independent/additive body) — stream-identical duplicates of
-/// Phase 5 <c>JointFailuresVerification</c> scenarios (same seeds
+/// <c>JointFailuresVerification</c> scenarios (same seeds
 /// <c>MersenneTwister(12345)</c> + <c>MultivariateNormal(…, 12345)</c>, same tables); not
 /// re-ported.</description></item>
 /// <item><description><c>Test_2Element_2PFM</c> — byte-for-byte the
@@ -60,22 +60,24 @@ namespace RMC.TotalRisk.Verification.Analyses;
 /// and the <c>TotalRisk_*_Sum</c> functions — inert integration workbenches (mostly
 /// commented out, printing to the debugger, several referencing the legacy engine's own
 /// types); not oracles, not ported. The exact conditional-mean integrand they exercised is
-/// pinned by Phase 4/5 mean-parity and consistency families.</description></item>
+/// pinned by the mean-parity and consistency families.</description></item>
 /// <item><description><c>Test_Composite</c>, <c>Test_Composite_Uncertainty</c>,
-/// <c>Test_Composite_Consequence_Mixture</c> — the engine-level composite oracles, Phase 9
-/// per the roadmap.</description></item>
-/// <item><description><c>Test_EAD</c> — converted in Phase 5 (<c>EadVerification</c>).
+/// <c>Test_Composite_Consequence_Mixture</c> — the engine-level composite oracles, converted
+/// in <c>CompositeEngineVerification</c>, <c>CompositeHazardVerification</c>, and
+/// <c>CompositeConsequenceVerification</c>.</description></item>
+/// <item><description><c>Test_EAD</c> — converted in <c>EadVerification</c>.
 /// </description></item>
 /// <item><description><c>Test_NFIP_Assurance_TOL_50/55/70</c> — converted in
-/// <c>NfipAssuranceVerification</c>; TOL 60/65 (+ the FDA variant) are Phase 9 scope.
+/// <c>NfipAssuranceVerification</c>, whose bootstrap-hazard ensembles carry TOL 60/65; the
+/// FDA variant is retired as obsolete.
 /// </description></item>
 /// </list>
 /// </para>
 /// <para>
 /// <b>Documented deviations from the legacy bodies:</b> (1) the legacy negative
 /// equicorrelations use −1/(D−1) + ε_mach; this port uses the engine constant
-/// −1/(D−1) + √ε_mach (statistically indistinguishable, Cholesky-stable — the deviation class
-/// Phase 5 ratified). (2) The 3-/4-element system bodies accumulate the RUNNING failure total
+/// −1/(D−1) + √ε_mach (statistically indistinguishable, Cholesky-stable — a deliberately
+/// accepted deviation class). (2) The 3-/4-element system bodies accumulate the RUNNING failure total
 /// into the increment (<c>iC += fC − nfC(j)</c> — a typo the 2- and 5-element bodies do not
 /// have); this port uses the per-component excess convention (failed component's consequence
 /// minus its non-failure consequence, combined under the rule) that every other legacy system
@@ -85,9 +87,9 @@ namespace RMC.TotalRisk.Verification.Analyses;
 /// </para>
 /// <para>
 /// <b>Tolerances</b> (docs/verification.md): k·SE with k = 4 and oracle standard errors
-/// computed in-run, exactly the Phase 5 catalog on the deterministic single-component engine
+/// computed in-run, exactly the joint-family assert catalog on the deterministic single-component engine
 /// runs (means, union, dispersion, conditional mean, assurance, curve probes, value-at-risk,
-/// conditional value-at-risk), and the Phase 4b joint-method convention on the system runs
+/// conditional value-at-risk), and the joint-method convention on the system runs
 /// (means with the reported VEGAS error added, probability asserts combined binomially at the
 /// recorded evaluation count, the exhaustive mass balance, and the additive-rule
 /// component-mean identity).
@@ -693,7 +695,7 @@ public class RiskAnalysisCombosVerification
 
     /// <summary>
     /// Runs one single-component group end to end: per rule a mean-only engine run asserted
-    /// against the consolidated oracle on the Phase 5 catalog — the five summary means, the
+    /// against the consolidated oracle on the joint-family assert catalog — the five summary means, the
     /// failure union and its complement, the failure and total standard deviations, the
     /// conditional mean, the assurance measure, two data-driven loss-exceedance probes, the
     /// value-at-risk, and the conditional value-at-risk.
@@ -717,7 +719,7 @@ public class RiskAnalysisCombosVerification
             var summary = analysis.RiskResults![0]!;
             var failCurve = analysis.MeanRiskResults!.Curves.Fail;
 
-            // The five summary means (v1.0-parity per the ratified policy).
+            // The five summary means (v1.0-parity per the means-versus-tails policy).
             Assert.AreEqual(streams.Fail.Mean, summary.Fail.Mean, K * streams.Fail.MeanSe, $"{label}: failure risk mean.");
             Assert.AreEqual(streams.NonFail.Mean, summary.NonFail.Mean, K * streams.NonFail.MeanSe, $"{label}: non-failure risk mean.");
             Assert.AreEqual(streams.Total.Mean, summary.Total.Mean, K * streams.Total.MeanSe, $"{label}: total risk mean.");
@@ -730,7 +732,7 @@ public class RiskAnalysisCombosVerification
             Assert.AreEqual(1d - oracle.FailureUnion, summary.NonFail.TotalProbability, K * oracle.FailureUnionSe,
                 $"{label}: the non-failure stream's total probability must complement the failure union.");
 
-            // Dispersion (Monte-Carlo-parity per the ratified policy).
+            // Dispersion (Monte-Carlo-parity per the means-versus-tails policy).
             Assert.AreEqual(streams.Fail.Sigma, summary.Fail.StandardDeviation, K * streams.Fail.SigmaSe,
                 $"{label}: failure risk standard deviation.");
             Assert.AreEqual(streams.Total.Sigma, summary.Total.StandardDeviation, K * streams.Total.SigmaSe,
@@ -799,7 +801,7 @@ public class RiskAnalysisCombosVerification
 
     /// <summary>
     /// Runs one joint-method system scenario end to end: the oracle pass for the requested
-    /// rule, the engine run, and the Phase 4b joint-method assert catalog — the five summary
+    /// rule, the engine run, and the joint-method assert catalog — the five summary
     /// means with the reported VEGAS error added, the failure union and two curve probes
     /// combined binomially at the recorded evaluation count, the exhaustive mass balance, and
     /// the additive-rule component-mean identity.
@@ -890,7 +892,7 @@ public class RiskAnalysisCombosVerification
     /// <summary>
     /// 1 component / 3 perfectly negative joint failure modes — all four consequence rules from
     /// the consolidated legacy draws (legacy <c>Test_1Element_3PFM</c>, additive; N = 10⁶
-    /// native). The 3-PFM count sits between Phase 5's 2- and 5-PFM families.
+    /// native). The 3-PFM count sits between the joint family's 2- and 5-PFM scenarios.
     /// </summary>
     [TestMethod]
     public void Test_1Comp3Pfm_PerfectlyNegative_AllRules_VsOracle()

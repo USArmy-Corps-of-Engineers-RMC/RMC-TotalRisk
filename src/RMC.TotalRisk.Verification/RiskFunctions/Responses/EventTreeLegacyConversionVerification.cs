@@ -14,7 +14,7 @@ using RMC.TotalRisk.RiskFunctions.Responses.Trees;
 
 namespace RMC.TotalRisk.Verification.RiskFunctions.Responses;
 
-/// <summary>Legacy-conversion and shipped-template cases in the Phase 10A event-tree family.</summary>
+/// <summary>Legacy-conversion and shipped-template cases in the event-tree family.</summary>
 public partial class EventTreeVerification
 {
     /// <summary>Converts the exact legacy TestIO Basic shape and asserts every terminal analytically.</summary>

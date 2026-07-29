@@ -13,7 +13,7 @@ using RMC.TotalRisk.Systems.Components;
 namespace RMC.TotalRisk.Verification.Analyses;
 
 /// <summary>
-/// % contribution verification (Phase 6.6) — the exclusive-event attribution diagnostic: each
+/// % contribution verification — the exclusive-event attribution diagnostic: each
 /// failure mode's contribution to its component and each component's contribution to the
 /// system, for all four combination methods and both system methods. The exclusive event
 /// probability splits equally among participants (the Shapley value of the union game); event
@@ -38,12 +38,13 @@ namespace RMC.TotalRisk.Verification.Analyses;
 /// <para>
 /// <b>Tolerances:</b> within-run additivity identities (Σ contributions ≡ the parent's raw
 /// recorded totals) are pure floating-point association — 1e-12 relative. Oracle terminals
-/// carry the documented Numerics N7 recorded-mass interim (measured ≈ 3e-6 on means in the
-/// Phase 5 EAD family) plus the dense-trapezoid oracle's own O(h²) error — 1e-4 relative.
+/// carry the engine's quadrature mass-accounting residual (measured ≈ 3e-6 on means in the
+/// EAD family under the earlier midpoint-trapezoid partition, since replaced by the
+/// recorded-mass ledger) plus the dense-trapezoid oracle's own O(h²) error — 1e-4 relative.
 /// The competing method's engine adjustment interpolates cumulative incidence functions
 /// pre-processed over 200 stratified bins (the v1.0 constant), while the oracle integrates
 /// the tech note's Eq. 14 rectangle rule at 20,001 bins — the comparison carries a 1e-2
-/// relative allowance for the engine's CIF discretization (the Phase 5 competing family
+/// relative allowance for the engine's CIF discretization (the competing family
 /// measured ≈ 0.3% at five modes; two modes sit well inside).
 /// </para>
 /// </remarks>
@@ -290,7 +291,7 @@ public class ContributionVerification
             double oracleExcessA = OracleIntegral(u => { OracleModes(u, out double pA, out double pB, out double cA, out _, out double nf); return adjust(pA, pB).AdjustedA * Math.Max(0d, cA - nf); });
             double oracleExcessB = OracleIntegral(u => { OracleModes(u, out double pA, out double pB, out _, out double cB, out double nf); return adjust(pA, pB).AdjustedB * Math.Max(0d, cB - nf); });
 
-            // Assert — engine vs oracle at the N7 recorded-mass envelope.
+            // Assert — engine vs oracle at the mass-accounting residual envelope.
             Assert.AreEqual(oracleProbabilityA, a.FailureProbability, 1e-4 * oracleProbabilityA, $"{method}: mode A probability contribution.");
             Assert.AreEqual(oracleProbabilityB, b.FailureProbability, 1e-4 * oracleProbabilityB, $"{method}: mode B probability contribution.");
             Assert.AreEqual(oracleFailureA, a.FailureMean, 1e-4 * oracleFailureA, $"{method}: mode A failure-mean contribution.");

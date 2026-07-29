@@ -15,10 +15,10 @@ using RMC.TotalRisk.Systems.Components;
 namespace RMC.TotalRisk.Verification.Analyses;
 
 /// <summary>
-/// Single-component knowledge uncertainty — a NEW Phase 5 family with no legacy counterpart:
+/// Single-component knowledge uncertainty — a family with no legacy counterpart:
 /// the full-uncertainty two-loop simulation (outer knowledge realizations, inner risk
 /// integral) verified against an independent two-loop oracle whose inner integral is exact.
-/// Covers the tabular co-monotonic percentile contract, the Q-N fail/non-fail consequence
+/// Covers the tabular co-monotonic percentile contract, the fail/non-fail consequence
 /// coupling (with a decoupled counter-pin), the ensemble percentile surfaces, Latin
 /// hypercube versus Monte Carlo scheme agreement, and the parametric posterior-injection
 /// lifecycle (the <c>ParametricResponse</c> verification anchor).
@@ -32,7 +32,7 @@ namespace RMC.TotalRisk.Verification.Analyses;
 /// <b>Scenario A (tabular knowledge uncertainty):</b> hazard tabulated from Normal(100, 20)
 /// quantiles on a ±8 z-grid at step 0.25 (deterministic); one failure mode under the
 /// competing method (a single mode short-circuits to its raw response probability — the
-/// per-mode path that carries the Q-N pairing) with an uncertain two-knot fragility
+/// per-mode path that carries the coupling pairing) with an uncertain two-knot fragility
 /// (100 → Triangular(0, 0.05, 0.1), 200 → Triangular(0.6, 0.8, 1.0)), an uncertain failure
 /// consequence (60 → Triangular(0, 10, 20), 200 → Triangular(400, 1000, 1600)), and an
 /// uncertain non-failure consequence (60 → Triangular(0, 5, 10), 200 → Triangular(200, 500,
@@ -43,11 +43,11 @@ namespace RMC.TotalRisk.Verification.Analyses;
 /// per-interval Simpson rule integrates it EXACTLY. The oracle's outer loop draws the
 /// documented knowledge contract with its own independent streams: one co-monotonic
 /// percentile per function per realization; the failure mode's consequence pair (failure and
-/// its paired non-failure) shares the mode's coupling percentile (Q-N); the non-failure
+/// its paired non-failure) shares the mode's coupling percentile; the non-failure
 /// mode's own percentile drives the background and non-failure streams.
 /// </para>
 /// <para>
-/// <b>Q-N counter-pin:</b> under quantile dominance the coupled excess never clamps and its
+/// <b>Coupling counter-pin:</b> under quantile dominance the coupled excess never clamps and its
 /// ensemble dispersion is the dispersion of the QUANTILE DIFFERENCE — far smaller than the
 /// decoupled (independent-percentile) dispersion. The pin asserts the engine's ensemble
 /// standard deviation of the excess mean sits at the coupled oracle's value and that the
@@ -62,7 +62,7 @@ namespace RMC.TotalRisk.Verification.Analyses;
 /// index (the v1.0 D = 0 semantics), so the ensemble is a deterministic walk of the injected
 /// sets and the oracle compares REALIZATION FOR REALIZATION — each engine realization mean
 /// against the oracle's dense-trapezoid integral of the same parameter set at 0.1% relative
-/// (covering the engine's recorded-mass interim and the oracle's own discretization).
+/// (covering the engine's mass-accounting residual and the oracle's own discretization).
 /// </para>
 /// <para>
 /// <b>Tolerances (Scenario A):</b> the oracle's inner integral is exact, so every ensemble
@@ -98,7 +98,7 @@ public class SingleComponentUncertaintyVerification
     /// <summary>The oracle stream seed for the fragility knowledge percentiles.</summary>
     private const int FragilitySeed = 12345;
 
-    /// <summary>The oracle stream seed for the failure mode's coupling percentiles (Q-N).</summary>
+    /// <summary>The oracle stream seed for the failure mode's coupling percentiles.</summary>
     private const int CouplingSeed = 45678;
 
     /// <summary>The oracle stream seed for the non-failure mode's own percentiles.</summary>
@@ -211,7 +211,7 @@ public class SingleComponentUncertaintyVerification
         component.AddFailureMode(new FailureMode(null, null, fragility, failure));
         component.AddFailureMode(new FailureMode(null, null, null, nonFailure));
         // The single-mode competing path short-circuits to the raw response probability — the
-        // per-mode accounting that carries the Q-N consequence pairing.
+        // per-mode accounting that carries the fail/non-fail consequence pairing.
         component.FailureModeMethod = FailureModeMethod.CompetingFailures;
 
         var analysis = new RiskAnalysis(new[] { component }) { Name = "Uncertainty A" };
@@ -219,7 +219,7 @@ public class SingleComponentUncertaintyVerification
         analysis.Options.Realizations = EngineRealizations;
         analysis.Options.SamplingScheme = scheme;
         analysis.Options.LECOutputLength = 1000;
-        // Phase 6.5 discipline pin: the pre-6.5 in-test 1e-6 relaxation never took effect —
+        // Discipline pin: an earlier in-test 1e-6 relaxation never took effect —
         // UseDefaults stayed true, so the run reset every integration knob to the 1e-8 defaults
         // before integrating. The family's captured literals therefore reflect 1e-8/MinDepth-2
         // discipline on BOTH passes, and the pins below keep exactly that (the engine's relaxed
@@ -511,7 +511,7 @@ public class SingleComponentUncertaintyVerification
     }
 
     /// <summary>
-    /// The Q-N coupling pin and its counter-pin: the engine's ensemble dispersion of the excess
+    /// The consequence-coupling pin and its counter-pin: the engine's ensemble dispersion of the excess
     /// mean must sit at the COUPLED oracle's dispersion (the failure and paired non-failure
     /// consequences share the mode's knowledge percentile), and the decoupled oracle must be
     /// well separated — proving both that the coupling is exercised and that the test could
@@ -555,7 +555,7 @@ public class SingleComponentUncertaintyVerification
     /// <summary>
     /// Scheme agreement: the Monte Carlo knowledge-sampling scheme reproduces the Latin
     /// hypercube grand mean within the combined outer-sampling error (variance-reduction
-    /// quantification is the Phase 6 item; this pins that the scheme option changes efficiency,
+    /// quantification is the LHS family's job; this pins that the scheme option changes efficiency,
     /// not the estimand).
     /// </summary>
     [TestMethod]
@@ -658,7 +658,7 @@ public class SingleComponentUncertaintyVerification
         var analysis = new RiskAnalysis(new[] { component }) { Name = "Uncertainty B" };
         analysis.Options.EstimateMeanRiskOnly = false;
         analysis.Options.Realizations = EngineRealizations;
-        // Phase 6.5 discipline pin: as in Scenario A, the pre-6.5 1e-6 relaxation was reset by
+        // Discipline pin: as in Scenario A, the earlier 1e-6 relaxation was reset by
         // UseDefaults at run time, so the realization-for-realization posterior-injection
         // anchor was captured at 1e-8/MinDepth-2 — pinned explicitly here.
         analysis.Options.UseDefaults = false;
@@ -710,7 +710,7 @@ public class SingleComponentUncertaintyVerification
     /// The Scenario B pins: the engine's full-uncertainty pass walks the injected posterior by
     /// realization index (the v1.0 D = 0 lookup), so every engine realization is compared
     /// DIRECTLY to the oracle's integral of the same parameter set at 0.1% relative (the
-    /// engine's recorded-mass interim plus the oracle's trapezoid discretization), and the
+    /// engine's mass-accounting residual plus the oracle's trapezoid discretization), and the
     /// grand mean follows. This is the <c>ParametricResponse</c> posterior-injection
     /// verification anchor.
     /// </summary>

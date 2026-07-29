@@ -13,12 +13,12 @@ namespace RMC.TotalRisk.Verification.Analyses;
 
 /// <summary>
 /// The exact-LEC / mixture-exposure tail oracle — the first Monte-Carlo-parity family of the
-/// v0.13 means-versus-tails policy: the engine's loss-exceedance tail measures (standard
+/// means-versus-tails policy (docs/verification.md): the engine's loss-exceedance tail measures (standard
 /// deviation, exceedance ordinates, value-at-risk, conditional value-at-risk) for a day/night
 /// mixture consequence are verified against a NEW brute-force Monte Carlo oracle that draws the
 /// full model per realization, never against the v1.0 engine — whose 200-bin midpoint histogram
-/// and mixture-mean flattening are exactly the defects the v1.1 exact construction and ratified
-/// Q-V branch enumeration correct.
+/// and mixture-mean flattening are exactly the defects the v1.1 exact construction and
+/// exposure-branch enumeration correct.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -208,7 +208,7 @@ public class ExactLecTailVerification
     /// The tail pins: mean (the v1.0-parity gate), standard deviation, two exceedance
     /// ordinates, value-at-risk, and conditional value-at-risk — each within its documented
     /// k·SE of the brute-force oracle. These are the measures the v1.0 histogram and mixture
-    /// flattening got wrong; they are Monte-Carlo-parity by ratified policy.
+    /// flattening got wrong; they are Monte-Carlo-parity by the means-versus-tails policy.
     /// </summary>
     [TestMethod]
     public void Test_MixtureTail_VsBruteForceOracle()

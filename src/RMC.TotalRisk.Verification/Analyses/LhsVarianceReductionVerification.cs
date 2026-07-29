@@ -13,10 +13,10 @@ using RMC.TotalRisk.Systems.Components;
 namespace RMC.TotalRisk.Verification.Analyses;
 
 /// <summary>
-/// Latin hypercube variance reduction — the Phase 6 roadmap test: at N = 1,000 knowledge
+/// Latin hypercube variance reduction: at N = 1,000 knowledge
 /// realizations over repeated runs, the Latin hypercube scheme's ensemble grand mean must be
 /// unbiased relative to plain Monte Carlo sampling and carry a substantially smaller
-/// replicate-to-replicate variance — the ratified v1.1 sampling upgrade the
+/// replicate-to-replicate variance — the deliberate v1.1 sampling upgrade the
 /// <see cref="SamplingScheme"/> option carries.
 /// </summary>
 /// <remarks>
@@ -27,7 +27,7 @@ namespace RMC.TotalRisk.Verification.Analyses;
 /// <para>
 /// <b>Scenario:</b> a deterministic z-grid stage-frequency hazard from Normal(100, 20); a
 /// DETERMINISTIC two-knot fragility; uncertain two-knot failure and non-failure consequence
-/// curves (Triangular ordinates, the failure mode's Q-N coupling pairing them into ONE
+/// curves (Triangular ordinates, the failure mode's failure/non-failure coupling pairing them into ONE
 /// stratified knowledge dimension). Each knowledge realization integrates deterministically
 /// (adaptive Gauss–Kronrod), so the only stochastic input is the coupling-matrix percentile
 /// the sampling scheme controls — and the total-risk statistic is LINEAR in that percentile's
@@ -62,7 +62,7 @@ namespace RMC.TotalRisk.Verification.Analyses;
 [TestClass]
 public class LhsVarianceReductionVerification
 {
-    /// <summary>The knowledge-uncertainty realization count per run (the roadmap's N = 1k).</summary>
+    /// <summary>The knowledge-uncertainty realization count per run (N = 1,000).</summary>
     private const int Realizations = 1000;
 
     /// <summary>
@@ -174,7 +174,7 @@ public class LhsVarianceReductionVerification
         // order of magnitude while keeping the residual integration noise (≲ 1e-6 relative per
         // realization, averaged 1000-fold in each grand mean) far below the Latin hypercube
         // replicate variance the ratio assert measures. The ensemble discipline is pinned
-        // in-test at the same 1e-6 (Phase 6.5): this family studies SAMPLING variance, so the
+        // in-test at the same 1e-6: this family studies SAMPLING variance, so the
         // engine's relaxed ensemble default (1e-4) would inject a common integration-noise
         // floor into the very ratio the family measures.
         analysis.Options.UseDefaults = false;

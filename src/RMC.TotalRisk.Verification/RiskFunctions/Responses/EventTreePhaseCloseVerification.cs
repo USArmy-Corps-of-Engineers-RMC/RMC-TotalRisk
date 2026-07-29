@@ -21,7 +21,7 @@ using RMC.TotalRisk.Systems.Components.Graph;
 namespace RMC.TotalRisk.Verification.RiskFunctions.Responses;
 
 /// <summary>
-/// Phase 10A closure evidence: independent branch-routing Monte Carlo, event-tree aggregate
+/// Event-tree closure evidence: independent branch-routing Monte Carlo, event-tree aggregate
 /// Latin-hypercube variance reduction, and end-to-end thread-count reproducibility for expanded
 /// per-leaf graph outputs.
 /// </summary>

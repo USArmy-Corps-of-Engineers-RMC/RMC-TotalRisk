@@ -12,8 +12,8 @@ using RMC.TotalRisk.Systems.Components;
 namespace RMC.TotalRisk.Verification.Analyses;
 
 /// <summary>
-/// Single-component mean parity — the free regression gate of the v0.13 means-versus-tails
-/// policy: the engine's five summary means and the annualized failure probability against an
+/// Single-component mean parity — the free regression gate of the means-versus-tails
+/// policy (docs/verification.md): the engine's five summary means and the annualized failure probability against an
 /// independent legacy-style Monte Carlo oracle that never touches the engine.
 /// </summary>
 /// <remarks>
@@ -258,7 +258,7 @@ public class SingleComponentMeanParityVerification
     [TestMethod]
     public void Test_FullUncertainty_Deterministic_MatchesMeanOnly()
     {
-        // Arrange — the ensemble discipline is pinned to the mean pass's (Phase 6.5): this test
+        // Arrange — the ensemble discipline is pinned to the mean pass's: this test
         // proves both paths share one compute kernel, so the engine's relaxed ensemble default
         // (a deliberate accuracy split) is set aside for the comparison.
         var meanOnly = BuildAnalysis();

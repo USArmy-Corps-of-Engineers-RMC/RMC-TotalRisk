@@ -16,9 +16,9 @@ using RMC.TotalRisk.Systems.Components;
 namespace RMC.TotalRisk.Verification.Analyses;
 
 /// <summary>
-/// The Phase 7 closed-form-functions family: <c>LinearTransform</c>, <c>PowerTransform</c>, and
+/// The closed-form-functions family: <c>LinearTransform</c>, <c>PowerTransform</c>, and
 /// <c>NonparametricHazard</c> verified with fresh oracles — no legacy <c>Test_TotalRisk</c>
-/// scenarios exist for these types (the Dev-repo sweep found zero transform usages and only
+/// scenarios exist for these types (a survey of the legacy v1.0 repository found zero transform usages and only
 /// FDA-importer usages of the nonparametric hazard), so the documented anchor is the 2024
 /// verification report's Nonparametric Hazard Function section (Beargrass Creek SF-8 vs
 /// HEC-FDA 1.4.3, Table 38) plus hand-rolled Monte Carlo and quadrature oracles for the first
@@ -58,8 +58,8 @@ namespace RMC.TotalRisk.Verification.Analyses;
 /// rounding half-width plus solver headroom; the report's HEC-FDA columns are context — its
 /// ≤ 0.9% differences are interpolation-design gaps, not targets). The uncertain mean curve is
 /// checked for internal consistency (bracketed by the 5%/95% percentile curves and strictly
-/// ordered); its assembly is the landed TabularHazard Hazard-mode pattern already verified
-/// against exact quadrature by the Phase 6 NFIP dense-tabular family.
+/// ordered); its assembly is the TabularHazard Hazard-mode pattern already verified
+/// against exact quadrature by the NFIP dense-tabular family.
 /// </para>
 /// <para>
 /// <b>V4 — the nonparametric hazard through the reliability engine.</b> The deterministic-mode
@@ -655,8 +655,8 @@ public class ClosedFormFunctionsVerification
         // The uncertain mean curve: strictly ordered and spanning the full-uncertainty hazard
         // envelope — its 200-point grid runs [MinHazard(false), MaxHazard(false)] by
         // construction, deliberately wider than any central percentile curve (internal
-        // consistency; the assembly itself is the landed TabularHazard Hazard-mode pattern
-        // verified against exact quadrature by the Phase 6 NFIP dense-tabular family).
+        // consistency; the assembly itself is the TabularHazard Hazard-mode pattern
+        // verified against exact quadrature by the NFIP dense-tabular family).
         var mean = (EmpiricalDistribution)hazard.SampleFunction();
         for (int i = 1; i < mean.XValues.Count; i++)
         {

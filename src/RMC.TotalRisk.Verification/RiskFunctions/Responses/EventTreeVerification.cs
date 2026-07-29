@@ -16,7 +16,7 @@ using RMC.TotalRisk.Systems.Components.Graph;
 namespace RMC.TotalRisk.Verification.RiskFunctions.Responses;
 
 /// <summary>
-/// Focused Phase 10A event-tree verification against independently derived conditional path
+/// Focused event-tree verification against independently derived conditional path
 /// products and direct uncertainty-table samples. This partial family covers scalar and aligned
 /// tables, recursive response probability sources, internal/external independent-clone links,
 /// two-mode round trips, occurrence-level LHS reproducibility, legacy recursive XML conversion,

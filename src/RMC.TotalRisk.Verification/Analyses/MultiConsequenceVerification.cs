@@ -14,7 +14,7 @@ using RMC.TotalRisk.Systems.Components;
 namespace RMC.TotalRisk.Verification.Analyses;
 
 /// <summary>
-/// Multi-consequence verification (Phase 6.5, Q-U closure): the declared consequence-type axis
+/// Multi-consequence verification: the declared consequence-type axis
 /// computes every type through one engine pass — verified against an independent two-type
 /// Monte Carlo oracle, the single-type bit-identity pin, the dedicated-primary quadrature
 /// cross-check, ensemble statistical parity, within-run probability-stream identities, and the
@@ -40,8 +40,9 @@ namespace RMC.TotalRisk.Verification.Analyses;
 /// the oracle's own interpolation of the shared tables. <b>Tolerances</b> are k·SE with k = 4
 /// and SE = σ̂/√N per output (docs/verification.md); the engine side is quadrature at 1e-8, so
 /// the oracle's Monte Carlo error dominates. The dedicated-primary cross-check uses a 1e-4
-/// relative tolerance bounding the N7-interim probability-mass fallback residual on both sides
-/// (measured ≈ 3e-6 on means); the joint-versus-additive consistency check uses 1e-2 relative,
+/// relative tolerance bounding the quadrature mass-accounting residual on both sides
+/// (measured ≈ 3e-6 on means under the earlier midpoint-trapezoid partition, since replaced
+/// by the recorded-mass ledger); the joint-versus-additive consistency check uses 1e-2 relative,
 /// bounding the VEGAS mean-only error at the default evaluation budget on this smooth
 /// two-dimensional integrand.
 /// </para>
@@ -463,7 +464,7 @@ public class MultiConsequenceVerification
         damagesPrimary.RunAsync().GetAwaiter().GetResult();
         twoType.RunAsync().GetAwaiter().GetResult();
 
-        // Assert — 1e-4 relative bounds the N7-interim mass-fallback residual on both sides.
+        // Assert — 1e-4 relative bounds the mass-accounting residual on both sides.
         var dedicated = damagesPrimary.RiskResults![0]!;
         var secondary = twoType.RiskResults![0]!.AdditionalConsequences[0];
         Assert.AreEqual(dedicated.Total.Mean, secondary.Total.Mean, 1e-4 * dedicated.Total.Mean, "Damages total mean.");
@@ -524,7 +525,7 @@ public class MultiConsequenceVerification
         analysis.RunAsync().GetAwaiter().GetResult();
 
         // Assert — the convolved secondary system mean equals the sum of the component
-        // secondary means (1e-6 relative — the Phase 4b additive identity).
+        // secondary means (1e-6 relative — the additive mean-parity identity).
         var system = analysis.MeanRiskResults!;
         double componentSum = system.Components[0].AdditionalCurves[0].Total.Mean
             + system.Components[1].AdditionalCurves[0].Total.Mean;

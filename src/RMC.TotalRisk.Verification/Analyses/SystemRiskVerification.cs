@@ -13,11 +13,11 @@ using RMC.TotalRisk.Systems.Components;
 namespace RMC.TotalRisk.Verification.Analyses;
 
 /// <summary>
-/// Multi-component system risk (Phase 4b) against independent brute-force Monte Carlo oracles:
+/// Multi-component system risk against independent brute-force Monte Carlo oracles:
 /// the additive method's zero-inflated lattice convolution (mean, standard deviation, failure
 /// union, tail exceedances, value-at-risk, and conditional value-at-risk of the system loss
 /// distribution), the joint method's correlated-hazard VEGAS integration, the power-transform
-/// tail-focus audit (the N9 empirical gate), and the system-level reproducibility pins.
+/// tail-focus audit (the empirical γ gate), and the system-level reproducibility pins.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -51,8 +51,8 @@ namespace RMC.TotalRisk.Verification.Analyses;
 /// renaming as bit-inert (content seeding plus the canonical-hash convolution order); the joint
 /// path pins renaming as bit-inert. Joint component reordering is statistically equivalent but
 /// not bit-identical by construction — the VEGAS variates couple the hypercube dimensions, so
-/// reordering permutes which coordinate stream drives which component (documented in the
-/// architecture doc §7.8 amendment).
+/// reordering permutes which coordinate stream drives which component (documented in
+/// docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §7.8).
 /// </para>
 /// </remarks>
 [TestClass]
@@ -525,7 +525,7 @@ public class SystemRiskVerification
     }
 
     /// <summary>
-    /// The power-transform audit (the N9 empirical gate before trusting γ &gt; 1): γ = 1, a
+    /// The power-transform audit (the empirical gate before trusting γ &gt; 1): γ = 1, a
     /// manual γ = 4, and the automatic probe-driven focus must agree on the mean, the failure
     /// union, and a tail ordinate within their combined Monte Carlo errors, and every recorded
     /// budget must self-normalize to one — the Jacobian reaches the recorded weights.

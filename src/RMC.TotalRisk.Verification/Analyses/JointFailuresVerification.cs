@@ -15,7 +15,7 @@ using RMC.TotalRisk.Systems.Components;
 namespace RMC.TotalRisk.Verification.Analyses;
 
 /// <summary>
-/// Joint failure modes — the Phase 5 conversion of the legacy <c>Test_MC_JointFailures</c>
+/// Joint failure modes — the conversion of the legacy <c>Test_MC_JointFailures</c>
 /// family: one system component with 2 or 5 potential failure modes across the four dependency
 /// options and all four joint-consequence rules, verified against an independent brute-force
 /// Monte Carlo oracle and pinned to the 2024 verification report's published constants.
@@ -284,7 +284,7 @@ public class JointFailuresVerification
         // relative) exceeds the binomial 4·SE at N = 10⁶. The maximum output resolution keeps
         // the thinning error an order below the statistical tolerance, so the probes verify
         // the exact-LEC construction rather than the presentation ladder (whose default-200
-        // fidelity is a documented Phase 4 property).
+        // fidelity is a documented engine property).
         analysis.Options.LECOutputLength = 1000;
         return analysis;
     }
@@ -527,7 +527,7 @@ public class JointFailuresVerification
             var failCurve = analysis.MeanRiskResults!.Curves.Fail;
             string label = $"{pfmCount}-PFM {dependency} {rule}";
 
-            // The five summary means (v1.0-parity per the ratified policy).
+            // The five summary means (v1.0-parity per the means-versus-tails policy).
             Assert.AreEqual(oracle.Fail[r].Mean, summary.Fail.Mean, K * oracle.Fail[r].MeanSe, $"{label}: failure risk mean.");
             Assert.AreEqual(oracle.NonFailure.Mean, summary.NonFail.Mean, K * oracle.NonFailure.MeanSe, $"{label}: non-failure risk mean.");
             Assert.AreEqual(oracle.Total[r].Mean, summary.Total.Mean, K * oracle.Total[r].MeanSe, $"{label}: total risk mean.");
@@ -540,7 +540,7 @@ public class JointFailuresVerification
             Assert.AreEqual(1d - oracle.FailureProbability, summary.NonFail.TotalProbability, K * oracle.FailureProbabilitySe,
                 $"{label}: the non-failure stream's total probability must complement the failure union.");
 
-            // Dispersion (Monte-Carlo-parity per the ratified policy).
+            // Dispersion (Monte-Carlo-parity per the means-versus-tails policy).
             Assert.AreEqual(oracle.Fail[r].Sigma, summary.Fail.StandardDeviation, K * oracle.Fail[r].SigmaSe,
                 $"{label}: failure risk standard deviation.");
             Assert.AreEqual(oracle.Total[r].Sigma, summary.Total.StandardDeviation, K * oracle.Total[r].SigmaSe,

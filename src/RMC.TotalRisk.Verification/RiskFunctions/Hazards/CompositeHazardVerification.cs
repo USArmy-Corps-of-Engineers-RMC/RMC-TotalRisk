@@ -496,20 +496,19 @@ public class CompositeHazardVerification
     /// <remarks>
     /// <para>
     /// The "second instance" here is a serialization round-trip of the first rather than a second
-    /// independently estimated composite, and that is deliberate. <b>Upstream finding (Phase 9):</b>
+    /// independently estimated composite, and that is deliberate. <b>Upstream history:</b>
     /// two separate <c>Estimate()</c> calls on a parametric child with identical inputs and an
-    /// identical <c>PRNGSeed</c> do <i>not</i> produce a bit-identical posterior — the Numerics
-    /// <c>BootstrapAnalysis</c> summary assembly uses a parallel, order-nondeterministic reduction,
-    /// the same ulp-level nondeterminism already documented for <c>NonparametricHazard</c>'s
-    /// uncertain mean assembly. The estimated posterior is serialized content, so a composite over
-    /// freshly estimated parametric children inherits it and its canonical hash is not stable
-    /// across separate estimation runs.
+    /// identical <c>PRNGSeed</c> once did <i>not</i> produce a bit-identical posterior — the
+    /// Numerics <c>BootstrapAnalysis</c> summary assembly used a parallel, order-nondeterministic
+    /// reduction. The estimated posterior is serialized content, so a composite over freshly
+    /// estimated parametric children inherited that instability in its canonical hash.
     /// </para>
     /// <para>
-    /// That is an upstream defect, not a composite one: round-tripping carries the posterior
-    /// verbatim, which is exactly what a stored project does, so this test isolates the composite's
-    /// own contract. Keep estimated parametric children out of byte-gate fixtures until the
-    /// upstream reduction is made order-deterministic.
+    /// The upstream reduction now sums over a fixed chunk count, and
+    /// <see cref="Test_UpstreamEstimation_IsBitReproducible"/> pins the repaired behavior. This
+    /// test keeps the round-trip form deliberately: round-tripping carries the posterior
+    /// verbatim, which is exactly what a stored project does, so it isolates the composite's
+    /// own contract from the estimation path.
     /// </para>
     /// </remarks>
     [TestMethod]

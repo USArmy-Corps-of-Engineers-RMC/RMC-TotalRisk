@@ -16,7 +16,7 @@ using RMC.TotalRisk.Systems.Components;
 namespace RMC.TotalRisk.Verification.Analyses;
 
 /// <summary>
-/// Common cause adjustment — the Phase 5 conversion of the legacy <c>Test_MC_CommonCause</c>
+/// Common cause adjustment — the conversion of the legacy <c>Test_MC_CommonCause</c>
 /// family: one system component with 2 or 5 potential failure modes whose marginal
 /// probabilities are reapportioned by the common-cause adjustment factor, across the four
 /// dependency options, verified against an independent Monte Carlo oracle and pinned to the
