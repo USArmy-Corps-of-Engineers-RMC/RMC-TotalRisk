@@ -250,6 +250,8 @@ Zero tolerance: **no compiler errors, no compiler warnings, no empty catch block
 
 **No file-header banners.** Files start with `using` directives. The USACE notice lives in `LICENSE` only.
 
+**Phase and process language is confined to the planning docs (ratified 2026-07-29).** Phase numbers, landing dates, ratification narration, and session language live only in `docs/ROADMAP.md`, `docs/PROGRESS.md`, this file, and the requirements docs' version-history blocks. Code comments (XML docs included), `docs/technical-reference/`, and `docs/verification/` describe the software as it is; verification pages keep dated runs-of-record (date, commit, counts), never phase tags.
+
 **Never hand-roll numerics that Numerics provides.** Interpolation → `Numerics.Data.Interpolation.Linear`/`Bilinear`; distributions → `Numerics.Distributions`; sampling → `LatinHypercube`/`Stratify`/`BootstrapAnalysis`; root finding → `Brent`; **1D integration → `AdaptiveGaussKronrod`** (G10K21; replaces the v1.0 `AdaptiveSimpsonsRule` per [technical-reference/risk-integration.md](docs/technical-reference/risk-integration.md)), multi-D integration → `Vegas` (with its power-transform tail focus). **Single exception:** verification oracles in `RMC.TotalRisk.Verification` intentionally re-implement engine math from Numerics primitives — that independence is what makes them oracles.
 
 **Validation contract:** every model type implements `public (bool IsValid, List<string> ValidationMessages) Validate()`. Messages start `"Error: ..."` (invalidating) or `"Warning: ..."` (advisory); `IsValid` is false only on errors.

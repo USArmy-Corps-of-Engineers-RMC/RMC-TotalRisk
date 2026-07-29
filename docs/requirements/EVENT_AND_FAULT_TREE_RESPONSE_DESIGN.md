@@ -470,7 +470,8 @@ Expected source folders are `RiskFunctions/Responses/Trees`, `RiskFunctions/Resp
 2. Add shared-logical versus independent-clone identity compilation and static-tree validation.
 3. Implement the exact ROBDD compiler/evaluator, read-once verified fast path, and coherent-tree cut-set inspection.
 4. Add response sampling, LHS/referenced-function integration, serialization, canonical hashing, and factory support.
-5. Land unit tests, exhaustive small-tree and independent-Monte-Carlo verification, performance/resource fixtures, technical-reference/results pages, and traceability/matrix updates.
+5. Add the headless node-importance (node-sensitivity) analysis for tree responses — the Monte Carlo node-importance sweep the v1.0 desktop application computed for event trees in its tree controls, delivered as a typed API on the common tree foundation (scope ratified 2026-07-29).
+6. Land unit tests, exhaustive small-tree and independent-Monte-Carlo verification (including a node-importance oracle), performance/resource fixtures, technical-reference/results pages, and traceability/matrix updates.
 
 Phase 10B begins only after Phase 10A's API, serialization/hash recipe, LHS behavior, branch outputs, and performance gates are green. This is sequencing, not a request to redesign the common foundation twice.
 
