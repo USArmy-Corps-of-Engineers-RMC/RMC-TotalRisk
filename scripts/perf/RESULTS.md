@@ -425,3 +425,23 @@ The byte gate is identical before and after caching:
 The unchanged hash demonstrates bit-identical branch classifications and probabilities. Fast tests
 separately pin aggregate curves, per-leaf curves, canonical hashes, seeded indexed samples, stable
 ports, concurrent read-only publication, mutation invalidation, and rollback state.
+
+## F4 re-pin — the boundary-clipping commit reached the dependent path after its last measurement (2026-07-29)
+
+A routine byte-gate round found F4 at `846234f1…` against the recorded `31bef59f…`, with F1, F2,
+F3, and F5 reproducing their pins bit-exactly. Bisecting with fixed engine states isolated the
+movement to the numerics commit `eb6718b` (2026-07-27) — the final commit of the numerical-safety
+batch, which applies the ratified probability boundary clipping to the joint/union/conditional
+paths and routes `UnionPCM` through the lazy kernel. The dependent competing-risks configuration
+is the one fixture crossing those sites, so its results moved within the clipping envelope. The
+close-out isolated verification families ran against that numerics state and passed; the F4
+measurement earlier in the same session predated the commit and was not repeated after it. The
+prior engine/numerics pair reproduces the old hash bit-exactly today, exonerating the toolchain,
+and the current pair reproduces the new hash across repeated runs. Re-pinned with approval
+2026-07-29:
+
+- F4 `846234f17c71ffef1239e50caee0f897c7e7d95bcf85489917b8ef7bca92eb99` (4.62 GB)
+
+**Standing rule:** a byte-gate round at any close-out runs every committed fixture (currently
+F1–F5), and a fixture measured before a session's final upstream commit is not a gate — re-run
+after the last commit that can reach the compute path.
