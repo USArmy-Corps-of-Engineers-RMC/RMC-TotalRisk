@@ -231,7 +231,7 @@ Status legend: — planned · P ported · T unit-tested · V verification covera
 | Transform | LinearTransform | P/T/V | Numerics `Test_Functions` closed-form anchors + the engine-chain ensemble vs a flat MC oracle + D=0 dense-quadrature parity (`ClosedFormFunctionsVerification`, landed 2026-07-25; docs/verification/closed-form-functions.md; no legacy oracles exist — Dev-repo sweep) |
 | Transform | PowerTransform | P/T/V | forward + IsInverse closed-form anchors, engine-chain ensemble vs MC oracle (`ClosedFormFunctionsVerification`, landed 2026-07-25; Numerics `PowerFunction.Minimum` derives from ξ — the wrapper keeps `Minimum` as API/hash surface only) |
 | Hazard | NonparametricHazard | P/T/V | SF-8 vs HEC-FDA Table 38 (all 20 published log10 quantile pins) + the independent Brent-pipeline re-derivation (optimization-equivalence anchor) + reliability AFP oracles with bit pins (`ClosedFormFunctionsVerification`, landed 2026-07-25) |
-| Later | RFAHazard, `CompositeHazard` parameter-set import, event trees, bivariate, BestFit imports, LifeSim | — | Phases 9 follow-on, 10–11 |
+| Later | RFAHazard, `CompositeHazard` parameter-set import, fault trees (10B), bivariate, BestFit imports, LifeSim | — | Phases 9 follow-on, 10B–11 |
 
 ## Critical Quality Standards
 

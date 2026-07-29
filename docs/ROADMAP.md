@@ -26,11 +26,12 @@ Porting sources in order of authority: (1) the partial C# port `C:\GIT\RMC-Total
 | 7 | Remaining closed-form functions: linear/power transforms, parametric consequence, nonparametric hazard | Complete (2026-07-25) |
 | 8 | Numerics.Functions expansion (numerics repo) + RMC.Numerics 2.2.0 package switch | Implementation complete (2026-07-25); 2.2.0 release + package switch pending user push |
 | 8.5 | Polish & optimization: Numerics helper adoption, determinism fixes, dimension-cap removal, optional measures, adjusted marginal LEC, N7 adoption | Complete (2026-07-26) |
-| 9 | Composites + RFA hazard + weighted wrappers + BestFit composite imports | Not started (`CompositeConsequence` + `WeightedConsequenceFunction` pulled forward 2026-07-21) |
-| 10A | Event-tree response + common tree/reference/manipulation foundation | Partial: foundation through legacy-conversion/template slices landed (2026-07-28) |
+| 8.6 | Numerical safety remediation: lazy dependent failure-mode enumeration, probability boundary clipping, mass/LEC endpoint correction | Complete (2026-07-27) |
+| 9 | Composites + RFA hazard + weighted wrappers + BestFit composite imports | Partial (2026-07-25): hazard/response/transform composites P/T/V; RFA hazard + parameter-set imports remain |
+| 10A | Event-tree response + common tree/reference/manipulation foundation | Complete (2026-07-28) |
 | 10B | Static fault-tree response with exact repeated-event evaluation | Designed (2026-07-28); starts after 10A exits |
 | 11 | Bivariate + BestFit import + LifeSim | Not started |
-| 12 | Hardening: coverage gate, Linux check, examples, getting-started | Not started |
+| 12 | Hardening: coverage gate, Linux check, examples, getting-started | Not started (the ≥90% unit-coverage gate script already exists and passes) |
 | 13 | Release prep — `v1.1.0-alpha` tag | Not started |
 | 14 | REST API + MCP server (`RMC.TotalRisk.Api`) | Not started (executable any time after Phase 6) |
 
@@ -441,7 +442,7 @@ with no store, no resolver, and no consuming layer in the call path.
 
 > Inserted 2026-07-26 at the user's direction: a dedicated polish/optimization round before the
 > remaining input-function work (bivariate hazard/transform/response/consequence, event trees,
-> fault trees). Plan: `~/.claude/plans/substantial-work-has-been-polymorphic-creek.md`.
+> fault trees).
 > **User decisions ratified at planning:** the numerics repo is in scope; work is staged
 > bit-inert first then one deliberate value-moving batch; the new risk-measure flags default to
 > everything on (today's JSON and every pinned constant unchanged); the adjusted marginal LEC is

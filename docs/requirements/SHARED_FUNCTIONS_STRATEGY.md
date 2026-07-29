@@ -68,7 +68,7 @@ Executed in `C:\GIT\numerics` on branch `bug-fixes-and-enhancements` (currently 
 | **N1** | Function serialization + factory | New `UnivariateFunctionType` enum (append-only, like `UnivariateDistributionType`). **(Amended v1.2)** Add concrete `XElement ToXElement()` methods on `LinearFunction`, `PowerFunction`, `TabularFunction` (+ new types below) — **NOT on the `IUnivariateFunction` interface** (external implementors exist in TotalRisk, and net481 lacks default interface members; an interface member would be breaking). `TabularFunction` embeds its `UncertainOrderedPairedData.SaveToXElement()`. New `UnivariateFunctionFactory` with `CreateFunction(UnivariateFunctionType)` + `CreateFromXElement(XElement)` + a `GetFunctionType(IUnivariateFunction)` type-test helper (the enum stays off the interface) — mirror the existing `LinkFunctionFactory` pattern (`Numerics\Functions\Link Functions\LinkFunctionFactory.cs`). `ConfidenceLevel` is runtime sampling state, never serialized. |
 | **N2** | `SegmentedPowerFunction` (working name) | The "expand the simple power function" item. Segmented power form matching BestFit's BaRatin matrix-of-controls **addition mode**: `Q(h) = Σₖ αₖ·(h−ξₖ)^βₖ·𝟙{h>activation}`, 1–N segments, log-space σ residual. **Parameter-vector layout must be verified against and kept compatible with `C:\GIT\rmc-bestfit\src\RMC.BestFit\Models\RatingCurve\RatingCurve.cs`** (reported as `[h₁, log₁₀α₁, β₁, …, σ]`, length `3·segments + 1`) so a posterior `ParameterSet.Values` applies via `SetParameters` directly. Numeric `InverseFunction` via monotone bracketing/root find. Degenerates to the existing `PowerFunction` at one segment. |
 | **N3** | `CompositeFunction` | Weighted combination over `IUnivariateFunction[]` + weights — **weighted-average** and **mixture** modes (the math behind TotalRisk's `CompositeTransform`/`CompositeConsequence`). Distribution-side analogs `Mixture`/`CompetingRisks` already exist and set the serialization idiom (`FromXElement` static + `ToXElement` override, children created via factory). |
-| **N4** | Posterior-ensemble sampling | `EnsembleFunction` (name TBD): a template `IUnivariateFunction` + `ParameterSet[]` posterior draws. **Pure** `IUnivariateFunction Sample(int index)` and `Sample(double percentile)` returning configured clones — thread-safe by construction, avoiding the mutable `ConfidenceLevel` idiom inside `Parallel.For` hot loops. This is how an imported BestFit rating curve carries knowledge uncertainty into either engine. |
+| **N4** | Posterior-ensemble sampling | `EnsembleFunction` (shipped under that name): a template `IUnivariateFunction` + `ParameterSet[]` posterior draws. **Pure** `IUnivariateFunction Sample(int index)` and `Sample(double percentile)` returning configured clones — thread-safe by construction, avoiding the mutable `ConfidenceLevel` idiom inside `Parallel.For` hot loops. This is how an imported BestFit rating curve carries knowledge uncertainty into either engine. |
 | **N5** | `EmpiricalDistribution` XElement round-trip fix | Today `ToXElement()` (base-class virtual) writes only scalar parameters — the X/P tables are lost. Override `ToXElement()` (tables + sort orders + transforms), add `FromXElement`, and wire into `UnivariateDistributionFactory.CreateDistribution(XElement)` alongside the existing `Mixture`/`CompetingRisks`/`PertPercentile` special cases. Check `KernelDensity` for the same gap while there. |
 | **N6** | Tests + docs | Round-trip tests for every new/changed serialization surface; `SegmentedPowerFunction` parity fixture vs BestFit `RatingCurve.Predict` reference values; new `docs/functions/` user-guide page (the Functions namespace is currently undocumented in `C:\GIT\numerics\docs\`). |
 | **N7** | AGK weight-exposing overload | Risk-engine follow-up (TotalRisk Phase 4): an `AdaptiveGaussKronrod` integrand overload that hands the Kronrod weight to the callback, so LEC probability mass comes from the quadrature directly (retires the midpoint-trapezoid fallback). Shipped as the acceptance-aware `Recorder` in Phase 8; **adopted by the engine in Phase 8.5** (`QuadratureMassLedger`). Detail: RMC-TotalRisk [ROADMAP Phase 8](../ROADMAP.md). |
@@ -97,7 +97,7 @@ Division of responsibility:
 
 ## 6. Repo-by-repo consequences
 
-### RMC-TotalRisk (`C:\GIT\RMC-TotalRisk-Dev`)
+### RMC-TotalRisk (`C:\GIT\RMC-TotalRisk`; porting source `C:\GIT\RMC-TotalRisk-Dev`)
 
 - [MODEL_LIBRARY_ARCHITECTURE.md](MODEL_LIBRARY_ARCHITECTURE.md) amended to **v0.6** (same session as this document): §5.5 hashing mechanics → XML canonicalization; §8 dependency graph → Numerics only; BestFit* types → posterior-import types; §9 gains Phase 2.0; transform cluster documented as thin wrappers.
 - Phase 2 port order becomes: **2.0 Numerics expansion → 2.1 Hazards → 2.2 Transforms (now small) → 2.3 Responses → 2.4 Consequences → 2.5 Engine → 2.6 Cleanup.**
@@ -120,12 +120,12 @@ Division of responsibility:
 2. **Import contract (Phase 2.1+):** serialize `MCMCResults`/`UncertaintyAnalysisResults` from a real BestFit run → deserialize with Numerics alone → construct the import types → evaluate. Proves the no-BestFit-DLL path end to end.
 3. **Cross-engine flagship (later, once `Hydrologics.Risk` exists):** the same levee inputs (hazard + rating transform + fragility + consequence) through TotalRisk's frequency-domain engine and Hydrologics' event-based engine → same annualized risk within sampling tolerance. Lives in a verification-only project that references both (test projects are not bound by the runtime dependency red lines). This is the "kill two birds" payoff test.
 
-## 8. Sequencing
+## 8. Sequencing (as executed)
 
-1. **This session:** this document + TotalRisk doc amendments (arch doc v0.6, ROADMAP, CLAUDE.md dependency notes, MEMORY.md).
-2. **Numerics sessions:** N1–N6 on `bug-fixes-and-enhancements`; TotalRisk consumes via HintPath immediately.
-3. **TotalRisk Phase 2.1+** port per amended architecture doc.
-4. **Release train:** `RMC.Numerics 2.2.0` → local feed → Hydrologics + TotalRisk switch to PackageReference; BestFit bumps when convenient.
+1. **2026-07-19:** this document + the TotalRisk doc amendments (arch doc v0.6, ROADMAP, CLAUDE.md dependency notes).
+2. **Numerics implementation (complete 2026-07-25/26):** N1–N9 and N11 on `bug-fixes-and-enhancements`; TotalRisk consumes via HintPath in the interim.
+3. **TotalRisk port** per the amended architecture doc (the executed phase order is [../ROADMAP.md](../ROADMAP.md)).
+4. **Release train (pending):** `RMC.Numerics 2.2.0` → local feed → Hydrologics + TotalRisk switch to PackageReference; BestFit bumps when convenient.
 5. **Later:** `Hydrologics.Risk`; BestFit rating-curve delegation; cross-engine parity test.
 
 ## 9. Open items
@@ -145,4 +145,4 @@ Division of responsibility:
 | `C:\GIT\numerics` | `Numerics\Functions\IUnivariateFunction.cs`, `LinearFunction.cs`, `PowerFunction.cs`, `TabularFunction.cs`, `Link Functions\LinkFunctionFactory.cs` (factory pattern), `Numerics\Data\Paired Data\UncertainOrderedPairedData.cs`, `Numerics\Distributions\Univariate\EmpiricalDistribution.cs`, `...\Uncertainty Analysis\UncertaintyAnalysisResults.cs`, `Numerics\Mathematics\Optimization\Support\ParameterSet.cs`, `packages\` (local feed) |
 | `C:\GIT\rmc-bestfit` | `src\RMC.BestFit\Models\RatingCurve\RatingCurve.cs` (functional form + parameter layout), `src\RMC.BestFit.UI\Elements\Support\AnalysisPersistenceHelper.cs` (.rmcbf column serialization), `src\RMC.BestFit\Analyses\Support\IBayesianAnalysis.cs` |
 | `C:\GIT\Hydrologics` | `src\Hydrologics\Core\CanonicalContentHasher.cs`, `Core\CanonicalizationRules.cs`, `docs\requirements\identity-and-seeding.md`, `docs\REMAINING-WORK.md` (PackageReference revert item) |
-| `C:\GIT\RMC-TotalRisk-Dev` | [MODEL_LIBRARY_ARCHITECTURE.md](MODEL_LIBRARY_ARCHITECTURE.md) v0.6, [ROADMAP.md](ROADMAP.md), [MEMORY.md](MEMORY.md), legacy clusters under `RMC-TotalRisk\RMC.TotalRisk.IO\Project\Elements\` |
+| `C:\GIT\RMC-TotalRisk-Dev` | the frozen architecture/strategy copies, `ROADMAP.md` and `MEMORY.md` at that repo's root, legacy clusters under `RMC-TotalRisk\RMC.TotalRisk.IO\Project\Elements\` |
