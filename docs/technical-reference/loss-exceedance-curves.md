@@ -37,11 +37,13 @@ and *re-derives* mass by sorting risk points on `p` and midpoint-partitioning th
 a trapezoidal `dF` heuristic that is only as good as the point spacing and breaks on any duplicate `p`.
 
 **Current state:** the 1D path records exact accepted AGK weights on the hazard's natural probability
-support. An internal pooled ledger adds the lower and upper endpoint rectangles required by Appendix D,
-coalesces duplicate abscissas with compensated summation, and seals the exhaustive mass to exactly one.
-Endpoint evaluations travel through the same component-risk recording path as interior nodes. The
-published `TotalProbability` is always the recorded compensated mass; `Curve` never substitutes one
-because a curve is marked exhaustive.
+support through the acceptance-aware quadrature recorder. An internal pooled ledger
+(`QuadratureMassLedger`) adds the lower and upper endpoint rectangles required by Appendix D,
+coalesces duplicate abscissas with compensated summation, and seals the exhaustive mass to exactly
+one; every recorded curve then consumes the sealed entries (`ApplyRecordedMass`) before its LEC is
+built. Endpoint evaluations travel through the same component-risk recording path as interior
+nodes. The published `TotalProbability` is always the recorded compensated mass; `Curve` never
+substitutes one because a curve is marked exhaustive.
 
 The mass correction is structural rather than proportional: the AGK interior weights remain unchanged.
 A lower atom of mass `p_min` and an upper residual atom complete the distribution. Invalid negative,

@@ -9,17 +9,32 @@ A **consequence function** (damage function) describes the consequences of failu
 ```csharp
 public interface IConsequenceFunction : IRiskFunction
 {
+    ConsequenceFunctionType FunctionType { get; }               // runtime discriminator (never serialized/hashed)
     string SpecifiedConsequence { get; set; }
     string ConsequenceUnit { get; set; }
     IUnivariateFunction SampleFunction();                       // mean consequence function
     IUnivariateFunction SampleFunction(double percentile);      // co-monotonic percentile function
     IUnivariateFunction SampleFunction(int realizationIndex);   // pre-allocated sampler row
+    IReadOnlyList<(double Weight, IUnivariateFunction Function)> SampleExposureBranches();
+    IReadOnlyList<(double Weight, IUnivariateFunction Function)> SampleExposureBranches(double percentile);
+    int CountExposureBranches();
     double MinHazard();
     double MaxHazard();
 }
 ```
 
 A sampled consequence function is a Numerics `IUnivariateFunction`: `Function(x)` maps hazard to consequence magnitude.
+
+The exposure-branch surface exists because mixture weights are **aleatory exposure probabilities**
+(which day/night state occurs), not knowledge uncertainty: the risk engine enumerates the weighted
+branches at every hazard point — in the mean-only and full Monte Carlo paths alike — instead of
+collapsing a mixture to its weighted-mean curve, which would keep the mean but destroy the
+loss-exceedance tail (the v1.0 day/night defect). Non-composite functions (and additive/average
+composites, which are genuine pointwise combinations rather than exposure states) return a single
+unit-weight branch; a mixture composite returns one entry per positively weighted child, nested
+mixtures flattened by multiplied weights. The percentile overload samples every branch
+co-monotonically at the given percentile. `CountExposureBranches()` feeds the engine's
+branch-explosion guardrails (warn above 64 combined branches per failure mode, error above 1024).
 
 ## TabularConsequence
 

@@ -1,6 +1,6 @@
 # System Response Functions
 
-> Technical reference for `RMC.TotalRisk.RiskFunctions.Responses` (Phase 2 surface: `TabularResponse`, `ParametricResponse`, `NonFailResponse`). Source of the methodology: RMC-TR-2022-XX, [*Quantitative Risk Analysis with RMC-TotalRisk*](https://usace-rmc.github.io/RMC-Software-Documentation/source-documents/desktop-applications/rmc-totalrisk/technical-reference-manual/RMC-TotalRisk-Technical-Reference-Manual.pdf), System Response Functions chapter.
+> Technical reference for `RMC.TotalRisk.RiskFunctions.Responses` — `TabularResponse`, `ParametricResponse`, `NonFailResponse`, `CompositeResponse`, and the tree-structured `EventTreeResponse`. Source of the methodology: RMC-TR-2022-XX, [*Quantitative Risk Analysis with RMC-TotalRisk*](https://usace-rmc.github.io/RMC-Software-Documentation/source-documents/desktop-applications/rmc-totalrisk/technical-reference-manual/RMC-TotalRisk-Technical-Reference-Manual.pdf), System Response Functions chapter.
 
 A **system response function** (fragility curve) describes the conditional probability of failure of the system at each hazard level. "Failure" is the general reliability-engineering limit state — the system fails to meet the demand placed on it — not necessarily fracture, breach, or collapse.
 
@@ -23,6 +23,8 @@ where *F_R* is the conditional CDF of the resistance and *f_S* is the hazard (de
 ```csharp
 public interface IResponseFunction : IRiskFunction
 {
+    ResponseFunctionType FunctionType { get; }                       // runtime discriminator (never serialized/hashed)
+    bool SupportsOrderedCurveSampling { get; }                       // can SampleResponseFunction emit a curve?
     OrderedPairedData SampleResponseFunction();                      // mean curve (hazard vs. Pf)
     OrderedPairedData SampleResponseFunction(double percentile);
     OrderedPairedData SampleResponseFunction(int realizationIndex);
@@ -36,6 +38,11 @@ public interface IResponseFunction : IRiskFunction
     double MaxProbability();
 }
 ```
+
+`SupportsOrderedCurveSampling` lets callers discover the ordered-curve capability without using an
+exception as feature detection: `ParametricResponse`, `CompositeResponse`, and the `NonFailResponse`
+sentinel report false (their `SampleResponseFunction` overloads throw); the tabular and event-tree
+responses report true.
 
 ## TabularResponse
 

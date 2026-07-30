@@ -1,6 +1,6 @@
 # Transform Functions
 
-> Technical reference for `RMC.TotalRisk.RiskFunctions.Transforms` (Phase 2 surface: `TabularTransform`; the closed-form `LinearTransform`/`PowerTransform` arrive in Phase 7). Source of the methodology: RMC-TR-2022-XX, [*Quantitative Risk Analysis with RMC-TotalRisk*](https://usace-rmc.github.io/RMC-Software-Documentation/source-documents/desktop-applications/rmc-totalrisk/technical-reference-manual/RMC-TotalRisk-Technical-Reference-Manual.pdf), Transform Functions chapter.
+> Technical reference for `RMC.TotalRisk.RiskFunctions.Transforms` — `TabularTransform`, the closed-form `LinearTransform` and `PowerTransform`, and `CompositeTransform`. Source of the methodology: RMC-TR-2022-XX, [*Quantitative Risk Analysis with RMC-TotalRisk*](https://usace-rmc.github.io/RMC-Software-Documentation/source-documents/desktop-applications/rmc-totalrisk/technical-reference-manual/RMC-TotalRisk-Technical-Reference-Manual.pdf), Transform Functions chapter.
 
 A **transform function** converts hazard levels from one domain to another — mathematically, function composition (report Eq. 16): given *g* (a frequency function of *x*) and a transform *t*, the composed frequency function of the transformed hazard is *g ∘ t⁻¹*. The canonical example: a peak-flow frequency function becomes a stage frequency function through a flow-to-stage rating curve. Transforms can feed hazard functions, other transform functions (chained), and system response functions.
 
@@ -9,6 +9,7 @@ A **transform function** converts hazard levels from one domain to another — m
 ```csharp
 public interface ITransformFunction : IRiskFunction
 {
+    TransformFunctionType FunctionType { get; }                 // runtime discriminator (never serialized/hashed)
     string TransformedHazard { get; set; }
     string TransformedHazardUnit { get; set; }
     IUnivariateFunction SampleFunction();                       // mean transform
@@ -67,12 +68,14 @@ UncertaintyAnalysisResults? summary = rating.ComputeUncertaintyResults(0.90);
 
 `ComputeUncertaintyResults(w)` evaluates exact per-ordinate percentile curves (mean, median, (1 ∓ w)/2 bounds), index-aligned with the table ordinates — no simulation.
 
-## LinearTransform and PowerTransform (Phase 7)
+## LinearTransform and PowerTransform
 
-Documented here for family completeness; they land with the Phase 7 backfill as thin wrappers over the Numerics `LinearFunction`/`PowerFunction`:
+Thin wrappers over the Numerics `LinearFunction`/`PowerFunction` — the wrappers add domain labels, validation, serialization, and hash identity; zero math lives in the classes. Parameters are user-supplied (fitted externally; the report describes ordinary-least-squares estimation).
 
-- **Linear** (report Eq. 17–20): *y = α + βx + ε*, with residual ε ~ N(0, σₑ) sampled by percentile under full uncertainty; parameters estimable by ordinary least squares.
-- **Power** (report Eq. 21–25): *y = α(x − ξ)^β · ε*, with log-normal residual (log-space standard error); estimable by OLS after log-transforming; an inverse-form option supports rating curves fitted with stage as the independent variable.
+- **Linear** (report Eq. 17–20): *y = α + βx + ε*, with additive residual ε ~ N(0, σₑ). Knowledge uncertainty is co-monotonic: one percentile sets `LinearFunction.ConfidenceLevel`, shifting every hazard level by the same `Normal(0, σ).InverseCDF(p)` offset (the exact v1.0 behavior). Defaults: α = 0, β = 1, σ = 10, uncertain, input range [0, 100].
+- **Power** (report Eq. 21–25): *y = α(x − ξ)^β · ε*, with multiplicative log-normal residual (σ is a log-space standard error — the percentile multiplies the curve by `exp(z_p·σ)`); an inverse-form option (`IsInverse`) supports rating curves fitted with stage as the independent variable. Defaults: α = 1, β = 1.5, ξ = 0, σ = 0.1, not inverted, input range [0, 100]. **`Minimum` is wrapper API/hash state only:** Numerics `PowerFunction.Minimum` has always derived from ξ (the v1.0 assignment to it never took effect), so evaluation clamps at ξ — v1.1 preserves that exact behavior and warns in validation when `Minimum` < `Xi`.
+
+Both declare `SamplingDimensions = 1` while `IsUncertain` (else 0), serialize σ only while uncertain (the hash-recipe conditional), and surface `ComputeUncertaintyResults` percentile summaries. Verification: [closed-form-functions](../verification/closed-form-functions.md) — closed-form anchors plus engine-chain ensembles against a flat Monte Carlo oracle.
 
 ## v1.1 changes vs. the v1.0 report
 
