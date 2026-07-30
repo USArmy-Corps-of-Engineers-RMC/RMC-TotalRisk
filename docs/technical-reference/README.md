@@ -15,5 +15,6 @@ Pages (mirroring the model-library namespaces):
 | [risk-contribution.md](risk-contribution.md) | % contribution to risk: the Shapley probability split + consequence-proportional risk split over the exclusive failure events of all four combination methods, the additive-system Poisson-binomial closed form, exact sum identities, two percentage bases |
 | [composite-functions.md](composite-functions.md) | Composite functions across all four clusters: mixture versus competing risks, the aleatory/epistemic decision rule for the weights, why `CompositeTransform` is weighted-average only (with the Jensen-bias worked example), and what is deferred |
 | [cascading-end-states.md](cascading-end-states.md) | Cascading response end states (the event tree in the risk diagram): the polarity-product leaf algebra, final-polarity classification, the claimed complement mixture, sibling excess pairing, across-unit combination with the narrow competing gate, and the knowledge-sampling contract |
+| [sensitivity-analysis.md](sensitivity-analysis.md) | The unified sensitivity engine: stored-results correlation with bit-exact seed rederivation, the input-column sampler walk, the association-measure catalog, and the hazard-level tornado |
 
-Planned pages: the sensitivity engine, event trees, canonical hashing / content-based seeding / sampling schemes, and the results catalog.
+Planned pages: event trees, canonical hashing / content-based seeding / sampling schemes, and the results catalog.
