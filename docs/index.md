@@ -12,7 +12,7 @@ Development documentation for the v1.1 effort. The v1.0 end-user documentation (
 | [requirements/MODEL_LIBRARY_ARCHITECTURE.md](requirements/MODEL_LIBRARY_ARCHITECTURE.md) | Normative model-library architecture spec (layout, contracts, seeding, sampling, clusters, engine) |
 | [requirements/EVENT_AND_FAULT_TREE_RESPONSE_DESIGN.md](requirements/EVENT_AND_FAULT_TREE_RESPONSE_DESIGN.md) | Normative tree-response design: Phase 10A event foundation complete; Phase 10B exact fault trees unblocked; conditional-fragility boundary, math, references, authoring, LHS, tests, and performance |
 | [requirements/SHARED_FUNCTIONS_STRATEGY.md](requirements/SHARED_FUNCTIONS_STRATEGY.md) | Cross-repo strategy: shared function math in Numerics; BestFit import contract |
-| [technical-reference/](technical-reference/README.md) | Per-family math documentation (grows per phase) |
+| [technical-reference/](technical-reference/README.md) | Per-family math documentation: input-function families, the risk engine's integration and loss-exceedance construction, composites, cascades, event trees, sensitivity, hashing/seeding, and the results catalog |
 | verification-requests/ | Specs for user-executed reference runs that produce committed benchmark data (created as needed) |
 
 Process rules (quality gates, contracts, workflows) live in [CLAUDE.md](../CLAUDE.md) at the repo root (AGENTS.md is generated from it).

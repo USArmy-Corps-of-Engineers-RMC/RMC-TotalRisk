@@ -18,5 +18,4 @@ Pages (mirroring the model-library namespaces):
 | [sensitivity-analysis.md](sensitivity-analysis.md) | The unified sensitivity engine: stored-results correlation with bit-exact seed rederivation, the input-column sampler walk, the association-measure catalog, and the hazard-level tornado |
 | [event-trees.md](event-trees.md) | Event-tree responses: the conditional node algebra, probability sources, independent-clone links, recursive sampling, transactional authoring, both serialization modes with legacy import, projected identity, the compiled plan, and expanded graph outputs |
 | [hashing-and-seeding.md](hashing-and-seeding.md) | Canonical hashing, content-based seeding, and sampling schemes: the SHA-256 canonical encoding, the audited strip rules and identity-form projections, the seed-derivation walk, the sampling-scheme catalog, and the seed-stable perturbation mode |
-
-Planned pages: the results catalog.
+| [results-catalog.md](results-catalog.md) | The results surface: realization and summary trees, the risk-profile catalog, ensemble summaries and convergence diagnostics, the multi-consequence axis, contribution containers, reliability-mode outputs, and the results-JSON conventions |
