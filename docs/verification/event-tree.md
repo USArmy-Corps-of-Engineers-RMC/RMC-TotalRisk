@@ -1,9 +1,9 @@
-# Event-tree response - Phase 10A complete
+# Event-tree response
 
 ## Scope and status
 
-`EventTreeVerification` verifies the complete numerically observable Phase 10A behavior:
-controlled scalar/tabular event trees, legacy conditional-probability algebra,
+`EventTreeVerification` verifies the complete numerically observable event-tree response
+capability: controlled scalar/tabular event trees, legacy conditional-probability algebra,
 aggregate failure, exhaustive terminal outputs, indexed LHS table sampling, internal/external
 `IndependentClone` links, direct and multi-level nested `EventTreeResponse` probability sources,
 both serialization modes, occurrence reproducibility, recursive v1.0 XML conversion and shipped
@@ -11,9 +11,10 @@ templates, graph-connected arbitrary n-way per-leaf consequences, an independent
 Monte Carlo oracle, aggregate LHS variance reduction, and thread-count bit identity. It also covers the
 immutable compiled occurrence/evaluation plan, complete dependency invalidation and rollback, and
 the F5 large repeated-link performance fixture. Fixed-seed generated fast tests supply deterministic
-property coverage and minimized serialized counterexamples. The final isolated family is **14/14**,
-the fast suite is **781/781**, unit-only library line coverage is **90.40% (12,257/13,584)**, and all
-Phase 10A exit gates are closed. Phase 10B is unblocked but is not part of this verification family.
+property coverage and minimized serialized counterexamples. At the run of record the isolated
+family was **14/14**, the fast suite **781/781**, and unit-only library line coverage
+**90.40% (12,257/13,584)**. The exact static fault-tree capability is future work and is not part
+of this verification family.
 
 The response computes conditional fragility `P(F|h)` only. Hazard probability, annualization,
 consequences, and risk remain outside the event tree.
@@ -59,9 +60,9 @@ next current-format write. It preserves valid IDs, derives deterministic path ID
 adds the legacy automatic remainder when omitted, and emits only the explicit-node/edge v1.1 form.
 
 A legacy `EventNode` probability source means reuse of another node's probability source, not
-reuse of a subtree. Mapping it to Phase 10A `IndependentClone` would change semantics, so the
+reuse of a subtree. Mapping it to the v1.1 `IndependentClone` would change semantics, so the
 converter rejects it with a deterministic path diagnostic. The commented `SecondaryHazardNode`
-remains excluded, and `WeightedHazardLevel` remains Phase 11 bivariate-response work.
+remains excluded, and `WeightedHazardLevel` remains future bivariate-response work.
 
 No value from legacy `Test_EventTree.Test_Product` is used as an oracle: that method has no
 assertion and does not construct an event tree.
