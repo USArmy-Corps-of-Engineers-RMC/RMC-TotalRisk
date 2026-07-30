@@ -423,6 +423,28 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
             IsEstimated = true;
         }
 
+        /// <summary>
+        /// Sets the parent distribution's parameter values, clearing the estimate when any value
+        /// changes (v1.0 behavior).
+        /// </summary>
+        /// <param name="parameters">The parameter values, one per distribution parameter.</param>
+        public void SetDistributionParameters(IList<double> parameters)
+        {
+            if (parameters is null || parameters.Count != ParentDistribution.NumberOfParameters)
+                return;
+            double[] current = ParentDistribution.GetParameters;
+            for (int i = 0; i < ParentDistribution.NumberOfParameters; i++)
+            {
+                if (current[i] != parameters[i])
+                {
+                    InvalidateEstimate();
+                    RaisePropertyChange(nameof(ParentDistribution));
+                    break;
+                }
+            }
+            ParentDistribution.SetParameters(parameters);
+        }
+
         #endregion
 
         #region IRiskFunction Methods

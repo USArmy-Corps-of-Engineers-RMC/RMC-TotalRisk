@@ -99,7 +99,7 @@ var fragility = new ParametricResponse
     HazardUnit = "ft",
     EffectiveRecordLength = 30,
 };
-fragility.SetDistributionParameters(new[] { 10.0, 2.0 });        // LnNormal μ, σ (base e)
+fragility.SetDistributionParameters(new[] { 10.0, 2.0 });        // LnNormal (base e): real-space mean, sd
 fragility.Estimate();
 
 double pf = fragility.SampleFunction().CDF(stage);

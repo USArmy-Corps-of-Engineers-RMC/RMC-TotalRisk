@@ -4,6 +4,7 @@ using System.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Numerics.Distributions;
 using Numerics.Mathematics.Optimization;
+using RMC.TotalRisk.RiskFunctions.Hazards;
 using RMC.TotalRisk.RiskFunctions.Responses;
 using RMC.TotalRisk.Tests.Core;
 
@@ -12,7 +13,8 @@ namespace RMC.TotalRisk.Tests.RiskFunctions.Responses;
 /// <summary>
 /// Unit tests for <see cref="ParametricResponse"/> — v1.0 defaults (LnNormal parent, seed 67891,
 /// non-exceedance ordinates with NO inversion), the response-specific estimation-method matrix,
-/// bootstrap and injection paths, sampling, bounds, serialization, and hash identity.
+/// bootstrap and injection paths, the shared parameter-setter surface, sampling, bounds,
+/// serialization, and hash identity.
 /// </summary>
 [TestClass]
 public class ParametricResponseTests
@@ -136,6 +138,101 @@ public class ParametricResponseTests
         Assert.IsTrue(r.PosteriorImported);
         Assert.AreEqual(40, r.Realizations);
         Assert.AreEqual(10d + 12 * 0.1d, ((Normal)r.SampleFunction(12)).Mean, 1e-12);
+    }
+
+    /// <summary>Verifies SetDistributionParameters clears the estimate and raises the parent notification when a value changes (v1.0 behavior).</summary>
+    [TestMethod]
+    public void Test_SetDistributionParameters_ChangeInvalidatesEstimate()
+    {
+        // Arrange — FastResponse's parent is Normal(10, 2).
+        var r = FastResponse();
+        r.Estimate();
+        Assert.IsTrue(r.IsEstimated);
+        var raised = new List<string>();
+        r.PropertyChanged += (_, e) => raised.Add(e.PropertyName ?? string.Empty);
+
+        // Act
+        r.SetDistributionParameters(new[] { 11d, 2d });
+
+        // Assert — estimate cleared, notification raised, parameters applied.
+        Assert.IsFalse(r.IsEstimated);
+        Assert.IsNull(r.Results);
+        CollectionAssert.Contains(raised, nameof(ParametricResponse.ParentDistribution));
+        CollectionAssert.AreEqual(new[] { 11d, 2d }, r.ParentDistribution.GetParameters);
+        Assert.ThrowsException<InvalidOperationException>(() => r.SampleFunction());
+    }
+
+    /// <summary>Verifies SetDistributionParameters leaves the estimate in place when every value is unchanged.</summary>
+    [TestMethod]
+    public void Test_SetDistributionParameters_EqualValuesKeepEstimate()
+    {
+        // Arrange
+        var r = FastResponse();
+        r.Estimate();
+        var raised = new List<string>();
+        r.PropertyChanged += (_, e) => raised.Add(e.PropertyName ?? string.Empty);
+
+        // Act — the exact current values.
+        r.SetDistributionParameters(new[] { 10d, 2d });
+
+        // Assert — estimate intact, no notification.
+        Assert.IsTrue(r.IsEstimated);
+        Assert.IsNotNull(r.Results);
+        Assert.AreEqual(0, raised.Count);
+    }
+
+    /// <summary>Verifies SetDistributionParameters silently ignores null and wrong-arity inputs (v1.0 behavior).</summary>
+    [TestMethod]
+    public void Test_SetDistributionParameters_CountMismatchNoOps()
+    {
+        // Arrange — Normal has two parameters.
+        var r = FastResponse();
+        r.Estimate();
+
+        // Act
+        r.SetDistributionParameters(null!);
+        r.SetDistributionParameters(new[] { 11d });
+        r.SetDistributionParameters(new[] { 11d, 2d, 3d });
+
+        // Assert — estimate intact, parameters unchanged.
+        Assert.IsTrue(r.IsEstimated);
+        CollectionAssert.AreEqual(new[] { 10d, 2d }, r.ParentDistribution.GetParameters);
+    }
+
+    /// <summary>Verifies the hazard/response twins agree on the shared SetDistributionParameters surface.</summary>
+    [TestMethod]
+    public void Test_SetDistributionParameters_TwinsAgree()
+    {
+        // Arrange — both twins estimated on the same Normal(10, 2) parent.
+        var r = FastResponse();
+        r.Estimate();
+        var h = new ParametricUnivariateHazard
+        {
+            Name = "Twin",
+            SpecifiedHazard = "Stage",
+            HazardUnit = "ft",
+            ParentDistribution = new Normal(10d, 2d),
+            EffectiveRecordLength = 30,
+            Realizations = 200,
+        };
+        h.Estimate();
+
+        // Act — the same edit through both twins.
+        r.SetDistributionParameters(new[] { 12d, 3d });
+        h.SetDistributionParameters(new[] { 12d, 3d });
+
+        // Assert — both clear their estimates and apply identical parameters.
+        Assert.IsFalse(r.IsEstimated);
+        Assert.IsFalse(h.IsEstimated);
+        CollectionAssert.AreEqual(h.ParentDistribution.GetParameters, r.ParentDistribution.GetParameters);
+
+        // The equal-value path agrees too: re-estimate, re-apply the same values, both keep their estimates.
+        r.Estimate();
+        h.Estimate();
+        r.SetDistributionParameters(new[] { 12d, 3d });
+        h.SetDistributionParameters(new[] { 12d, 3d });
+        Assert.IsTrue(r.IsEstimated);
+        Assert.IsTrue(h.IsEstimated);
     }
 
     /// <summary>Verifies the probability bounds via the parent CDF at the hazard bounds (v1.0 shape).</summary>
