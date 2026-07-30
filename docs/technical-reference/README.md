@@ -16,5 +16,6 @@ Pages (mirroring the model-library namespaces):
 | [composite-functions.md](composite-functions.md) | Composite functions across all four clusters: mixture versus competing risks, the aleatory/epistemic decision rule for the weights, why `CompositeTransform` is weighted-average only (with the Jensen-bias worked example), and what is deferred |
 | [cascading-end-states.md](cascading-end-states.md) | Cascading response end states (the event tree in the risk diagram): the polarity-product leaf algebra, final-polarity classification, the claimed complement mixture, sibling excess pairing, across-unit combination with the narrow competing gate, and the knowledge-sampling contract |
 | [sensitivity-analysis.md](sensitivity-analysis.md) | The unified sensitivity engine: stored-results correlation with bit-exact seed rederivation, the input-column sampler walk, the association-measure catalog, and the hazard-level tornado |
+| [event-trees.md](event-trees.md) | Event-tree responses: the conditional node algebra, probability sources, independent-clone links, recursive sampling, transactional authoring, both serialization modes with legacy import, projected identity, the compiled plan, and expanded graph outputs |
 
-Planned pages: event trees, canonical hashing / content-based seeding / sampling schemes, and the results catalog.
+Planned pages: canonical hashing / content-based seeding / sampling schemes, and the results catalog.
