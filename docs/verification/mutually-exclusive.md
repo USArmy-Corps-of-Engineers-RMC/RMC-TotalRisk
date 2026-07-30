@@ -1,8 +1,8 @@
 # Mutually Exclusive Failure Modes
 
-**Test class:** `MutuallyExclusiveVerification` · **Status:** ✅ Verified (2026-07-23, Phase 5)
+**Test class:** `MutuallyExclusiveVerification` · **Tests:** 3 · **Run of record:** 2026-07-23, isolated run, ✅ all passed
 
-The Phase 5 conversion of the legacy `Test_MC_MutuallyExclusive.vb` family — one system
+The conversion of the legacy `Test_MC_MutuallyExclusive.vb` family — one system
 component with 2 or 5 potential failure modes treated as exclusive events, their marginal
 probabilities normalized whenever the sum exceeds one. The engine's
 `Probability.MutuallyExclusiveAdjustment` path is verified against an independent Monte Carlo

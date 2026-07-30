@@ -1,9 +1,10 @@
 # Composite Response Function Verification
 
+**Test class:** `CompositeResponseVerification` · **Tests:** 8 · **Run of record:** 2026-07-25, isolated run, ✅ all passed
+
 > Family: `CompositeResponse` (`RMC.TotalRisk.RiskFunctions.Responses`)
-> Test class: `src/RMC.TotalRisk.Verification/RiskFunctions/Responses/CompositeResponseVerification.cs`
 > Anchor: *Verification of the RMC-TotalRisk Software* (2024), §Composite Hazard and Response Functions (Tables 44–46) + exact probability identities for the weakest-link rule
-> Verified: 2026-07-25 · all comparisons **very good** (≤ 1%)
+> All comparisons **very good** (≤ 1%)
 
 ## Overview
 

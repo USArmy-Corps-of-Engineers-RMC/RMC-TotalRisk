@@ -1,6 +1,6 @@
 # % Contribution Verification
 
-**Test class:** `ContributionVerification` · **Landed:** 2026-07-24 (Phase 6.6, stage 4)
+**Test class:** `ContributionVerification` · **Tests:** 5 · **Run of record:** 2026-07-24, isolated run, ✅ all passed
 
 The % contribution diagnostic (new in v1.1 — no v1.0 counterpart exists) attributes each
 failure mode's share of its component's risk and each component's share of the system's risk,
@@ -8,7 +8,7 @@ for **all four** combination methods and **both** system methods, on three bases
 consequence type: attributed annualized failure probability, attributed failure mean, and
 attributed excess (incremental) mean. Percentages derive on read (`RiskContribution.ShareOf`).
 
-**The attribution scheme (user-ratified 2026-07-24):** every combination method already
+**The attribution scheme:** every combination method already
 produces an exclusive failure-event decomposition — normalized marginals (ME), common-cause
 adjusted marginals, competing cumulative incidence functions, and the joint method's
 inclusion–exclusion pathways. Within each exclusive event the probability splits **equally**
@@ -23,7 +23,7 @@ the Sum rule the split credits each mode exactly its own consequence, so joint-A
 attribution ≡ the marginal integrals ∫ p_j·c_j dF. At the additive system level the Shapley
 split of the independent failure union has the closed form φ_i = p_i · E[1/(1 + K_i)]
 (K_i Poisson–binomial over the other components), computed by an O(D²) recursion — no 2^D
-enumeration — folded in the canonical-hash component order per the 4b reorder contract.
+enumeration — folded in the canonical-hash component order per the system reorder contract.
 
 ## Scenario
 
@@ -49,7 +49,7 @@ exclusive-combination enumeration with equal splits.
 | # | Test | Verifies | Tolerance | Result |
 |---|---|---|---|---|
 | 1 | `Test_Contribution_MEAndCCA_VsQuadratureOracle` | ME and CCA per-mode contributions (all three bases, both modes) ≡ the adjusted-marginal quadrature; Σ identities vs the recorded Fail mass balance / Fail mean / Excess mean | 1e-4 rel (the quadrature mass-accounting residual envelope); 1e-12 rel (identities) | ✅ |
-| 2 | `Test_Contribution_Competing_VsIncidenceOracle` | Competing contributions vs the Eq. 14 incidence oracle at 20,001 bins; the engine's 200-bin CIF pre-processing (v1.0 constant) carries the documented discretization allowance; Σ identities exact | 1e-2 rel (CIF discretization; Phase 5 measured ≈ 0.3% at five modes); 1e-12 rel (identities) | ✅ |
+| 2 | `Test_Contribution_Competing_VsIncidenceOracle` | Competing contributions vs the Eq. 14 incidence oracle at 20,001 bins; the engine's 200-bin CIF pre-processing (v1.0 constant) carries the documented discretization allowance; Σ identities exact | 1e-2 rel (CIF discretization; the competing family measured ≈ 0.3% at five modes); 1e-12 rel (identities) | ✅ |
 | 3 | `Test_Contribution_Joint_SumRuleOracle_AndMaximumOrdering` | Joint Sum-rule attribution ≡ ∫ p_j·c_j dF (the own-consequence credit); the Shapley probability attribution ≡ its integral; Maximum-rule attribution ≡ the proportional-split oracle; Σ identities | 1e-4 rel; 1e-12 rel (identities) | ✅ |
 | 4 | `Test_Contribution_AdditiveSystem_BruteForce_AndReorderInvariance` | The Poisson–binomial Shapley shares ≡ brute-force 2³ enumeration; Σ shares ≡ the folded union; Σ mean contributions ≡ the convolved system means; declaration-order bit-inertness | 1e-12 abs (shares); 1e-9 rel (convolved means); 0 (bit, reorder) | ✅ |
 | 5 | `Test_Contribution_JointSystem_Identities_AndReproducibility` | Joint-system Σ contributions ≡ the recorded system Fail mass balance / Fail mean / Excess mean within the run (default VEGAS budget); mode-level contributions finalize under the weight regime; repeated runs bit-identical | 1e-12 rel; 0 (bit) | ✅ |
@@ -73,11 +73,11 @@ pre-6.6 JSON forward-load (missing members → null → "not computed").
   a fortiori); the dense-trapezoid oracle contributes ≈ 1e-9.
 - **Competing (1e-2 relative):** the engine interpolates CIFs pre-processed over 200
   stratified bins (the preserved v1.0 constant); the oracle's 20,001-bin Eq. 14 reference
-  isolates that discretization. The Phase 5 competing family measured ≈ 0.3% at five modes;
-  the two-mode deviations here sit well inside the allowance.
+  isolates that discretization. The [competing family](competing-failures.md) measured ≈ 0.3%
+  at five modes; the two-mode deviations here sit well inside the allowance.
 
-Run of record 2026-07-24: `ContributionVerification` 5/5 passed (~16 s wall); fast suite
-457/457 (Debug and Release) including the eight new contribution unit tests; gates
-`EngineReproducibilityVerification` 3/3 and `JointFailuresVerification` 9/9 passed unchanged.
-The results-JSON byte gate re-pinned for the new serialized members
+Run of record 2026-07-24: `ContributionVerification` 5/5 passed (~16 s wall); the fast suite
+at that date passed in full (457/457, Debug and Release) including the eight new contribution
+unit tests; gates `EngineReproducibilityVerification` 3/3 and `JointFailuresVerification` 9/9
+passed unchanged. The results-JSON byte gate re-pinned for the new serialized members
 (`scripts/perf/RESULTS.md`).

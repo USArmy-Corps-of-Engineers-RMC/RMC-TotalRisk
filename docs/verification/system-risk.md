@@ -1,8 +1,8 @@
 # Multi-Component System Risk — Verification Results
 
-**Test class:** `SystemRiskVerification` · **Status:** ✅ Verified (2026-07-23, Phase 4b)
+**Test class:** `SystemRiskVerification` · **Tests:** 5 · **Run of record:** 2026-07-23, isolated run, ✅ all passed
 
-The system-aggregation family of the v0.13 policy: both multi-component methods are verified
+The system-aggregation family of the means-versus-tails policy: both multi-component methods are verified
 against NEW brute-force **event-level** Monte Carlo oracles that draw annual outcomes — hazards
 by inverse transform, component failures by Bernoulli draws against the fragilities — and
 accumulate the realized system loss. That realized-loss distribution is exactly the zero-inflated
@@ -84,7 +84,7 @@ The physics reads correctly off the two runs: positive hazard correlation *lower
 union (0.1987 vs 0.2052 — the failures bunch into the same years) while *fattening* the far
 tail (P(L > 700): 0.00887 vs 0.00382 — both components fail together more often).
 
-## Power-transform audit (the N9 empirical gate)
+## Power-transform audit (the tail-focus empirical gate)
 
 `Test_JointSystem_TailFocusAudit` runs the correlated scenario at γ = 1 (None), manual γ = 4,
 and the automatic probe-driven focus: the system mean and failure union agree within the

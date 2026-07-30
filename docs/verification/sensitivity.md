@@ -1,13 +1,13 @@
 # Sensitivity Verification
 
-**Test class:** `SensitivityVerification` · **Landed:** 2026-07-24 (Phase 6.6, stage 6)
+**Test class:** `SensitivityVerification` · **Tests:** 3 · **Run of record:** 2026-07-24, isolated run, ✅ all passed
 
-Phase 6.6 replaced the planned legacy tornado port with a **unified sensitivity engine**
-(user-ratified scope amendment): one typed API whose **outputs** are either any stored scalar
+v1.1 replaces the legacy tornado analysis with a **unified sensitivity engine**
+(an approved scope decision): one typed API whose **outputs** are either any stored scalar
 risk measure (`MeasureSensitivity`/`MeasureSensitivityMatrix` — APF, mean, conditional mean,
 σ, skewness, kurtosis, threshold probabilities, VaR, CVaR, per risk type and per consequence
 type at system/component/failure-mode scope) or the risk at a hazard level
-(`HazardLevelSensitivity` — the tornado, profile-axis native per the ratified Q-T decision),
+(`HazardLevelSensitivity` — the tornado, native to the profile axis),
 and whose **inputs** are the per-function knowledge draws plus the consequence-coupling
 columns, labeled by input function and collected by the exact sampler walk with its
 shared-instance dedup.
@@ -59,5 +59,5 @@ tornado at profile level T(h) is **bit-identical** to the raw-axis tornado at h 
 unprofiled clone (per-realization chain inversion; the seed-inert selector leaves draws
 untouched); and the ranked tornado view.
 
-Run of record 2026-07-24: `SensitivityVerification` 3/3 passed (~37 s wall); fast suite
-471/471 (Debug and Release).
+Run of record 2026-07-24: `SensitivityVerification` 3/3 passed (~37 s wall); the fast suite at
+that date passed in full (471/471, Debug and Release).

@@ -1,12 +1,12 @@
-# Closed-Form Functions (Phase 7)
+# Closed-Form Functions
 
-**Test class:** `ClosedFormFunctionsVerification` · **Status:** ✅ Verified (2026-07-25) · **Tests:** 4
+**Test class:** `ClosedFormFunctionsVerification` · **Tests:** 4 · **Run of record:** 2026-07-25, isolated run, ✅ all passed
 
-The Phase 7 family for `LinearTransform`, `PowerTransform`, and `NonparametricHazard`. **No
+The family for `LinearTransform`, `PowerTransform`, and `NonparametricHazard`. **No
 legacy oracles exist for these types** — the Dev-repo sweep found zero `Test_TotalRisk` usages
 of the two transforms and only external-dataset FDA-importer usages of the nonparametric hazard
 (the legacy `Test_EAD` and NFIP TOL tests build their curves from raw Numerics primitives and
-were converted in Phases 5–6). The documented anchor is therefore the 2024 verification
+were converted with their own families). The documented anchor is therefore the 2024 verification
 report's *Nonparametric Hazard Function* section — the Beargrass Creek **SF-8** reach vs
 HEC-FDA 1.4.3, **Table 38** — plus fresh Monte Carlo and quadrature oracles for the first
 engine passage of the closed-form transforms.
@@ -66,7 +66,7 @@ The report's SF-8 inputs (transcribed from Figure 16): nine AEP→flow ordinates
 
 The uncertain mean curve is additionally checked for internal consistency (strictly ordered;
 grid spanning the full-uncertainty envelope); its 10,000-curve assembly is the landed
-`TabularHazard` Hazard-mode pattern verified against exact quadrature by the Phase 6 NFIP
+`TabularHazard` Hazard-mode pattern verified against exact quadrature by the NFIP
 dense-tabular family.
 
 ### V4 — Reliability engine (`Test_NonparametricHazard_ReliabilityEngine`)

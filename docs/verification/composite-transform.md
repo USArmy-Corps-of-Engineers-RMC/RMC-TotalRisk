@@ -1,9 +1,10 @@
 # Composite Transform Function Verification
 
+**Test class:** `CompositeTransformVerification` · **Tests:** 6 · **Run of record:** 2026-07-25, isolated run, ✅ all passed
+
 > Family: `CompositeTransform` (`RMC.TotalRisk.RiskFunctions.Transforms`)
-> Test class: `src/RMC.TotalRisk.Verification/RiskFunctions/Transforms/CompositeTransformVerification.cs`
 > Anchor: Closed-form algebra + exact Normal theory + an independently coded child-seed oracle (greenfield family — no legacy implementation and no report table)
-> Verified: 2026-07-25 · exact comparisons at 1e-12; sampled comparisons within 4 standard errors
+> Exact comparisons at 1e-12; sampled comparisons within 4 standard errors
 
 ## Overview
 

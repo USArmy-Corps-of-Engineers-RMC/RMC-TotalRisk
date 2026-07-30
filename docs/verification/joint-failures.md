@@ -1,8 +1,8 @@
 # Joint Failure Modes
 
-**Test class:** `JointFailuresVerification` · **Status:** ✅ Verified (2026-07-23, Phase 5)
+**Test class:** `JointFailuresVerification` · **Tests:** 9 · **Run of record:** 2026-07-23, isolated run, ✅ all passed
 
-The Phase 5 conversion of the legacy `Test_MC_JointFailures.vb` family — one system component
+The conversion of the legacy `Test_MC_JointFailures.vb` family — one system component
 with 2 or 5 potential failure modes where **all exceeded modes fail together**, across the four
 dependency options and all four joint-consequence rules. The engine's inclusion–exclusion
 pathway enumeration (`Probability.IndependentExclusive` / `PositivelyDependentExclusive` /
@@ -129,7 +129,7 @@ asserts (16 published joint scenarios × 5 means, tables 61–76) passed.
   clamps at zero. Inert here — every failure curve pointwise dominates the non-failure curve.
 - The exceedance probes read the output LEC at its maximum resolution (1000) so the output
   thinning stays an order below the binomial 4·SE; the default-200 presentation fidelity is a
-  separate documented Phase 4 property.
-- This family's Negative scenarios execute through the perfectly-negative dependency wiring
-  corrected at the start of Phase 5 (see the session log) — before that correction the run
-  path silently produced zero risk under PerfectlyNegative.
+  separate documented engine property.
+- This family's Negative scenarios execute through the corrected perfectly-negative dependency
+  wiring (the correction is recorded in [docs/PROGRESS.md](../PROGRESS.md)) — before that
+  correction the run path silently produced zero risk under PerfectlyNegative.

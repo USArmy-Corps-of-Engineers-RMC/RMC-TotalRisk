@@ -1,11 +1,11 @@
 # LHS Variance Reduction
 
-**Test class:** `LhsVarianceReductionVerification` · **Status:** ✅ Verified (2026-07-23, Phase 6)
+**Test class:** `LhsVarianceReductionVerification` · **Tests:** 1 · **Run of record:** 2026-07-23, isolated run, ✅ all passed
 
-The Phase 6 roadmap test for the ratified v1.1 sampling upgrade: at N = 1,000 knowledge
+The dedicated evidence for the v1.1 sampling upgrade: at N = 1,000 knowledge
 realizations over repeated runs, the Latin hypercube scheme must estimate the same ensemble
 grand mean as plain Monte Carlo sampling (both unbiased) with a substantially smaller
-replicate-to-replicate variance. Phase 5's uncertainty family pinned LHS/MC *agreement*; this
+replicate-to-replicate variance. The [single-component uncertainty family](single-component-uncertainty.md) pinned LHS/MC *agreement*; this
 family pins the *variance reduction* that justifies Latin hypercube as the default
 `SamplingScheme`.
 
@@ -13,7 +13,7 @@ family pins the *variance reduction* that justifies Latin hypercube as the defau
 
 Scenario: a deterministic z-grid stage-frequency hazard from Normal(100, 20); a
 **deterministic** two-knot fragility; uncertain two-knot failure/non-failure consequence
-curves (symmetric Triangular ordinates, the failure mode's Q-N coupling pairing them into one
+curves (symmetric Triangular ordinates, the failure mode's failure/non-failure coupling pairing them into one
 stratified knowledge dimension). Each knowledge realization integrates deterministically
 (adaptive Gauss–Kronrod), so the only stochastic input is the coupling percentile the scheme
 controls — and the total-risk statistic is linear in that percentile's quantile functions.
@@ -23,7 +23,7 @@ too, and its measured ratio was ≈ 9.7: the total-risk statistic then carries a
 P_F·C interaction, per-dimension Latin hypercube removes only main-effect variance, and the
 ratio converges to the reciprocal of the interaction share — a property of the statistic, not
 of the sampler. The linear fixture isolates the property under test (the stratification of
-the engine's knowledge-percentile streams, including the Q-N coupling matrix), for which the
+the engine's knowledge-percentile streams, including the coupling matrix), for which the
 true ratio is orders of magnitude; a ratio near one would conversely be the loud failure
 signature if the scheme option ever stopped reaching the samplers.
 

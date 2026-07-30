@@ -1,11 +1,11 @@
 # System Risk Matrix
 
-**Test class:** `SystemRiskMatrixVerification` · **Status:** ✅ Verified (2026-07-23, Phase 6)
+**Test class:** `SystemRiskMatrixVerification` · **Tests:** 13 · **Run of record:** 2026-07-23, isolated run, ✅ all passed
 
-The Phase 6 conversion of the legacy `Test_MC_SystemRisk` family — multi-component system risk
+The conversion of the legacy `Test_MC_SystemRisk` family — multi-component system risk
 across the full correlation × aggregation matrix, verified against consolidated brute-force
 Monte Carlo oracles at the legacy seeds and pinned to the 2024 verification report's published
-constants (tables 77–103). Where the Phase 4b [system-risk family](system-risk.md) validated
+constants (tables 77–103). Where the [system-risk family](system-risk.md) validated
 the aggregation *machinery* (lattice convolution, VEGAS enumeration, γ audit) on its own
 scenario, this family validates the *matrix*: every legacy dependency option crossed with
 every joint-consequence rule, on the legacy fixtures.
@@ -26,8 +26,8 @@ surviving → NonFail, all → Background), and Total = Fail + NonFail.
 
 The four combination rules within a dependency group share identical sampling streams, so one
 oracle pass accumulates all rules — bit-identical to the separate legacy passes at the same
-seeds (the Phase 5 consolidation, applied at the system level). N = 10⁶ (legacy 10M ÷ 10 per
-policy).
+seeds (the same consolidation the joint-failures family established, applied at the system
+level). N = 10⁶ (legacy 10M ÷ 10 per policy).
 
 | Group test | Legacy methods (lines) | Seeds (hazard MVN / capacities) | Report tables |
 |---|---|---|---|
@@ -49,13 +49,13 @@ r = −1/(D−1) + √ε (−1 + √ε at D = 2, −0.25 + √ε at D = 5); Corr
 
 **Documented deviations from the legacy bodies:** the 2-component 2-PFM Positive/Negative
 bodies used r = 1 − ε and −1 + ε; the port uses the engine constants 1 − √ε and −1 + √ε
-(statistically indistinguishable, Cholesky-stable — the deviation class Phase 5 ratified for
-the 5-PFM joint family). The 1-PFM families already used the engine constants verbatim.
+(statistically indistinguishable, Cholesky-stable — the approved deviation class the 5-PFM
+joint family established). The 1-PFM families already used the engine constants verbatim.
 
 ## Engine paths asserted
 
 - **Additive method** (Independent groups, additive rule): the deterministic Gauss–Kronrod +
-  exact-lattice-convolution path, asserted on the full Phase 5 catalog — five summary means,
+  exact-lattice-convolution path, asserted on the full single-component catalog — five summary means,
   failure union + non-failure complement, σ(Fail)/σ(Total), assurance P(C > 100), two
   data-driven failure-curve probes plus a total-curve probe, value-at-risk in probability
   space (the 4b convention), and conditional value-at-risk. Probes run the convolution at
@@ -109,9 +109,9 @@ background (identical hazards make every component's non-failure consequence equ
 - **Engine fix (landed with this family):** the additive system's failure union folded the
   per-component probabilities in declaration order while every other additive aggregate uses
   the canonical-hash order — component reordering moved the union by 1–2 units in the last
-  place, against the Phase 4b bit-inertness contract. The union now folds in canonical order;
+  place, against the reorder bit-inertness contract. The union now folds in canonical order;
   the 5-component shuffle/rename pin (`Test_5CompAdditive_ShuffleRename_BitIdentical`) holds
-  bit-identically, extending the 4b 2-component pin.
+  bit-identically, extending the earlier 2-component pin.
 - **Enumeration-truncation witnesses:** the joint mass balance and the additive-combine
   identity are exact (1e-9) at D = 2 and drift ~1e-6 relative at D = 5 — the documented
   Numerics `IndependentExclusive` convergence shortcut (its 1e-4 early-exit tolerance bounds

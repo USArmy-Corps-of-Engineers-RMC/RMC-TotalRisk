@@ -1,10 +1,10 @@
 # Risk Profile Verification
 
-**Test class:** `RiskProfileVerification` · **Landed:** 2026-07-24 (Phase 6.6, stages 1–2)
+**Test class:** `RiskProfileVerification` · **Tests:** 5 · **Run of record:** 2026-07-24, isolated run, ✅ all passed
 
-Phase 6.6 closed Q-T (the per-component profile hazard selection — a **seed-inert** element
+The family for the per-component profile hazard selection (a **seed-inert** element
 reference whose transform chain remaps every recorded hazard coordinate onto the selected axis)
-and shipped the expanded risk-profile catalog: the **Cumulative Failure Probability by Hazard**
+and the expanded risk-profile catalog: the **Cumulative Failure Probability by Hazard**
 (the ascending cumulate of recorded probability mass — the honest form of the plot practice
 mislabels "cumulative APF"; its terminal ordinate is the annualized failure probability and the
 curve is the distribution of the failure-causing hazard, NOT the failure probability at a
@@ -12,9 +12,9 @@ hazard level), the **Cumulative Expected Annual Consequence by Hazard** (termina
 mean) on all five streams and every consequence type, and the **System Response Probability
 profile** plotted against annual exceedance probability (the normalized, transform-independent
 axis — a hazard-axis response profile is ill-posed when failure modes respond to different
-transformed signals; this profile is deliberately never remapped by the Q-T selector). The same
-stage restored the v1.0 five-stream profile banding scope (the Total-only banding was a parity
-gap) and added mode-scope profiles on the mean pass.
+transformed signals; this profile is deliberately never remapped by the profile selector). The
+same design restored the v1.0 five-stream profile banding scope (the Total-only banding was a
+parity gap) and added mode-scope profiles on the mean pass.
 
 ## Scenarios
 
@@ -63,14 +63,14 @@ per-knot response and exceedance coordinates are exact interpolation chains on b
 - **Per-knot response (1e-9 relative):** both sides are the same exact interpolation chain
   (engine tables vs the oracle's re-implementation) — agreement to floating-point association.
 
-## Engine-inertness gates (stages 1–2)
+## Engine-inertness gates
 
-The Q-T default (no profile selected) is a single null check: fixture F1's results-JSON SHA-256
-reproduced the Phase 6.5 byte-gate hash `b88a49f3…` **exactly** at the stage 1 commit, and the
+The no-profile default is a single null check: fixture F1's results-JSON SHA-256 reproduced the
+then-current byte-gate hash `b88a49f3…` **exactly** when the selector landed, and the
 `NfipAssuranceVerification` (5/5) and `EngineReproducibilityVerification` (3/3) families passed
-unchanged as the stage gates. Stage 2's new serialized arrays are a documented byte-gate
+unchanged as the landing gates. The catalog's new serialized arrays are a documented byte-gate
 re-pin (`scripts/perf/RESULTS.md`); `EngineReproducibilityVerification` re-ran green (3/3) on
-the extended payload. The `b88a49f3…` hash above is the Phase 6.6 record, not a live pin — the
-current F1 hash is in `scripts/perf/RESULTS.md` (re-pinned at Phase 8.5 for the quadrature mass
+the extended payload. The `b88a49f3…` hash above is that landing's record, not a live pin — the
+current F1 hash is in `scripts/perf/RESULTS.md` (re-pinned for the quadrature mass
 ledger). Run of record 2026-07-24: `RiskProfileVerification` 5/5 passed
-(~22 s wall), fast suite 447/447 (Debug and Release).
+(~22 s wall); the fast suite at that date passed in full (447/447, Debug and Release).

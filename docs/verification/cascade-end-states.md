@@ -1,8 +1,9 @@
 # Cascading Response End States
 
-**Test class:** `CascadeEndStateVerification` · **Status:** landed 2026-07-24 (Phase 6.7)
+**Test class:** `CascadeEndStateVerification` · **Tests:** 8 · **Run of record:** 2026-07-24, isolated run, ✅ all passed
 
-The Phase 6.7 verification family for the ratified cascade design (arch doc §7.9): multi-stage
+The verification family for the cascade end-state design
+([`MODEL_LIBRARY_ARCHITECTURE.md`](../requirements/MODEL_LIBRARY_ARCHITECTURE.md) §7.9): multi-stage
 response chains as chance-node paths, end states as projected failure modes, final-polarity
 classification, the claimed non-failure state's conditional complement, the flipped-final-sibling
 excess pairing, and the across-unit combination semantics under every applicable
@@ -99,7 +100,7 @@ evidence is the CVaR and the two data-driven exceedance probes.
   stage's response uncertainty samples independently like any other function — equal-content
   stages draw different curves — while one shared response instance wired into sibling end states
   is one knowledge quantity (its Fail and Non-Fail branches partition exactly on one sampled
-  curve). The only cross-function coupling remains the Q-N failure/non-failure consequence
+  curve). The only cross-function coupling remains the failure/non-failure consequence
   pairing, which the §7.9.4 sibling resolution rides unchanged.
 - No published constants exist for cascades; every assert is engine-versus-oracle. Oracle values
   may be pinned as captured constants in a later pass if regression pinning is wanted.

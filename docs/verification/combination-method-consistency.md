@@ -1,6 +1,6 @@
 # Combination-Method Consistency
 
-**Test class:** `CombinationMethodConsistencyVerification` · **Status:** ✅ Verified (2026-07-23, Phase 5)
+**Test class:** `CombinationMethodConsistencyVerification` · **Tests:** 6 · **Run of record:** 2026-07-23, isolated run, ✅ all passed
 
 A NEW family of engine-only property tests grounded in the *Failure Mode Combination Methods*
 technical note — cross-method invariants the legacy suite never asserted. All runs are

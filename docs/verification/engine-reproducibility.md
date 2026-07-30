@@ -1,6 +1,6 @@
 # Engine Reproducibility — Verification Results
 
-**Test class:** `EngineReproducibilityVerification` · **Status:** ✅ Verified (2026-07-22, Phase 4)
+**Test class:** `EngineReproducibilityVerification` · **Tests:** 3 · **Run of record:** 2026-07-22, isolated run, ✅ all passed
 
 The analysis-level regression for the v1 seed-dependency bug: v1.0 handed each component a seed
 from a master PRNG iterated in canvas order, so dragging a node changed Monte Carlo results.
@@ -27,5 +27,7 @@ normal-uncertain tabular life-loss consequence.
 
 Results JSON carries display labels (component and mode names), which legitimately change on
 rename — the metadata pin therefore compares the label-free summary ensemble whole and the
-curve arrays directly. The full shuffle/duplicate-component matrix extends in Phase 4b when
-multi-component analyses exist.
+curve arrays directly. The full shuffle/duplicate-component matrix is carried by the
+multi-component families ([system-risk](system-risk.md),
+[system-risk-matrix](system-risk-matrix.md), including the identical-content occurrence-index
+scenarios).

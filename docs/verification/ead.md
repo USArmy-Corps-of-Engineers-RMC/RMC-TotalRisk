@@ -1,8 +1,8 @@
 # Expected Annual Damage
 
-**Test class:** `EadVerification` · **Status:** ✅ Verified (2026-07-23, Phase 5)
+**Test class:** `EadVerification` · **Tests:** 2 · **Run of record:** 2026-07-23, isolated run, ✅ all passed
 
-The Phase 5 conversion of the legacy `Test_EAD` oracle (`Test_RiskAnalysis.vb:2375`) — Monte
+The conversion of the legacy `Test_EAD` oracle (`Test_RiskAnalysis.vb:2375`) — Monte
 Carlo integration of one eight-knot damage-frequency curve — verified **three ways**: an exact
 closed form, the ported Monte Carlo oracle, and two equivalent engine mappings of the same
 curve. This family also anchors the engine's damage-frequency (background-risk / EAD) use case

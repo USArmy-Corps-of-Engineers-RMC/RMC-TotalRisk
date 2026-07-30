@@ -1,5 +1,7 @@
 # Event-tree response
 
+**Test classes:** `EventTreeVerification` (8) · `EventTreeLegacyConversionVerification` (3) · `EventTreePhaseCloseVerification` (3) · **Tests:** 14 · **Run of record:** 2026-07-28, isolated run, ✅ all passed
+
 ## Scope and status
 
 `EventTreeVerification` verifies the complete numerically observable event-tree response

@@ -1,10 +1,11 @@
 # Parametric Consequence Function Verification
 
+**Test class:** `ParametricConsequenceVerification` · **Tests:** 7 · **Run of record:** 2026-07-21, isolated run, ✅ all passed
+
 > Family: `ParametricConsequence` (`RMC.TotalRisk.RiskFunctions.Consequences`)
-> Test class: `src/RMC.TotalRisk.Verification/RiskFunctions/Consequences/ParametricConsequenceVerification.cs`
 > Anchor: closed-form algebra and exact lognormal theory + an independent Monte Carlo oracle —
 > this family is **greenfield** (new in v1.1, no v1.0 ancestor, no legacy oracle)
-> Verified: 2026-07-21 · all comparisons **very good** (≤ 1%; worst case 0.078% between two Monte Carlo estimators)
+> All comparisons **very good** (≤ 1%; worst case 0.078% between two Monte Carlo estimators)
 
 ## Overview
 

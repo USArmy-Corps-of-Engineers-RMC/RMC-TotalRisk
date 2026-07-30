@@ -58,7 +58,7 @@ documented in the owning test's XML docs):
   conservative proxy for every stream); probability and curve-ordinate asserts combine
   binomial errors in quadrature at the recorded evaluation count (five recording passes × the
   final evaluations). Tail focus is off (γ = 1) in oracle-parity runs; γ > 1 is audited by the
-  dedicated N9 gate.
+  dedicated tail-focus audit in the system-risk family.
 - **Report constant pins**: engine versus the 2024 report's published 10M Monte Carlo values
   at k·σ̂/√10⁷ (σ̂ from the converted oracle's matching stream) plus a relative
   tabulation allowance — 1e-3 for single-component scenarios, 2e-3 for multi-component
@@ -76,9 +76,9 @@ documented in the owning test's XML docs):
   variance-reduction asserts on replicate variances with health guards proving the scenario
   discriminates.
 
-## v0.13 policy: means vs tails after the Phase 4 engine corrections
+## The means-versus-tails policy
 
-The Phase 4 / 4b / 4c engine corrections (arch doc v0.13: exact LEC construction, weighted-Welford
+The v1.1 engine corrections (exact LEC construction, stable weighted central
 moments, mixture-branch exposure enumeration, FFT system convolution, real joint-combination
 enumeration) **deliberately change results the legacy engine computes wrongly** — specifically the LEC
 tail and everything derived from it. The verification split is therefore:
@@ -96,8 +96,8 @@ tail and everything derived from it. The verification split is therefore:
   flattening (composite consequence under mean-only), port it **for the mean only** and pair it with an
   MC tail oracle.
 
-This is a ratified deliberate departure in the spirit of content-based seeding and JSON results — the
-spec wins over legacy where legacy is demonstrably flawed (porting rule, CLAUDE.md). Each affected test
+This is a deliberate, approved departure in the spirit of content-based seeding and JSON results — the
+porting rule: the spec wins over legacy where legacy is demonstrably flawed. Each affected test
 documents which outputs are v1.0-parity and which are MC-parity, with the MC oracle's own SE in the
 tolerance derivation.
 

@@ -104,3 +104,10 @@ validator reconciles both source trees and fails on a missing method, stale targ
 disposition, or missing report scenario. The active TOL 60/65 bootstrap-hazard bodies and
 engine-level composite bodies are now covered. The FDA/NFIP variant is explicitly obsolete;
 future-feature and external-data blockers remain visible in the matrix rather than implied covered.
+
+The validator's method scan deliberately matches the legacy `Test_*` naming convention (plus
+`TestIO`). The only legacy items outside that convention are project-template noise with no oracle
+content, annotated here rather than added to the matrix: the three empty `TestMethod1` stubs (in
+`Test_1_Component_5_PFM_JointFailures.vb`, `Test_DAMRAE.vb`, and `UnitTest1.vb`), the fully
+commented-out `TestAll` aggregate driver in `Test_FDA.vb`, and `UnitTest1.vb`'s hello-world async
+template function.

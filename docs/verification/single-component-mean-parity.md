@@ -1,8 +1,8 @@
 # Single-Component Mean Parity — Verification Results
 
-**Test class:** `SingleComponentMeanParityVerification` · **Status:** ✅ Verified (2026-07-22, Phase 4)
+**Test class:** `SingleComponentMeanParityVerification` · **Tests:** 2 · **Run of record:** 2026-07-22, isolated run, ✅ all passed
 
-The free regression gate of the v0.13 means-versus-tails policy: the Phase 4 engine
+The free regression gate of the means-versus-tails policy: the v1.1 engine
 corrections (exact LEC construction, stable moments, mixture exposure) deliberately move tail
 measures but leave the **means** algebraically unchanged — so the five summary means and the
 annualized failure probability verify against a legacy-style Monte Carlo oracle that never

@@ -1,6 +1,6 @@
 # Composite engine scenarios
 
-**Test class:** `CompositeEngineVerification` · **Status:** Verified
+**Test class:** `CompositeEngineVerification` · **Tests:** 5 · **Run of record:** 2026-07-27, isolated run, ✅ all passed
 
 This family closes the four executable configurations in legacy `Test_Composite.vb` and the
 composite-mixture consistency body in `Test_RiskAnalysis.vb`. Unlike the function-level

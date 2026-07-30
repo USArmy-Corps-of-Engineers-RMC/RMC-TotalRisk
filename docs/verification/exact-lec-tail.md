@@ -1,12 +1,12 @@
 # Exact LEC / Mixture-Exposure Tail — Verification Results
 
-**Test class:** `ExactLecTailVerification` · **Status:** ✅ Verified (2026-07-22, Phase 4)
+**Test class:** `ExactLecTailVerification` · **Tests:** 2 · **Run of record:** 2026-07-22, isolated run, ✅ all passed
 
-The first Monte-Carlo-parity family of the v0.13 policy: standard deviation, exceedance
-ordinates, value-at-risk, and conditional value-at-risk are verified against a NEW brute-force
-Monte Carlo oracle that draws the full model per realization — never against the v1.0 engine,
-whose 200-bin midpoint histogram, raw-power-sum moments, and mixture-mean flattening are the
-defects the v1.1 exact construction and ratified Q-V branch enumeration correct.
+The first Monte-Carlo-parity family of the means-versus-tails policy: standard deviation,
+exceedance ordinates, value-at-risk, and conditional value-at-risk are verified against a NEW
+brute-force Monte Carlo oracle that draws the full model per realization — never against the
+v1.0 engine, whose 200-bin midpoint histogram, raw-power-sum moments, and mixture-mean
+flattening are the defects the v1.1 exact construction and exposure-branch enumeration correct.
 
 ## Scenario
 
@@ -44,4 +44,4 @@ failure Bernoulli 45678, exposure branch 78910 (the legacy seed family). Toleran
 This family also hardened the engine's output thinning: a purely log-exceedance target ladder
 left the flat bulk of the curve sparse enough for log-log interpolation to overshoot (~4% at
 consequence 100), so the stored-curve thinning is a **hybrid ladder** — half log-spaced in
-exceedance for the tail, half linear in consequence for the bulk (arch doc v0.14, item 8).
+exceedance for the tail, half linear in consequence for the bulk.

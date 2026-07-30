@@ -1,6 +1,6 @@
 # NFIP Assurance
 
-**Test class:** `NfipAssuranceVerification` · **Status:** ✅ Verified (2026-07-27)
+**Test class:** `NfipAssuranceVerification` · **Tests:** 7 · **Run of record:** 2026-07-27, isolated run, ✅ all passed
 
 The conversion of the active legacy `Test_NFIP_Assurance_TOL_50/55/60/65/70` oracles — the annual
 probability of inundation (API) for the hypothetical NFIP levee (LP3 flow frequency →

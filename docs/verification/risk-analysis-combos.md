@@ -1,10 +1,10 @@
 # Risk-Analysis Combos
 
-**Test class:** `RiskAnalysisCombosVerification` · **Status:** ✅ Verified (2026-07-23, Phase 6)
+**Test class:** `RiskAnalysisCombosVerification` · **Tests:** 5 · **Run of record:** 2026-07-23, isolated run, ✅ all passed
 
-The Phase 6 conversion of the legacy `Test_RiskAnalysis` N-element/N-failure-mode combination
+The conversion of the legacy `Test_RiskAnalysis` N-element/N-failure-mode combination
 oracles — the scenarios the other converted families do not already cover: the 3- and 4-PFM
-single-component joint groups (between Phase 5's 2- and 5-PFM families), the 3- and
+single-component joint groups (between the joint-failures 2- and 5-PFM families), the 3- and
 4-component system groups (between the system matrix's 2- and 5-component families), and the
 suite's only negative-correlation-matrix scenario. Every method in the legacy class is
 accounted for below.
@@ -19,15 +19,16 @@ accounted for below.
 | `Test_4Comp1Pfm_PerfectlyNegative_VsOracle` | `Test_4Element_1PFM` (1290) | 4 components (PFM-1..4), perfectly negative hazards, additive + maximum rules | same |
 | `Test_2Comp_NegativeQuarterCorrelation_Average_VsOracle` | `Test_5Element_1PFM_2` (1743) | 2 components under a NEGATIVE user correlation matrix (r = −0.25), average rule — the mislabeled body drives only the first two columns of its 5-dimensional equicorrelated draw, so the realized pair correlation is −1/4 | MVN(12345, 5-dim) + MT(12345) columns 0–1, N = 10⁶ (native) |
 
-Single-component groups assert the full Phase 5 catalog against the consolidated oracle
-(five means, union + complement, σ, conditional mean, assurance, two curve probes, VaR,
-CVaR — the engine path is deterministic). System groups assert the Phase 4b joint-method
+Single-component groups assert the full single-component catalog against the consolidated
+oracle (five means, union + complement, σ, conditional mean, assurance, two curve probes, VaR,
+CVaR — the engine path is deterministic). System groups assert the joint-method
 catalog (five means with the reported VEGAS error, union and probes at combined binomial
 errors, mass balance, and the additive-rule component-mean identity — exact at D = 2,
 bounded by the documented `IndependentExclusive` enumeration tolerance above).
 
 **Documented deviations:** (1) legacy negative equicorrelations use ε_mach offsets; the port
-uses the engine's √ε constants (the Phase 5-ratified deviation class). (2) The 3-/4-element
+uses the engine's √ε constants (an approved deviation class, statistically indistinguishable
+and Cholesky-stable). (2) The 3-/4-element
 legacy bodies accumulate the RUNNING failure total into the increment (`iC += fC − nfC(j)` —
 a typo the 2- and 5-element bodies do not have); the port uses the per-component excess
 convention every other legacy system body and the engine use. (3) The r = −0.25 engine matrix
@@ -41,13 +42,13 @@ assert tolerances).
 | `Test_1Element_3PFM`, `Test_1Element_4PFM` | Converted here |
 | `Test_3Element_1PFM`, `Test_4Element_1PFM` | Converted here (increment typo corrected) |
 | `Test_5Element_1PFM_2` | Converted here (as the 2-component r = −0.25 average scenario its body computes) |
-| `Test_1Element_2PFM` (negative/minimum body) | Stream-identical duplicate of a Phase 5 `JointFailuresVerification` scenario (same seeds 12345/12345, same tables) — not re-ported |
-| `Test_1Element_5PFM` (independent/additive body) | Stream-identical duplicate of the Phase 5 5-PFM independent group — not re-ported |
+| `Test_1Element_2PFM` (negative/minimum body) | Stream-identical duplicate of a `JointFailuresVerification` scenario (same seeds 12345/12345, same tables) — not re-ported |
+| `Test_1Element_5PFM` (independent/additive body) | Stream-identical duplicate of the joint-failures 5-PFM independent group — not re-ported |
 | `Test_2Element_2PFM` | Byte-for-byte the `Test_MC_SystemRisk` 2-comp/2-PFM independent additive body (seeds 78910/12345/45678) — covered by `SystemRiskMatrixVerification` |
 | `Test_2Element_1PFM`, `Test_2Element_1PFM_New`, `Test_5Element_1PFM` | The same scenarios as the system matrix's 2-comp independent additive / independent minimum / 5-comp negative additive groups (the last at identical seeds; the first two at alternate seed layouts of the same model) — covered by `SystemRiskMatrixVerification` |
-| `Test_1Element_2PFM_Adaptive`, `Test_5Element_1PFM_Adaptive`, the `TotalRisk_*_Sum` functions | Inert integration workbenches (mostly commented out, debugger-print only, some referencing the legacy engine's own types) — not oracles; the exact conditional-mean integrand they exercised is pinned by the Phase 4/5 mean-parity and consistency families |
+| `Test_1Element_2PFM_Adaptive`, `Test_5Element_1PFM_Adaptive`, the `TotalRisk_*_Sum` functions | Inert integration workbenches (mostly commented out, debugger-print only, some referencing the legacy engine's own types) — not oracles; the exact conditional-mean integrand they exercised is pinned by the mean-parity and consistency families |
 | `Test_Composite`, `Test_Composite_Uncertainty`, `Test_Composite_Consequence_Mixture` | Covered by `CompositeEngineVerification`, `CompositeHazardVerification`, and `CompositeConsequenceVerification` |
-| `Test_EAD` | Converted in Phase 5 (`EadVerification`) |
+| `Test_EAD` | Converted in `EadVerification` |
 | `Test_NFIP_Assurance_TOL_50/55/70` | Converted in `NfipAssuranceVerification` |
 | `Test_NFIP_Assurance_TOL_60/65` | Covered in `NfipAssuranceVerification` using the active workbench ramp/21-knot fragility, source-ordered bootstrap seeds, and independent conditional quadrature |
 | `Test_NFIP_Assurance_TOL_65_FDA` | Obsolete by technical-authority decision; intentionally not ported |
@@ -70,7 +71,7 @@ system groups' joint-path means sit within ≈ 0.8%, unions within 0.2%.
 
 ## Notes
 
-The 3/4-PFM and 3/4-component counts close the dimension ladder: with Phase 5's 2/5-PFM
+The 3/4-PFM and 3/4-component counts close the dimension ladder: with the joint-failures 2/5-PFM
 families and the system matrix's 2/5-component families, every failure-mode count and
 component count from 2 through 5 now carries an engine-versus-oracle anchor, and the joint
 VEGAS path is exercised at D = 2, 3, 4, and 5.

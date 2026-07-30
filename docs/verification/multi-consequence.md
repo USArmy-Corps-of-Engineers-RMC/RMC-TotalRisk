@@ -1,10 +1,10 @@
 # Multi-Consequence Axis Verification
 
-**Test class:** `MultiConsequenceVerification` · **Landed:** 2026-07-23 (Phase 6.5, Q-U closure)
+**Test class:** `MultiConsequenceVerification` · **Tests:** 6 · **Run of record:** 2026-07-23, isolated run, ✅ all passed
 
 The declared consequence-type axis (analysis-level declaration, strict bubble-down validation)
 computes **every** type through one engine pass: position k of each failure mode's ordered
-consequence list samples at coupling column k (the per-type Q-N shared draw), the probability
+consequence list samples at coupling column k (the per-type shared coupling draw), the probability
 structure is computed once and shared by all types, adaptive refinement is driven by the
 primary type, and type k's results record into the primary containers (k = 0) or
 `AdditionalCurves[k − 1]` at every scope. This family verifies that closure end to end.
@@ -45,24 +45,24 @@ per output — at N = 10⁶ roughly 0.1% of σ̂ ([docs/verification.md](../veri
 | 2 | `Test_MeanPass_PrimaryUnperturbed_BitIdentical` | Declaring a second type leaves the single-type primary results **bit-identical** (summaries and full LEC arrays) — the mean pass is seed-free and refinement is primary-driven | 0 (bit) | ✅ |
 | 3 | `Test_SecondaryVsDedicatedPrimary_QuadratureParity` | The two-type run's secondary axis vs a dedicated damages-primary analysis (the secondary rides primary-driven refinement nodes) | 1e-4 relative (bounds the quadrature mass-accounting residual on both sides — measured ≈ 3e-6 on means under the earlier midpoint-trapezoid partition, since replaced by the recorded-mass ledger) | ✅ |
 | 4 | `Test_Ensemble_CrossModelParity_And_WithinRunIdentity` | Cross-model ensemble parity on the primary axis (adding a consequence function legitimately re-rolls seeds → statistical) + within-run per-type failure-probability identity on every realization | 4·√(SE₁² + SE₂²); 1e-12 relative | ✅ |
-| 5 | `Test_AdditiveSystem_SecondaryConvolutionIdentity` | Two-component additive: the secondary system Total mean equals the sum of the component secondary means (the Phase 4b convolution identity) and the failure union is shared verbatim across types | 1e-6 relative; 0 (bit) | ✅ |
+| 5 | `Test_AdditiveSystem_SecondaryConvolutionIdentity` | Two-component additive: the secondary system Total mean equals the sum of the component secondary means (the convolution identity) and the failure union is shared verbatim across types | 1e-6 relative; 0 (bit) | ✅ |
 | 6 | `Test_JointSystem_SecondaryMatchesAdditive` | Two-component joint vs additive secondary system means on strictly independent components + per-type failure-mass identity within the joint run | 1e-2 relative (VEGAS mean-only error at the default budget); 1e-12 relative | ✅ |
 
 ## Fixed-model invariance (the companion evidence)
 
 The closure itself was proven engine-inert for existing models at the code level: for any fixed
 model, enabling K > 1 evaluation consumes **no** new RNG draws (the coupling matrix has carried
-K columns since Phase 3, and consequence functions are outside the seeded sampler walk), so the
-`EngineReproducibilityVerification`, `SingleComponentMeanParityVerification`, and
-`ExactLecTailVerification` families — and the full pinned suite — pass **unchanged** after the
-Phase 6.5 engine rewrite. That zero-pin-change run is the recorded invariance gate for this
-phase.
+K columns from its introduction, and consequence functions are outside the seeded sampler
+walk), so the `EngineReproducibilityVerification`, `SingleComponentMeanParityVerification`, and
+`ExactLecTailVerification` families — and the full pinned suite — passed **unchanged** when the
+axis landed. That zero-pin-change run is the recorded invariance gate for the closure.
 
 ## Notes
 
-- Secondary types report `ConsequenceThresholdProbability` (assurance) as NaN — the analysis
-  threshold is declared in the primary type's units and cannot be evaluated on another type's
-  axis. Per-type thresholds land with the risk-measures phase (Phase 6.6).
+- Secondary types report `ConsequenceThresholdProbability` (assurance) as NaN when only the
+  analysis-level threshold is set — it is declared in the primary type's units and cannot be
+  evaluated on another type's axis. A secondary type evaluates a threshold only when its own
+  declared per-type `ConsequenceThreshold` supplies one.
 - Per-type percentile curves assemble on per-type consequence grids — types live on different
   magnitude scales (lives versus dollars), so a shared grid would starve one axis.
 - Runtime at these settings: ≈ 50 s for the family (dominated by the two N = 400 ensembles of

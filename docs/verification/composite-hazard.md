@@ -1,9 +1,10 @@
 # Composite Hazard Function Verification
 
+**Test class:** `CompositeHazardVerification` · **Tests:** 11 · **Run of record:** 2026-07-25, isolated run, ✅ all passed
+
 > Family: `CompositeHazard` (`RMC.TotalRisk.RiskFunctions.Hazards`)
-> Test class: `src/RMC.TotalRisk.Verification/RiskFunctions/Hazards/CompositeHazardVerification.cs`
 > Anchor: *Verification of the RMC-TotalRisk Software* (2024), §Composite Hazard and Response Functions (Equation 49, Tables 44–46)
-> Verified: 2026-07-25 · all comparisons **very good** (≤ 1%; worst case 0.42% against a published value that is itself the less accurate of the two)
+> All comparisons **very good** (≤ 1%; worst case 0.42% against a published value that is itself the less accurate of the two)
 
 ## Overview
 
@@ -130,17 +131,16 @@ A serialization round-trip plus metadata edits (rename, new id, child rename) le
 hash unmoved and every sampled draw bit-identical; a weight edit moves the hash and therefore every
 child's derived seed.
 
-> **Upstream finding (Phase 9).** Two separate `Estimate()` calls on a parametric child with
-> identical inputs and an identical `PRNGSeed` do **not** produce a bit-identical posterior — the
-> Numerics `BootstrapAnalysis` summary assembly uses a parallel, order-nondeterministic reduction,
-> the same ulp-level nondeterminism already documented for `NonparametricHazard`'s uncertain mean
-> assembly. The posterior is serialized content, so a composite over freshly estimated parametric
-> children does not have a stable canonical hash across estimation runs. That is upstream, not a
-> composite defect: round-tripping carries the posterior verbatim, which is what a stored project
-> does, so the reproducibility pin round-trips rather than re-estimating.
-> `Test_UpstreamEstimation_IsNotBitReproducible_ButAgreesNumerically` pins the behavior — including
-> that the two posteriors agree to 1e-6 on every sampled quantile — so it is visible if it is ever
-> fixed. **Keep estimated parametric children out of byte-gate fixtures until then.**
+> **Upstream finding (recorded with this family, since resolved).** When the family landed, two
+> separate `Estimate()` calls on a parametric child with identical inputs and an identical
+> `PRNGSeed` did **not** produce a bit-identical posterior — the Numerics `BootstrapAnalysis`
+> summary assembly used a parallel, order-nondeterministic reduction. The posterior is serialized
+> content, so a composite over freshly estimated parametric children inherited that instability
+> in its canonical hash. The upstream reduction now sums over a fixed chunk count, and
+> `Test_UpstreamEstimation_IsBitReproducible` pins the repaired behavior. The reproducibility pin
+> keeps its round-trip form deliberately: round-tripping carries the posterior verbatim, which is
+> exactly what a stored project does, so it isolates the composite's own contract from the
+> estimation path.
 
 ## Test map
 
@@ -156,7 +156,7 @@ child's derived seed.
 | `Test_CombinationRules_Bracketing` | Maximum-rule and mixture bracketing |
 | `Test_CompetingRisks_WeightEdits_AreInert` | Weight inertness in curve and hash |
 | `Test_Reproducibility_RoundTripAndMetadataPins` | Round-trip and metadata bit-identity; compute edit moves |
-| `Test_UpstreamEstimation_IsNotBitReproducible_ButAgreesNumerically` | The upstream finding, pinned |
+| `Test_UpstreamEstimation_IsBitReproducible` | The repaired upstream estimation reproducibility, pinned |
 
 ## Deferred
 

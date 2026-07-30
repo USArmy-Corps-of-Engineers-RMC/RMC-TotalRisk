@@ -1,8 +1,8 @@
 # Common Cause Adjustment
 
-**Test class:** `CommonCauseVerification` · **Status:** ✅ Verified (2026-07-23, Phase 5)
+**Test class:** `CommonCauseVerification` · **Tests:** 9 · **Run of record:** 2026-07-23, isolated run, ✅ all passed
 
-The Phase 5 conversion of the legacy `Test_MC_CommonCause.vb` family — one system component
+The conversion of the legacy `Test_MC_CommonCause.vb` family — one system component
 with 2 or 5 potential failure modes whose marginal probabilities are reapportioned by the
 common-cause adjustment factor (c = P(∪F)/Σp), across the four dependency options. The
 engine's `CommonCauseFactor` dispatch over `Probability.CommonCauseAdjustment` is verified
@@ -84,8 +84,9 @@ Independent and PerfectlyNegative) passed.
 - **Build-order contract exercised:** selecting the common-cause method coerces the dependency
   to Independent (v1.0 behavior), so the scenario dependency is applied after the method — the
   order every consuming layer must follow.
-- **Two engine corrections landed with this family** (see the session log): the
-  perfectly-negative dependency-matrix materialization, and the perfectly-positive
-  common-cause factor call, which faulted against the current Numerics overload's
-  unconditional null-matrix check (the positive kernel never reads the matrix; the engine now
-  passes the materialized matrix, mirroring the legacy oracle's own three-argument call).
+- **Two engine corrections landed with this family** (recorded in
+  [docs/PROGRESS.md](../PROGRESS.md)): the perfectly-negative dependency-matrix
+  materialization, and the perfectly-positive common-cause factor call, which faulted against
+  the current Numerics overload's unconditional null-matrix check (the positive kernel never
+  reads the matrix; the engine now passes the materialized matrix, mirroring the legacy
+  oracle's own three-argument call).

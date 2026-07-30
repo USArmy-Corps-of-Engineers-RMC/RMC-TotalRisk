@@ -1,8 +1,8 @@
 # Weak-Link Competing Failure Modes
 
-**Test class:** `CompetingFailuresVerification` · **Status:** ✅ Verified (2026-07-23, Phase 5)
+**Test class:** `CompetingFailuresVerification` · **Tests:** 9 · **Run of record:** 2026-07-23, isolated run, ✅ all passed
 
-The Phase 5 conversion of the legacy `Test_MC_CompetingFailures.vb` family — one system
+The conversion of the legacy `Test_MC_CompetingFailures.vb` family — one system
 component with 2 or 5 potential failure modes **racing to first failure** (the weakest exceeded
 mode wins and takes its own consequence; no joint-consequence rule applies), across the four
 dependency options. The engine's 200-level cumulative-incidence-function pre-processing
@@ -75,7 +75,7 @@ separate allowance was needed. Both report-pin scenarios (tables 59–60, Indepe
 
 ## Notes
 
-- **Corrected oracle (ratified decision):** the legacy 5-PFM Positive body is a broken code
+- **Corrected oracle (approved deviation):** the legacy 5-PFM Positive body is a broken code
   path — its multivariate generation is commented out, it computes an unused Cholesky product,
   and it assigns one shared in-loop standard normal to every mode. The port replaces it with
   the correct r = 1 − √ε equicorrelated Gaussian copula matching every sibling method; the

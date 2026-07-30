@@ -1,9 +1,10 @@
 # Composite Consequence Function Verification
 
+**Test class:** `CompositeConsequenceVerification` · **Tests:** 9 · **Run of record:** 2026-07-21, isolated run, ✅ all passed
+
 > Family: `CompositeConsequence` (`RMC.TotalRisk.RiskFunctions.Consequences`)
-> Test class: `src/RMC.TotalRisk.Verification/RiskFunctions/Consequences/CompositeConsequenceVerification.cs`
 > Anchor: *Verification of the RMC-TotalRisk Software* (2024), §Composite Consequence Function (Tables 47–51)
-> Verified: 2026-07-21 · all comparisons **very good** (≤ 1%; worst case 0.035% against exact values)
+> All comparisons **very good** (≤ 1%; worst case 0.035% against exact values)
 
 ## Overview
 
@@ -126,8 +127,8 @@ Per the verification policy's step 4 (the v1.0 seed-dependency bug regression):
 
 Engine-level day/night scenarios (the legacy `Test_Composite.vb` oracles with a Log-Normal
 hazard and Normal fragility in the loop, day weight 0.45) put a composite behind the full risk
-engine rather than exercising the function alone, and convert in a Phase 9 follow-on session
-alongside `Test_Composite_Hazard` and `Test_Composite_Response` (see the conversion order in
-[docs/verification.md](../verification.md)). The sibling function-level families landed
-2026-07-25: [composite-hazard](composite-hazard.md), [composite-response](composite-response.md),
+engine rather than exercising the function alone; they are converted in the
+[composite engine family](composite-engine.md) alongside `Test_Composite_Hazard` and
+`Test_Composite_Response`. The sibling function-level families are
+[composite-hazard](composite-hazard.md), [composite-response](composite-response.md), and
 [composite-transform](composite-transform.md).
