@@ -430,8 +430,9 @@ public class RiskProfileVerification
         Assert.AreEqual(oracleTotalMean, total.CumulativeExpectedConsequences[0], 1e-4 * oracleTotalMean,
             "Total B-terminal vs the oracle total mean.");
 
-        // Interior cumulative probes at the quartile ordinates: the engine's partial sum
-        // carries the midpoint-trapezoid partition — a half-interval discretization allowance.
+        // Interior cumulative probes at the quartile ordinates: the engine's partial sum of the
+        // recorded per-abscissa masses represents the integral only to within the local
+        // inter-node spacing — a half-interval discretization allowance.
         var hazards = fail.HazardFrequencyHazards;
         foreach (double fraction in new[] { 0.25d, 0.5d, 0.75d })
         {
