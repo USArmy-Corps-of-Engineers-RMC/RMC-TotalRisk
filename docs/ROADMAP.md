@@ -618,8 +618,8 @@ unapproved tolerance, correlation, normalization, seed, or probability-formula c
 
 ## Future phases (placeholders — planned when the model lib stabilizes)
 
-- **UI layer** — `RMC.TotalRisk.UI` (net10.0-windows): project model, element wrappers (the "element" vocabulary lives here), `.tra` (SQLite) + `.rmcbf` reading, v1.0-project import mapping onto the v1.1 analysis API, data binding on the model lib's INPC surface.
+- **UI layer** — `RMC.TotalRisk.UI` (net10.0-windows): project model, element wrappers (the "element" vocabulary lives here), `.tra` (SQLite) + `.rmcbf` reading, v1.0-project import mapping onto the v1.1 analysis API, data binding on the model lib's INPC surface. Presentation-layer diagnostics recorded as UI-layer scope during the model-library work: TRG-line comparison data (chart furniture, not compute), KDE-smoothed assurance banding over the engine's exact assurance outputs, and batch-run orchestration.
 - **Desktop App** — the WPF shell ported from the legacy VB app.
-- **`CostBenefitAnalysis`** — composite analysis owning a `List<RiskAnalysis>` of alternatives (the Phase 4 self-contained-analysis foundation is its design driver).
+- **`CostBenefitAnalysis`** — composite analysis owning a `List<RiskAnalysis>` of alternatives (the Phase 4 self-contained-analysis foundation is its design driver). Scope must include the only cost-benefit math v1.0 shipped: `PlanRow.EquivalentAnnual` — equivalent annual damages from a base-condition and future-condition EAD pair, linearly interpolated per year between the condition years, discounted at the plan rate, and annualized over the period of analysis (the v1.0 UI Risk Comparison surface; algorithmically headless).
 - **FDA importer + datasets** — port `FDAImporter_143`; bring the HEC-FDA comparison datasets in-repo via a `docs/verification-requests/` request; convert the FDA integration oracles.
 - **Cross-engine parity** — the levee "same results" test against Hydrologics' event-based risk layer, in a verification-only project referencing both (see [requirements/SHARED_FUNCTIONS_STRATEGY.md](requirements/SHARED_FUNCTIONS_STRATEGY.md) §7).
