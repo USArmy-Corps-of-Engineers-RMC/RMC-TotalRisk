@@ -82,7 +82,7 @@ public class CompositeConsequenceTests
         Assert.AreEqual(CompositeFunctionType.Mixture, c.CompositeFunctionType);
         Assert.AreEqual(0, c.ConsequenceFunctions.Count);
         Assert.AreEqual(ConsequenceFunctionType.Composite, c.FunctionType);
-        Assert.AreEqual(0, c.SamplingDimensions, "Ratified Q-V: the mixture branch is enumerated exposure, not a sampler dimension.");
+        Assert.AreEqual(0, c.SamplingDimensions, "The mixture branch is enumerated exposure, not a sampler dimension.");
         Assert.IsTrue(c.IsDeterministic, "No positively weighted branches and no children.");
     }
 

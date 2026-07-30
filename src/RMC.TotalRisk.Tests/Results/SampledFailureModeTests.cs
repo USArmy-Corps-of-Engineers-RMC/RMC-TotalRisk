@@ -108,7 +108,7 @@ public class SampledFailureModeTests
     {
         // Arrange — a component provides the sampler walk (seeds + coupling matrices); the
         // engine path (SetupSamplers → Sample) carries the frozen projection snapshot.
-        var component = new SystemComponent { Name = "Q-N Pin" };
+        var component = new SystemComponent { Name = "Coupling Pin" };
         component.HazardFunction = SampledComponentTests.StageFrequency();
         component.AddFailureMode(new FailureMode(null, null, Fragility(), UncertainConsequence("Failure Loss", 100d, 25d)));
         component.AddFailureMode(NonFailureMode(UncertainConsequence("Non-Failure Loss", 100d, 25d)));

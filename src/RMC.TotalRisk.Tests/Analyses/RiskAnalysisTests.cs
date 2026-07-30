@@ -1502,7 +1502,7 @@ public class RiskAnalysisTests
         await interim.RunAsync();
         Assert.IsFalse(double.IsNaN(interim.RiskResults![0]!.Total.ConsequenceThresholdProbability));
         Assert.IsTrue(double.IsNaN(interim.RiskResults[0]!.AdditionalConsequences[0].Total.ConsequenceThresholdProbability),
-            "An undeclared per-type threshold must preserve the Phase 6.5 interim (NaN assurance).");
+            "An undeclared per-type threshold must preserve the primary-only interim (NaN assurance).");
     }
 
     /// <summary>Builds a two-mode component with a non-failure path under the given combination method.</summary>

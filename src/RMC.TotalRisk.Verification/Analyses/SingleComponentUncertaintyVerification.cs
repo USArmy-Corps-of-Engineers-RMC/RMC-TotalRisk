@@ -456,7 +456,7 @@ public class SingleComponentUncertaintyVerification
         var (oracleBackgroundGrand, oracleBackgroundSigma) = MeanSigma(backgroundValues);
         var (oracleNonFailureGrand, oracleNonFailureSigma) = MeanSigma(nonFailureValues);
         Assert.AreEqual(oracleFailGrand, engineFailGrand, Combined(oracleFailSigma), "Grand mean of the failure risk.");
-        Assert.AreEqual(oracleExcessGrand, engineExcessGrand, Combined(oracleExcessSigma), "Grand mean of the excess risk (Q-N paired).");
+        Assert.AreEqual(oracleExcessGrand, engineExcessGrand, Combined(oracleExcessSigma), "Grand mean of the excess risk (coupling-paired).");
         Assert.AreEqual(oracleBackgroundGrand, engineBackgroundGrand, Combined(oracleBackgroundSigma), "Grand mean of the background risk.");
         Assert.AreEqual(oracleNonFailureGrand, engineNonFailureGrand, Combined(oracleNonFailureSigma), "Grand mean of the non-failure risk.");
 
@@ -545,11 +545,11 @@ public class SingleComponentUncertaintyVerification
             $"Construction sanity: the decoupled dispersion ({decoupledSigma:G4}) must clearly exceed the coupled ({coupledSigma:G4}).");
         double tolerance = K * (coupledSigma / Math.Sqrt(2d * OracleRealizations) + engineSigma / Math.Sqrt(2d * EngineRealizations));
         Assert.AreEqual(coupledSigma, engineSigma, tolerance,
-            "The engine's excess dispersion must match the Q-N coupled oracle.");
+            "The engine's excess dispersion must match the coupled oracle.");
         Assert.IsTrue(Math.Abs(engineSigma - decoupledSigma) > 4d * tolerance,
             $"The engine's excess dispersion ({engineSigma:G4}) must reject the decoupled hypothesis ({decoupledSigma:G4}).");
 
-        Console.WriteLine($"Q-N dispersion: coupled {coupledSigma:G6}, engine {engineSigma:G6}, decoupled {decoupledSigma:G6}");
+        Console.WriteLine($"Coupling dispersion: coupled {coupledSigma:G6}, engine {engineSigma:G6}, decoupled {decoupledSigma:G6}");
     }
 
     /// <summary>

@@ -424,7 +424,7 @@ public class RiskProfileVerification
         }, 1d - ProbabilityFloor);
 
         Assert.AreEqual(oracleApf, fail.CumulativeFailureProbabilities[0], 1e-4 * oracleApf,
-            "A-terminal vs the oracle annualized failure probability (N7 recorded-mass envelope).");
+            "A-terminal vs the oracle annualized failure probability (mass-accounting residual envelope).");
         Assert.AreEqual(oracleFailMean, fail.CumulativeExpectedConsequences[0], 1e-4 * oracleFailMean,
             "Fail B-terminal vs the oracle additive-rule failure mean.");
         Assert.AreEqual(oracleTotalMean, total.CumulativeExpectedConsequences[0], 1e-4 * oracleTotalMean,

@@ -533,7 +533,7 @@ public partial class EventTreeVerification
 
         var analysis = new RiskAnalysis(new[] { component })
         {
-            Name = "Phase 10A thread-count reproducibility",
+            Name = "Thread-count reproducibility",
         };
         analysis.Options.EstimateMeanRiskOnly = false;
         analysis.Options.Realizations = ThreadReproducibilityRealizations;

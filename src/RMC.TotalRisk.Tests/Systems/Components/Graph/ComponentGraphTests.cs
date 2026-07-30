@@ -389,7 +389,7 @@ public class ComponentGraphTests
         var (legacyValid, legacyMessages) = legacy.Validate();
         Assert.IsTrue(legacyValid);
         Assert.IsFalse(legacyMessages.Any(m => m.Contains("same response branch") || m.Contains("Fail port")),
-            "A pre-6.7 shape must produce no branch-claim advisories.");
+            "A pre-cascade shape must produce no branch-claim advisories.");
 
         // Cascade-active (a Non-Fail terminal exists) + duplicate Fail-port terminals: warns, legal.
         var (dup, _, _, dupResponse, _, _) = LeveeGraph();
