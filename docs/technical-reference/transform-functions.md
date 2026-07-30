@@ -80,7 +80,7 @@ Documented here for family completeness; they land with the Phase 7 backfill as 
 - Sampling an invalid table throws `InvalidOperationException` (v1.0 returned null).
 - `ComputeUncertaintyResults` moved the app-layer uncertainty plotting math into the model library (exact percentile evaluation).
 
-## Composite transform functions (Phase 9, landed 2026-07-25)
+## Composite transform functions
 
 `CompositeTransform` blends candidate transforms — several rating curves with credibility weights —
 into a single consensus curve, `Σ ωᵢfᵢ(x)`, riding the Numerics `CompositeFunction` in

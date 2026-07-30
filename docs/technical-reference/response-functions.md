@@ -14,135 +14,9 @@ where *F_R* is the conditional CDF of the resistance and *f_S* is the hazard (de
 
 **Monotonicity policy:** most responses increase strictly with hazard, but multivariate scenarios exist (e.g., a levee where correlated high tailwater *increases* resistance at extreme river stages), so RMC-TotalRisk does **not** require nonparametric response probabilities to be strictly increasing, nor exhaustive (cumulative 0 → 1). `IsMonotonic()` reports (and validation warns) rather than rejects.
 
-### EventTreeResponse and planned tree-response specializations
+### Tree-structured responses
 
-`EventTreeResponse` (Phase 10A) and `FaultTreeResponse` (Phase 10B) remain response functions under this exact contract: they produce conditional fragility `P(F|h)`. Hazard functions manage hazard probability/frequency, and the component risk graph plus `RiskAnalysis` connects responses to consequences and computes risk. The normative [tree-response implementation design](../requirements/EVENT_AND_FAULT_TREE_RESPONSE_DESIGN.md) defines event end-state outputs, exact static fault evaluation, internal/external links, independent clones, controlled authoring operations, graph algorithms, LHS, serialization, hashing, testing, and cost-benefit.
-
-The first seven coherent `EventTreeResponse` slices landed 2026-07-28. They include:
-
-- the common immutable branch descriptors/sample contract and tree-reference value object;
-- controlled `EventTree` ownership with add, insert, move, delete, search, ancestry,
-  reachability, pre/post-order DFS, breadth-first traversal, leaves, structural equality, and
-  subtree hashes;
-- immutable `TreeFragment` subtree snapshots with fresh persistent IDs on paste and remapped
-  fragment-local links, while cross-tree references retain live external targets;
-- transactional paste, replace, materialize, `TreeDeletePolicy.MaterializeLinks`, and unreachable
-  pruning, with topology, output-port allocation, IDs, canonical hash, and configured samplers
-  restored exactly when an operation fails;
-- deterministic expanded topological order plus unreachable/internal/external reference queries;
-- deterministic scalar, aligned uncertain-tabular, and ordinary response-function probability
-  sources;
-- mean, co-monotonic percentile, and indexed LHS branch/aggregate samples;
-- the legacy sibling normalization, remainder, path-product, and failure-terminal sum rules;
-- explicit node/edge XML with self-contained and by-reference nested function modes; and
-- projected canonical identity independent of display metadata, persistent IDs, and sibling
-  presentation order;
-- internal and external `EventTreeLinkNode` references with `IndependentClone` occurrence
-  semantics, including separate epistemic sampler occurrences when one live source is reused;
-- resolver-backed self-contained and by-reference XML, with lenient function/node name fallback
-  and repaired IDs on the next write;
-- an instance-scoped cached, immutable, link-expanded occurrence/evaluation plan used by branch
-  discovery, evaluation, sampling, serialization preparation, identity, and validation; and
-- transactional same-tree and cross-function cycle rejection with the complete function/node path
-  in the diagnostic.
-- direct and multi-level `EventTreeResponse` probability sources evaluated at each caller hazard
-  ordinate through the established response-CDF interpolation/extrapolation contract;
-- recursive sampler-dimension discovery through nested event trees, ordinary responses, aligned
-  uncertain tables, and internal/external independent-clone links;
-- isolated deterministic epistemic streams for every canonical nested occurrence, including
-  repeated references to the same live response, with indexed, co-monotonic percentile, and LHS
-  sampling preserved through arbitrary acyclic nesting depth; and
-- transactional recursive compilation/setup plus direct, indirect, mixed source/link, and
-  cross-function cycle diagnostics carrying the complete deterministic function/node path;
-- an import-only legacy adapter for recursive v1.0 `Node` roots, direct or inside the released
-  `EventTreeResponse`/`EventTree` envelopes, including both hazard-attribute and GUID spellings,
-  scalar/table/name-only-response probability sources, and the legacy automatic remainder; and
-- current-only writes plus deterministic path diagnostics for malformed, excluded, and semantically
-  ambiguous legacy input;
-- opt-in `ResponseElement` expanded output discovery for every arbitrary n-way terminal, including
-  remainder and the implicit-unmodeled non-failure branch, while the default view remains the
-  established ports 0 = Fail and 1 = Non-Fail;
-- stable ID-addressed graph connections and projected response stages, append-only direct/linked
-  terminal ports, exact-name migration fallback, both XML modes, validation, end-state grouping,
-  and projected per-leaf hash/seed identity; and
-- graph-aware reject/cascade/materialize deletion with complete tree, connection, port-registry,
-  hash, ID, configured-sampler, and compiled-cache rollback after any failed edit;
-- complete revision/event invalidation across direct and nested event-tree sources and internal or
-  external links, with canonical-fingerprint fallbacks for mutable Numerics tables and live ordinary
-  resolver-backed responses whose content can change without a collection event.
-
-The conversion authority is the partial C#
-`RMC.TotalRisk.IO/Project/Elements/Response Function/EventTreeResponse.cs`, the released VB
-`RMC.TotalRisk/Project/Elements/Response Function/EventTreeResponse.vb` and their event-node
-types, and the shipped `RMC-TotalRisk/Resources/TreeTemplates.xml` in the Dev repository. The
-committed verification fixtures reproduce the shipped `Basic` and `Concrete Dam Gate Failure`
-roots exactly. Name-only legacy `ResponseFunction` sources pass through the existing resolver, so
-successful by-reference writes repair stable IDs. Legacy `EventNode` probability references are
-not structural subtree links and cannot be mapped faithfully to Phase 10A `IndependentClone`
-semantics; they therefore fail explicitly. The commented `SecondaryHazardNode` remains excluded,
-and `WeightedHazardLevel` remains Phase 11 bivariate-response work.
-
-For explicit siblings with raw probabilities `q_i` and compensated sum `S`, the conditional rule is:
-
-```
-p_i = q_i and p_remainder = 1-S, when S <= 1
-p_i = q_i/S and p_remainder = 0, when S > 1
-```
-
-A terminal probability is the product of its conditional path. Aggregate `P(F|h)` is the
-compensated sum of terminals explicitly classified as failure; omitted remainder mass is surfaced
-as a stable implicit non-failure branch.
-Referenced responses, including recursively nested event trees, are evaluated at the owning
-response's current hazard ordinate through `IResponseFunction.SampleFunction(...).CDF(h)`.
-That preserves the existing response interpolation and extrapolation policy; this slice introduces
-no alternate interpolator. Setup creates an isolated self-contained sampler occurrence for every
-referenced source, derives its seed from the established source-identity/occurrence recipe, and
-copies the exact child percentile columns into the owner's flattened sampler. A failed recursive
-compile, clone, capacity check, or child setup restores the owner's prior sample size, percentile
-matrix, sampler identity, and occurrence bindings exactly.
-
-The owning `EventTreeResponse` publishes one immutable occurrence plan behind a per-instance lock
-and volatile reference. The plan contains canonical parent-before-child instructions, primitive
-child indices, leaves, projected identity, and recursive dependency snapshots. An immutable
-branch-address plan is prepared separately and lazily so canonical-hash reads retain the prior
-behavior of not allocating linked ports. Concurrent read-only callers reuse the same published
-objects; there is no singleton, mutable global cache, per-hazard graph search, or reference
-resolution in the evaluation path.
-
-Controlled add/insert/move/replace/delete/materialize/paste/prune operations publish invalidation
-only after tentative expanded-cycle validation succeeds. Node probability-source replacement and
-direct, nested, internal-link, external-link, table, ordinary-response, and resolver-backed live
-dependency edits invalidate affected owners. Names, descriptions, IDs, hazard labels/units, and
-other projected metadata do not. Tree and graph transaction checkpoints collectively preserve
-occurrence/branch-plan state, compute revision, topology, IDs, branch-port allocation, and
-connections; hashes and configured sampler observations remain unchanged after rollback.
-
-Nested response content and a selected expanded branch both participate in projected canonical
-identity. The branch contribution is its metadata-free compute-occurrence path; persistent branch
-IDs, names, output ports, and duplicate-sibling occurrence ordinals remain outside the hash. This
-makes renamed, reordered, or materialized connections hash/seed invariant while a changed selected
-path probability still moves identity. Link wrappers distinguish referenced occurrences from
-authored inline content, while persistent IDs, display names, sibling authoring order,
-serialization mode, and reference wrappers remain projected away. `TreeFragment` is authoring-only
-state: it is neither a persistence type nor a hash input, and paste-cloned subtrees therefore
-preserve the original branches' projected identity.
-
-The expanded view is mutually exclusive with the aggregate view. Port 2 is reserved for the
-implicit-unmodeled non-failure branch; direct and linked terminal ports are allocated append-only
-from 3 and are never renumbered after rename, metadata edits, sibling reorder, copy/paste,
-materialization, pruning, or XML round trip. `RiskConnection` and `ResponseStage` persist branch ID
-as authority and the current exact name as a migration fallback. `ComponentGraph.DeleteEventTreeNode`
-defaults to reject when a connected terminal would disappear; cascade clears only slots selecting
-that branch; materialize succeeds only when exact link materialization retains its ID and port.
-The graph never fabricates an equivalent-looking replacement for a deleted direct terminal.
-
-Phase 10A is complete. Four fixed generator seeds cover 128 valid property cases with deterministic
-counterexample minimization; independent fixed-seed routing, affine aggregate SRS/LHS variance,
-and production sequential/multi-worker/default scheduling close the numerical and reproducibility
-gates. The fast suite retains 90.40% unit-only library coverage, and the one-plan F5 compiled-plan
-performance characterization remains allocation- and hash-gated. Phase 10B is unblocked but its
-exact fault-tree implementation has not begun.
-
+`EventTreeResponse` and the future `FaultTreeResponse` are response functions under this exact contract: they produce conditional fragility `P(F|h)`. Hazard functions manage hazard probability/frequency, and the component risk graph plus `RiskAnalysis` connects responses to consequences and computes risk. An event-tree response owns a controlled tree of chance nodes whose sibling branch probabilities come from scalars, aligned uncertain tables, ordinary response functions, or nested event trees; terminal probabilities are conditional path products, and the aggregate failure probability is the compensated sum of the failure-classified terminals, with omitted remainder mass surfaced as a stable implicit non-failure branch. The normative [tree-response implementation design](../requirements/EVENT_AND_FAULT_TREE_RESPONSE_DESIGN.md) defines event end-state outputs, exact static fault evaluation, internal/external links, independent clones, controlled authoring operations, graph algorithms, LHS, serialization, hashing, testing, and cost-benefit.
 
 ## Contract
 
@@ -240,7 +114,7 @@ v1.1 note: v1.0 exposed a `GetInstance()` singleton and identified the non-failu
 - The parametric full-posterior bounds scan is race-free, and percentile lookup clamps at percentile 1.0 (latent v1.0 defects).
 - `ComputeUncertaintyResults` moved the app-layer uncertainty plotting math into the model library.
 
-## Composite response functions (Phase 9, landed 2026-07-25)
+## Composite response functions
 
 `CompositeResponse` combines a weighted list of child fragilities under one of two rules:
 
@@ -253,7 +127,7 @@ The weakest-link rule is the substantive divergence from `CompositeHazard`, whic
 because the most severe *loading* controls: for a response, any mechanism failing is enough, so the
 combination is the union of the child failure events, `1 − ∏(1 − pᵢ(h))` under independence.
 
-The mixture is **aleatory** (ratified Q-Y), exactly as for the hazard composite — see
+The mixture is **aleatory** by design, exactly as for the hazard composite — see
 [composite-functions.md](composite-functions.md); verification is in
 [../verification/composite-response.md](../verification/composite-response.md).
 

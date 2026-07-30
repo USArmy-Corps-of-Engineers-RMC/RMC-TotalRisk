@@ -119,8 +119,9 @@ into a single consensus curve, `Σ ωᵢfᵢ(x)`. It supports **`Average` only**
 **Why Mixture is rejected.** Mixture would require per-realization branch selection. There is no
 transform analog of the consequence exposure-branch surface — `SampledFailureMode` chains transforms
 deterministically — so a mean-only run would collapse the branch and its loss-exceedance tail would
-diverge from the mean of the full-uncertainty ensemble. That is exactly the defect ratified Q-V
-solved for consequences. Enabling it requires the engine change, not just the function.
+diverge from the mean of the full-uncertainty ensemble. That is exactly the defect the
+exposure-branch contract solved for consequences. Enabling it requires the engine change, not just
+the function.
 
 **What this costs, stated plainly.** A weighted average is the aleatory-*mean* reading of a set of
 candidate transforms: exact when everything downstream is linear, approximate otherwise. Because a
@@ -147,9 +148,9 @@ averaging — the weighted average is the correct and intended tool.
 
 | Item | Blocked on |
 |---|---|
-| An explicit epistemic mixture mode for hazards and responses | A ratified design; the code is inexpensive (a per-realization selector), the doctrine and verification are the work |
-| `CompositeTransform` Mixture | Engine support for enumerating transform branches, the transform analog of ratified Q-V |
-| An epistemic mode for `CompositeConsequence` | Same ratification as the hazard/response one; today its mixture is aleatory by Q-V |
+| An explicit epistemic mixture mode for hazards and responses | A settled design; the code is inexpensive (a per-realization selector), the doctrine and verification are the work |
+| `CompositeTransform` Mixture | Engine support for enumerating transform branches, the transform analog of the consequence exposure-branch contract |
+| An epistemic mode for `CompositeConsequence` | The same design decision as the hazard/response one; today its mixture is aleatory per the exposure-branch contract |
 
 ---
 
@@ -158,5 +159,5 @@ averaging — the weighted average is the correct and intended tool.
 - 2024 verification report, *Verification of Input Functions* → *Composite Hazard and Response
   Functions* (Equation 49, Tables 44–46) and *Composite Consequence Function* (Tables 47–51).
 - [`MODEL_LIBRARY_ARCHITECTURE.md`](../requirements/MODEL_LIBRARY_ARCHITECTURE.md) §5.5.3 (canonical
-  content), §5.8.5 (composite recursion), §6.4.1 (exposure branches, ratified Q-V).
+  content), §5.8.5 (composite recursion), §6.4.1 (exposure branches).
 - *Mixture Distribution Overview* and *Competing Risks Overview* (RMC technical notes, 2026).

@@ -135,14 +135,14 @@ UncertaintyAnalysisResults? summary = hazard.ComputeUncertaintyResults(0.90);
 
 ## v1.1 changes vs. the v1.0 report
 
-- **Sampling** is index-driven through pre-allocated per-function percentile matrices (`SetupSampler`, Latin hypercube by default) instead of ad-hoc `Random` draws; parametric functions remain direct posterior lookups (architecture doc §5.8).
+- **Sampling** is index-driven through pre-allocated per-function percentile matrices (`SetupSampler`, Latin hypercube by default) instead of ad-hoc `Random` draws; parametric functions remain direct posterior lookups ([`MODEL_LIBRARY_ARCHITECTURE.md`](../requirements/MODEL_LIBRARY_ARCHITECTURE.md) §5.8).
 - **`NoUncertaintyFunction`** corrects the v1.0 `NoUncertainyFunction` spelling.
 - **Posterior injection** (`Estimate(IList<ParameterSet>)`) replaces the dedicated BestFit-import element; the importer lives in the UI layer.
 - **Failure paths throw**: sampling an invalid or un-estimated function raises `InvalidOperationException` (v1.0 returned null); a failed bootstrap propagates its exception (v1.0 swallowed it).
 - **Bounds fixes**: the hazard-bounds cache is keyed by the `meanOnly` flag, and the full-posterior bounds scan is race-free (both latent v1.0 defects).
 - **Uncertainty summaries** (`ComputeUncertaintyResults`) moved from app-layer plotting code into the model library; tabular summaries are exact percentile evaluations.
 
-## Composite hazard functions (Phase 9, landed 2026-07-25)
+## Composite hazard functions
 
 `CompositeHazard` combines a weighted list of child hazard functions under one of two rules:
 
@@ -151,7 +151,7 @@ UncertaintyAnalysisResults? summary = hazard.ComputeUncertaintyResults(0.90);
 | **Mixture** (default, the v1.0 `IsMixture = true`) | `F(x) = Σ ωᵢ·Fᵢ(x)` — a `Numerics.Mixture` | Alternative descriptions of the loading; exactly one applies to any event. Report Equation 49. |
 | **CompetingRisks** | the **maximum** rule under the configured `Dependency` | All loading mechanisms occur; the most severe controls. Weights are inert. |
 
-The mixture is **aleatory** (ratified Q-Y): the combination is a single distribution carried through
+The mixture is **aleatory** by design: the combination is a single distribution carried through
 every realization, `SamplingDimensions` is 0, and no branch is drawn — so a mixture of deterministic
 children is itself deterministic. Knowledge uncertainty enters through the children's own posteriors.
 The weight semantics, the mixture-versus-competing-risks decision rule, and what is deferred are in

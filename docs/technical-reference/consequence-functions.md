@@ -37,7 +37,7 @@ Incremental consequences are the losses failure inflicts **over and above** what
 
 ΔC(x) = C_fail(x) − C_nonfail(x)
 
-In the Monte Carlo simulation, each failure mode samples its failure and non-failure consequence functions with the **same draw** — perfectly correlated — so the incremental difference is coherent per hazard event (v1.0 `SampledFailureMode` behavior, preserved by the v1.1 sampler design; architecture doc question Q-N). Negative incremental consequences computed during simulation are set to zero with a warning.
+In the Monte Carlo simulation, each failure mode samples its failure and non-failure consequence functions with the **same draw** — perfectly correlated — so the incremental difference is coherent per hazard event (the shared failure/non-failure coupling draw, v1.0 `SampledFailureMode` behavior preserved by the v1.1 sampler design). Negative incremental consequences computed during simulation are set to zero with a warning.
 
 ### API
 
@@ -94,15 +94,15 @@ Average and Mixture share the same mean but not the same variance: Σw²σ² (Av
 
 ### Sampling
 
-Each child owns its sampler, seeded content-derived per architecture doc §5.8.5 — `HashCombine(seed, child.CanonicalHash(), ordinal)` — so identical-content siblings draw independently and child renames can never move results. In Mixture mode the composite owns one selector dimension (`SamplingDimensions = 1`; otherwise 0). `SampleFunction(double p)` is RNG-free: Additive/Average sample every child co-monotonically at p; Mixture uses single-uniform composition sampling — p selects the cumulative-weight bucket and the child is sampled at the rescaled remainder (p − C_{k−1})/w_k, reproducing the exact mixture ensemble deterministically. Combined consequences clamp at zero. Nested composites are allowed (e.g., Mixture(day, night) over Additive sector sums); circular references are validation errors.
+Each child owns its sampler, seeded content-derived per [`MODEL_LIBRARY_ARCHITECTURE.md`](../requirements/MODEL_LIBRARY_ARCHITECTURE.md) §5.8.5 — `HashCombine(seed, child.CanonicalHash(), ordinal)` — so identical-content siblings draw independently and child renames can never move results. In Mixture mode the composite owns one selector dimension (`SamplingDimensions = 1`; otherwise 0). `SampleFunction(double p)` is RNG-free: Additive/Average sample every child co-monotonically at p; Mixture uses single-uniform composition sampling — p selects the cumulative-weight bucket and the child is sampled at the rescaled remainder (p − C_{k−1})/w_k, reproducing the exact mixture ensemble deterministically. Combined consequences clamp at zero. Nested composites are allowed (e.g., Mixture(day, night) over Additive sector sums); circular references are validation errors.
 
 ### Serialization and hashing
 
-Under `SelfContained` (the storeless default: headless callers, oracles, failure-mode projection XML) child content serializes inline. Under `ByReference` (the stored form) each entry carries only its weight and a `FunctionReference` marker — **a store never duplicates child function content** — and an `IRiskFunctionResolver` reattaches the live stored instances on load (unresolvable references keep their weighted entries and surface through `Validate()`). `CanonicalHash()` hashes a projected identity form (mode, entry count, effective weights, child content hashes) rather than the persisted form, so the serialization mode, child metadata, and Additive-mode weight edits can never move the hash — the second instance of the ratified `SystemComponent` identity-form exception.
+Under `SelfContained` (the storeless default: headless callers, oracles, failure-mode projection XML) child content serializes inline. Under `ByReference` (the stored form) each entry carries only its weight and a `FunctionReference` marker — **a store never duplicates child function content** — and an `IRiskFunctionResolver` reattaches the live stored instances on load (unresolvable references keep their weighted entries and surface through `Validate()`). `CanonicalHash()` hashes a projected identity form (mode, entry count, effective weights, child content hashes) rather than the persisted form, so the serialization mode, child metadata, and Additive-mode weight edits can never move the hash — the second instance of the `SystemComponent` identity-form exception.
 
 ## Later family members
 
-- **LifeSimConsequence** (Phase 11) — a tabular consequence built from imported LifeSim Monte Carlo results: per hazard level the user selects an alternative/time-of-day result set, and a distribution (truncated normal by default) is auto-fit to all iterations (fit methods per the report: moments for Deterministic/Triangular/Normal/Ln-Normal/Truncated Normal, percentiles for PERT). A LifeSim day result and night result wrapped in a Mixture composite is the intended day/night import path.
+- **LifeSimConsequence** (future work) — a tabular consequence built from imported LifeSim Monte Carlo results: per hazard level the user selects an alternative/time-of-day result set, and a distribution (truncated normal by default) is auto-fit to all iterations (fit methods per the report: moments for Deterministic/Triangular/Normal/Ln-Normal/Truncated Normal, percentiles for PERT). A LifeSim day result and night result wrapped in a Mixture composite is the intended day/night import path.
 
 ## v1.1 changes vs. the v1.0 report
 

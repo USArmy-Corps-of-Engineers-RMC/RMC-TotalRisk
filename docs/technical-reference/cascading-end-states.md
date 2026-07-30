@@ -1,9 +1,10 @@
 # Cascading Response End States
 
-The mathematics of Phase 6.7 (arch doc §7.9, ratified 2026-07-23/24): multi-stage response
+The mathematics of cascading response end states: multi-stage response
 chains as chance-node paths, consequence terminals as end states, mutually-exclusive state
 groups, and the across-group combination semantics. This page is the compute-side companion to
-the arch doc's design section; the executable evidence is
+the normative design ([`MODEL_LIBRARY_ARCHITECTURE.md`](../requirements/MODEL_LIBRARY_ARCHITECTURE.md)
+§7.9); the executable evidence is
 [verification/cascade-end-states.md](../verification/cascade-end-states.md).
 
 ## 1. The leaf algebra
@@ -20,7 +21,7 @@ w_s(h) = ∏ᵢ ( πᵢ = Fail ? pᵢ(sᵢ(h)) : 1 − pᵢ(sᵢ(h)) ),
 ```
 
 with each stage's `BranchPolarity` read from the exit port the path uses (serialized
-resolved-on-write; a single-stage Fail mode reproduces the pre-6.7 arithmetic bit-identically —
+resolved-on-write; a single-stage Fail mode reproduces the pre-cascade arithmetic bit-identically —
 the product's lone factor multiplies 1.0 exactly).
 
 The **leaf signature** is the ordered (response occurrence ordinal, polarity) pair sequence.
@@ -28,14 +29,15 @@ Terminals sharing their first response element with *distinct* signatures diverg
 chance node via opposite ports, so their events are disjoint by construction: they form one
 **mutually-exclusive state group** whose total mass is an exact sum (no inclusion–exclusion).
 Duplicate and prefix-nested signatures leave the partition and combine as standalone units under
-the ambient method (the Q2 ruling — exactly the legacy fan-out semantics, with an advisory
+the ambient method (deliberately preserving the legacy fan-out semantics, with an advisory
 warning and the mass-balance witness reporting any double count honestly). The structural
-derivation lives in `EndStateGroupLayout`; every pre-6.7 model produces the trivial layout, whose
-kernels are byte-for-byte the pre-cascade paths (proven by the bit-identical results byte gates).
+derivation lives in `EndStateGroupLayout`; every pre-cascade model produces the trivial layout,
+whose kernels are byte-for-byte the pre-cascade paths (proven by the bit-identical results byte
+gates).
 
 ## 2. Classification — final polarity
 
-An end state is a **failure state** iff its final stage polarity is Fail (§7.9.2, user-ratified):
+An end state is a **failure state** iff its final stage polarity is Fail (§7.9.2):
 the failure union, APF, Fail stream, f-N surface, and contribution diagnostics count Fail-final
 states only, so the breach convention is preserved — in the progression example the union is
 `p₁p₂`, and wiring a partial-damage terminal never changes it. A Non-Fail-final terminal is a
@@ -65,7 +67,8 @@ A failure state's mode-scope excess partner is the terminal whose signature matc
 final polarity flipped — the exact "last response held" counterfactual (`R2-Fail` excess
 = `C_full − C_partial`) — falling back to the component background mode when the sibling is
 unwired or the branch continues (v1.0 parity). The partner's consequences sample at the failure
-state's Q-N coupling percentile: the pairing rides the existing shared-draw construct unchanged.
+state's failure/non-failure coupling percentile: the pairing rides the existing shared-draw
+construct unchanged.
 The joint method's component-scope excess pairs the complement mixture (the v1.0 "no-failure
 world" baseline, generalized); the per-mode methods' component excess is the sibling-paired
 mode excess.
@@ -97,12 +100,12 @@ pre-6.7 layout):
 Guardrails count within-unit branches **additively** and across-unit branches
 **multiplicatively** (`Π_g (1 + Σ_{s∈g} bᵢ) − 1` for the joint entry estimate).
 
-## 6. Knowledge sampling (user directive 2026-07-24)
+## 6. Knowledge sampling
 
 Knowledge uncertainty samples **independently across all functions** — each cascade stage's
 transforms and response are seeded at their own walk ordinals with their own content seeds, so
 equal-content stages draw independent curves like any other functions. The two deliberate
-exceptions: (1) the Q-N failure/non-failure **consequence** pairing (one shared coupling
+exceptions: (1) the failure/non-failure **consequence** coupling draw (one shared coupling
 percentile per mode per type — the §7.9.4 sibling resolution rides it unchanged), and (2) one
 **shared response instance** wired into sibling end states is one knowledge quantity — its Fail
 and Non-Fail branches must ride the same sampled curve so the partition `p + (1 − p) = 1` holds
@@ -119,7 +122,7 @@ state's cumulative failure profile can rise and fall — expected behavior, not 
 
 ## 8. What a cascade changes in the results surface
 
-One `FailureModeRealization` per terminal was already the end-state scope; Phase 6.7 adds the
+One `FailureModeRealization` per terminal was already the end-state scope; cascades add the
 stamped end-state `Name` (terminal-first label chain) and the append-only `PathLabel` branch
 descriptor (`"Initiation[Fail] → Progression[NonFail]"`) on the realization and summary mode
 scopes. A claimed state's mode-scope curves record its conditional complement entries into its

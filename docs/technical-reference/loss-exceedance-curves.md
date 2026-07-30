@@ -1,11 +1,11 @@
 ﻿# Loss Exceedance Curves and Risk Measures
 
 > Technical reference for how the `RMC.TotalRisk` engine builds loss exceedance curves (LECs, a.k.a.
-> F-N curves) and the risk measures derived from them (Phase 4 / 4b). Companion:
+> F-N curves) and the risk measures derived from them. Companion:
 > [risk-integration.md](risk-integration.md) (how the integrator's evaluation points are produced).
 > Normative spec: [../requirements/MODEL_LIBRARY_ARCHITECTURE.md](../requirements/MODEL_LIBRARY_ARCHITECTURE.md)
-> §7.7, §7.8 (v0.13). Legacy source paths (`Curve.vb`, `RiskAnalysis.vb`, `SampledComponent.vb`,
-> `ComponentRiskOutput.vb`) are in the `C:\GIT\RMC-TotalRisk-Dev` reference repo.
+> §7.7, §7.8. The v1.0 sources cited for defect evidence (`Curve.vb`, `RiskAnalysis.vb`,
+> `SampledComponent.vb`, `ComponentRiskOutput.vb`) are in the v1.0 reference repository.
 
 A **loss exceedance curve** plots, for each consequence magnitude `c`, the annual probability that the
 realized consequence exceeds `c`. The engine builds five of them per component and per system — one per
@@ -25,8 +25,8 @@ consequence_k = point.Consequences[k]
 ```
 
 The full set of `(mass, consequence)` pairs is the empirical loss distribution. Everything below is how
-to turn that set into an exceedance curve and its moments **accurately** — the v1.0 code does it in a
-way that is correct in the mean but wrong in the tail.
+the engine turns that set into an exceedance curve and its moments **accurately** — the v1.0 code did
+it in a way that is correct in the mean but wrong in the tail.
 
 ## Probability mass
 
@@ -70,7 +70,7 @@ how many ordinates you get *and* how finely mass is discretized before the momen
 
 ### The exact construction (v1.1)
 
-Build the curve **exactly** from the pairs, then thin for output:
+The engine builds the curve **exactly** from the pairs, then thins for output:
 
 ```
 1. Collect all (mass, consequence) pairs from the risk points.
@@ -86,23 +86,23 @@ This is `O(n log n)` (the sort), carries no binning bias, and — crucially — 
 before thinning, so shrinking the output curve never degrades a reported statistic. This is the single
 biggest accuracy win for tail behavior.
 
-Store the result as a Numerics `OrderedPairedData` (X = consequence descending, Y = exceedance
+The result is stored as a Numerics `OrderedPairedData` (X = consequence descending, Y = exceedance
 probability ascending), preserving the v1.0 curve orientation so downstream `GetXFromY` / `GetYFromX`
 interpolation is unchanged.
 
 ## Moments (weighted, numerically stable)
 
-v1.0 computes the mean, standard deviation, skewness, and kurtosis from **raw power sums**
+v1.0 computed the mean, standard deviation, skewness, and kurtosis from **raw power sums**
 (`Curve.vb:370-389`): `u1 = Σ mass·c`, `u2 = Σ mass·c²`, … then `m2 = sqrt(u2 − u1²)` and a fully
 expanded fourth central moment. These **catastrophically cancel** when the mean is large relative to
 the spread — the normal case for life-loss consequences, where `u2` and `u1²` agree to many
 significant figures and their difference loses most of them.
 
-Use a **weighted streaming (Welford / West) central-moment accumulation** instead: maintain the running
-weighted mean and the central sums `M2`, `M3`, `M4` and update them per pair. This keeps full precision
-regardless of the mean-to-spread ratio. Document it as an *improve-on-port* case in the type's XML
-`<remarks>` (the porting rule in [CLAUDE.md](../../CLAUDE.md) — `ForceMonotonic` is the canonical
-precedent for actively fixing a numerically fragile v1.0 body while preserving its reference results).
+v1.1 uses a **two-pass weighted central-moment accumulation** instead: the first pass forms the
+weighted mean, the second accumulates the central sums `M2`, `M3`, `M4` about it. This keeps full
+precision regardless of the mean-to-spread ratio — a deliberate numerical improvement over the v1.0
+body, documented in `Curve`'s XML `<remarks>`; the mean itself is algebraically unchanged, so the
+v1.0 reference results are preserved.
 
 Central moments then give: mean = weighted mean; standard deviation = `√M2`; skewness = `M3 / M2^{3/2}`;
 kurtosis = `M4 / M2²`.
@@ -125,21 +125,21 @@ Every measure is a functional of the finished LEC. Definitions and the v1.0 fixe
 | `TotalProbability` | max exceedance probability of the curve | = annualized P(failure) on the `Fail` curve |
 | `Mean` | 1st raw moment `Σ mass·c` | = EAD (expected annual damage) / mean annualized risk; **unchanged by the tail fixes** |
 | `ConditionalMean` | `Mean / TotalProbability` | expected consequence **given** the curve's event occurs |
-| `StandardDeviation` | `√M2` (weighted Welford) | v1.0 raw-power-sum form cancels — fixed |
+| `StandardDeviation` | `√M2` (two-pass weighted central accumulation) | v1.0's raw-power-sum form cancels — fixed |
 | `Skewness` | `M3 / M2^{3/2}` | as above |
 | `Kurtosis` | `M4 / M2²` | as above |
 | `ConsequenceThresholdProbability` | `LEC.GetYFromX(ConsequenceThreshold, Log, Log)` | assurance: P(consequence > threshold) |
 | `HazardThresholdProbability` | from the `HazardFrequency` profile at `HazardThreshold` | |
-| `ValueAtRisk` | consequence quantile at level α = `Options.Alpha` | **fix:** return **0** (not the minimum consequence) when `α > TotalProbability` — no loss is exceeded at that level (v1.0 `Curve.vb:544` returns `LEC.Last().X`) |
-| `ConditionalValueAtRisk` | `(1/α)·∫₀^α VaR(p) dp` via `AdaptiveGaussKronrod` over the log-log LEC quantile | expected shortfall — the coherent tail measure ([references](../references.md)) |
+| `ValueAtRisk` | consequence quantile at level α = `Options.Alpha` | returns **0** (not the minimum consequence) when `α > TotalProbability` — no loss is exceeded at that level; v1.0 returned the curve's smallest consequence (`Curve.vb:544`) |
+| `ConditionalValueAtRisk` | `(1/α)·∫ VaR(p) dp` over the α-tail, computed as the **exact segment-by-segment closed form** of the piecewise log-log LEC quantile | expected shortfall — the coherent tail measure ([references](../references.md)); v1.0 ran adaptive quadrature at library defaults on its steepest integrand |
 | `LEC` | the curve itself (X = consequence, Y = exceedance prob) | the F-N curve |
 | `HazardFrequency` | hazard level vs cumulative exceedance probability | risk profile (1D path only — needs `HazardLevel` on the points) |
 | `HazardvsCEN` | hazard level vs conditional expected consequence | risk profile |
 
-One more v1.0 inconsistency to fix in the uncertainty post-processing: `PostProcessUncertainty`
-reconstructs the **Total** percentile curve as `fAEP + nfAEP` (`RiskAnalysis.vb:3369`) rather than
-reading the Total LEC. Read the Total LEC and delete the reconstruction — the Total curve is already
-built exactly.
+One more v1.0 inconsistency, corrected in the uncertainty post-processing: v1.0's
+`PostProcessUncertainty` reconstructed the **Total** percentile curve as `fAEP + nfAEP`
+(`RiskAnalysis.vb:3369`) rather than reading the Total LEC. The v1.1 percentile assembler reads the
+Total LEC directly — the Total curve is already built exactly.
 
 ## System aggregation
 
@@ -147,7 +147,7 @@ After each component has its five LECs, the system LECs are assembled per `Syste
 
 ### Additive method — strict independence + exact lattice convolution
 
-The additive method is **redefined (ratified v0.13) to assume the components are strictly
+The additive method is **redefined in v1.1 to assume the components are strictly
 independent.** Validation: `SystemRiskMethod = Additive` with `ComponentHazardDependency ≠ Independent`
 is an **Error**; the correlation matrix applies to the joint method only. The v1.0 additive path
 combined only the first two moments — means added, variances combined through the correlation matrix —
@@ -162,9 +162,9 @@ consequence 0 with mass `1 − TotalProbability`. Convolving the D zero-inflated
 term is "this component failed and contributed `c`, or it didn't and contributed 0"), in `O(n log n)`
 instead of `2^D`, and it reproduces the full tail rather than a conditional mean.
 
-**The atoms force a lattice (v0.15 implementation).** The v0.13 plan routed this through
-`EmpiricalDistribution.Convolve`, which proved unusable at implementation: it samples continuous
-`PDF`s on a uniform grid (`EmpiricalDistribution.cs:549`, `:734`), and a distribution-function jump —
+**The atoms force a lattice.** `EmpiricalDistribution.Convolve` cannot host this construction: it
+samples continuous
+`PDF`s on a uniform grid, and a distribution-function jump —
 the zero atom — has no finite density. Any ramp-width approximation either loses the atom or corrupts
 the sampled density and its renormalization, and the per-stage PDF-normalize/regrid chain cannot hold
 the 1e-6 mean-parity gate. The engine therefore convolves **exactly on a shared consequence lattice**
@@ -203,25 +203,26 @@ keeps far below sampling error (and under independence the v1.0 σ answer, `√�
 ### Joint method — real combination enumeration
 
 The joint method integrates over correlated hazards with VEGAS
-([risk-integration.md](risk-integration.md) §VEGAS). Its defect is upstream of the integration: the
-integrand consumes only **per-component conditional means** (`fC(i) = MeanFailureConsequences`,
-`nfC(i)`, `iC(i)` — single scalars, legacy `RiskAnalysis.vb:3030-3047`) and combines those scalars
-across component failure/non-failure combinations (`:3089-3104`). So the system F-N curve convolves
-conditional means, discarding each component's within-consequence spread — the legacy source even
-carries the TODO for it (`ComponentRiskOutput.vb:39`: *"These lists below will need to be used to
-compute precise system FN curves in the future"*).
+([risk-integration.md](risk-integration.md) §VEGAS). The v1.0 defect was upstream of the
+integration: the integrand consumed only **per-component conditional means** (`fC(i) =
+MeanFailureConsequences`, `nfC(i)`, `iC(i)` — single scalars, legacy `RiskAnalysis.vb:3030-3047`)
+and combined those scalars across component failure/non-failure combinations. The v1.0 system F-N
+curve therefore convolved conditional means, discarding each component's within-consequence spread —
+a capability v1.0 declared but never implemented: the legacy source carries the TODO for it
+(`ComponentRiskOutput.vb:39`: *"These lists below will need to be used to compute precise system FN
+curves in the future"*) alongside a double-increment of the total failure probability
+(`RiskAnalysis.vb:3117`, `:3129`).
 
-Fix: **activate the parallel `ResponseProbabilities` / `FailureConsequences` / `ExcessConsequences`
-lists on `ComponentRiskOutput`** (uncomment the design intent at `ComponentRiskOutput.vb:39-54` and its
-producer at `SampledComponent.vb:589-592`) so the VEGAS integrand enumerates the true within-component
-consequence distribution across the system combinations. Also fix the double-increment of `tPF`
-(`RiskAnalysis.vb:3117` and `:3129`). Because this path is where the Vegas power transform pays off,
-land it together with the tail-focus work (Phase 4b).
+v1.1 activates the parallel `ResponseProbabilities` / `FailureConsequences` / `ExcessConsequences`
+lists on `ComponentRiskOutput` — the design intent v1.0 left commented out — so the VEGAS integrand
+enumerates the true within-component consequence distribution across the system combinations; the
+exhaustive mass budget is verified to self-normalize to exactly one, which a double count would
+break.
 
 ## The two paths converge
 
-After the v1.1 changes, both the 1D and the multi-D paths reduce to the **same** LEC construction: a set
-of `(mass, consequence)` pairs → exact sorted exceedance curve → weighted-Welford moments → risk
-measures. The only difference is where the mass comes from — the AGK Kronrod weight (1D) or the VEGAS
-`wgt` (multi-D). Keeping the construction in one place (a single `Curve.CreateCurve` that takes weighted
-pairs) is the intended shape.
+Both the 1D and the multi-D paths reduce to the **same** LEC construction: a set
+of `(mass, consequence)` pairs → exact sorted exceedance curve → two-pass weighted central moments →
+risk measures. The only difference is where the mass comes from — the AGK Kronrod weight (1D) or the
+VEGAS `wgt` (multi-D). The construction lives in one place — `Curve.CreateCurve`, taking weighted
+pairs — and the one-dimensional, joint, and convolution paths all converge on it.

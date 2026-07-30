@@ -1,12 +1,12 @@
 ﻿# % Contribution to Risk
 
-> Phase 6.6 (landed 2026-07-24). The attribution mathematics behind `RiskContribution`: how each
+> The attribution mathematics behind `RiskContribution`: how each
 > failure mode's share of a component's risk — and each component's share of the system's — is
 > computed **generally** across all four failure-mode combination methods and both system
 > aggregation methods, with exact sum identities. Companion pages:
 > [risk-integration.md](risk-integration.md) (where the recorded evaluations come from) and the
 > executable evidence in [../verification/contribution.md](../verification/contribution.md).
-> Grounding: the combination-method report (2026) under [../reports/](../reports/) — its Eqs. 8–19
+> Grounding: *Failure Mode Combination Methods in RMC-TotalRisk* (Smith, 2026) — its Eqs. 8–19
 > define the exclusive decompositions this page attributes.
 
 ## 1. The problem
@@ -44,7 +44,7 @@ tools report. Joint Failures is the general case that forced a design decision: 
 with participants T = {j, k} has one probability and one combined consequence (per the joint
 rule), and some of its mass must be attributed to j and some to k.
 
-## 3. The attribution scheme (ratified 2026-07-24)
+## 3. The attribution scheme
 
 Within each exclusive failure event e with participant set T, event probability p_e, per-mode
 marginal consequences c_j (j ∈ T), and event consequence C_e (the joint rule applied to the c_j):
@@ -79,7 +79,7 @@ integral itself uses — §5) gives each mode's three raw values, stored per con
 
 **Shares are derived on read, never stored** (`ShareOf(total)`), so a 0/0 (an all-zero scope)
 returns NaN at the API without ever writing NaN into a persisted field, and the raw values stay
-testable against the sum identities. Two first-class percentage bases (user decision 2026-07-24):
+testable against the sum identities. Two first-class percentage bases:
 
 - **% of APF** = FailureProbability_j / Σ_k FailureProbability_k — consequence-free by
   construction, so **reliability mode reports it fully**;
@@ -104,7 +104,7 @@ The identities pin against the component's **recorded** aggregates:
 Attribution rides **separate accumulators** (`ContributionAccumulator`, runtime-only): per
 (mode, type) a list of `readonly struct ContributionRow` appended once per recording evaluation,
 gated on `recordOutput` so probes and warm-ups pay nothing, and **never touching the existing
-floating-point chains** — the Phase 6.6 landing moved zero pinned verification constants. Two
+floating-point chains** — introducing attribution moved zero pinned verification constants. Two
 finalize modes mirror the engine's two mass regimes:
 
 - `FinalizeFromLedger(ledger)` — the 1D quadrature path. Each row's probability coordinate is an
@@ -141,6 +141,6 @@ O(|T|) per emitted pathway × branch tuple.
 `FailureModeRealization.Contribution` + `AdditionalContributions` (per declared type),
 `ComponentRealization.SystemContribution` + `AdditionalSystemContributions`, with summary capture
 on `FailureModeResults`/`ComponentResults`/`ConsequenceResults` — all results-JSON append-only
-(a pre-6.6 payload loads with null blocks = "not computed"). Because the per-realization scalar
+(an earlier payload loads with null blocks = "not computed"). Because the per-realization scalar
 trees persist in `EnsembleResults`, contribution shares are available in mean-only runs, per
 realization, and as ensemble confidence intervals through `EnsembleSummary` — no re-simulation.
