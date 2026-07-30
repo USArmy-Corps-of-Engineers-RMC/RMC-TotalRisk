@@ -468,3 +468,62 @@ invocation, Release, `--reps 3`):
 The hash is stable across single-rep and median-of-3 invocations. The fixture addition touches no
 engine code path; F1–F5 reproduced their recorded pins bit-exactly in the same session after the
 session's last library commit, and the close-out round re-runs all six.
+
+## Upstream Numerics micro-measurements (2026-07-30, record-only)
+
+Two upstream costs flagged by the full review were measured (never changed — any fix is an
+upstream proposal for the pre-release Numerics batch). Single-threaded Stopwatch medians of 5 on
+HADEN, bench compiled Release, measured against **both** the sibling Debug Numerics build (the
+configuration every committed fixture rides) and a Release Numerics build (the shipped
+configuration). Bench design: K equal-weight `LinearFunction` children evaluated 2,000,000 times
+at K = 2 and 500,000 times at K = 8 over a cycling abscissa set, results consumed into a
+checksum; each cost is isolated as a paired difference against a control path with identical
+arithmetic.
+
+**A. `CompositeFunction`'s ConditionalWeakTable+lock, per non-deterministic child per evaluation.**
+Every evaluation of a non-deterministic child resolves a lock object from a static
+`ConditionalWeakTable` and takes it (deterministic children bypass both). Two independent
+estimates — (uncertain-children mean path − deterministic-children path) and (locked draw path −
+a no-lock save/restore replica) — agree:
+
+| Numerics build | K = 2, mean path | K = 2, draw path | K = 8, mean path | K = 8, draw path |
+|---|---:|---:|---:|---:|
+| Release | 11.5 ns | 18.8 ns | 16.7 ns | 16.2 ns |
+| Debug | 8.9 ns | 41.7 ns | 9.7 ns | 31.4 ns |
+
+Whole-evaluation context (Release, K = 2): direct weighted sum 29.7 ns; composite over
+deterministic children 22.3 ns; uncertain mean path 45.2 ns; uncertain draw path 58.8 ns.
+TotalRisk's one call site is `CompositeTransform.BuildCombined` (mean-convention branch): the
+mean pass wraps mean-sampled curves flagged deterministic and pays nothing; the per-realization
+ensemble path wraps uncertain sampled curves flagged non-deterministic and pays ~12–19 ns × K
+children per integrand evaluation — single-digit µs per realization at AGK evaluation counts,
+minor against the realization budget. The locks are per-child-instance and each realization
+wraps freshly sampled children, so engine contention is nil; the static table is the only
+cross-thread surface.
+
+**B. `EnsembleFunction.Sample`'s XML parse per draw.** Each `Sample(int)` reconstructs the
+template through `UnivariateFunctionFactory.CreateFromXElement(XElement.Parse(_templateXml))`;
+the constructor also builds one validation instance per parameter set through the same chain.
+
+| Measurement (Release Numerics) | Time |
+|---|---:|
+| `Sample(int)` + one evaluation, linear template (142-char XML) | 1,575 ns/draw |
+| `XElement.Parse` alone, linear template | 1,146 ns |
+| Parse + factory, linear template | 1,592 ns |
+| `XElement.Parse` alone, 50-row tabular template (5,183-char XML) | 18,557 ns |
+| Parse + factory, 50-row tabular template | 29,930 ns |
+| Constructor, 1,000 parameter sets (validation parse per set) | 4.1 ms |
+
+Parse + factory is effectively the entire per-draw cost, and it scales with template size (the
+50-row tabular template pays ~19× the linear template; Debug Numerics reads 1,946 ns/draw and
+48.5 µs respectively). TotalRisk has no `EnsembleFunction` call site today (it is the
+BestFit-import vehicle), so no committed fixture moves on it; a 10,000-draw ensemble over a
+tabular-template posterior would pay ~0.3 s of pure reconstruction overhead per function.
+
+**Upstream proposals recorded for the pre-release batch (decision pending; nothing changed
+this session):** (1) `CompositeFunction` — resolve each child's lock object once at
+construction into a per-instance array, removing the `ConditionalWeakTable.GetValue` from every
+evaluation; optionally skip the lock on the configured-state mean path, which mutates no child
+state. (2) `EnsembleFunction` — retain the parsed template `XElement` and hand the factory a
+`new XElement(template)` deep copy instead of re-parsing per draw, and hoist the constructor's
+per-set validation instance out of the loop.
