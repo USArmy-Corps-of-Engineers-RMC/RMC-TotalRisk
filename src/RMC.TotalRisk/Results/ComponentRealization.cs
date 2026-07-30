@@ -266,10 +266,11 @@ namespace RMC.TotalRisk.Results
         /// per-type contributions. No-ops for modes that accumulated nothing.
         /// </summary>
         /// <param name="ledger">
-        /// True for the one-dimensional path (masses re-derived by the midpoint-trapezoid
-        /// partition); false for the VEGAS path (weights scaled by <paramref name="scale"/>).
+        /// The sealed quadrature mass ledger on the one-dimensional path (each accumulated
+        /// abscissa's mass is read from it); null on the VEGAS path, where the accumulated
+        /// probability coordinates are recorded weights scaled by <paramref name="scale"/>.
         /// </param>
-        /// <param name="scale">The VEGAS self-normalization scale (ignored under trapezoid masses).</param>
+        /// <param name="scale">The VEGAS self-normalization scale (ignored when a ledger is supplied).</param>
         internal void FinalizeContributions(QuadratureMassLedger? ledger, double scale = 1d)
         {
             for (int i = 0; i < FailureModes.Count; i++)

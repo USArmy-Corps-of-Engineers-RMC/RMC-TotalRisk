@@ -541,7 +541,7 @@ namespace RMC.TotalRisk.Results
         /// actionable). Excess is computed per failure/non-failure branch pair within each type,
         /// <c>max(0, cF_i − cNF_j)</c>, so the recorded Excess entries carry the exact pair
         /// distribution; the output's excess LIST entries use the mean non-failure consequence
-        /// (the documented 4b interim on <see cref="ComponentRiskOutput"/>), while the scalar
+        /// (the documented <see cref="ComponentRiskOutput"/> interim), while the scalar
         /// mean excess is pair-exact. Type k's points record into the realization's primary
         /// curves (k = 0) or <c>AdditionalCurves[k − 1]</c>; the analysis validation gate
         /// guarantees the realization carries a slot per declared type.
