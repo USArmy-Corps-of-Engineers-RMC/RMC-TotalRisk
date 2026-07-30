@@ -18,8 +18,8 @@ using RMC.TotalRisk.Systems.Components;
 namespace RMC.TotalRisk.PerfHarness
 {
     /// <summary>
-    /// The Phase 6.5 performance harness: Stopwatch medians and a results-JSON SHA-256 over the
-    /// three reference fixtures, so bit-inert optimizations are byte-verified and value-moving
+    /// The performance harness: Stopwatch medians and a results-JSON SHA-256 over the
+    /// reference fixtures, so bit-inert optimizations are byte-verified and value-moving
     /// ones are measured. Not part of the solution — run with
     /// <c>dotnet run -c Release --project scripts/perf/PerfHarness</c>; results are recorded in
     /// <c>scripts/perf/RESULTS.md</c>.
@@ -33,13 +33,18 @@ namespace RMC.TotalRisk.PerfHarness
     /// Fixtures: <b>F1</b> — the PROGRESS-recorded trivial 1D fixture (uncertain triangular
     /// fragility) at N = 1000 full uncertainty (the ≈54 s pre-optimization reference); <b>F2</b>
     /// — a two-component joint system at N = 200; <b>F3</b> — F1 with a second consequence type
-    /// (the Phase 6.5 axis); <b>F4</b> — a dependent competing-risks component, the one shape whose
-    /// cost is dominated by construction rather than integration, because the incidence factory
-    /// evaluates a multivariate-normal rectangle integral per unit per hazard level; <b>F5</b> -
-    /// a large event tree with repeated independent external-link occurrences, measured directly
-    /// at setup and evaluation boundaries. Each engine fixture reports the mean-only and
-    /// full-uncertainty medians of three runs plus the SHA-256 of the concatenated results JSON
-    /// (mean, lower, upper, median realizations and the summary ensemble).
+    /// (the multi-consequence axis); <b>F4</b> — a dependent competing-risks component, the one
+    /// shape whose cost is dominated by construction rather than integration, because the
+    /// incidence factory evaluates a multivariate-normal rectangle integral per unit per hazard
+    /// level; <b>F5</b> — a large event tree with repeated independent external-link occurrences,
+    /// measured directly at setup and evaluation boundaries; <b>F6</b> — a four-child mixture
+    /// composite hazard over bootstrap posteriors with an uncertain day/night composite
+    /// consequence, the shape whose per-realization cost is the combined distribution rebuild:
+    /// <c>Mixture.CreateEmpiricalCDF()</c> re-tabulates ~200 bins over the K = 4 sampled children
+    /// every realization before the risk integrand inverts the result at every quadrature node.
+    /// Each engine fixture reports the mean-only and full-uncertainty medians of three runs plus
+    /// the SHA-256 of the concatenated results JSON (mean, lower, upper, median realizations and
+    /// the summary ensemble).
     /// </para>
     /// </remarks>
     public static class Program
@@ -57,7 +62,7 @@ namespace RMC.TotalRisk.PerfHarness
         /// <c>--reps 3</c> for the committed baseline/final table rows.</summary>
         private static int _reps = 1;
 
-        /// <summary>Runs the requested fixtures (args: optional <c>--reps N</c> plus fixture names among F1 F2 F3 F4 F5; default all).</summary>
+        /// <summary>Runs the requested fixtures (args: optional <c>--reps N</c> plus fixture names among F1 F2 F3 F4 F5 F6; default all).</summary>
         /// <param name="args">Optional repetition count and fixture filter.</param>
         /// <returns>Zero on success.</returns>
         public static int Main(string[] args)
@@ -89,6 +94,7 @@ namespace RMC.TotalRisk.PerfHarness
             if (All("F3")) Measure("F3 = F1 + second consequence type", () => BuildF3());
             if (All("F4")) Measure("F4 dependent competing risks, 4 modes, N=200", () => BuildF4());
             if (All("F5")) MeasureEventTree();
+            if (All("F6")) Measure("F6 composite hazard + day/night consequence, N=500", () => BuildF6());
             return 0;
         }
 
@@ -136,7 +142,7 @@ namespace RMC.TotalRisk.PerfHarness
         }
 
         /// <summary>
-        /// Measures the Phase 10A large event-tree fixture at the sampler-setup and repeated-read
+        /// Measures the large event-tree fixture at the sampler-setup and repeated-read
         /// boundaries. The result hash covers every branch ordinate from the final indexed read.
         /// </summary>
         private static void MeasureEventTree()
@@ -361,6 +367,124 @@ namespace RMC.TotalRisk.PerfHarness
             };
             analysis.Options.Realizations = 200;
             return analysis;
+        }
+
+        /// <summary>
+        /// Builds the F6 composite fixture at N = 500: a four-child mixture composite hazard over
+        /// bootstrap posteriors (LnNormal scenario parents, 500 replications each) and an
+        /// uncertain day/night mixture consequence, behind a deterministic parametric fragility.
+        /// Every realization rebuilds the combined hazard distribution — the
+        /// <c>Mixture.CreateEmpiricalCDF()</c> tabulation over the sampled children — before the
+        /// risk integrand inverts it at every quadrature node.
+        /// </summary>
+        private static RiskAnalysis BuildF6()
+        {
+            var composite = new CompositeHazard(new[]
+            {
+                new WeightedHazardFunction(BootstrapHazard("Scenario 1", new LnNormal(85d, 5d)), 0.4d),
+                new WeightedHazardFunction(BootstrapHazard("Scenario 2", new LnNormal(65d, 20d)), 0.3d),
+                new WeightedHazardFunction(BootstrapHazard("Scenario 3", new LnNormal(75d, 12d)), 0.2d),
+                new WeightedHazardFunction(BootstrapHazard("Scenario 4", new LnNormal(90d, 15d)), 0.1d),
+            })
+            {
+                Name = "Composite Stage Frequency",
+                SpecifiedHazard = "Stage",
+                HazardUnit = "ft",
+                CompositeCombinationType = CompositeCombinationType.Mixture,
+            };
+
+            var fragility = new ParametricResponse
+            {
+                Name = "Fragility",
+                SpecifiedHazard = "Stage",
+                HazardUnit = "ft",
+                ParentDistribution = new Normal(140d, 30d),
+                IsUncertain = false,
+            };
+            fragility.Estimate();
+
+            var consequence = new CompositeConsequence(new[]
+            {
+                new WeightedConsequenceFunction(CompositeLoss("Day", 1d, uncertain: true), 0.45d),
+                new WeightedConsequenceFunction(CompositeLoss("Night", 0.5d, uncertain: true), 0.55d),
+            })
+            {
+                Name = "Day or Night Loss",
+                SpecifiedHazard = "Stage",
+                HazardUnit = "ft",
+                SpecifiedConsequence = "Damage",
+                ConsequenceUnit = "dollars",
+                CompositeFunctionType = CompositeFunctionType.Mixture,
+            };
+
+            var component = new SystemComponent { Name = "Composite Dam", HazardFunction = composite };
+            component.AddFailureMode(new FailureMode(null, null, fragility, consequence));
+            component.AddFailureMode(new FailureMode(null, null, null, CompositeLoss("Non-Failure Loss", 0.1d, uncertain: false)));
+
+            var analysis = new RiskAnalysis(new[] { component })
+            {
+                SpecifiedConsequence = "Damage",
+                ConsequenceUnit = "dollars",
+            };
+            analysis.Options.Realizations = 500;
+            return analysis;
+        }
+
+        /// <summary>
+        /// Builds one uncertain bootstrap-posterior hazard child for F6 (method-of-moments,
+        /// effective record length 50, 500 replications — the posterior must serve the engine's
+        /// realization count).
+        /// </summary>
+        /// <param name="name">The scenario name.</param>
+        /// <param name="parent">The parent stage-frequency distribution.</param>
+        /// <returns>The estimated uncertain hazard.</returns>
+        private static ParametricUnivariateHazard BootstrapHazard(string name, UnivariateDistributionBase parent)
+        {
+            var hazard = new ParametricUnivariateHazard
+            {
+                Name = name,
+                SpecifiedHazard = "Stage",
+                HazardUnit = "ft",
+                ParentDistribution = parent,
+                EffectiveRecordLength = 50,
+                Realizations = 500,
+            };
+            hazard.Estimate();
+            return hazard;
+        }
+
+        /// <summary>
+        /// Builds the F6 piecewise-linear loss table over (60, 250) ft, optionally with symmetric
+        /// triangular uncertainty on each positive ordinate.
+        /// </summary>
+        /// <param name="name">The consequence name.</param>
+        /// <param name="scale">The multiplier applied to the base ordinates.</param>
+        /// <param name="uncertain">True for symmetric triangular ordinate uncertainty.</param>
+        /// <returns>The tabular consequence.</returns>
+        private static TabularConsequence CompositeLoss(string name, double scale, bool uncertain)
+        {
+            double[] x = { 60d, 100d, 140d, 200d, 250d };
+            double[] y = { 0d, 10d, 100d, 1000d, 1500d };
+            var ordinates = new UncertainOrdinate[x.Length];
+            for (int i = 0; i < x.Length; i++)
+            {
+                double value = scale * y[i];
+                ordinates[i] = new UncertainOrdinate(x[i], uncertain
+                    ? new Triangular(0.8d * value, value, 1.2d * value)
+                    : new Deterministic(value));
+            }
+
+            return new TabularConsequence
+            {
+                Name = name,
+                SpecifiedHazard = "Stage",
+                HazardUnit = "ft",
+                SpecifiedConsequence = "Damage",
+                ConsequenceUnit = "dollars",
+                UncertainOrderedPairedData = new UncertainOrderedPairedData(ordinates,
+                    true, SortOrder.Ascending, false, SortOrder.None,
+                    uncertain ? UnivariateDistributionType.Triangular : UnivariateDistributionType.Deterministic),
+            };
         }
 
         /// <summary>Builds the trivial component (stage frequency, uncertain fragility, linear consequences).</summary>

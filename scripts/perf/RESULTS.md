@@ -36,6 +36,12 @@ Fixtures:
   instructions, 1,104 edges, and 745 exhaustive branches over 33 hazard ordinates. It measures
   sampler setup plus 32 indexed exhaustive-branch reads at N = 64; the byte gate hashes every
   final branch classification and probability ordinate.
+- **F6** (added 2026-07-30) — a four-child mixture `CompositeHazard` over bootstrap posteriors
+  (LnNormal scenario parents, method of moments, 500 replications each) with an uncertain
+  day/night mixture `CompositeConsequence` behind a deterministic parametric fragility, N = 500.
+  The one shape whose per-realization cost is the combined-distribution rebuild: every
+  realization re-tabulates `Mixture.CreateEmpiricalCDF()` (~200 bins over the K = 4 sampled
+  children) before the risk integrand inverts the interpolated CDF at every quadrature node.
 
 Each fixture also reports the process-wide allocated-bytes delta and GC collection counts of
 the final full run (`GC.GetTotalAllocatedBytes(precise)`) — the direct signal for the
@@ -443,5 +449,22 @@ and the current pair reproduces the new hash across repeated runs. Re-pinned wit
 - F4 `846234f17c71ffef1239e50caee0f897c7e7d95bcf85489917b8ef7bca92eb99` (4.62 GB)
 
 **Standing rule:** a byte-gate round at any close-out runs every committed fixture (currently
-F1–F5), and a fixture measured before a session's final upstream commit is not a gate — re-run
+F1–F6), and a fixture measured before a session's final upstream commit is not a gate — re-run
 after the last commit that can reach the compute path.
+
+## F6 — the composite CreateEmpiricalCDF fixture (2026-07-30)
+
+The dedicated performance session added F6 so the composite input-function shape has a committed
+reference before any optimization of it is considered. Per realization the fixture pays four
+posterior parameter lookups, one `Mixture` construction, one `CreateEmpiricalCDF()` tabulation
+(~200 bins × 4 child CDF evaluations each), the interpolated `InverseCDF` at every accepted
+quadrature node, and the two-branch day/night consequence expansion. The committed row (isolated
+invocation, Release, `--reps 3`):
+
+| Fixture | Mean-only median (s) | Full median (s) | Allocated (GB) | GC gen0/1/2 | SHA-256 |
+|---|---:|---:|---:|---|---|
+| F6 | 0.159 | 6.633 | 3.10 | 282/275/5 | `c183d28f83f41db40a4921542225382e30dc72cafc5df13ffc6ebe76be2d9132` |
+
+The hash is stable across single-rep and median-of-3 invocations. The fixture addition touches no
+engine code path; F1–F5 reproduced their recorded pins bit-exactly in the same session after the
+session's last library commit, and the close-out round re-runs all six.
