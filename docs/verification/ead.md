@@ -32,10 +32,12 @@ below 0.002 — the legacy interpolator's end behavior). Oracle: uniform draws t
   segments plus the clamp).
 - The **oracle validates against the closed form** at 4·SE (mean and dispersion) — the ported
   legacy body reproduces the true integral.
-- The **engine reproduces the closed form** at 1e-5 relative on the mean (measured 2.9e-6):
-  the adaptive quadrature refines at 1e-8, and the residual is the documented N7
-  recorded-mass interim (midpoint-trapezoid over recorded evaluation points) crossing the
-  curve's probability kinks. The standard deviation carries the same interim doubled through
+- The **engine reproduces the closed form** at 1e-5 relative on the mean (measured 2.9e-6 at
+  the run of record): the adaptive quadrature refines at 1e-8, and the measured residual was
+  the then-current midpoint-trapezoid mass partition crossing the curve's probability kinks.
+  The published means now read the quadrature's own recorded weights (the recorded-mass
+  ledger), so the residual is the adaptive refinement's rather than the partition's and the
+  bound holds a fortiori. The standard deviation carried the same residual doubled through
   the second moment (measured 1.1e-5; asserted at 5e-5). VaR/CVaR carry 0.1% relative
   output-resolution floors; off-knot exceedance probes carry 0.5% (the documented cost of
   reading a linear-in-probability segment through the output curve's log-log interpolation —

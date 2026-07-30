@@ -195,9 +195,11 @@ keeps far below sampling error (and under independence the v1.0 σ answer, `√�
 - **Stream probabilities keep the v1.0 system-state semantics** after the curve is built: `Fail` and
   `Excess` carry `pF = Probability.IndependentUnion(pfs)`, `NonFail` carries `1 − pF` — the values the
   v1.0 additive summary reported — while the curve mass distribution comes from the convolution.
-- **Numerics item N8 is extended** (Phase 8): alongside the log-spaced grid, `Convolve` needs an
-  atom-aware (discrete/mixed-distribution) overload; until then the lattice kernel stays in the
-  model library.
+- **The lattice kernel is deliberately local and permanent.** Migrating `SystemConvolution` onto
+  the Numerics discrete-convolution helper was audited and declined: that kernel is pairwise and
+  re-derives its lattice step from its two operands, so an N-way fold re-bins the running result
+  at a changing step and its two-node atom deposit smears once per fold — where the local kernel
+  bins once onto a lattice sized to the summed support and folds by integer shift.
 - **Verified** ([../verification/system-risk.md](../verification/system-risk.md)): mean, σ, failure
   union, tail exceedances, VaR, and CVaR of the convolved system curve against a brute-force
   event-level Monte Carlo oracle at N = 10⁶ — every deviation within ~1.2 oracle standard errors.

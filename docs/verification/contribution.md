@@ -48,7 +48,7 @@ exclusive-combination enumeration with equal splits.
 
 | # | Test | Verifies | Tolerance | Result |
 |---|---|---|---|---|
-| 1 | `Test_Contribution_MEAndCCA_VsQuadratureOracle` | ME and CCA per-mode contributions (all three bases, both modes) ≡ the adjusted-marginal quadrature; Σ identities vs the recorded Fail mass balance / Fail mean / Excess mean | 1e-4 rel (N7 recorded-mass envelope); 1e-12 rel (identities) | ✅ |
+| 1 | `Test_Contribution_MEAndCCA_VsQuadratureOracle` | ME and CCA per-mode contributions (all three bases, both modes) ≡ the adjusted-marginal quadrature; Σ identities vs the recorded Fail mass balance / Fail mean / Excess mean | 1e-4 rel (the quadrature mass-accounting residual envelope); 1e-12 rel (identities) | ✅ |
 | 2 | `Test_Contribution_Competing_VsIncidenceOracle` | Competing contributions vs the Eq. 14 incidence oracle at 20,001 bins; the engine's 200-bin CIF pre-processing (v1.0 constant) carries the documented discretization allowance; Σ identities exact | 1e-2 rel (CIF discretization; Phase 5 measured ≈ 0.3% at five modes); 1e-12 rel (identities) | ✅ |
 | 3 | `Test_Contribution_Joint_SumRuleOracle_AndMaximumOrdering` | Joint Sum-rule attribution ≡ ∫ p_j·c_j dF (the own-consequence credit); the Shapley probability attribution ≡ its integral; Maximum-rule attribution ≡ the proportional-split oracle; Σ identities | 1e-4 rel; 1e-12 rel (identities) | ✅ |
 | 4 | `Test_Contribution_AdditiveSystem_BruteForce_AndReorderInvariance` | The Poisson–binomial Shapley shares ≡ brute-force 2³ enumeration; Σ shares ≡ the folded union; Σ mean contributions ≡ the convolved system means; declaration-order bit-inertness | 1e-12 abs (shares); 1e-9 rel (convolved means); 0 (bit, reorder) | ✅ |
@@ -67,9 +67,10 @@ pre-6.6 JSON forward-load (missing members → null → "not computed").
   the curves integrate, in separate chains — the comparison is floating-point association
   only. Pinned against the raw `MassBalance`/unclamped means; the Min(·, 1) clamp and the
   Numerics `IndependentExclusive` convergence-shortcut truncation are documented exclusions.
-- **Quadrature oracles (1e-4 relative):** the engine's recorded mass carries the documented
-  N7 midpoint-trapezoid interim (measured ≈ 3e-6 on means, Phase 5 EAD family); the
-  dense-trapezoid oracle contributes ≈ 1e-9.
+- **Quadrature oracles (1e-4 relative):** the engine's recorded mass carries the quadrature
+  mass-accounting residual (measured ≈ 3e-6 on means in the EAD family under the earlier
+  midpoint-trapezoid partition, since replaced by the recorded-mass ledger — the bound holds
+  a fortiori); the dense-trapezoid oracle contributes ≈ 1e-9.
 - **Competing (1e-2 relative):** the engine interpolates CIFs pre-processed over 200
   stratified bins (the preserved v1.0 constant); the oracle's 20,001-bin Eq. 14 reference
   isolates that discretization. The Phase 5 competing family measured ≈ 0.3% at five modes;

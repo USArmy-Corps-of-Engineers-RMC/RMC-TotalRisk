@@ -43,7 +43,7 @@ per-knot response and exceedance coordinates are exact interpolation chains on b
 |---|---|---|---|---|
 | 1 | `Test_ProfileRemap_PushforwardExactAtKnots` | Every profile hazard ordinate is the exact rating pushforward T(h) of the raw-axis run; every profile Y array and every non-profile scalar (APF, mean, σ, CVaR) is **bit-identical**; the response profile's exceedance axis is untouched by the remap | 1e-9 relative on the pushforward; 0 (bit) elsewhere | ✅ |
 | 2 | `Test_ProfileRemap_HazardThreshold_KnotEquivalence` | A hazard threshold at a recorded raw knot h reads the same probability as the profile-axis threshold at T(h) — the selector re-expresses the threshold without changing its meaning at knots (between knots the reads differ only by log-log segment curvature, documented) | 1e-9 relative | ✅ |
-| 3 | `Test_ProfileCatalog_TwoModeJoint_VsQuadratureOracle` | Terminal identities (A-terminal ≡ Fail `MassBalance`, B-terminal ≡ stream `Mean` — exact bookkeeping); terminals vs the oracle integrals; interior cumulative ordinates at the quartiles vs partial oracle integrals; per-knot response ordinates ≡ the exact union and exceedance coordinates | 1e-12 rel (identities); 1e-4 rel (oracle terminals — the N7 recorded-mass envelope); 2e-3 of terminal (interior — the midpoint-partition allowance); 1e-9 rel (per-knot response) | ✅ |
+| 3 | `Test_ProfileCatalog_TwoModeJoint_VsQuadratureOracle` | Terminal identities (A-terminal ≡ Fail `MassBalance`, B-terminal ≡ stream `Mean` — exact bookkeeping); terminals vs the oracle integrals; interior cumulative ordinates at the quartiles vs partial oracle integrals; per-knot response ordinates ≡ the exact union and exceedance coordinates | 1e-12 rel (identities); 1e-4 rel (oracle terminals — the quadrature mass-accounting residual envelope); 2e-3 of terminal (interior — the partial-sum discretization allowance); 1e-9 rel (per-knot response) | ✅ |
 | 4 | `Test_ProfileCatalog_ReliabilityMode_CumulativePresent` | Reliability mode builds the cumulative failure profile (there it is the headline profile) with terminal ≡ the reported annualized failure probability, plus the response profile | 1e-12 relative | ✅ |
 | 5 | `Test_ProfileCatalog_FullUncertainty_FiveStreamBands_AndReproducibility` | All four band trees carry five-stream frequency + cumulative-consequence profiles (the v1.0 parity restoration); Lower ≤ Median ≤ Upper ordering and hazard monotonicity on the banded cumulate; the response band rides the log exceedance grid in [0, 1]; repeated runs reproduce the new arrays bit-for-bit | ordering/bit asserts | ✅ |
 
@@ -52,14 +52,14 @@ per-knot response and exceedance coordinates are exact interpolation chains on b
 - **Identity asserts (1e-12 relative):** the ascending cumulate's terminal and the stored
   `MassBalance`/`Mean` sum the same recorded values in different orders — pure floating-point
   association, no statistics.
-- **Oracle terminals (1e-4 relative):** the engine's recorded probability mass carries the
-  documented Numerics N7 interim (midpoint-trapezoid mass re-derivation; measured ≈ 3e-6 on
-  means in the Phase 5 EAD family) and the dense-trapezoid oracle's own O(h²) error
-  (≈ 1e-9 at 200,001 ordinates).
-- **Interior cumulative probes (2e-3 of the terminal):** the engine ordinate at recorded knot j
-  is a midpoint-partition partial sum — it represents the integral to the midpoint between
-  adjacent recorded probabilities, a half-interval discretization allowance at the mean pass's
-  recorded density (~10³ evaluations).
+- **Oracle terminals (1e-4 relative):** the quadrature mass-accounting residual envelope
+  (measured ≈ 3e-6 on means in the EAD family under the earlier midpoint-trapezoid partition,
+  since replaced by the recorded-mass ledger — the bound holds a fortiori) plus the
+  dense-trapezoid oracle's own O(h²) error (≈ 1e-9 at 200,001 ordinates).
+- **Interior cumulative probes (2e-3 of the terminal):** the engine's ascending cumulate at
+  recorded knot j is a partial sum of the recorded per-abscissa masses, representing the
+  integral only to within the local inter-node spacing — a half-interval discretization
+  allowance at the mean pass's recorded density (~10³ evaluations).
 - **Per-knot response (1e-9 relative):** both sides are the same exact interpolation chain
   (engine tables vs the oracle's re-implementation) — agreement to floating-point association.
 

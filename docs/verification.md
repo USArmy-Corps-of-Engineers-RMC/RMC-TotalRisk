@@ -37,16 +37,19 @@ For a Monte Carlo mean estimate over N realizations, the standard error is SE �
 - Curve (FN / loss-exceedance) checks assert at a small set of exceedance levels, not all 200 stratification bins; tail bins with < ~100 expected exceedances get proportionally wider tolerances or are excluded (documented per test).
 - Deep re-runs: any converted test can be re-run at the legacy N = 10M by a user-set realization constant; this is deliberate and user-triggered, never part of the standard suite.
 
-### Finalized policy (Phase 6)
+### Finalized policy
 
-The policy above is **final** as of Phase 6, with the following amendments calibrated by the
+The policy above is **final**, with the following amendments calibrated by the
 system-risk, combos, NFIP, and variance-reduction conversions (each figure is measured and
 documented in the owning test's XML docs):
 
 - **Deterministic engine paths** (adaptive Gauss–Kronrod, the additive lattice convolution,
   reliability integrals): asserts carry the oracle's k·SE only, plus documented deterministic
-  allowances where an interim applies — the N7 recorded-mass interim (≤ ~1e-5 relative on
-  means), loss-exceedance output thinning (probes read resolution 1000 — the Phase 5 finding),
+  allowances — the quadrature mass-accounting residual (≤ ~1e-5 relative on means; measured
+  ≈ 3e-6 under the earlier midpoint-trapezoid mass partition, since replaced by the
+  recorded-mass ledger, whose A/B measurement against a 4,000,000-point dense reference moved
+  the relative error 5.664e-7 → 3.996e-11 — the recorded bounds are unchanged and hold
+  a fortiori), loss-exceedance output thinning (probes read resolution 1000),
   convolution-lattice quantization (system probes run 65,536 nodes to keep it an order below
   the binomial tolerance), and log-log interpolation of frequency profiles at a threshold
   (≤ 1e-4 relative, the NFIP engine-versus-exact allowance).
