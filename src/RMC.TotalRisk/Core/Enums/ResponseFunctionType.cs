@@ -41,5 +41,11 @@ namespace RMC.TotalRisk.Core.Enums
 
         /// <summary>An authored event-tree conditional-failure response (<c>EventTreeResponse</c>).</summary>
         EventTree,
+
+        /// <summary>
+        /// An authored static fault-tree response evaluated through an exact binary decision
+        /// diagram (<c>FaultTreeResponse</c>).
+        /// </summary>
+        FaultTree,
     }
 }

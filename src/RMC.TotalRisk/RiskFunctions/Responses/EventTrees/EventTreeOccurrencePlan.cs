@@ -114,13 +114,38 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
             if (!ReferenceEquals(subtreeRoot.Owner, owner.EventTree))
                 throw new InvalidOperationException("The selected event-tree subtree does not belong to the response.");
 
-            var compiler = new Compiler();
+            var compiler = new Compiler(new TreeDependencyCollector());
             var persistence = new List<Guid> { subtreeRoot.Id };
             EventTreeOccurrenceNode root = compiler.Expand(owner, subtreeRoot, false,
                 Array.Empty<EventTreeLinkNode>(), persistence);
             AssignCanonicalPaths(root);
             return new EventTreeOccurrencePlan(root, compiler.Warnings.ToArray(),
                 compiler.CreateDependencies());
+        }
+
+        /// <summary>
+        /// Compiles one nested event-tree response on the shared ambient recursion stack while
+        /// accumulating its live dependencies into the caller's collector. Cross-kind callers use
+        /// this seam so a reference cycle through both tree kinds produces one complete diagnostic
+        /// and every nested content edit invalidates the outermost plan.
+        /// </summary>
+        /// <param name="function">The nested event-tree response.</param>
+        /// <param name="collector">The caller's dependency collector.</param>
+        /// <returns>The nested plan carrying identity and dimensions.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when an argument is null.</exception>
+        internal static EventTreeOccurrencePlan CompileNested(EventTreeResponse function,
+            TreeDependencyCollector collector)
+        {
+            if (function == null) throw new ArgumentNullException(nameof(function));
+            if (collector == null) throw new ArgumentNullException(nameof(collector));
+            var compiler = new Compiler(collector);
+            EventNodeBase rootNode = function.EventTree.Root;
+            var persistence = new List<Guid> { rootNode.Id };
+            EventTreeOccurrenceNode root = compiler.Expand(function, rootNode, false,
+                Array.Empty<EventTreeLinkNode>(), persistence);
+            AssignCanonicalPaths(root);
+            return new EventTreeOccurrencePlan(root, Array.Empty<string>(),
+                TreePlanDependencies.Empty);
         }
 
         /// <summary>Assigns stable paths after each sibling set has been sorted by projected identity.</summary>
@@ -133,17 +158,15 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
         /// <summary>Stateful depth-first compiler used for cycle paths and lenient warnings.</summary>
         private sealed class Compiler
         {
-            /// <summary>Every event-tree response whose live compute state feeds this plan.</summary>
-            private readonly HashSet<EventTreeResponse> _eventTreeFunctions =
-                new HashSet<EventTreeResponse>(ReferenceEqualityComparer.Instance);
+            /// <summary>Initializes a compiler over one dependency collector.</summary>
+            /// <param name="collector">The shared dependency collector.</param>
+            internal Compiler(TreeDependencyCollector collector)
+            {
+                _collector = collector;
+            }
 
-            /// <summary>Every mutable local uncertain table read by this plan.</summary>
-            private readonly HashSet<UncertainOrderedPairedData> _tables =
-                new HashSet<UncertainOrderedPairedData>(ReferenceEqualityComparer.Instance);
-
-            /// <summary>Every ordinary live response referenced by this plan.</summary>
-            private readonly HashSet<IResponseFunction> _ordinaryResponses =
-                new HashSet<IResponseFunction>(ReferenceEqualityComparer.Instance);
+            /// <summary>The shared dependency collector.</summary>
+            private readonly TreeDependencyCollector _collector;
 
             /// <summary>Lenient resolution warnings.</summary>
             internal List<string> Warnings { get; } = new List<string>();
@@ -151,8 +174,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
             /// <summary>Captures the complete dependency state after expansion succeeds.</summary>
             internal TreePlanDependencies CreateDependencies()
             {
-                return new TreePlanDependencies(_eventTreeFunctions.ToArray(),
-                    _tables.ToArray(), _ordinaryResponses.ToArray());
+                return _collector.CreateDependencies();
             }
 
             /// <summary>Expands one authored node, following any link wrapper.</summary>
@@ -162,7 +184,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
             {
                 if (TreeCompilationScope.IndexOf(function, node.Id) >= 0)
                     throw TreeCompilationScope.CreateCycleError(function, node, EventTreeFrameDescriber.Instance);
-                _eventTreeFunctions.Add(function);
+                _collector.TreeSources.Add(function);
 
                 TreeCompilationScope.Push(function, node, node.Id, EventTreeFrameDescriber.Instance);
                 try
@@ -213,9 +235,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                     if (node is ChanceNode chance)
                     {
                         ProbabilitySource source = chance.ProbabilitySource;
-                        if (source.Table is not null) _tables.Add(source.Table);
-                        if (source.ResponseFunction != null && source.ResponseFunction is not EventTreeResponse)
-                            _ordinaryResponses.Add(source.ResponseFunction);
+                        if (source.Table is not null) _collector.Tables.Add(source.Table);
                         byte[]? recursiveResponseHash = null;
                         if (source.ResponseFunction is EventTreeResponse nestedResponse)
                         {
@@ -224,8 +244,18 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                             probabilityIsDeterministic = nestedPlan.IsDeterministic;
                             recursiveResponseHash = nestedResponse.CanonicalHash(nestedPlan);
                         }
+                        else if (source.ResponseFunction is FaultTrees.FaultTreeResponse nestedFault)
+                        {
+                            FaultTrees.FaultTreeOccurrencePlan nestedPlan =
+                                FaultTrees.FaultTreeOccurrencePlan.CompileNested(nestedFault, _collector);
+                            probabilitySamplingDimensions = nestedPlan.SamplingDimensions;
+                            probabilityIsDeterministic = nestedPlan.IsDeterministic;
+                            recursiveResponseHash = nestedFault.CanonicalHash(nestedPlan);
+                        }
                         else
                         {
+                            if (source.ResponseFunction != null)
+                                _collector.OrdinaryResponses.Add(source.ResponseFunction);
                             probabilitySamplingDimensions = source.SamplingDimensions;
                             probabilityIsDeterministic = source.IsDeterministic;
                         }

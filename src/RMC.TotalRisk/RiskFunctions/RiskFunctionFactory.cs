@@ -5,6 +5,7 @@ using RMC.TotalRisk.RiskFunctions.Consequences;
 using RMC.TotalRisk.RiskFunctions.Hazards;
 using RMC.TotalRisk.RiskFunctions.Responses;
 using RMC.TotalRisk.RiskFunctions.Responses.EventTrees;
+using RMC.TotalRisk.RiskFunctions.Responses.FaultTrees;
 using RMC.TotalRisk.RiskFunctions.Transforms;
 
 namespace RMC.TotalRisk.RiskFunctions
@@ -81,6 +82,7 @@ namespace RMC.TotalRisk.RiskFunctions
                 nameof(EventTreeResponse) => new EventTreeResponse(xElement, resolver),
                 "Node" when LegacyEventTreeConverter.IsLegacyRoot(xElement) =>
                     new EventTreeResponse(xElement, resolver),
+                nameof(FaultTreeResponse) => new FaultTreeResponse(xElement, resolver),
                 nameof(TabularConsequence) => new TabularConsequence(xElement),
                 nameof(ParametricConsequence) => new ParametricConsequence(xElement),
                 nameof(CompositeConsequence) => new CompositeConsequence(xElement, resolver),

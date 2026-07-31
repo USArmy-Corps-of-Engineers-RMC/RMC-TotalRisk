@@ -9,6 +9,7 @@ using RMC.TotalRisk.RiskFunctions.Consequences;
 using RMC.TotalRisk.RiskFunctions.Hazards;
 using RMC.TotalRisk.RiskFunctions.Responses;
 using RMC.TotalRisk.RiskFunctions.Responses.EventTrees;
+using RMC.TotalRisk.RiskFunctions.Responses.FaultTrees;
 using RMC.TotalRisk.RiskFunctions.Responses.Trees;
 using RMC.TotalRisk.RiskFunctions.Transforms;
 using RMC.TotalRisk.Tests.RiskFunctions.Responses;
@@ -208,6 +209,33 @@ public class HashInvarianceKitchenSinkTests
                 var nested = (EventTreeResponse)outerChance.ProbabilitySource.ResponseFunction!;
                 var nestedChance = (ChanceNode)nested.EventTree.Root.Children[0];
                 nestedChance.ProbabilitySource = new ProbabilitySource(0.3d);
+            });
+
+        // The fault-tree response — repeated shared events behind a threshold gate.
+        yield return new RegistryEntry(
+            nameof(FaultTreeResponse),
+            () =>
+            {
+                var tree = new FaultTree();
+                var majority = new FaultTreeGateNode("Majority", FaultTreeGateType.KOfN, 2);
+                tree.Add(tree.Root.Id, majority);
+                var pump = new FaultTreeBasicEventNode("Pump", new ProbabilitySource(0.2d));
+                tree.Add(majority.Id, pump);
+                tree.Add(majority.Id, new FaultTreeBasicEventNode("Valve", new ProbabilitySource(0.1d)));
+                tree.LinkShared(majority.Id, pump.Id, "Shared pump");
+                tree.Add(tree.Root.Id, new FaultTreeHouseEventNode("Maintenance bypass", false));
+                return new FaultTreeResponse(new[] { 0d, 1d }, tree)
+                {
+                    Name = "Fault tree",
+                    SpecifiedHazard = "Stage",
+                    HazardUnit = "ft",
+                };
+            },
+            f =>
+            {
+                var response = (FaultTreeResponse)f;
+                var gate = (FaultTreeGateNode)response.FaultTree.Root.Children[0];
+                ((FaultTreeBasicEventNode)gate.Children[0]).ProbabilitySource = new ProbabilitySource(0.35d);
             });
 
         // The composite transform (Average-only; the mutation nudges a weight).

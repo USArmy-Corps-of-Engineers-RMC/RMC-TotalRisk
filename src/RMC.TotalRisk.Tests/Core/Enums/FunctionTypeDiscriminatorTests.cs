@@ -8,6 +8,7 @@ using RMC.TotalRisk.RiskFunctions.Consequences;
 using RMC.TotalRisk.RiskFunctions.Hazards;
 using RMC.TotalRisk.RiskFunctions.Responses;
 using RMC.TotalRisk.RiskFunctions.Responses.EventTrees;
+using RMC.TotalRisk.RiskFunctions.Responses.FaultTrees;
 using RMC.TotalRisk.RiskFunctions.Transforms;
 
 namespace RMC.TotalRisk.Tests.Core.Enums;
@@ -34,7 +35,7 @@ public class FunctionTypeDiscriminatorTests
             new[] { "Tabular", "Linear", "Power", "Composite" },
             Enum.GetNames<TransformFunctionType>());
         CollectionAssert.AreEqual(
-            new[] { "Tabular", "Parametric", "NonFail", "Composite", "EventTree" },
+            new[] { "Tabular", "Parametric", "NonFail", "Composite", "EventTree", "FaultTree" },
             Enum.GetNames<ResponseFunctionType>());
         CollectionAssert.AreEqual(
             new[] { "Tabular", "Parametric", "Composite" },
@@ -59,6 +60,7 @@ public class FunctionTypeDiscriminatorTests
         Assert.AreEqual(ResponseFunctionType.NonFail, new NonFailResponse().FunctionType);
         Assert.AreEqual(ResponseFunctionType.Composite, new CompositeResponse().FunctionType);
         Assert.AreEqual(ResponseFunctionType.EventTree, new EventTreeResponse().FunctionType);
+        Assert.AreEqual(ResponseFunctionType.FaultTree, new FaultTreeResponse().FunctionType);
         Assert.AreEqual(ConsequenceFunctionType.Tabular, new TabularConsequence().FunctionType);
         Assert.AreEqual(ConsequenceFunctionType.Parametric, new ParametricConsequence().FunctionType);
         Assert.AreEqual(ConsequenceFunctionType.Composite, new CompositeConsequence().FunctionType);
@@ -86,6 +88,7 @@ public class FunctionTypeDiscriminatorTests
             new ParametricResponse().ToXElement(),
             new NonFailResponse().ToXElement(),
             new CompositeResponse().ToXElement(),
+            new FaultTreeResponse().ToXElement(),
             new TabularConsequence().ToXElement(),
             new ParametricConsequence().ToXElement(),
             new CompositeConsequence().ToXElement(),

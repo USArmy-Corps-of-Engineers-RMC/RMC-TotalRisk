@@ -7,6 +7,7 @@ using RMC.TotalRisk.RiskFunctions.Consequences;
 using RMC.TotalRisk.RiskFunctions.Hazards;
 using RMC.TotalRisk.RiskFunctions.Responses;
 using RMC.TotalRisk.RiskFunctions.Responses.EventTrees;
+using RMC.TotalRisk.RiskFunctions.Responses.FaultTrees;
 using RMC.TotalRisk.RiskFunctions.Transforms;
 
 namespace RMC.TotalRisk.Tests.RiskFunctions;
@@ -35,6 +36,7 @@ public class RiskFunctionFactoryTests
             new ParametricResponse(),
             new NonFailResponse(),
             new EventTreeResponse(),
+            new FaultTreeResponse(),
             new TabularConsequence(),
             new ParametricConsequence(),
             new CompositeConsequence(),
