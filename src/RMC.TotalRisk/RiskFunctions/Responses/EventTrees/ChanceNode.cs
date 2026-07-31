@@ -1,4 +1,5 @@
 using System;
+using RMC.TotalRisk.RiskFunctions.Responses.Trees;
 
 namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
 {

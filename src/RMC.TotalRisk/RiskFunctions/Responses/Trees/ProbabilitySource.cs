@@ -10,10 +10,10 @@ using RMC.TotalRisk.Core.Enums;
 using RMC.TotalRisk.Core.Interfaces;
 using RMC.TotalRisk.RiskFunctions;
 
-namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
+namespace RMC.TotalRisk.RiskFunctions.Responses.Trees
 {
     /// <summary>
-    /// The discriminated conditional-probability source of a <see cref="ChanceNode"/>: a fixed
+    /// The discriminated conditional-probability value of a tree probability node: a fixed
     /// scalar, an uncertain table aligned to the owning tree hazards, or a referenced response.
     /// </summary>
     public sealed class ProbabilitySource
@@ -47,10 +47,11 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
         /// <summary>Restores a probability source from its serialized form.</summary>
         /// <param name="xElement">The serialized probability source.</param>
         /// <param name="resolver">The optional function resolver for by-reference content.</param>
-        /// <param name="ownerName">The owning event-tree response name used in diagnostics.</param>
+        /// <param name="ownerName">The owning tree response name used in diagnostics.</param>
+        /// <param name="treeKind">The hyphenated tree-kind diagnostic label (for example <c>event-tree</c>).</param>
         /// <exception cref="ArgumentNullException">Thrown when the element is null.</exception>
         /// <exception cref="InvalidOperationException">Thrown when the source kind or content is malformed.</exception>
-        internal ProbabilitySource(XElement xElement, IRiskFunctionResolver? resolver, string ownerName)
+        internal ProbabilitySource(XElement xElement, IRiskFunctionResolver? resolver, string ownerName, string treeKind)
         {
             if (xElement == null) throw new ArgumentNullException(nameof(xElement));
             Kind = SerializationUtilities.ReadEnum(xElement, nameof(Kind), ProbabilitySourceKind.DeterministicScalar);
@@ -62,7 +63,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                 case ProbabilitySourceKind.UncertainTabular:
                     var tableElement = xElement.Element(nameof(UncertainOrderedPairedData));
                     if (tableElement == null)
-                        throw new InvalidOperationException("An uncertain event-tree probability source has no serialized table.");
+                        throw new InvalidOperationException($"An uncertain {treeKind} probability source has no serialized table.");
                     Table = new UncertainOrderedPairedData(tableElement)
                     {
                         OrderX = SortOrder.Ascending,
@@ -75,13 +76,13 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                 case ProbabilitySourceKind.ResponseFunctionReference:
                     var child = xElement.Element("Function")?.Elements().FirstOrDefault();
                     if (child == null)
-                        throw new InvalidOperationException("A response-backed event-tree probability source has no serialized function.");
+                        throw new InvalidOperationException($"A response-backed {treeKind} probability source has no serialized function.");
                     ResponseFunction = FunctionEntry.Read<IResponseFunction>(
                         child, resolver, c => RiskFunctionFactory.CreateFromXElement(c, resolver), ownerName,
-                        $"The event-tree response '{ownerName}'", "response function", _unresolvedReferences);
+                        $"The {treeKind} response '{ownerName}'", "response function", _unresolvedReferences);
                     break;
                 default:
-                    throw new InvalidOperationException($"The event-tree probability source kind '{Kind}' is not supported.");
+                    throw new InvalidOperationException($"The {treeKind} probability source kind '{Kind}' is not supported.");
             }
         }
 
@@ -120,16 +121,17 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
 
         /// <summary>Validates the source against the owning tree's hazard axis.</summary>
         /// <param name="hazards">The owning tree hazards.</param>
-        /// <param name="nodeName">The chance-node display name used in diagnostics.</param>
+        /// <param name="nodeLabel">The node diagnostic label, including the node kind and quoted display name.</param>
+        /// <param name="treeKind">The hyphenated tree-kind diagnostic label (for example <c>event-tree</c>).</param>
         /// <returns>Deterministically ordered validation messages.</returns>
-        internal List<string> Validate(IReadOnlyList<double> hazards, string nodeName)
+        internal List<string> Validate(IReadOnlyList<double> hazards, string nodeLabel, string treeKind)
         {
             var messages = new List<string>();
             if (Kind == ProbabilitySourceKind.DeterministicScalar)
             {
                 double value = ScalarProbability!.Value;
                 if (!double.IsFinite(value) || value < 0d || value > 1d)
-                    messages.Add($"Error: Chance node '{nodeName}' has a scalar probability outside [0, 1].");
+                    messages.Add($"Error: {nodeLabel} has a scalar probability outside [0, 1].");
                 return messages;
             }
 
@@ -137,19 +139,19 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
             {
                 if (ReferenceEquals(Table, null) || !Table.IsValid || Table.Count != hazards.Count)
                 {
-                    messages.Add($"Error: Chance node '{nodeName}' must have one valid probability-table ordinate per event-tree hazard level.");
+                    messages.Add($"Error: {nodeLabel} must have one valid probability-table ordinate per {treeKind} hazard level.");
                     return messages;
                 }
                 for (int i = 0; i < hazards.Count; i++)
                 {
                     if (Table[i].X != hazards[i])
                     {
-                        messages.Add($"Error: Chance node '{nodeName}' probability-table hazards are not aligned to the event tree.");
+                        messages.Add($"Error: {nodeLabel} probability-table hazards are not aligned to the {treeKind.Replace('-', ' ')}.");
                         break;
                     }
                     if (ReferenceEquals(Table[i].Y, null) || Table[i].Y!.Minimum < 0d || Table[i].Y!.Maximum > 1d)
                     {
-                        messages.Add($"Error: Chance node '{nodeName}' probability distributions must remain within [0, 1].");
+                        messages.Add($"Error: {nodeLabel} probability distributions must remain within [0, 1].");
                         break;
                     }
                 }
@@ -157,9 +159,9 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
             }
 
             foreach (string reference in _unresolvedReferences)
-                messages.Add($"Error: Chance node '{nodeName}' references {reference}, which was not found.");
+                messages.Add($"Error: {nodeLabel} references {reference}, which was not found.");
             if (ResponseFunction == null && _unresolvedReferences.Count == 0)
-                messages.Add($"Error: Chance node '{nodeName}' has no referenced response function.");
+                messages.Add($"Error: {nodeLabel} has no referenced response function.");
             else if (ResponseFunction != null)
             {
                 var validation = ResponseFunction.Validate();
@@ -167,7 +169,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                     message.StartsWith("Error:", StringComparison.Ordinal)))
                 {
                     messages.Add(
-                        $"Error: Chance node '{nodeName}' references invalid response function " +
+                        $"Error: {nodeLabel} references invalid response function " +
                         $"'{ResponseFunction.Name}': {message.Substring("Error:".Length).Trim()}");
                 }
             }

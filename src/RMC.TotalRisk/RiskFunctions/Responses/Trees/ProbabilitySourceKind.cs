@@ -1,6 +1,6 @@
-namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
+namespace RMC.TotalRisk.RiskFunctions.Responses.Trees
 {
-    /// <summary>Identifies the value carried by an event-tree chance node.</summary>
+    /// <summary>Identifies the value carried by a tree probability source.</summary>
     public enum ProbabilitySourceKind
     {
         /// <summary>A fixed conditional probability.</summary>

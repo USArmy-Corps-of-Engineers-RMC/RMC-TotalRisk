@@ -7,6 +7,7 @@ using Numerics.Data;
 using Numerics.Distributions;
 using RMC.TotalRisk.Core;
 using RMC.TotalRisk.Core.Enums;
+using RMC.TotalRisk.RiskFunctions.Responses.Trees;
 
 namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
 {

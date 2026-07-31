@@ -2,11 +2,11 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Numerics.Data;
 using Numerics.Distributions;
 using RMC.TotalRisk.RiskFunctions.Responses;
-using RMC.TotalRisk.RiskFunctions.Responses.EventTrees;
+using RMC.TotalRisk.RiskFunctions.Responses.Trees;
 
-namespace RMC.TotalRisk.Tests.RiskFunctions.Responses.EventTrees;
+namespace RMC.TotalRisk.Tests.RiskFunctions.Responses.Trees;
 
-/// <summary>Tests event-tree probability-source discriminators and owned values.</summary>
+/// <summary>Tests tree probability-source discriminators and owned values.</summary>
 [TestClass]
 public class ProbabilitySourceTests
 {

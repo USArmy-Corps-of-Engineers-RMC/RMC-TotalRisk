@@ -844,7 +844,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                 nameof(InitiatingNode) => new InitiatingNode(id, name, description, isFailure, outputPort),
                 nameof(ChanceNode) => new ChanceNode(id, name, description, isFailure, outputPort,
                     new ProbabilitySource(element.Element(nameof(ProbabilitySource))
-                        ?? throw new InvalidOperationException($"Serialized chance node '{name}' has no probability source."), resolver, ownerName)),
+                        ?? throw new InvalidOperationException($"Serialized chance node '{name}' has no probability source."), resolver, ownerName, "event-tree")),
                 nameof(RemainderNode) => new RemainderNode(id, name, description, isFailure, outputPort),
                 nameof(EventTreeLinkNode) => ReadLinkNode(element, resolver, ownerName,
                     id, name, description, isFailure, outputPort),

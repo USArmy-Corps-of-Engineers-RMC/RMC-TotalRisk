@@ -309,7 +309,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                 {
                     if (occurrence.SourceNode is not ChanceNode chance) continue;
                     foreach (string message in chance.ProbabilitySource.Validate(
-                        occurrence.SourceFunction.HazardLevels, occurrence.DisplayName))
+                        occurrence.SourceFunction.HazardLevels, $"Chance node '{occurrence.DisplayName}'", "event-tree"))
                         AddUnique(messages, message);
                 }
 
