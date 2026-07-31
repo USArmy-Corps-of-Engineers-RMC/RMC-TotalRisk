@@ -151,7 +151,7 @@ Every terminal node has a stable branch descriptor. A chance or link terminal de
 ### 3.3 Static fault-tree model
 
 - `FaultTreeResponse`: the public binary response function; owns one `FaultTree`, hazard levels, validation, sampling, serialization, and the top-event output.
-- `FaultTree`: a controlled directed acyclic graph with a single top-event root.
+- `FaultTree`: a controlled single-parent authored tree with a single top-event root (ratified 2026-07-31). Every input edge names exactly one parent gate and one child node; all reuse and sharing is expressed through `FaultTreeTransferNode` references, and the expanded compiled plan — transfers resolved to their targets — is the directed acyclic graph the probability model evaluates.
 - `FaultTreeGateNode`: `And`, `Or`, `Xor`, or `KOfN`; `K` is required only for `KOfN` and satisfies `1 <= K <= input count`.
 - `FaultTreeBasicEventNode`: a Boolean basic event driven by a local probability source or a referenced `IResponseFunction`.
 - `FaultTreeHouseEventNode`: a deterministic true/false event.
@@ -175,7 +175,7 @@ Public collections are read-only views. All mutation goes through `EventTree` or
 | `Copy` | Produce an in-memory `TreeFragment` snapshot; retain source IDs only for internal-link remapping and do not mutate the tree. |
 | `PasteClone` | Deep-copy the fragment, allocate fresh persistent IDs, rewrite all references whose targets were inside the fragment, and preserve external references. |
 | `LinkIndependent` | Insert a lightweight reference to the source subtree; compile it as an under-the-hood independent clone with its own occurrence path and sampling stream. This supports building a branch left-to-right once and reusing it vertically. |
-| `LinkShared` | Fault trees only: insert a shared-logical reference whose repeated occurrences resolve to the same Boolean variable. Event trees reject it in Phase 10A. |
+| `LinkShared` | Fault trees only: insert a shared-logical reference whose repeated occurrences resolve to the same Boolean variable. Event trees continue to reject it. |
 | `Move` | Reparent/reorder a node transactionally after cycle and type checks. |
 | `Replace` | Replace a node while applying the selected child/reference policy explicitly. |
 | `Delete` | Require a `RejectIfReferenced`, `CascadeLinks`, or `MaterializeLinks` policy. The default is `RejectIfReferenced`. No dangling link is allowed. |
@@ -270,13 +270,13 @@ The production algorithm is an ordered reduced binary decision diagram (ROBDD):
 4. build/reduce the BDD with unique-table and computed-table memoization; and
 5. evaluate bottom-up with `P(node) = (1 - p_i) * P(low) + p_i * P(high)`.
 
-This produces exact floating-point probability for the specified independent/shared static model without enumerating `2^N` event combinations. Read-once trees may use direct gate formulas as a verified fast path. The BDD remains the reference implementation for repeated events, non-coherent XOR, and `KOfN` compositions.
+This produces exact floating-point probability for the specified independent/shared static model without enumerating `2^N` event combinations. The optional read-once gate-formula fast path was deliberately not implemented: the reduced decision diagram is the single exact evaluation path for every tree, and the closed-form gate identities in the unit and verification suites serve as its read-once verification. `Xor` gates take exactly two inputs; wider parity compositions must be authored explicitly from two-input gates.
 
-Minimal cut sets are an inspection result for coherent `AND`/`OR`/`KOfN` trees only. They are not the probability engine. XOR models return a clear “cut sets not defined for non-coherent tree” diagnostic rather than a misleading approximation.
+Minimal cut sets are an inspection result for coherent `AND`/`OR`/`KOfN` trees only, extracted from the reduced decision diagram by Rauzy's algorithm and bounded by the `GetMinimalCutSets(maxCutSets = 10000)` cap, which fails loudly when exceeded. They are not the probability engine. XOR models return a clear “cut sets not defined for non-coherent tree” diagnostic rather than a misleading approximation.
 
 The response samples the exact top-event probability at the response's ordered hazard levels and exposes the resulting `OrderedPairedData`/`IUnivariateDistribution` through the normal response contract. `IsMonotonic()` reports the sampled curve just as other nonparametric responses do; non-monotonicity is warned, not silently repaired. No gate clips, renormalizes, or forces a fragility shape beyond tolerance-scale endpoint cleanup.
 
-If BDD node count exceeds a configurable resource budget, setup fails before analysis with the observed count, configured limit, and remediation advice. Phase 10B must not silently fall back to rare-event approximation or cut-set truncation. A future approximation mode requires separate technical approval and a distinct result-quality surface.
+If BDD node count exceeds the configurable `BddNodeLimit` resource budget (default 1,000,000; runtime-only, never serialized or hashed), setup fails before analysis with the observed count, configured limit, and remediation advice. Phase 10B must not silently fall back to rare-event approximation or cut-set truncation. A future approximation mode requires separate technical approval and a distinct result-quality surface.
 
 ## 8. LHS, uncertainty, and deterministic seeding
 
@@ -376,7 +376,7 @@ The canonical v1.1 XML shape is explicit and versioned. Node collections seriali
   <HazardLevels><Level Value="..." /></HazardLevels>
   <FaultTree TopNodeId="...">
     <Nodes><!-- gates, basic events, house events, transfers --></Nodes>
-    <Inputs><!-- ordered gate inputs --></Inputs>
+    <Inputs><Input ParentNodeId="..." ChildNodeId="..." Order="..." /></Inputs>
   </FaultTree>
 </FaultTreeResponse>
 ```
@@ -390,6 +390,7 @@ Canonical identity is a projected, normalized form analogous to `SystemComponent
 - sort mathematically commutative fault-gate inputs by child canonical hash;
 - retain event-tree structural branch order only where the authored sequence changes branch identity/output mapping;
 - include normalized referenced target identity and link mode;
+- normalize shared-logical references to `SharedVariable` markers numbered by first canonical occurrence, which is the identity form for repeated shared events;
 - exclude `SelfContained` versus `ByReference` wrappers; and
 - use invariant-culture numeric formatting and existing canonicalization helpers.
 
