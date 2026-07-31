@@ -42,6 +42,14 @@ Fixtures:
   The one shape whose per-realization cost is the combined-distribution rebuild: every
   realization re-tabulates `Mixture.CreateEmpiricalCDF()` (~200 bins over the K = 4 sampled
   children) before the risk integrand inverts the interpolated CDF at every quadrature node.
+- **F7** (added 2026-07-31) — a shared-event `FaultTreeResponse`: twenty pooled basic events
+  repeated three to seven times through shared-logical transfers across twenty crossing AND
+  trains and two wide k-of-n voting gates (one counting crossing pool pairs), plus forty
+  train-local events with sources alternating between scalars and 33-knot uncertain tables.
+  The authored tree has 191 nodes (49 gates, 60 basic events, 82 transfers); the expansion
+  unifies 60 Boolean variables and freezes a 23,344-node exact decision diagram. It measures
+  sampler setup plus 32 indexed top-event curve reads at N = 64; the byte gate hashes every
+  hazard/probability ordinate of the final indexed curve in G17/invariant form.
 
 Each fixture also reports the process-wide allocated-bytes delta and GC collection counts of
 the final full run (`GC.GetTotalAllocatedBytes(precise)`) — the direct signal for the
@@ -449,7 +457,7 @@ and the current pair reproduces the new hash across repeated runs. Re-pinned wit
 - F4 `846234f17c71ffef1239e50caee0f897c7e7d95bcf85489917b8ef7bca92eb99` (4.62 GB)
 
 **Standing rule:** a byte-gate round at any close-out runs every committed fixture (currently
-F1–F6), and a fixture measured before a session's final upstream commit is not a gate — re-run
+F1–F7), and a fixture measured before a session's final upstream commit is not a gate — re-run
 after the last commit that can reach the compute path.
 
 ## F6 — the composite CreateEmpiricalCDF fixture (2026-07-30)
@@ -468,6 +476,26 @@ invocation, Release, `--reps 3`):
 The hash is stable across single-rep and median-of-3 invocations. The fixture addition touches no
 engine code path; F1–F5 reproduced their recorded pins bit-exactly in the same session after the
 session's last library commit, and the close-out round re-runs all six.
+
+## F7 — the shared-event fault-tree fixture (2026-07-31)
+
+The static fault-tree landing added F7 so the exact decision-diagram shape has a committed
+reference: repeated shared events are what grow a reduced ordered diagram, and this fixture's
+crossing trains and wide undecided thresholds keep many partial obligations live under any
+canonical variable order. Setup pays occurrence expansion, unification, the 23,344-node diagram
+build/freeze, and 34-dimension Latin hypercube preparation at N = 64; each indexed read pays 33
+hazard ordinates × (60 source evaluations + one linear pass over the frozen diagram). The
+committed row (isolated invocation, Release, `--reps 3`):
+
+| Fixture | Decision nodes | Variables | Plans | Setup median (s) | Setup alloc (MB) | 32 reads (s) | Read alloc (MB) | SHA-256 |
+|---|---:|---:|---:|---:|---:|---:|---:|---|
+| F7 | 23,344 | 60 | 1 | 0.091965 | 62.18 | 0.604993 | 574.74 | `f985ca0228952ac0ba66cc29b39cf9006247ea3965264b966ab785fa74317084` |
+
+Read time is dominated by uncertain-table source evaluation (each read re-samples 34 table
+curves per hazard pass), not by the frozen diagram, whose linear evaluation is allocation-free
+by construction; the recorded read allocation is predominantly the per-read public curve and
+source-curve materialization. The fixture addition touches no engine code path, and the
+close-out round runs all seven fixtures.
 
 ## Upstream Numerics micro-measurements (2026-07-30, record-only)
 

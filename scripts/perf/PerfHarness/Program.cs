@@ -12,6 +12,7 @@ using RMC.TotalRisk.RiskFunctions.Consequences;
 using RMC.TotalRisk.RiskFunctions.Hazards;
 using RMC.TotalRisk.RiskFunctions.Responses;
 using RMC.TotalRisk.RiskFunctions.Responses.EventTrees;
+using RMC.TotalRisk.RiskFunctions.Responses.FaultTrees;
 using RMC.TotalRisk.RiskFunctions.Responses.Trees;
 using RMC.TotalRisk.Systems.Components;
 
@@ -41,7 +42,11 @@ namespace RMC.TotalRisk.PerfHarness
     /// composite hazard over bootstrap posteriors with an uncertain day/night composite
     /// consequence, the shape whose per-realization cost is the combined distribution rebuild:
     /// <c>Mixture.CreateEmpiricalCDF()</c> re-tabulates ~200 bins over the K = 4 sampled children
-    /// every realization before the risk integrand inverts the result at every quadrature node.
+    /// every realization before the risk integrand inverts the result at every quadrature node;
+    /// <b>F7</b> — a fault tree whose ~20 pooled basic events repeat three to five times through
+    /// shared-logical transfers across eight crossing trains and two k-of-n voting gates, with
+    /// mixed scalar and uncertain-table sources, measured directly at the sampler-setup and
+    /// indexed-read boundaries with the frozen decision-diagram size reported.
     /// Each engine fixture reports the mean-only and full-uncertainty medians of three runs plus
     /// the SHA-256 of the concatenated results JSON (mean, lower, upper, median realizations and
     /// the summary ensemble).
@@ -62,7 +67,7 @@ namespace RMC.TotalRisk.PerfHarness
         /// <c>--reps 3</c> for the committed baseline/final table rows.</summary>
         private static int _reps = 1;
 
-        /// <summary>Runs the requested fixtures (args: optional <c>--reps N</c> plus fixture names among F1 F2 F3 F4 F5 F6; default all).</summary>
+        /// <summary>Runs the requested fixtures (args: optional <c>--reps N</c> plus fixture names among F1 F2 F3 F4 F5 F6 F7; default all).</summary>
         /// <param name="args">Optional repetition count and fixture filter.</param>
         /// <returns>Zero on success.</returns>
         public static int Main(string[] args)
@@ -95,6 +100,7 @@ namespace RMC.TotalRisk.PerfHarness
             if (All("F4")) Measure("F4 dependent competing risks, 4 modes, N=200", () => BuildF4());
             if (All("F5")) MeasureEventTree();
             if (All("F6")) Measure("F6 composite hazard + day/night consequence, N=500", () => BuildF6());
+            if (All("F7")) MeasureFaultTree();
             return 0;
         }
 
@@ -193,6 +199,62 @@ namespace RMC.TotalRisk.PerfHarness
             Console.WriteLine($"  {evaluations,2} indexed reads:     {evaluationMedian,10:F6} s");
             Console.WriteLine($"  reads allocated:      {evaluationAllocatedBytes / (1024d * 1024d),10:F2} MB");
             Console.WriteLine($"  result SHA-256:       {BranchSampleHash(finalSample)}");
+            Console.WriteLine();
+        }
+
+        /// <summary>
+        /// Measures the shared-event fault-tree fixture at the sampler-setup and repeated
+        /// indexed-read boundaries. The result hash covers every ordinate of the final indexed
+        /// top-event curve, and the frozen decision-diagram size is reported alongside the
+        /// unified-variable and published-plan counts.
+        /// </summary>
+        private static void MeasureFaultTree()
+        {
+            const int sampleSize = 64;
+            const int evaluations = 32;
+            const int seed = 24681357;
+
+            FaultTreeResponse warm = BuildF7();
+            warm.SetupSampler(sampleSize, seed, SamplingScheme.LatinHypercube);
+            OrderedPairedData warmSample = warm.SampleResponseFunction(0);
+
+            long setupAllocatedBytes = 0;
+            double setupMedian = Median(() =>
+            {
+                FaultTreeResponse response = BuildF7();
+                long allocatedBefore = GC.GetTotalAllocatedBytes(precise: true);
+                double elapsed = Time(() => response.SetupSampler(
+                    sampleSize, seed, SamplingScheme.LatinHypercube));
+                setupAllocatedBytes = GC.GetTotalAllocatedBytes(precise: true) - allocatedBefore;
+                return elapsed;
+            });
+
+            long evaluationAllocatedBytes = 0;
+            OrderedPairedData finalSample = warmSample;
+            double evaluationMedian = Median(() =>
+            {
+                FaultTreeResponse response = BuildF7();
+                response.SetupSampler(sampleSize, seed, SamplingScheme.LatinHypercube);
+                long allocatedBefore = GC.GetTotalAllocatedBytes(precise: true);
+                double elapsed = Time(() =>
+                {
+                    for (int i = 0; i < evaluations; i++)
+                        finalSample = response.SampleResponseFunction(i % sampleSize);
+                });
+                evaluationAllocatedBytes = GC.GetTotalAllocatedBytes(precise: true) - allocatedBefore;
+                return elapsed;
+            });
+
+            Console.WriteLine("F7 fault tree, repeated shared basic events");
+            Console.WriteLine($"  decision nodes:       {warm.CompiledDecisionNodeCount,10}");
+            Console.WriteLine($"  unified variables:    {warm.CompiledVariableCount,10}");
+            Console.WriteLine($"  compiled plans:       {warm.CompiledPlanBuildCount,10}");
+            Console.WriteLine($"  authored nodes:       {warm.FaultTree.Nodes.Count,10}");
+            Console.WriteLine($"  setup median:         {setupMedian,10:F6} s");
+            Console.WriteLine($"  setup allocated:      {setupAllocatedBytes / (1024d * 1024d),10:F2} MB");
+            Console.WriteLine($"  {evaluations,2} indexed reads:     {evaluationMedian,10:F6} s");
+            Console.WriteLine($"  reads allocated:      {evaluationAllocatedBytes / (1024d * 1024d),10:F2} MB");
+            Console.WriteLine($"  result SHA-256:       {CurveHash(finalSample)}");
             Console.WriteLine();
         }
 
@@ -580,6 +642,142 @@ namespace RMC.TotalRisk.PerfHarness
             tree.Add(parent.Id, new RemainderNode($"R{remainingDepth}"));
             AddEventTreeLevel(tree, first, remainingDepth - 1);
             AddEventTreeLevel(tree, second, remainingDepth - 1);
+        }
+
+        /// <summary>Computes the deterministic byte gate for one indexed top-event curve.</summary>
+        /// <param name="curve">The sampled hazard/probability curve.</param>
+        /// <returns>The lowercase SHA-256 digest.</returns>
+        private static string CurveHash(OrderedPairedData curve)
+        {
+            var builder = new StringBuilder();
+            for (int i = 0; i < curve.Count; i++)
+            {
+                builder.Append(curve[i].X.ToString("G17", CultureInfo.InvariantCulture)).Append('|');
+                builder.Append(curve[i].Y.ToString("G17", CultureInfo.InvariantCulture)).Append('|');
+            }
+            byte[] digest = SHA256.HashData(Encoding.UTF8.GetBytes(builder.ToString()));
+            return Convert.ToHexString(digest).ToLowerInvariant();
+        }
+
+        /// <summary>
+        /// Builds the F7 shared-event fault tree: eight crossing trains and two k-of-n voting
+        /// gates draw on a pool of twenty basic events that repeat three to five times through
+        /// shared-logical transfers, alongside forty train-local events, with sources alternating
+        /// between fixed scalars and aligned uncertain tables. The crossing repetition pattern is
+        /// what grows the frozen decision diagram, because no single subtree order can keep the
+        /// repeated variables adjacent.
+        /// </summary>
+        private static FaultTreeResponse BuildF7()
+        {
+            double[] hazards = new double[33];
+            for (int i = 0; i < hazards.Length; i++) hazards[i] = i;
+
+            var tree = new FaultTree();
+            var pool = new FaultTreeBasicEventNode?[20];
+            int localOrdinal = 0;
+
+            // Uses one pool event: the first use authors it in place, repeats share it.
+            void UsePool(FaultTreeGateNode parent, int index)
+            {
+                if (pool[index] == null)
+                {
+                    double probability = 0.06d + 0.012d * index;
+                    pool[index] = new FaultTreeBasicEventNode($"Pool {index}",
+                        index % 2 == 0
+                            ? new ProbabilitySource(probability)
+                            : new ProbabilitySource(FaultTable(hazards, probability)));
+                    tree.Add(parent.Id, pool[index]!);
+                    return;
+                }
+                tree.LinkShared(parent.Id, pool[index]!.Id, $"Pool {index} again");
+            }
+
+            // Adds one train-local event with alternating scalar/table sources.
+            void AddLocal(FaultTreeGateNode parent)
+            {
+                int ordinal = localOrdinal++;
+                double probability = 0.1d + 0.005d * (ordinal % 20);
+                tree.Add(parent.Id, new FaultTreeBasicEventNode($"Local {ordinal}",
+                    ordinal % 2 == 0
+                        ? new ProbabilitySource(probability)
+                        : new ProbabilitySource(FaultTable(hazards, probability))));
+            }
+
+            // Sixteen concurrently live AND trains bound the diagram frontier near 2^16, and the
+            // strided pool picks force every variable order to keep many trains open at once.
+            for (int t = 0; t < 16; t++)
+            {
+                var train = new FaultTreeGateNode($"Train {t}", FaultTreeGateType.And);
+                tree.Add(tree.Root.Id, train);
+                AddLocal(train);
+                UsePool(train, (3 * t) % 20);
+                UsePool(train, (3 * t + 7) % 20);
+                UsePool(train, (3 * t + 11) % 20);
+
+                var group = new FaultTreeGateNode($"Train {t} group", FaultTreeGateType.Or);
+                tree.Add(train.Id, group);
+                AddLocal(group);
+                UsePool(group, (3 * t + 14) % 20);
+            }
+
+            // A second bank on a co-prime stride keeps a different train subset live at every
+            // point of any variable order, multiplying the reachable frontier again.
+            for (int t = 16; t < 20; t++)
+            {
+                var train = new FaultTreeGateNode($"Train {t}", FaultTreeGateType.And);
+                tree.Add(tree.Root.Id, train);
+                AddLocal(train);
+                UsePool(train, (9 * t) % 20);
+                UsePool(train, (9 * t + 4) % 20);
+                UsePool(train, (9 * t + 13) % 20);
+
+                var group = new FaultTreeGateNode($"Train {t} group", FaultTreeGateType.Or);
+                tree.Add(train.Id, group);
+                AddLocal(group);
+                UsePool(group, (9 * t + 17) % 20);
+            }
+
+            // The wide undecided thresholds resolve only near the end of any variable order, so
+            // their partial counters multiply the live-train frontier across the whole pool span.
+            // Voting A counts crossing pool pairs, so its counter also carries half-open pair
+            // obligations; voting B counts the odd pool directly.
+            var votingA = new FaultTreeGateNode("Voting A", FaultTreeGateType.KOfN, 3);
+            tree.Add(tree.Root.Id, votingA);
+            for (int pair = 0; pair < 6; pair++)
+            {
+                var joint = new FaultTreeGateNode($"Voting A pair {pair}", FaultTreeGateType.And);
+                tree.Add(votingA.Id, joint);
+                UsePool(joint, (2 * pair) % 20);
+                UsePool(joint, (2 * pair + 10) % 20);
+            }
+
+            var votingB = new FaultTreeGateNode("Voting B", FaultTreeGateType.KOfN, 5);
+            tree.Add(tree.Root.Id, votingB);
+            foreach (int index in new[] { 1, 3, 5, 7, 9, 11, 13, 15, 17, 19 })
+                UsePool(votingB, index);
+
+            return new FaultTreeResponse(hazards, tree)
+            {
+                Name = "Shared-event fault tree",
+                SpecifiedHazard = "Stage",
+                HazardUnit = "ft",
+            };
+        }
+
+        /// <summary>Builds one aligned constant-band uniform fault-tree table.</summary>
+        /// <param name="hazards">The response hazard axis.</param>
+        /// <param name="mean">The band mean probability.</param>
+        /// <returns>The aligned uncertainty table.</returns>
+        private static UncertainOrderedPairedData FaultTable(double[] hazards, double mean)
+        {
+            double half = Math.Min(0.03d, mean * 0.4d);
+            var ordinates = new UncertainOrdinate[hazards.Length];
+            for (int i = 0; i < hazards.Length; i++)
+            {
+                ordinates[i] = new UncertainOrdinate(hazards[i], new Uniform(mean - half, mean + half));
+            }
+            return new UncertainOrderedPairedData(ordinates, true, SortOrder.Ascending,
+                false, SortOrder.None, UnivariateDistributionType.Uniform);
         }
 
         /// <summary>Builds a clamped linear tabular consequence over (0, 30) ft.</summary>
