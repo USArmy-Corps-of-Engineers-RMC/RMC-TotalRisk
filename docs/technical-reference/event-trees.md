@@ -125,7 +125,12 @@ succeeds only when exact link materialization retains the same branch ID and por
 never fabricates an equivalent-looking replacement. The expanded and aggregate views are mutually
 exclusive, and per-leaf compute rides projected per-leaf hash/seed identity.
 
-## Future work
+## The fault-tree sibling
 
-The exact static fault-tree capability (`FaultTreeResponse`, `SharedLogicalEvent` references,
-Boolean gate evaluation) is specified in the normative design and not yet implemented.
+The exact static fault-tree capability is documented in [fault-trees.md](fault-trees.md):
+`FaultTreeResponse` shares this family's tree foundation (`ProbabilitySource`, fragments,
+references, link modes, delete policies, transactional authoring, projected identity, and the
+compiled-plan discipline) while adding Boolean gate evaluation through an exact reduced decision
+diagram. `TreeLinkMode.SharedLogicalEvent` — the same-Boolean-event link meaning — is implemented
+there; event trees continue to admit only `IndependentClone` links, and
+`TreeNodeImportance.Compute` serves both tree kinds.

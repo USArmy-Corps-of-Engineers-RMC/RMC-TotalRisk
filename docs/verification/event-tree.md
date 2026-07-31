@@ -15,8 +15,8 @@ immutable compiled occurrence/evaluation plan, complete dependency invalidation 
 the F5 large repeated-link performance fixture. Fixed-seed generated fast tests supply deterministic
 property coverage and minimized serialized counterexamples. At the run of record the isolated
 family was **14/14**, the fast suite **781/781**, and unit-only library line coverage
-**90.40% (12,257/13,584)**. The exact static fault-tree capability is future work and is not part
-of this verification family.
+**90.40% (12,257/13,584)**. The exact static fault-tree capability has its own family, documented
+in [fault-tree.md](fault-tree.md).
 
 The response computes conditional fragility `P(F|h)` only. Hazard probability, annualization,
 consequences, and risk remain outside the event tree.

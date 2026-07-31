@@ -29,7 +29,7 @@ Porting sources in order of authority: (1) the partial C# port `C:\GIT\RMC-Total
 | 8.6 | Numerical safety remediation: lazy dependent failure-mode enumeration, probability boundary clipping, mass/LEC endpoint correction | Complete (2026-07-27) |
 | 9 | Composites + RFA hazard + weighted wrappers + BestFit composite imports | Partial (2026-07-25): hazard/response/transform composites P/T/V; RFA hazard + parameter-set imports remain |
 | 10A | Event-tree response + common tree/reference/manipulation foundation | Complete (2026-07-28) |
-| 10B | Static fault-tree response with exact repeated-event evaluation | Designed (2026-07-28); starts after 10A exits |
+| 10B | Static fault-tree response with exact repeated-event evaluation | ✅ Complete (2026-07-31) |
 | 11 | Bivariate + BestFit import + LifeSim | Not started |
 | 12 | Hardening: coverage gate, Linux check, examples, getting-started | Not started (the ≥90% unit-coverage gate script already exists and passes) |
 | 13 | Release prep — `v1.1.0-alpha` tag | Not started |
@@ -572,13 +572,13 @@ unapproved tolerance, correlation, normalization, seed, or probability-formula c
 
 **Exit criteria (met):** common/event-tree family P/T/V; ≥90% fast-suite coverage retained; performance fixture and verification results recorded; all manipulation/reference/branch-output/LHS/hash gates in the normative design green.
 
-## Phase 10B — Static fault-tree response (designed 2026-07-28)
+## Phase 10B — Static fault-tree response ✅ COMPLETE (2026-07-31)
 
 **Scope:** after Phase 10A exits, implement the same normative design's static `FaultTreeResponse`: AND/OR/XOR/K-of-N gates; basic and house events; internal/external transfers; explicit shared-logical versus independent-clone semantics; the same controlled authoring/search/topology/pruning surface; and an exact ordered reduced binary decision diagram (ROBDD) evaluator. The response returns top-event conditional fragility `P(F|h)` only. Exactness is mandatory: minimal cut sets are coherent-tree inspection output, never the production probability algorithm, and resource-limit failure never falls back silently to approximation. The phase also delivers the headless node-importance (node-sensitivity) analysis for tree responses — the Monte Carlo node-importance sweep the v1.0 desktop application computed for event trees, as a typed API on the common tree foundation (scope ratified 2026-07-29).
 
 **Verification:** exhaustive Boolean enumeration for small trees, closed-form gate identities, repeated shared-event versus independent-clone cases, coherent cut-set inspection, independent fixed-seed Monte Carlo checks for medium trees, graph-connected equivalence to an ordinary response curve, LHS/referenced-response sampling, canonical/reproducibility gates, and BDD resource/performance fixtures.
 
-**Exit criteria:** fault-tree family P/T/V and every Phase 10B acceptance item in the normative design green. Honest estimate after the shared 10A foundation: approximately 4–6.5 contributor-weeks. If schedule pressure intervenes, defer 10B rather than ship a naive independence or truncated-cut-set evaluator.
+**Exit criteria met (2026-07-31):** the fault-tree family is P/T/V and every applicable Phase 10B acceptance item in the normative design is green — the ratified single-parent tree+transfers model with the exact BDD as the single evaluation path (the optional read-once fast path deliberately not implemented), Rauzy cut-set inspection with the anti-approximation proof, the node-importance analysis for both tree kinds, the fixed-seed fault property corpus, the 17-test greenfield verification family run isolated beside the re-run event family, 90.39% unit-only coverage, the F7 byte-gated performance fixture, and bit-reproduced F1–F6 gates. Exact Birnbaum/criticality importance measures remain documented future work.
 
 ## Phase 11 — Bivariate + BestFit import + LifeSim
 

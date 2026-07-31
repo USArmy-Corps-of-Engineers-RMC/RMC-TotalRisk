@@ -85,6 +85,7 @@ the test executable with a TRX report:
 | [Composite transform](composite-transform.md) | `CompositeTransformVerification` | NEW greenfield family (no legacy implementation, no report table): exact linear-combination algebra forward and inverse, exact Normal theory for the ω²-additive ensemble variance (the check that discriminates independent from co-monotonic child seeding), and a realization-for-realization identity against the independently reproduced child-seed recipe | ✅ Verified (2026-07-25) |
 | [Composite engine scenarios](composite-engine.md) | `CompositeEngineVerification` | All four executable `Test_Composite.vb` configurations and the risk-analysis mixture identity behind the full engine, checked against independent fixed quadrature and child-engine identities | ✅ Verified (2026-07-27) |
 | [Event-tree response](event-tree.md) | `EventTreeVerification` | Analytic path products/normalization, aligned-table/nested/link/two-mode/legacy/template/per-leaf parity, independent million-route Monte Carlo, aggregate SRS/LHS variance reduction, thread-count bit identity, fixed-seed generated properties, coverage, and hash-gated compiled-plan performance | ✅ Verified (2026-07-28) |
+| [Fault-tree response](fault-tree.md) | `FaultTreeVerification` + `FaultTreeMonteCarloVerification` | Greenfield family — no legacy oracle exists: exhaustive Boolean enumeration, closed-form gate/repeated-event/bridge identities, hand-derived cut sets with the anti-approximation proof, referenced-source inlining across both modes, graph-connected risk equivalence, loud decision-diagram budget diagnostics, independent million-trial Boolean simulation, shared-once/clone-separate LHS strata and variance reduction, scheduling bit identity, canonical invariance, and node-importance oracles for both tree kinds | ✅ Verified (2026-07-31) |
 
 ## Tree-response coverage
 
@@ -93,8 +94,11 @@ compiled-plan, fixed-seed property, routing, LHS, thread-count, coverage, and pe
 executable and documented above. Controlled authoring/topology, stale connections, cache
 invalidation/rollback, bit parity, and large-tree concurrency remain fast-test tripwires; the
 isolated numerical family is 14/14 and F5 retains one compiled plan plus its unchanged byte gate.
-The exact static fault-tree capability is future work and will add `FaultTreeVerification`; its
-gates are specified in the normative [event-tree and fault-tree response design](../requirements/EVENT_AND_FAULT_TREE_RESPONSE_DESIGN.md) §15.
+The exact static fault-tree capability is covered by `FaultTreeVerification` and
+`FaultTreeMonteCarloVerification` against the gates in the normative
+[event-tree and fault-tree response design](../requirements/EVENT_AND_FAULT_TREE_RESPONSE_DESIGN.md)
+§15.2: the isolated family is 17/17, both tree kinds share the fixed-seed property-corpus
+pattern, and F7 records the frozen decision-diagram performance reference with its byte gate.
 
 **Forensic traceability closure.** The
 [legacy traceability matrix](legacy-traceability.csv) accounts for all 142 legacy test methods

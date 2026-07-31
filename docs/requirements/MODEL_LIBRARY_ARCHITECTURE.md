@@ -2,7 +2,17 @@
 
 > Living architectural specification for `RMC.TotalRisk.dll` — the headless .NET 10 compute library at the heart of the v1.1.0 modernization. **Authoritative home (since 2026-07-20): `docs/requirements/` in the RMC-TotalRisk repo**; the phased plan implementing this spec is [../ROADMAP.md](../ROADMAP.md). The copy at the `C:\GIT\RMC-TotalRisk-Dev` root is frozen with a pointer here, and legacy porting-source paths referenced below (e.g., `RMC-TotalRisk/RMC.TotalRisk.IO/...`) live in that Dev repo. The locked sections are the contract every cluster-port PR references.
 
-**Status**: 2026-07-28 — **v0.22** (Phase 10A complete). The common/event-tree foundation now
+**Status**: 2026-07-31 — **v0.23** (Phase 10B complete). The exact static fault-tree response now
+meets every applicable definition-of-done gate in the normative tree-response design: the
+single-parent authored tree with shared-logical/independent transfers, the exact ROBDD evaluator
+with its loud runtime budget, Rauzy cut-set inspection with the non-coherence rule, three-kind
+probability sources at arbitrary acyclic nesting, unified-variable LHS, two-mode persistence with
+read-side embedded-target unification, projected `SharedVariable`-ordinal identity, the fixed-seed
+fault property corpus, the tree node-importance analysis for both kinds, the 17-test greenfield
+verification family, >90% fast coverage, and hash-gated F7 performance. The full tree-response
+design is implemented.
+
+Prior status — 2026-07-28 — **v0.22** (Phase 10A complete). The common/event-tree foundation
 meets every applicable definition-of-done gate in the normative tree-response design: controlled
 authoring/references, recursive LHS, two-mode persistence, projected identity, expanded stable
 ports, immutable compiled evaluation, fixed-seed property/routing/LHS/thread evidence, >90% fast
@@ -259,11 +269,11 @@ src/RMC.TotalRisk/
 │   │   ├── NonFailResponse.cs
 │   │   ├── BivariateResponse.cs            (Phase 11; see section 6.3)
 │   │   ├── CompositeResponse.cs
-│   │   ├── Trees/                          (common references, branch results, compilation support)
+│   │   ├── Trees/                          (common sources/references/branch results, compilation support, node importance)
 │   │   ├── EventTrees/                     (Phase 10A)
 │   │   │   ├── EventTreeResponse.cs
 │   │   │   └── Nodes/                      (initiating, chance, remainder, independent link)
-│   │   └── FaultTrees/                     (Phase 10B)
+│   │   └── FaultTrees/                     (Phase 10B — tree, authoring partial, occurrence plan, ROBDD kernel, cut sets)
 │   │       ├── FaultTreeResponse.cs
 │   │       └── Nodes/                      (gate, basic event, house event, transfer)
 │   └── Consequences/
@@ -501,7 +511,7 @@ Architecture is contract. The tables below enumerate each type's **compute-relev
 | `ParametricResponse` / `TabularResponse` / `NonFailResponse` | analogous to corresponding hazard types |
 | `BivariateResponse` | typeTag, surface ordinates, PrimaryHazardType, SecondaryHazardType |
 | `EventTreeResponse` | projected tree identity: hazard axis, source content, terminal failure classification, topology, target subtree/function canonical identities, and link mode; IDs/names/reference wrappers stripped; canonical occurrence paths replace persistence IDs |
-| `FaultTreeResponse` | projected tree identity: hazard axis, gates/K/basic-source content/topology, target canonical identities, and shared-logical versus independent-clone mode; IDs/names/reference wrappers stripped; commutative gate inputs sorted by child canonical hash |
+| `FaultTreeResponse` | projected tree identity: hazard axis, gates/K/basic-source content/topology, target canonical identities, and shared-logical versus independent-clone mode; IDs/names/reference wrappers stripped; commutative gate inputs sorted by child canonical hash. *(Implementation note, 2026-07-31: shared-logical unification is encoded through `SharedVariable` first-occurrence ordinals in the projected form — the surface that distinguishes `AND(A,A)`-shared from two content-identical independent events.)* |
 | `CompositeResponse` | typeTag, **CompositeCombinationType**, DependencyType, CorrelationMatrix, HazardTransform, ProbabilityTransform, weighted-list count, per entry (effective weight and sub.CanonicalHash) — a **projected identity form**, identical recipe to `CompositeHazard`. *(Amended at implementation, 2026-07-25.)* |
 | `WeightedResponseFunction` | typeTag, weight, responseFunction.CanonicalHash |
 

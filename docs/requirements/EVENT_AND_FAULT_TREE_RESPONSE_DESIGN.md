@@ -1,10 +1,16 @@
 # Event-Tree and Fault-Tree Response Functions
 
-> **Status:** Normative implementation design, approved for Phases 10A and 10B (2026-07-28).
+> **Status:** Normative implementation design, approved for Phases 10A and 10B (2026-07-28);
+> fully implemented (Phase 10B complete, 2026-07-31).
 > **Implementation:** Phase 10A is complete: the controlled event-tree model, recursive sources,
 > independent links, both XML modes, projected identity, expanded graph outputs, immutable compiled
 > plan, fixed-seed property/routing/LHS/thread verification, >90% coverage, and recorded F5 fixture
-> satisfy the applicable §17 gates. Phase 10B is unblocked but has not begun.
+> satisfy the applicable §17 gates. Phase 10B is complete: the single-parent fault tree with
+> shared-logical/independent transfers, the exact decision-diagram evaluator with its loud runtime
+> budget, cut-set inspection, unified-variable sampling, two-mode persistence, projected
+> `SharedVariable` identity, the node-importance analysis for both tree kinds, the fault property
+> corpus, the 17-test greenfield verification family, >90% coverage, and the recorded F7 fixture
+> satisfy the applicable §17 gates.
 > **Applies to:** `RMC.TotalRisk.dll`, its fast unit tests, and `RMC.TotalRisk.Verification`.
 > **Authority:** This document specializes, but does not replace, [MODEL_LIBRARY_ARCHITECTURE.md](MODEL_LIBRARY_ARCHITECTURE.md). If an implementation discovery would change a probability rule, sampling rule, canonical-hash contract, or reference-result contract described here, stop and obtain Haden Smith's approval before changing the design.
 
@@ -467,6 +473,25 @@ Expected source folders are `RiskFunctions/Responses/Trees`, `RiskFunctions/Resp
 
 ### Phase 10B — static fault-tree response
 
+> **Implementation status (2026-07-31, COMPLETE):** the landed Phase 10B implementation covers the
+> single-parent authored `FaultTree` with gate/basic/house/transfer nodes and the full
+> `EventTree`-parity controlled transactional surface; shared-logical versus independent-clone
+> transfer compilation with per-context variable unification; the internal exact ROBDD
+> (memoized if-then-else with unique/computed tables and the exact k-of-n threshold recurrence,
+> frozen to allocation-free children-before-parents evaluation) behind the loud runtime-only
+> `BddNodeLimit`; Rauzy minimal-cut-set inspection bounded by `maxCutSets` with the non-coherent
+> refusal; scalar/aligned-table/referenced-response sources at arbitrary acyclic nesting with
+> cross-kind event/fault cycle diagnostics; unified-variable sampler discovery and LHS with
+> content-seeded child clones; two-mode persistence whose reader unifies repeated self-contained
+> embeds of one function so shared unification survives round trips; projected identity carrying
+> `SharedVariable` first-occurrence ordinals; the headless `TreeNodeImportance` two-pass sweep for
+> both tree kinds, read-only against the published plan; the fixed-seed 128-case fault property
+> corpus with its exhaustive-enumeration oracle and bounded minimizer; the 17-test greenfield
+> verification family; and the hash-gated F7 fixture (23,344-node frozen diagram). The optional
+> read-once gate-formula fast path was deliberately not implemented — the reduced diagram is the
+> single exact evaluation path, verified by the closed-form gate identities. Exact
+> Birnbaum/criticality importance measures remain documented future work.
+
 1. Add fault node/gate/transfer types and controlled authoring APIs on the common foundation.
 2. Add shared-logical versus independent-clone identity compilation and static-tree validation.
 3. Implement the exact ROBDD compiler/evaluator, read-once verified fast path, and coherent-tree cut-set inspection.
@@ -579,6 +604,15 @@ P/T/V matrix row, 781/781 fast suite, 90.40% unit-only coverage, isolated 14/14 
 current/legacy templates, two-mode/hash/seed/branch-output/manipulation contracts, deterministic
 property/routing/LHS/thread evidence, one-plan F5 performance/hash record, validators, and all maps
 are current. Phase 10B is unblocked and was not started as part of this closure.
+
+**Phase 10B closure evidence (2026-07-31):** every applicable item above is satisfied. The complete
+P/T/V matrix row, 868/868 fast suite, 90.39% unit-only coverage, isolated 17/17 fault verification
+beside the re-run 14/14 event family, the exact gate/repeated-event/bridge/cut-set/simulation
+oracles, two-mode persistence with read-side embedded-target unification, projected
+`SharedVariable` identity with seed invariance, the fixed-seed fault property corpus, the
+node-importance analysis and oracles for both tree kinds, the one-plan F7 performance/hash record
+beside bit-reproduced F1–F6 gates, validators, and all maps are current. The tree-response design
+is fully implemented.
 
 ## References
 

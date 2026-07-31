@@ -91,6 +91,38 @@ rather than inverting ambiguously).
 `RankedByMagnitude()` returns the tornado view (descending absolute association). Nothing here is
 serialized; the diagnostic recomputes on demand from stored results.
 
+## Tree node importance
+
+`TreeNodeImportance.Compute(response, options)` in `RiskFunctions.Responses.Trees` is the
+node-level importance sweep for both tree responses: one overload takes an `EventTreeResponse`
+(one entry per expanded non-root occurrence) and one takes a `FaultTreeResponse` (one entry per
+unified basic-event variable, so shared-logical repetition contributes a single entry).
+`TreeNodeImportanceOptions` carries one authored hazard level — it must exactly equal a level on
+the response's axis — with `Iterations` defaulting to 1000 and `Seed` defaulting to 12345.
+
+Two deterministic Monte Carlo passes run **read-only against the published immutable compiled
+plan** — no clone, no mutation of live sampler state, and the canonical hash is untouched:
+
+1. **The joint pass** varies every uncertain source together. Per iteration it records the
+   aggregate `P(F|h)` and, per entry, the effective (post-normalization/residual) conditional
+   probability and — for event occurrences — the absolute path probability; a fault variable's
+   recorded probability is its sampled event probability.
+2. **The one-at-a-time pass** holds every source at its mean and varies exactly one entry per
+   evaluation.
+
+Each pass consumes one uniform draw per uncertain entry per iteration, in canonical entry order,
+from an independent Mersenne Twister stream seeded by
+`ToPositiveSeed(HashCombine(Seed, CanonicalHash(), passIndex))`; a shared fault variable draws
+once per iteration no matter how many occurrences reference it. Statistics come from Numerics:
+the entry's five-number summary describes its recorded per-node probability (path probability
+for event occurrences, sampled probability for fault variables), the Pearson coefficient
+correlates the effective conditional probability with the aggregate (`NaN` when either series is
+constant), and the first-order index is `Var[aggregate | only entry i varying] /
+Var[aggregate | all varying]` — zero for deterministic sources, `NaN` when the joint aggregate
+variance is zero. `TreeNodeImportanceResult` echoes the inputs and carries the aggregate
+five-number summary and variance beside the entries. Same options, same tree content →
+bit-identical results.
+
 ## Verification
 
 [../verification/sensitivity.md](../verification/sensitivity.md): the analytic
@@ -98,3 +130,7 @@ corr(U, Φ⁻¹(U)) = √(3/π) Pearson pin at the Fisher-z bound, Spearman rank
 inert-input 4/√N null band, an independent hazard-level response oracle with affine invariance,
 content-seeded bit-reproducibility, and the profile-axis-native pin (the tornado at profile level
 T(h) is bit-identical to the raw-axis tornado at h on the unprofiled clone).
+[../verification/fault-tree.md](../verification/fault-tree.md) adds the tree node-importance
+oracles: the affine event tree with exact `a·σ/√(Σa²σ²)` Pearson and `a²σ²/Σa²σ²` variance-ratio
+forms, and the from-scratch BCL-random reimplementation for a shared-event fault tree with
+determinism and live-state-inertness pins.
