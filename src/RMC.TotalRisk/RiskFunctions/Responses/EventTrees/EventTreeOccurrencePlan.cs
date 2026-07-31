@@ -454,6 +454,9 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
         /// <summary>The occurrence display label.</summary>
         internal string DisplayName => DisplayNode.Name;
 
+        /// <summary>The authored display node's persistent id.</summary>
+        internal Guid DisplayNodeId => DisplayNode.Id;
+
         /// <summary>The persistent-id occurrence path used only for stable branch addressing.</summary>
         internal string PersistencePath { get; }
 

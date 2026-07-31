@@ -729,6 +729,107 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
             return EvaluateSource(occurrence, hazard, hazardIndex, SampleMode.Mean, 0d, -1);
         }
 
+        /// <summary>
+        /// Evaluates one node-importance draw read-only against a published plan. Each expanded
+        /// occurrence takes its own source percentile, with -1 selecting the source mean, and the
+        /// caller receives the effective (post-normalization/residual) conditional probability and
+        /// absolute path probability of every non-root occurrence, indexed by evaluation
+        /// instruction.
+        /// </summary>
+        /// <param name="plan">The published immutable occurrence plan.</param>
+        /// <param name="hazard">The analyzed authored hazard level.</param>
+        /// <param name="hazardIndex">The authored hazard index.</param>
+        /// <param name="occurrencePercentiles">Per-instruction source percentiles; -1 selects the mean.</param>
+        /// <param name="effectiveConditionals">The receiving effective conditional probabilities.</param>
+        /// <param name="pathProbabilities">The receiving absolute path probabilities.</param>
+        /// <param name="rawProbabilities">The caller-owned raw-probability scratch array.</param>
+        /// <returns>The aggregate failure probability at the analyzed hazard level.</returns>
+        /// <exception cref="InvalidOperationException">Thrown when a source evaluates outside the unit interval.</exception>
+        internal double EvaluateImportanceSample(EventTreeOccurrencePlan plan, double hazard,
+            int hazardIndex, double[] occurrencePercentiles, double[] effectiveConditionals,
+            double[] pathProbabilities, double[] rawProbabilities)
+        {
+            IReadOnlyList<EventTreeEvaluationInstruction> instructions = plan.EvaluationInstructions;
+            double aggregate = 0d;
+            double aggregateCompensation = 0d;
+            pathProbabilities[0] = 1d;
+            effectiveConditionals[0] = 1d;
+            for (int instructionIndex = 0; instructionIndex < instructions.Count; instructionIndex++)
+            {
+                EventTreeEvaluationInstruction instruction = instructions[instructionIndex];
+                if (instruction.ChildCount == 0)
+                {
+                    if (instruction.Occurrence.SourceNode is not InitiatingNode
+                        && instruction.Occurrence.IsFailure)
+                    {
+                        AddCompensated(ref aggregate, ref aggregateCompensation,
+                            pathProbabilities[instructionIndex]);
+                    }
+                    continue;
+                }
+
+                double explicitSum = 0d;
+                double sumCompensation = 0d;
+                int remainderChild = -1;
+                for (int childOrdinal = 0; childOrdinal < instruction.ChildCount; childOrdinal++)
+                {
+                    int childIndex = instruction.ChildIndex(childOrdinal);
+                    EventTreeOccurrenceNode child = instructions[childIndex].Occurrence;
+                    if (child.SourceNode is RemainderNode)
+                    {
+                        remainderChild = childIndex;
+                        continue;
+                    }
+                    rawProbabilities[childIndex] = EvaluateImportanceSource(child, hazard,
+                        occurrencePercentiles[childIndex]);
+                    AddCompensated(ref explicitSum, ref sumCompensation, rawProbabilities[childIndex]);
+                }
+
+                double scale = explicitSum > 1d ? 1d / explicitSum : 1d;
+                double residual = explicitSum < 1d ? 1d - explicitSum : 0d;
+                for (int childOrdinal = 0; childOrdinal < instruction.ChildCount; childOrdinal++)
+                {
+                    int childIndex = instruction.ChildIndex(childOrdinal);
+                    double conditional = childIndex == remainderChild
+                        ? residual : rawProbabilities[childIndex] * scale;
+                    effectiveConditionals[childIndex] = conditional;
+                    pathProbabilities[childIndex] = pathProbabilities[instructionIndex] * conditional;
+                }
+            }
+            return ClampRoundoff(aggregate);
+        }
+
+        /// <summary>Evaluates one occurrence's source at an importance percentile or its mean.</summary>
+        /// <param name="occurrence">The expanded chance-node occurrence.</param>
+        /// <param name="hazard">The analyzed hazard value.</param>
+        /// <param name="percentile">The source percentile, or -1 for the mean.</param>
+        /// <returns>The raw conditional probability.</returns>
+        /// <exception cref="InvalidOperationException">Thrown when the source evaluates outside the unit interval.</exception>
+        private static double EvaluateImportanceSource(EventTreeOccurrenceNode occurrence,
+            double hazard, double percentile)
+        {
+            var chance = (ChanceNode)occurrence.SourceNode;
+            ProbabilitySource source = chance.ProbabilitySource;
+            int sourceHazardIndex = occurrence.SourceFunction._hazardLevels.IndexOf(hazard);
+            bool aligned = sourceHazardIndex >= 0;
+            double value;
+            if (percentile < 0d)
+            {
+                value = aligned
+                    ? source.EvaluateMean(hazard, sourceHazardIndex)
+                    : source.EvaluateMeanAtHazard(hazard);
+            }
+            else
+            {
+                value = aligned
+                    ? source.EvaluatePercentile(hazard, sourceHazardIndex, percentile)
+                    : source.EvaluatePercentileAtHazard(hazard, percentile);
+            }
+            if (!double.IsFinite(value) || value < 0d || value > 1d)
+                throw new InvalidOperationException($"Chance occurrence '{occurrence.DisplayName}' evaluated outside [0, 1]. Call Validate() and correct the source.");
+            return value;
+        }
+
         /// <summary>Converts exhaustive branch probabilities to aggregate failure probability.</summary>
         /// <param name="sample">The exhaustive branch sample.</param>
         /// <returns>The aggregate hazard/failure-probability curve.</returns>

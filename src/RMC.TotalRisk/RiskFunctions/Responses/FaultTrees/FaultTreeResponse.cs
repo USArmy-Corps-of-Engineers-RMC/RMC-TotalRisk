@@ -890,6 +890,54 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.FaultTrees
             return value;
         }
 
+        /// <summary>
+        /// Evaluates one node-importance draw read-only against a published plan. Each unified
+        /// basic-event variable takes its own source percentile, with -1 selecting the source
+        /// mean, and the caller receives every variable's sampled probability — one value per
+        /// unified variable regardless of how many shared occurrences reference it.
+        /// </summary>
+        /// <param name="plan">The published immutable occurrence plan.</param>
+        /// <param name="hazard">The analyzed authored hazard level.</param>
+        /// <param name="variablePercentiles">Per-ordinal source percentiles; -1 selects the mean.</param>
+        /// <param name="variableProbabilities">The receiving sampled variable probabilities.</param>
+        /// <param name="scratch">The caller-owned diagram evaluation scratch array.</param>
+        /// <returns>The exact top-event probability at the analyzed hazard level.</returns>
+        /// <exception cref="InvalidOperationException">
+        /// Thrown when the plan has no compiled diagram or a source evaluates outside the unit interval.
+        /// </exception>
+        internal double EvaluateImportanceSample(FaultTreeOccurrencePlan plan, double hazard,
+            double[] variablePercentiles, double[] variableProbabilities, double[] scratch)
+        {
+            FrozenFaultTreeBdd frozen = plan.FrozenBdd
+                ?? throw new InvalidOperationException(
+                    "The fault-tree response has no compiled decision diagram. Call Validate() and correct the reported errors.");
+            for (int ordinal = 0; ordinal < plan.Variables.Count; ordinal++)
+            {
+                FaultTreeVariableSlot variable = plan.Variables[ordinal];
+                ProbabilitySource source = variable.SourceNode.ProbabilitySource;
+                int sourceHazardIndex = variable.SourceFunction._hazardLevels.IndexOf(hazard);
+                bool aligned = sourceHazardIndex >= 0;
+                double percentile = variablePercentiles[ordinal];
+                double value;
+                if (percentile < 0d)
+                {
+                    value = aligned
+                        ? source.EvaluateMean(hazard, sourceHazardIndex)
+                        : source.EvaluateMeanAtHazard(hazard);
+                }
+                else
+                {
+                    value = aligned
+                        ? source.EvaluatePercentile(hazard, sourceHazardIndex, percentile)
+                        : source.EvaluatePercentileAtHazard(hazard, percentile);
+                }
+                if (!double.IsFinite(value) || value < 0d || value > 1d)
+                    throw new InvalidOperationException($"Basic event '{variable.SourceNode.Name}' evaluated outside [0, 1]. Call Validate() and correct the source.");
+                variableProbabilities[ordinal] = value;
+            }
+            return ClampRoundoff(frozen.Evaluate(variableProbabilities, scratch));
+        }
+
         /// <summary>Creates an isolated self-contained response occurrence for setup.</summary>
         /// <param name="source">The referenced live response.</param>
         /// <returns>The setup clone.</returns>
