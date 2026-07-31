@@ -192,9 +192,21 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.FaultTrees
             {
                 XElement child = element.Element("Function")?.Elements().FirstOrDefault()
                     ?? throw new InvalidOperationException("An external fault-tree transfer has no serialized function entry.");
-                function = FunctionEntry.Read<FaultTreeResponse>(child, resolver,
-                    c => RiskFunctionFactory.CreateFromXElement(c, resolver), ownerName,
-                    $"The fault-tree response '{ownerName}'", "fault-tree transfer target", unresolved);
+                // Repeated self-contained embeds of one external function must materialize as one
+                // live instance, or shared-logical occurrences would stop unifying after a round
+                // trip and both the sampled values and the canonical identity would move.
+                bool embedded = child.Name.LocalName == nameof(FaultTreeResponse)
+                    && Guid.TryParse(child.Attribute("Id")?.Value, out Guid embeddedId)
+                    && embeddedId != Guid.Empty;
+                function = embedded
+                    ? FaultTreeReadScope.GetOrAdd(
+                        Guid.Parse(child.Attribute("Id")!.Value), child,
+                        () => FunctionEntry.Read<FaultTreeResponse>(child, resolver,
+                            c => RiskFunctionFactory.CreateFromXElement(c, resolver), ownerName,
+                            $"The fault-tree response '{ownerName}'", "fault-tree transfer target", unresolved))
+                    : FunctionEntry.Read<FaultTreeResponse>(child, resolver,
+                        c => RiskFunctionFactory.CreateFromXElement(c, resolver), ownerName,
+                        $"The fault-tree response '{ownerName}'", "fault-tree transfer target", unresolved);
             }
             return (mode, target, function, unresolved);
         }

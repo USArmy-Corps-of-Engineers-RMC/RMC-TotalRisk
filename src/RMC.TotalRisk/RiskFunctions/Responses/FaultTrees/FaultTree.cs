@@ -53,55 +53,63 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.FaultTrees
         internal FaultTree(XElement xElement, IRiskFunctionResolver? resolver, string ownerName)
         {
             if (xElement == null) throw new ArgumentNullException(nameof(xElement));
-            var nodeContainer = xElement.Element("Nodes")
-                ?? throw new InvalidOperationException("The serialized fault tree has no Nodes container.");
-            foreach (XElement nodeElement in nodeContainer.Elements())
+            FaultTreeReadScope.Enter();
+            try
             {
-                FaultTreeNodeBase node = ReadNode(nodeElement, resolver, ownerName);
-                if (_byId.ContainsKey(node.Id))
-                    throw new InvalidOperationException($"The serialized fault tree contains duplicate node id '{node.Id:D}'.");
-                _nodes.Add(node);
-                _byId.Add(node.Id, node);
-                node.Attach(this, null);
-                SubscribeNode(node);
-            }
-
-            Guid rootId = ReadRequiredGuid(xElement, "TopNodeId");
-            if (!_byId.TryGetValue(rootId, out var root) || root is not FaultTreeGateNode topGate)
-                throw new InvalidOperationException("The fault-tree top event does not resolve to a gate node.");
-            Root = topGate;
-
-            var inputContainer = xElement.Element("Inputs");
-            if (inputContainer != null)
-            {
-                foreach (var parentGroup in inputContainer.Elements("Input")
-                    .Select(input => new
-                    {
-                        Element = input,
-                        Parent = ReadRequiredGuid(input, "ParentNodeId"),
-                        Child = ReadRequiredGuid(input, "ChildNodeId"),
-                        Order = SerializationUtilities.ReadInt32(input, "Order"),
-                    })
-                    .GroupBy(input => input.Parent))
+                var nodeContainer = xElement.Element("Nodes")
+                    ?? throw new InvalidOperationException("The serialized fault tree has no Nodes container.");
+                foreach (XElement nodeElement in nodeContainer.Elements())
                 {
-                    if (!_byId.TryGetValue(parentGroup.Key, out var parent))
-                        throw new InvalidOperationException($"A fault-tree input has missing parent '{parentGroup.Key:D}'.");
-                    if (parent is not FaultTreeGateNode)
-                        throw new InvalidOperationException($"Fault-tree node '{parent.Name}' owns inputs but is not a gate.");
-                    foreach (var input in parentGroup.OrderBy(item => item.Order))
+                    FaultTreeNodeBase node = ReadNode(nodeElement, resolver, ownerName);
+                    if (_byId.ContainsKey(node.Id))
+                        throw new InvalidOperationException($"The serialized fault tree contains duplicate node id '{node.Id:D}'.");
+                    _nodes.Add(node);
+                    _byId.Add(node.Id, node);
+                    node.Attach(this, null);
+                    SubscribeNode(node);
+                }
+
+                Guid rootId = ReadRequiredGuid(xElement, "TopNodeId");
+                if (!_byId.TryGetValue(rootId, out var root) || root is not FaultTreeGateNode topGate)
+                    throw new InvalidOperationException("The fault-tree top event does not resolve to a gate node.");
+                Root = topGate;
+
+                var inputContainer = xElement.Element("Inputs");
+                if (inputContainer != null)
+                {
+                    foreach (var parentGroup in inputContainer.Elements("Input")
+                        .Select(input => new
+                        {
+                            Element = input,
+                            Parent = ReadRequiredGuid(input, "ParentNodeId"),
+                            Child = ReadRequiredGuid(input, "ChildNodeId"),
+                            Order = SerializationUtilities.ReadInt32(input, "Order"),
+                        })
+                        .GroupBy(input => input.Parent))
                     {
-                        if (!_byId.TryGetValue(input.Child, out var child))
-                            throw new InvalidOperationException($"A fault-tree input has missing child '{input.Child:D}'.");
-                        if (child == Root || child.Parent != null)
-                            throw new InvalidOperationException($"Fault-tree node '{child.Name}' has an invalid or duplicate parent input.");
-                        parent.MutableChildren.Add(child);
-                        child.Attach(this, parent);
+                        if (!_byId.TryGetValue(parentGroup.Key, out var parent))
+                            throw new InvalidOperationException($"A fault-tree input has missing parent '{parentGroup.Key:D}'.");
+                        if (parent is not FaultTreeGateNode)
+                            throw new InvalidOperationException($"Fault-tree node '{parent.Name}' owns inputs but is not a gate.");
+                        foreach (var input in parentGroup.OrderBy(item => item.Order))
+                        {
+                            if (!_byId.TryGetValue(input.Child, out var child))
+                                throw new InvalidOperationException($"A fault-tree input has missing child '{input.Child:D}'.");
+                            if (child == Root || child.Parent != null)
+                                throw new InvalidOperationException($"Fault-tree node '{child.Name}' has an invalid or duplicate parent input.");
+                            parent.MutableChildren.Add(child);
+                            child.Attach(this, parent);
+                        }
                     }
                 }
-            }
 
-            if (Root.Parent != null) throw new InvalidOperationException("The top-event gate cannot have a parent.");
-            if (FindCycle() != null) throw new InvalidOperationException("The serialized fault tree contains a structural cycle.");
+                if (Root.Parent != null) throw new InvalidOperationException("The top-event gate cannot have a parent.");
+                if (FindCycle() != null) throw new InvalidOperationException("The serialized fault tree contains a structural cycle.");
+            }
+            finally
+            {
+                FaultTreeReadScope.Exit();
+            }
         }
 
         /// <summary>The insertion-ordered authored node list.</summary>

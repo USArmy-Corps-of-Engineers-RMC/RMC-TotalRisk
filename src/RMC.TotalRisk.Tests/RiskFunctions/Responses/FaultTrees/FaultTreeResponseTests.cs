@@ -237,6 +237,66 @@ public class FaultTreeResponseTests
         Assert.AreSame(external, restoredTransfer.TargetFunction);
     }
 
+    /// <summary>
+    /// Verifies repeated self-contained embeds of one external function materialize as one live
+    /// instance, so shared-logical occurrences keep unifying after a round trip and the identity
+    /// and values match the live and by-reference forms.
+    /// </summary>
+    [TestMethod]
+    public void Test_SelfContainedRoundTrip_RepeatedSharedEmbeds_UnifyOneInstance()
+    {
+        // Arrange — two shared transfers to the same external event; unified they contribute p once.
+        var externalTree = new FaultTree();
+        var externalBasic = new FaultTreeBasicEventNode("External basic", new ProbabilitySource(0.2d));
+        externalTree.Add(externalTree.Root.Id, externalBasic);
+        FaultTreeResponse external = CreateResponse(externalTree, "Shared external");
+
+        var tree = new FaultTree();
+        var and = new FaultTreeGateNode("Join", FaultTreeGateType.And);
+        tree.Add(tree.Root.Id, and);
+        tree.LinkShared(and.Id, external, externalBasic.Id, "Occurrence A");
+        tree.LinkShared(and.Id, external, externalBasic.Id, "Occurrence B");
+        FaultTreeResponse response = CreateResponse(tree);
+        Assert.AreEqual(0.2d, response.SampleResponseFunction()[0].Y, 1e-15);
+
+        // Act
+        var roundTripped = new FaultTreeResponse(
+            response.ToXElement(RiskSerializationMode.SelfContained));
+
+        // Assert — one materialized instance, unified variables, identical identity and value.
+        FaultTreeTransferNode[] transfers =
+            roundTripped.FaultTree.Nodes.OfType<FaultTreeTransferNode>().ToArray();
+        Assert.AreEqual(2, transfers.Length);
+        Assert.AreSame(transfers[0].TargetFunction, transfers[1].TargetFunction);
+        Assert.AreEqual(response.CompiledVariableCount, roundTripped.CompiledVariableCount);
+        CollectionAssert.AreEqual(response.CanonicalHash(), roundTripped.CanonicalHash());
+        Assert.AreEqual(0.2d, roundTripped.SampleResponseFunction()[0].Y, 1e-15);
+    }
+
+    /// <summary>Verifies divergent duplicate embeds of one function id are rejected loudly.</summary>
+    [TestMethod]
+    public void Test_Read_DivergentDuplicateEmbeddedTarget_Throws()
+    {
+        // Arrange — serialize two shared embeds, then corrupt the second copy's content.
+        var externalTree = new FaultTree();
+        var externalBasic = new FaultTreeBasicEventNode("External basic", new ProbabilitySource(0.2d));
+        externalTree.Add(externalTree.Root.Id, externalBasic);
+        FaultTreeResponse external = CreateResponse(externalTree, "Shared external");
+
+        var tree = new FaultTree();
+        tree.LinkShared(tree.Root.Id, external, externalBasic.Id, "Occurrence A");
+        tree.LinkShared(tree.Root.Id, external, externalBasic.Id, "Occurrence B");
+        FaultTreeResponse response = CreateResponse(tree);
+        XElement xml = response.ToXElement(RiskSerializationMode.SelfContained);
+        XElement[] embedded = xml.Descendants(nameof(FaultTreeResponse)).ToArray();
+        Assert.AreEqual(2, embedded.Length);
+        embedded[1].Descendants(nameof(ProbabilitySource)).First()
+            .SetAttributeValue("ScalarProbability", "0.9");
+
+        // Act / Assert
+        Assert.ThrowsException<InvalidOperationException>(() => new FaultTreeResponse(xml));
+    }
+
     /// <summary>Verifies metadata edits are hash-inert while every compute edit moves the hash.</summary>
     [TestMethod]
     public void Test_HashIdentity_MetadataInertComputeSensitive()
