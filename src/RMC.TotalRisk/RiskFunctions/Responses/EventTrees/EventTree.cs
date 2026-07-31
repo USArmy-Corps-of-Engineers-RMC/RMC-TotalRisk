@@ -175,7 +175,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                 ? parent.MutableChildren.Count
                 : parent.MutableChildren.FindIndex(child => child is RemainderNode);
             if (index < 0) index = parent.MutableChildren.Count;
-            MutationSnapshot snapshot = CaptureMutationSnapshot();
+            var snapshot = CaptureMutationSnapshot();
             try
             {
                 AttachNewNode(node, parent, index);
@@ -238,7 +238,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                 throw MutationError("Insert", node, sibling, "a remainder branch must be the final presented sibling");
             ValidateNewChild(parent, node, "Insert");
             int index = parent.MutableChildren.IndexOf(sibling);
-            MutationSnapshot snapshot = CaptureMutationSnapshot();
+            var snapshot = CaptureMutationSnapshot();
             try
             {
                 AttachNewNode(node, parent, index);
@@ -278,7 +278,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
             }
             ValidateRemainderPlacement(newParent, node, before, "Move");
 
-            MutationSnapshot snapshot = CaptureMutationSnapshot();
+            var snapshot = CaptureMutationSnapshot();
             EventNodeBase oldParent = node.Parent!;
             int oldIndex = oldParent.MutableChildren.IndexOf(node);
             int newIndex = before == null ? newParent.MutableChildren.Count : newParent.MutableChildren.IndexOf(before);

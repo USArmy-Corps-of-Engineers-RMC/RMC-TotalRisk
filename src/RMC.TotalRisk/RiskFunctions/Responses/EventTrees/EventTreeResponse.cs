@@ -33,7 +33,8 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
     /// revisions plus defensive live-content fingerprints; branch-address preparation remains lazy
     /// so identity-only reads do not mutate persistence state.
     /// </remarks>
-    public sealed class EventTreeResponse : ResponseFunctionBase, IBranchingResponseFunction
+    public sealed class EventTreeResponse : ResponseFunctionBase, IBranchingResponseFunction,
+        ITreeComputeSource, IProjectedIdentityResponse
     {
         /// <summary>Initializes an empty event-tree response over default hazards 0 and 1.</summary>
         public EventTreeResponse()
@@ -990,6 +991,42 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                 || e.PropertyName == nameof(SpecifiedHazard) || e.PropertyName == nameof(HazardUnit)
                 || e.PropertyName == nameof(Id)) return;
             InvalidateCompiledPlan(true);
+        }
+
+        /// <inheritdoc/>
+        long ITreeComputeSource.ComputeRevision => ComputeRevision;
+
+        /// <inheritdoc/>
+        event EventHandler? ITreeComputeSource.ComputeStateChanged
+        {
+            add { ComputeStateChanged += value; }
+            remove { ComputeStateChanged -= value; }
+        }
+
+        /// <inheritdoc/>
+        void ITreeComputeSource.DependencyTreeComputeChanged(object? sender, EventArgs e)
+        {
+            DependencyEventTreeChanged(sender, e);
+        }
+
+        /// <inheritdoc/>
+        void ITreeComputeSource.DependencyTableCollectionChanged(object? sender,
+            NotifyCollectionChangedEventArgs e)
+        {
+            DependencyTableCollectionChanged(sender, e);
+        }
+
+        /// <inheritdoc/>
+        void ITreeComputeSource.DependencyFunctionPropertyChanged(object? sender,
+            PropertyChangedEventArgs e)
+        {
+            DependencyFunctionPropertyChanged(sender, e);
+        }
+
+        /// <inheritdoc/>
+        XElement IProjectedIdentityResponse.ToIdentityXElement()
+        {
+            return ToIdentityXElement();
         }
 
         /// <summary>Captures the exact owner cache/revision state for an authoring transaction.</summary>

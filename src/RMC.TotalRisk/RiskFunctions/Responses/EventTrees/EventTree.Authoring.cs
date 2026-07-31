@@ -46,7 +46,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
             ValidateRemainderPlacement(parent, cloneRoot, before, "PasteClone");
 
             int insertionIndex = ResolveInsertionIndex(parent, cloneRoot, before);
-            MutationSnapshot snapshot = CaptureMutationSnapshot();
+            var snapshot = CaptureMutationSnapshot();
             try
             {
                 AttachDetachedSubtree(cloneRoot, parent, insertionIndex);
@@ -86,7 +86,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                 throw MutationError("ReplaceSubtree", node, incoming[0],
                     $"the subtree is referenced by internal link '{incoming[0].Name}'");
 
-            MutationSnapshot snapshot = CaptureMutationSnapshot();
+            var snapshot = CaptureMutationSnapshot();
             try
             {
                 ApplyIncomingReferencePolicy(node, removedIds, referencePolicy);
@@ -124,7 +124,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
             if (node is not EventTreeLinkNode link)
                 throw MutationError("MaterializeLink", node, node, "the selected node is not an event-tree link");
 
-            MutationSnapshot snapshot = CaptureMutationSnapshot();
+            var snapshot = CaptureMutationSnapshot();
             try
             {
                 Guid rootId = MaterializeLinkCore(link);
@@ -192,7 +192,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
             if (unreachable.Length == 0) return Array.Empty<Guid>();
             var removedIds = new HashSet<Guid>(unreachable.Select(node => node.Id));
             Guid[] preview = unreachable.Select(node => node.Id).ToArray();
-            MutationSnapshot snapshot = CaptureMutationSnapshot();
+            var snapshot = CaptureMutationSnapshot();
             try
             {
                 for (int i = 0; i < _nodes.Count; i++)
@@ -272,7 +272,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                 throw MutationError("Delete", node, incoming[0],
                     $"the subtree is referenced by internal link '{incoming[0].Name}'");
 
-            MutationSnapshot snapshot = CaptureMutationSnapshot();
+            var snapshot = CaptureMutationSnapshot();
             try
             {
                 ApplyIncomingReferencePolicy(node, removedIds, policy);
@@ -605,22 +605,25 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
         /// <exception cref="ArgumentException">Thrown when the checkpoint was not created by this tree.</exception>
         internal void RestoreMutationCheckpoint(object checkpoint)
         {
-            if (checkpoint is not MutationSnapshot snapshot)
+            if (checkpoint is not TreeMutationSnapshot<EventNodeBase> snapshot)
                 throw new ArgumentException("The event-tree mutation checkpoint is invalid.", nameof(checkpoint));
             RestoreMutationSnapshot(snapshot);
         }
 
         /// <summary>Captures every mutable topology field needed for rollback.</summary>
         /// <returns>The complete structural mutation snapshot.</returns>
-        private MutationSnapshot CaptureMutationSnapshot()
+        private TreeMutationSnapshot<EventNodeBase> CaptureMutationSnapshot()
         {
-            return new MutationSnapshot(_nodes, _linkedBranchPorts, _linkedBranchPaths,
-                _nextOutputPort, _ownerResponse?.CreateCompiledPlanCheckpoint());
+            return new TreeMutationSnapshot<EventNodeBase>(_nodes, node => node.Parent,
+                node => node.Children,
+                new EventTreePortState(new Dictionary<Guid, int>(_linkedBranchPorts),
+                    new Dictionary<Guid, string>(_linkedBranchPaths), _nextOutputPort),
+                _ownerResponse?.CreateCompiledPlanCheckpoint());
         }
 
         /// <summary>Restores topology, ownership, ids, child order, and output-port allocation after failure.</summary>
         /// <param name="snapshot">The pre-mutation state.</param>
-        private void RestoreMutationSnapshot(MutationSnapshot snapshot)
+        private void RestoreMutationSnapshot(TreeMutationSnapshot<EventNodeBase> snapshot)
         {
             var original = new HashSet<EventNodeBase>(snapshot.Nodes);
             foreach (EventNodeBase node in _nodes.Where(node => !original.Contains(node)).ToArray())
@@ -644,16 +647,17 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                 _byId.Add(node.Id, node);
                 node.Attach(this, snapshot.Parents[node]);
             }
+            var portState = (EventTreePortState)snapshot.TreeState!;
             _linkedBranchPorts.Clear();
-            foreach (KeyValuePair<Guid, int> branch in snapshot.LinkedBranchPorts)
+            foreach (KeyValuePair<Guid, int> branch in portState.LinkedBranchPorts)
                 _linkedBranchPorts.Add(branch.Key, branch.Value);
             _linkedBranchPaths.Clear();
-            foreach (KeyValuePair<Guid, string> branch in snapshot.LinkedBranchPaths)
+            foreach (KeyValuePair<Guid, string> branch in portState.LinkedBranchPaths)
                 _linkedBranchPaths.Add(branch.Key, branch.Value);
-            _nextOutputPort = snapshot.NextOutputPort;
+            _nextOutputPort = portState.NextOutputPort;
             ReconcileNodeSubscriptions();
-            if (_ownerResponse != null && snapshot.CompiledPlanCheckpoint != null)
-                _ownerResponse.RestoreCompiledPlanCheckpoint(snapshot.CompiledPlanCheckpoint);
+            if (_ownerResponse != null && snapshot.OwnerCheckpoint != null)
+                _ownerResponse.RestoreCompiledPlanCheckpoint(snapshot.OwnerCheckpoint);
         }
 
         /// <summary>The event-tree-specific immutable payload held by a public fragment.</summary>
@@ -724,38 +728,29 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
             internal IReadOnlyList<Guid> ChildIds { get; }
         }
 
-        /// <summary>One complete structural state used for transactional rollback.</summary>
-        private sealed class MutationSnapshot
+        /// <summary>The event-branch-port allocator state carried inside a mutation snapshot.</summary>
+        private sealed class EventTreePortState
         {
-            /// <summary>Captures the current nodes, parentage, child order, and port allocator.</summary>
-            internal MutationSnapshot(IReadOnlyList<EventNodeBase> nodes,
-                IReadOnlyDictionary<Guid, int> linkedBranchPorts,
-                IReadOnlyDictionary<Guid, string> linkedBranchPaths, int nextOutputPort,
-                object? compiledPlanCheckpoint)
+            /// <summary>Captures the copied port allocator state.</summary>
+            /// <param name="linkedBranchPorts">The copied linked-branch port map.</param>
+            /// <param name="linkedBranchPaths">The copied linked-branch path map.</param>
+            /// <param name="nextOutputPort">The next append-only output port.</param>
+            internal EventTreePortState(Dictionary<Guid, int> linkedBranchPorts,
+                Dictionary<Guid, string> linkedBranchPaths, int nextOutputPort)
             {
-                Nodes = nodes.ToArray();
-                Parents = Nodes.ToDictionary(node => node, node => node.Parent);
-                Children = Nodes.ToDictionary(node => node, node => node.Children.ToArray());
-                LinkedBranchPorts = new Dictionary<Guid, int>(linkedBranchPorts);
-                LinkedBranchPaths = new Dictionary<Guid, string>(linkedBranchPaths);
+                LinkedBranchPorts = linkedBranchPorts;
+                LinkedBranchPaths = linkedBranchPaths;
                 NextOutputPort = nextOutputPort;
-                CompiledPlanCheckpoint = compiledPlanCheckpoint;
             }
 
-            internal IReadOnlyList<EventNodeBase> Nodes { get; }
-
-            internal IReadOnlyDictionary<EventNodeBase, EventNodeBase?> Parents { get; }
-
-            internal IReadOnlyDictionary<EventNodeBase, EventNodeBase[]> Children { get; }
-
+            /// <summary>The captured linked-branch port map.</summary>
             internal IReadOnlyDictionary<Guid, int> LinkedBranchPorts { get; }
 
+            /// <summary>The captured linked-branch path map.</summary>
             internal IReadOnlyDictionary<Guid, string> LinkedBranchPaths { get; }
 
+            /// <summary>The captured next append-only output port.</summary>
             internal int NextOutputPort { get; }
-
-            /// <summary>The owning response's exact pre-mutation cache state, when attached.</summary>
-            internal object? CompiledPlanCheckpoint { get; }
         }
     }
 }

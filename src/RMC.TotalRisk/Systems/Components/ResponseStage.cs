@@ -401,10 +401,10 @@ namespace RMC.TotalRisk.Systems.Components
         internal XElement ToIdentityXElement()
         {
             XElement element = ToXElement();
-            if (_response is EventTreeResponse eventTree)
+            if (_response is IProjectedIdentityResponse projected)
             {
                 XElement? persisted = element.Element(nameof(Response))?.Elements().SingleOrDefault();
-                persisted?.ReplaceWith(eventTree.ToIdentityXElement());
+                persisted?.ReplaceWith(projected.ToIdentityXElement());
             }
             return element;
         }

@@ -17,7 +17,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
     {
         /// <summary>Initializes a completed occurrence plan.</summary>
         private EventTreeOccurrencePlan(EventTreeOccurrenceNode root,
-            IReadOnlyList<string> warnings, EventTreePlanDependencies dependencies)
+            IReadOnlyList<string> warnings, TreePlanDependencies dependencies)
         {
             Root = root;
             Warnings = Array.AsReadOnly(warnings.ToArray());
@@ -92,7 +92,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
         internal IReadOnlyList<string> Warnings { get; }
 
         /// <summary>The complete live-content snapshot governing safe plan reuse.</summary>
-        internal EventTreePlanDependencies Dependencies { get; }
+        internal TreePlanDependencies Dependencies { get; }
 
         /// <summary>Compiles the full response tree.</summary>
         /// <param name="owner">The owning response.</param>
@@ -118,39 +118,21 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
             var persistence = new List<Guid> { subtreeRoot.Id };
             EventTreeOccurrenceNode root = compiler.Expand(owner, subtreeRoot, false,
                 Array.Empty<EventTreeLinkNode>(), persistence);
-            AssignCanonicalPaths(root, "R");
+            AssignCanonicalPaths(root);
             return new EventTreeOccurrencePlan(root, compiler.Warnings.ToArray(),
                 compiler.CreateDependencies());
         }
 
         /// <summary>Assigns stable paths after each sibling set has been sorted by projected identity.</summary>
-        private static void AssignCanonicalPaths(EventTreeOccurrenceNode node, string path)
+        private static void AssignCanonicalPaths(EventTreeOccurrenceNode root)
         {
-            node.AssignCanonicalPath(path);
-            string? previousToken = null;
-            int occurrence = -1;
-            for (int i = 0; i < node.Children.Count; i++)
-            {
-                EventTreeOccurrenceNode child = node.Children[i];
-                if (!string.Equals(previousToken, child.IdentityToken, StringComparison.Ordinal))
-                {
-                    previousToken = child.IdentityToken;
-                    occurrence = 0;
-                }
-                else
-                {
-                    occurrence++;
-                }
-                AssignCanonicalPaths(child, $"{path}/{child.IdentityToken}:{occurrence}");
-            }
+            TreeCanonicalPaths.Assign(root, node => node.Children, node => node.IdentityToken,
+                (node, path) => node.AssignCanonicalPath(path));
         }
 
         /// <summary>Stateful depth-first compiler used for cycle paths and lenient warnings.</summary>
         private sealed class Compiler
         {
-            /// <summary>The active function-plus-node recursion stack.</summary>
-            private readonly List<Frame> _active = new List<Frame>();
-
             /// <summary>Every event-tree response whose live compute state feeds this plan.</summary>
             private readonly HashSet<EventTreeResponse> _eventTreeFunctions =
                 new HashSet<EventTreeResponse>(ReferenceEqualityComparer.Instance);
@@ -167,9 +149,9 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
             internal List<string> Warnings { get; } = new List<string>();
 
             /// <summary>Captures the complete dependency state after expansion succeeds.</summary>
-            internal EventTreePlanDependencies CreateDependencies()
+            internal TreePlanDependencies CreateDependencies()
             {
-                return new EventTreePlanDependencies(_eventTreeFunctions.ToArray(),
+                return new TreePlanDependencies(_eventTreeFunctions.ToArray(),
                     _tables.ToArray(), _ordinaryResponses.ToArray());
             }
 
@@ -178,11 +160,11 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                 bool linkedAncestor, IReadOnlyList<EventTreeLinkNode> pendingLinks,
                 IReadOnlyList<Guid> persistencePath)
             {
-                int repeatedIndex = _active.FindIndex(frame => ReferenceEquals(frame.Function, function) && frame.Node.Id == node.Id);
-                if (repeatedIndex >= 0) throw CycleError(function, node);
+                if (TreeCompilationScope.IndexOf(function, node.Id) >= 0)
+                    throw TreeCompilationScope.CreateCycleError(function, node, EventTreeFrameDescriber.Instance);
                 _eventTreeFunctions.Add(function);
 
-                _active.Add(new Frame(function, node));
+                TreeCompilationScope.Push(function, node, node.Id, EventTreeFrameDescriber.Instance);
                 try
                 {
                     if (node is EventTreeLinkNode link)
@@ -298,7 +280,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                 }
                 finally
                 {
-                    _active.RemoveAt(_active.Count - 1);
+                    TreeCompilationScope.Pop();
                 }
             }
 
@@ -309,9 +291,9 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                 var persistence = new List<Guid> { rootNode.Id };
                 EventTreeOccurrenceNode root = Expand(function, rootNode, false,
                     Array.Empty<EventTreeLinkNode>(), persistence);
-                AssignCanonicalPaths(root, "R");
+                AssignCanonicalPaths(root);
                 return new EventTreeOccurrencePlan(root, Array.Empty<string>(),
-                    EventTreePlanDependencies.Empty);
+                    TreePlanDependencies.Empty);
             }
 
             /// <summary>Builds the projected identity of one effective non-link node.</summary>
@@ -327,15 +309,6 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                 return identity;
             }
 
-            /// <summary>Builds a complete cross-function cycle diagnostic.</summary>
-            private InvalidOperationException CycleError(EventTreeResponse repeatedFunction, EventNodeBase repeatedNode)
-            {
-                var labels = _active.Select(frame => Describe(frame.Function, frame.Node)).ToList();
-                labels.Add(Describe(repeatedFunction, repeatedNode));
-                return new InvalidOperationException(
-                    $"Cross-function event-tree cycle detected: {string.Join(" -> ", labels)}.");
-            }
-
             /// <summary>Describes one cycle-path entry without using it as compute identity.</summary>
             private static string Describe(EventTreeResponse function, EventNodeBase node)
             {
@@ -349,18 +322,20 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                 return string.IsNullOrEmpty(function.Name) ? "<unnamed event tree>" : function.Name;
             }
 
-            /// <summary>One active recursion-stack entry.</summary>
-            private readonly struct Frame
+            /// <summary>The shared event-tree frame renderer for the ambient compilation scope.</summary>
+            private sealed class EventTreeFrameDescriber : TreeFrameDescriber
             {
-                internal Frame(EventTreeResponse function, EventNodeBase node)
+                /// <summary>The shared instance.</summary>
+                internal static EventTreeFrameDescriber Instance { get; } = new EventTreeFrameDescriber();
+
+                /// <inheritdoc/>
+                internal override string CycleKindLabel => "event-tree";
+
+                /// <inheritdoc/>
+                internal override string Describe(object function, object node)
                 {
-                    Function = function;
-                    Node = node;
+                    return Compiler.Describe((EventTreeResponse)function, (EventNodeBase)node);
                 }
-
-                internal EventTreeResponse Function { get; }
-
-                internal EventNodeBase Node { get; }
             }
         }
     }
@@ -390,118 +365,6 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
         {
             return _childIndexes[index];
         }
-    }
-
-    /// <summary>
-    /// Immutable dependency fingerprints and subscriptions for one occurrence plan. Controlled
-    /// event-tree edits invalidate by revision/event; mutable Numerics table content and ordinary
-    /// live response content also retain a defensive canonical fingerprint so silent in-place
-    /// edits cannot reuse stale instructions.
-    /// </summary>
-    internal sealed class EventTreePlanDependencies
-    {
-        /// <summary>The empty dependency set used only by transient nested compiler products.</summary>
-        internal static EventTreePlanDependencies Empty { get; } =
-            new EventTreePlanDependencies(Array.Empty<EventTreeResponse>(),
-                Array.Empty<UncertainOrderedPairedData>(), Array.Empty<IResponseFunction>());
-
-        /// <summary>Initializes and fingerprints one complete dependency set.</summary>
-        internal EventTreePlanDependencies(IReadOnlyList<EventTreeResponse> eventTreeFunctions,
-            IReadOnlyList<UncertainOrderedPairedData> tables,
-            IReadOnlyList<IResponseFunction> ordinaryResponses)
-        {
-            _eventTreeFunctions = eventTreeFunctions
-                .Select(function => new EventTreeVersion(function, function.ComputeRevision))
-                .ToArray();
-            _tables = tables
-                .Select(table => new TableVersion(table, HashTable(table)))
-                .ToArray();
-            _ordinaryResponses = ordinaryResponses
-                .Select(function => new FunctionVersion(function, function.CanonicalHash()))
-                .ToArray();
-        }
-
-        /// <summary>The event-tree response revision snapshots.</summary>
-        private readonly EventTreeVersion[] _eventTreeFunctions;
-
-        /// <summary>The mutable local table snapshots.</summary>
-        private readonly TableVersion[] _tables;
-
-        /// <summary>The ordinary live response snapshots.</summary>
-        private readonly FunctionVersion[] _ordinaryResponses;
-
-        /// <summary>Checks whether every compute dependency still matches this plan.</summary>
-        internal bool IsCurrent()
-        {
-            for (int i = 0; i < _eventTreeFunctions.Length; i++)
-            {
-                if (_eventTreeFunctions[i].Revision
-                    != _eventTreeFunctions[i].Function.ComputeRevision) return false;
-            }
-            try
-            {
-                for (int i = 0; i < _tables.Length; i++)
-                {
-                    if (!_tables[i].Hash.AsSpan().SequenceEqual(
-                        HashTable(_tables[i].Table))) return false;
-                }
-                for (int i = 0; i < _ordinaryResponses.Length; i++)
-                {
-                    if (!_ordinaryResponses[i].Hash.AsSpan().SequenceEqual(
-                        _ordinaryResponses[i].Function.CanonicalHash())) return false;
-                }
-            }
-            catch (Exception ex) when (ex is ArgumentException
-                || ex is InvalidOperationException || ex is NotSupportedException)
-            {
-                return false;
-            }
-            return true;
-        }
-
-        /// <summary>Subscribes one cache owner to every external compute dependency.</summary>
-        internal void Attach(EventTreeResponse owner)
-        {
-            for (int i = 0; i < _eventTreeFunctions.Length; i++)
-            {
-                if (!ReferenceEquals(_eventTreeFunctions[i].Function, owner))
-                    _eventTreeFunctions[i].Function.ComputeStateChanged += owner.DependencyEventTreeChanged;
-            }
-            for (int i = 0; i < _tables.Length; i++)
-                _tables[i].Table.CollectionChanged += owner.DependencyTableCollectionChanged;
-            for (int i = 0; i < _ordinaryResponses.Length; i++)
-                _ordinaryResponses[i].Function.PropertyChanged += owner.DependencyFunctionPropertyChanged;
-        }
-
-        /// <summary>Removes every dependency subscription held for one cache owner.</summary>
-        internal void Detach(EventTreeResponse owner)
-        {
-            for (int i = 0; i < _eventTreeFunctions.Length; i++)
-            {
-                if (!ReferenceEquals(_eventTreeFunctions[i].Function, owner))
-                    _eventTreeFunctions[i].Function.ComputeStateChanged -= owner.DependencyEventTreeChanged;
-            }
-            for (int i = 0; i < _tables.Length; i++)
-                _tables[i].Table.CollectionChanged -= owner.DependencyTableCollectionChanged;
-            for (int i = 0; i < _ordinaryResponses.Length; i++)
-                _ordinaryResponses[i].Function.PropertyChanged -= owner.DependencyFunctionPropertyChanged;
-        }
-
-        /// <summary>Hashes the complete mutable table definition.</summary>
-        private static byte[] HashTable(UncertainOrderedPairedData table)
-        {
-            return CanonicalContentHasher.Hash(table.SaveToXElement(),
-                CanonicalizationRules.ModelRules);
-        }
-
-        /// <summary>One event-tree response revision snapshot.</summary>
-        private readonly record struct EventTreeVersion(EventTreeResponse Function, long Revision);
-
-        /// <summary>One mutable uncertain-table fingerprint.</summary>
-        private readonly record struct TableVersion(UncertainOrderedPairedData Table, byte[] Hash);
-
-        /// <summary>One ordinary live response fingerprint.</summary>
-        private readonly record struct FunctionVersion(IResponseFunction Function, byte[] Hash);
     }
 
     /// <summary>One effective node occurrence in an expanded event-tree plan.</summary>
