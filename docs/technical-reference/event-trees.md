@@ -132,5 +132,10 @@ The exact static fault-tree capability is documented in [fault-trees.md](fault-t
 references, link modes, delete policies, transactional authoring, projected identity, and the
 compiled-plan discipline) while adding Boolean gate evaluation through an exact reduced decision
 diagram. `TreeLinkMode.SharedLogicalEvent` — the same-Boolean-event link meaning — is implemented
-there; event trees continue to admit only `IndependentClone` links, and
-`TreeNodeImportance.Compute` serves both tree kinds.
+there; event trees continue to admit only `IndependentClone` links.
+
+## Node importance
+
+`TreeNodeImportance.Compute` serves both tree kinds; the two-pass Monte Carlo sweep, its
+statistics, and its seeding are documented with the other sensitivity tooling in
+[sensitivity-analysis.md](sensitivity-analysis.md#tree-node-importance).

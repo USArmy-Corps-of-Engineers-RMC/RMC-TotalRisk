@@ -14,6 +14,22 @@ deterministic, so the hash needs one run and the timing signal at fixture scale 
 seconds) resolves the targeted multiples; `--reps 3` is reserved for the committed
 baseline/final rows.
 
+## Current byte-gate pins
+
+The standing gates, one row per committed fixture. A close-out byte-gate round runs every
+fixture as a single invocation and each must reproduce its pin bit-exactly; the dated sections
+below are the measurement history and pin provenance (superseded pins remain as audit trail).
+
+| Fixture | Current pin (SHA-256) |
+|---|---|
+| F1 | `4c1472d2a3c1c1abdb5b01f05db91bba00b5867b23776fee170ac8372d100d00` |
+| F2 | `876ce063bc6777d54154728e747d279058611e1a1521e3f0d2cd4b6aa6155c73` |
+| F3 | `6469666ef207b436263434e793dc5bd8ec2990e2b26f9cf822de961019206281` |
+| F4 | `846234f17c71ffef1239e50caee0f897c7e7d95bcf85489917b8ef7bca92eb99` |
+| F5 | `2ae3925bfb7488cbfa4bd516cc2d4eb7d71c6f84bfff9f4891873a2bfd811349` |
+| F6 | `c183d28f83f41db40a4921542225382e30dc72cafc5df13ffc6ebe76be2d9132` |
+| F7 | `f985ca0228952ac0ba66cc29b39cf9006247ea3965264b966ab785fa74317084` |
+
 Fixtures:
 
 - **F1** — trivial 1D single-component fixture (uncertain triangular fragility), N = 1000 full

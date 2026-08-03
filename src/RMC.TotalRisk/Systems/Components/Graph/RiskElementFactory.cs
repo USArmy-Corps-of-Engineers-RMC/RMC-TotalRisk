@@ -16,10 +16,10 @@ namespace RMC.TotalRisk.Systems.Components.Graph
     /// </para>
     /// <para>
     /// Mirrors the Hydrologics <c>BasinElementFactory</c>: a closed switch on the element's local
-    /// name (the concrete type name by contract); unknown names return null and the graph
-    /// constructor skips them (forward compatibility) — any connections that referenced a skipped
-    /// element surface loudly through the Id-authoritative resolver or the dangling-connection
-    /// validation. Landing checklist: every new concrete element type adds its case here.
+    /// name (the concrete type name by contract); unknown names return null, and the graph
+    /// constructor treats a null as fatal — it throws rather than load a graph with part of its
+    /// compute chain missing. Landing checklist: every new concrete element type adds its case
+    /// here.
     /// </para>
     /// </remarks>
     public static class RiskElementFactory
