@@ -1,6 +1,6 @@
 # Event-tree response
 
-**Test classes:** `EventTreeVerification` (8) · `EventTreeLegacyConversionVerification` (3) · `EventTreePhaseCloseVerification` (3) · **Tests:** 14 · **Run of record:** 2026-07-28, isolated run, ✅ all passed
+**Test class:** `EventTreeVerification` — one partial class in three files: `EventTreeVerification.cs` (8) · `EventTreeLegacyConversionVerification.cs` (3) · `EventTreeMonteCarloVerification.cs` (3) · **Tests:** 14 · **Run of record:** 2026-07-28, isolated run, ✅ all passed
 
 ## Scope and status
 
@@ -237,7 +237,7 @@ sampler-observable value. Existing `EventTreeVerification` expectations therefor
 The isolated Release F5 fixture expands 24 external independent links into 1,105 instructions,
 1,104 edges, and 745 branches over 33 hazards. Median-of-three setup changed from 0.086353 s /
 51.70 MB to 0.031395 s / 20.55 MB; 32 indexed reads changed from 1.157486 s / 1,695.75 MB to
-0.239866 s / 99.77 MB in the original paired cache characterization. The phase-close
+0.239866 s / 99.77 MB in the original paired cache characterization. The committed baseline
 
 `dotnet run -c Release --project scripts/perf/PerfHarness -- --reps 3 F5`
 

@@ -51,7 +51,7 @@ public sealed class EventTreePropertyTests
     /// minimized self-contained XML counterexample.
     /// </summary>
     [TestMethod]
-    public void Test_FixedSeedGeneratedTrees_SatisfyPhaseCloseProperties()
+    public void Test_FixedSeedGeneratedTrees_SatisfyCorpusInvariants()
     {
         GeneratedFeature observed = GeneratedFeature.None;
         int caseCount = 0;
