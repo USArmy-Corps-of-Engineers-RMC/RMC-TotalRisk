@@ -33,5 +33,11 @@ namespace RMC.TotalRisk.Core.Enums
         /// mixture (<c>CompositeConsequence</c>).
         /// </summary>
         Composite,
+
+        /// <summary>
+        /// A deterministic two-way table consequence = f(x, y) over a primary and a secondary
+        /// hazard, evaluated by bilinear interpolation (<c>BivariateConsequence</c>).
+        /// </summary>
+        Bivariate,
     }
 }

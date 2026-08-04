@@ -76,6 +76,7 @@ namespace RMC.TotalRisk.RiskFunctions
                 nameof(LinearTransform) => new LinearTransform(xElement),
                 nameof(PowerTransform) => new PowerTransform(xElement),
                 nameof(CompositeTransform) => new CompositeTransform(xElement, resolver),
+                nameof(BivariateTransform) => new BivariateTransform(xElement),
                 nameof(TabularResponse) => new TabularResponse(xElement),
                 nameof(ParametricResponse) => new ParametricResponse(xElement),
                 nameof(NonFailResponse) => new NonFailResponse(xElement),
@@ -87,6 +88,7 @@ namespace RMC.TotalRisk.RiskFunctions
                 nameof(TabularConsequence) => new TabularConsequence(xElement),
                 nameof(ParametricConsequence) => new ParametricConsequence(xElement),
                 nameof(CompositeConsequence) => new CompositeConsequence(xElement, resolver),
+                nameof(BivariateConsequence) => new BivariateConsequence(xElement),
                 _ => null,
             };
         }

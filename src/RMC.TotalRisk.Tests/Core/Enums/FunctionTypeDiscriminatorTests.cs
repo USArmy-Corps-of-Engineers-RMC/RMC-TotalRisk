@@ -32,13 +32,13 @@ public class FunctionTypeDiscriminatorTests
             new[] { "Tabular", "ParametricUnivariate", "Nonparametric", "Composite", "Bivariate" },
             Enum.GetNames<HazardFunctionType>());
         CollectionAssert.AreEqual(
-            new[] { "Tabular", "Linear", "Power", "Composite" },
+            new[] { "Tabular", "Linear", "Power", "Composite", "Bivariate" },
             Enum.GetNames<TransformFunctionType>());
         CollectionAssert.AreEqual(
             new[] { "Tabular", "Parametric", "NonFail", "Composite", "EventTree", "FaultTree" },
             Enum.GetNames<ResponseFunctionType>());
         CollectionAssert.AreEqual(
-            new[] { "Tabular", "Parametric", "Composite" },
+            new[] { "Tabular", "Parametric", "Composite", "Bivariate" },
             Enum.GetNames<ConsequenceFunctionType>());
     }
 
@@ -56,6 +56,7 @@ public class FunctionTypeDiscriminatorTests
         Assert.AreEqual(TransformFunctionType.Linear, new LinearTransform().FunctionType);
         Assert.AreEqual(TransformFunctionType.Power, new PowerTransform().FunctionType);
         Assert.AreEqual(TransformFunctionType.Composite, new CompositeTransform().FunctionType);
+        Assert.AreEqual(TransformFunctionType.Bivariate, new BivariateTransform().FunctionType);
         Assert.AreEqual(ResponseFunctionType.Tabular, new TabularResponse().FunctionType);
         Assert.AreEqual(ResponseFunctionType.Parametric, new ParametricResponse().FunctionType);
         Assert.AreEqual(ResponseFunctionType.NonFail, new NonFailResponse().FunctionType);
@@ -65,6 +66,7 @@ public class FunctionTypeDiscriminatorTests
         Assert.AreEqual(ConsequenceFunctionType.Tabular, new TabularConsequence().FunctionType);
         Assert.AreEqual(ConsequenceFunctionType.Parametric, new ParametricConsequence().FunctionType);
         Assert.AreEqual(ConsequenceFunctionType.Composite, new CompositeConsequence().FunctionType);
+        Assert.AreEqual(ConsequenceFunctionType.Bivariate, new BivariateConsequence().FunctionType);
     }
 
     /// <summary>
@@ -86,6 +88,7 @@ public class FunctionTypeDiscriminatorTests
             new LinearTransform().ToXElement(),
             new PowerTransform().ToXElement(),
             new CompositeTransform().ToXElement(),
+            new BivariateTransform().ToXElement(),
             new TabularResponse().ToXElement(),
             new ParametricResponse().ToXElement(),
             new NonFailResponse().ToXElement(),
@@ -94,6 +97,7 @@ public class FunctionTypeDiscriminatorTests
             new TabularConsequence().ToXElement(),
             new ParametricConsequence().ToXElement(),
             new CompositeConsequence().ToXElement(),
+            new BivariateConsequence().ToXElement(),
         ];
 
         // Assert

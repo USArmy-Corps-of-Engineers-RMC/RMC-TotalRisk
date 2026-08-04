@@ -358,7 +358,8 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
         /// <inheritdoc/>
         /// <remarks>
         /// Errors (invalidating): missing axis labels; no children (or an unresolved serialized
-        /// reference, reported precisely instead); a null child entry; non-Additive weights
+        /// reference, reported precisely instead); a null child entry; a bivariate child (which
+        /// has no univariate sampling surface for the composite to combine); non-Additive weights
         /// outside [0, 1] or not summing to one (±1e-8, the Numerics <c>Mixture</c> gate); a
         /// circular reference through nested composites; an invalid child (summary line only — the
         /// child reports its own details where it is stored). Warnings (advisory): child axis
@@ -415,6 +416,14 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
             {
                 var function = _consequenceFunctions[i].ConsequenceFunction;
                 if (function == null) continue;
+
+                // A bivariate child has no univariate sampling surface — its one-argument
+                // SampleFunction contract throws by design, so the composite cannot combine it.
+                if (function is IBivariateConsequenceFunction)
+                {
+                    messages.Add($"Error: The consequence function '{function.Name}' is bivariate; a composite consequence function cannot combine bivariate consequence functions.");
+                    continue;
+                }
 
                 // A cyclic child would recurse forever through its own Validate; the circular
                 // error above already reports the precise cause.
@@ -941,7 +950,8 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
 
         /// <summary>
         /// The sample-time usability gate (the cluster's invalid-configuration throw): at least
-        /// one entry, every entry configured, and — outside Additive — weights in [0, 1] summing
+        /// one entry, every entry configured and univariate (a bivariate child has no univariate
+        /// sampling surface), and — outside Additive — weights in [0, 1] summing
         /// to one. Cycle detection is opt-in because the per-realization path runs this on every
         /// draw and a cycle cannot survive <see cref="SetupSampler"/>.
         /// </summary>
@@ -957,7 +967,8 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
                 for (int i = 0; i < _consequenceFunctions.Count; i++)
                 {
                     var entry = _consequenceFunctions[i];
-                    if (entry.ConsequenceFunction == null || (weightsApply && (entry.Weight < 0d || entry.Weight > 1d)))
+                    if (entry.ConsequenceFunction == null || entry.ConsequenceFunction is IBivariateConsequenceFunction ||
+                        (weightsApply && (entry.Weight < 0d || entry.Weight > 1d)))
                     {
                         usable = false;
                         break;

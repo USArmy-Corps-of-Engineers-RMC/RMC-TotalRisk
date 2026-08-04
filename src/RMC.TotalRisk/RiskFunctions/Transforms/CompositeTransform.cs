@@ -308,7 +308,9 @@ namespace RMC.TotalRisk.RiskFunctions.Transforms
         /// <remarks>
         /// Errors (invalidating): missing axis labels; a combine mode other than
         /// <see cref="CompositeFunctionType.Average"/>; no children (or an unresolved serialized
-        /// reference, reported precisely instead); a null child entry; weights outside [0, 1] or
+        /// reference, reported precisely instead); a null child entry; a bivariate child (which
+        /// has no univariate sampling surface for the composite to average); weights outside
+        /// [0, 1] or
         /// not summing to one (±1e-8); an empty child-domain intersection; a circular reference; an
         /// invalid child (summary line only). Warnings (advisory): child axis labels that do not
         /// match the composite's (labels are unhashed metadata and never gate compute), and child input domains that
@@ -365,7 +367,19 @@ namespace RMC.TotalRisk.RiskFunctions.Transforms
             if (circularChild != null)
                 messages.Add($"Error: Circular reference error in the selected composite transform function '{circularChild.Name}'.");
 
-            if (circularChild == null && AllChildrenConfigured())
+            // A bivariate child is rejected outright below, so the child-domain intersection is
+            // meaningless (and its bounds may legitimately refuse to evaluate) — skip it.
+            bool anyBivariateChild = false;
+            for (int i = 0; i < _transformFunctions.Count; i++)
+            {
+                if (_transformFunctions[i].TransformFunction is IBivariateTransformFunction)
+                {
+                    anyBivariateChild = true;
+                    break;
+                }
+            }
+
+            if (circularChild == null && !anyBivariateChild && AllChildrenConfigured())
             {
                 var (lower, upper, differ) = ChildDomain();
                 if (upper <= lower)
@@ -378,6 +392,15 @@ namespace RMC.TotalRisk.RiskFunctions.Transforms
             {
                 var function = _transformFunctions[i].TransformFunction;
                 if (function == null) continue;
+
+                // A bivariate child has no univariate sampling surface — its one-argument
+                // SampleFunction contract throws by design, so the composite average cannot
+                // include it.
+                if (function is IBivariateTransformFunction)
+                {
+                    messages.Add($"Error: The transform function '{function.Name}' is bivariate; a composite transform function cannot combine bivariate transform functions.");
+                    continue;
+                }
 
                 // A cyclic child would recurse forever through its own Validate; the circular error
                 // above already reports the precise cause.
@@ -778,7 +801,8 @@ namespace RMC.TotalRisk.RiskFunctions.Transforms
 
         /// <summary>
         /// The sample-time usability gate: the Average combine mode, at least one entry, every
-        /// entry configured, weights in [0, 1] summing to one, and an overlapping child domain.
+        /// entry configured and univariate (a bivariate child has no univariate sampling
+        /// surface), weights in [0, 1] summing to one, and an overlapping child domain.
         /// </summary>
         /// <param name="checkCycles">True to also reject circular references.</param>
         /// <exception cref="InvalidOperationException">Thrown when the configuration is invalid.</exception>
@@ -791,7 +815,8 @@ namespace RMC.TotalRisk.RiskFunctions.Transforms
                 for (int i = 0; i < _transformFunctions.Count; i++)
                 {
                     var entry = _transformFunctions[i];
-                    if (entry.TransformFunction == null || entry.Weight < 0d || entry.Weight > 1d)
+                    if (entry.TransformFunction == null || entry.TransformFunction is IBivariateTransformFunction ||
+                        entry.Weight < 0d || entry.Weight > 1d)
                     {
                         usable = false;
                         break;

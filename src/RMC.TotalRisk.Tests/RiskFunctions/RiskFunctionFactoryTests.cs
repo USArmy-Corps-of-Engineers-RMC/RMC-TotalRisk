@@ -33,6 +33,7 @@ public class RiskFunctionFactoryTests
             new TabularTransform(),
             new LinearTransform(),
             new PowerTransform(),
+            new BivariateTransform(),
             new TabularResponse(),
             new ParametricResponse(),
             new NonFailResponse(),
@@ -41,6 +42,7 @@ public class RiskFunctionFactoryTests
             new TabularConsequence(),
             new ParametricConsequence(),
             new CompositeConsequence(),
+            new BivariateConsequence(),
         };
 
         foreach (var original in functions)
@@ -114,6 +116,8 @@ public class RiskFunctionFactoryTests
         Assert.IsNotNull(RiskFunctionFactory.CreateTransformFunction(transformXml));
         Assert.IsNotNull(RiskFunctionFactory.CreateTransformFunction(new LinearTransform().ToXElement()));
         Assert.IsNotNull(RiskFunctionFactory.CreateTransformFunction(new PowerTransform().ToXElement()));
+        Assert.IsNotNull(RiskFunctionFactory.CreateTransformFunction(new BivariateTransform().ToXElement()));
+        Assert.IsNull(RiskFunctionFactory.CreateConsequenceFunction(new BivariateTransform().ToXElement()));
         Assert.IsNotNull(RiskFunctionFactory.CreateResponseFunction(responseXml));
         Assert.IsNotNull(RiskFunctionFactory.CreateResponseFunction(nonFailXml));
         Assert.IsNotNull(RiskFunctionFactory.CreateResponseFunction(eventTreeXml));
@@ -122,6 +126,8 @@ public class RiskFunctionFactoryTests
         Assert.IsNull(RiskFunctionFactory.CreateResponseFunction(parametricConsequenceXml));
         Assert.IsNotNull(RiskFunctionFactory.CreateConsequenceFunction(new CompositeConsequence().ToXElement()));
         Assert.IsNull(RiskFunctionFactory.CreateHazardFunction(new CompositeConsequence().ToXElement()));
+        Assert.IsNotNull(RiskFunctionFactory.CreateConsequenceFunction(new BivariateConsequence().ToXElement()));
+        Assert.IsNull(RiskFunctionFactory.CreateTransformFunction(new BivariateConsequence().ToXElement()));
 
         // Cross-cluster mismatches return null.
         Assert.IsNull(RiskFunctionFactory.CreateHazardFunction(transformXml));

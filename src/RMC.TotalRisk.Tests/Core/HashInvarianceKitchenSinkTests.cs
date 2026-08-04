@@ -276,6 +276,44 @@ public class HashInvarianceKitchenSinkTests
                 composite.TransformFunctions[0].Weight = 0.5d;
                 composite.TransformFunctions[1].Weight = 0.5d;
             });
+
+        // The bivariate transform — a labeled 3×2 surface. The mutation edits one cell;
+        // axis/transform-enum/transpose sensitivity is covered in BivariateTransformTests.
+        yield return new RegistryEntry(
+            nameof(BivariateTransform),
+            () => new BivariateTransform
+            {
+                Name = "Surge-Pool Stage",
+                SpecifiedHazard = "Surge",
+                HazardUnit = "ft",
+                SecondarySpecifiedHazard = "Pool Elevation",
+                SecondaryHazardUnit = "ft",
+                TransformedHazard = "Stage",
+                TransformedHazardUnit = "ft",
+                X1Values = new[] { 0d, 10d, 20d },
+                X2Values = new[] { 100d, 200d },
+                ZValues = new[,] { { 1d, 2d }, { 3d, 5d }, { 4d, 8d } },
+            },
+            f => ((BivariateTransform)f).ZValues = new[,] { { 1d, 2d }, { 3d, 5d }, { 4d, 9d } });
+
+        // The bivariate consequence — the same surface shape under consequence labels. The
+        // mutation edits one cell; the rest is covered in BivariateConsequenceTests.
+        yield return new RegistryEntry(
+            nameof(BivariateConsequence),
+            () => new BivariateConsequence
+            {
+                Name = "Stage-Pool Life Loss",
+                SpecifiedHazard = "Stage",
+                HazardUnit = "ft",
+                SecondarySpecifiedHazard = "Pool Elevation",
+                SecondaryHazardUnit = "ft",
+                SpecifiedConsequence = "Life Loss",
+                ConsequenceUnit = "lives",
+                X1Values = new[] { 0d, 10d, 20d },
+                X2Values = new[] { 100d, 200d },
+                ZValues = new[,] { { 1d, 2d }, { 3d, 5d }, { 4d, 8d } },
+            },
+            f => ((BivariateConsequence)f).ZValues = new[,] { { 1d, 2d }, { 3d, 5d }, { 4d, 9d } });
     }
 
     /// <summary>Verifies metadata edits (rename/re-describe/relabel) never move any registered type's hash.</summary>

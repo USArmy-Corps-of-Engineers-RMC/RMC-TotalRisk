@@ -70,6 +70,22 @@ public class CompositeTransformTests
         return composite;
     }
 
+    /// <summary>Verifies the bivariate scope guard: a bivariate child is rejected loudly by validation and by the sampling gate.</summary>
+    [TestMethod]
+    public void Test_Validate_BivariateChild_Error()
+    {
+        // Arrange — an otherwise valid composite carrying a bivariate child.
+        var composite = Composite((LinearChild("Rating", 2d, 3d), 0.5d), (new BivariateTransform { Name = "Surface" }, 0.5d));
+
+        // Act
+        var (isValid, messages) = composite.Validate();
+
+        // Assert — the loud scope guard, and sampling refuses too.
+        Assert.IsFalse(isValid);
+        Assert.IsTrue(messages.Any(m => m.Contains("'Surface' is bivariate")));
+        Assert.ThrowsException<InvalidOperationException>(() => composite.SampleFunction());
+    }
+
     /// <summary>Verifies the default construction state — Average, not Mixture.</summary>
     [TestMethod]
     public void Test_Defaults_Average_NotMixture()

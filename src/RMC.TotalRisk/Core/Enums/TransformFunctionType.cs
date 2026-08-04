@@ -38,5 +38,11 @@ namespace RMC.TotalRisk.Core.Enums
         /// A weighted average of child transform functions (<c>CompositeTransform</c>).
         /// </summary>
         Composite,
+
+        /// <summary>
+        /// A deterministic two-way table z = f(x, y) over a primary and a secondary hazard,
+        /// evaluated by bilinear interpolation (<c>BivariateTransform</c>).
+        /// </summary>
+        Bivariate,
     }
 }
