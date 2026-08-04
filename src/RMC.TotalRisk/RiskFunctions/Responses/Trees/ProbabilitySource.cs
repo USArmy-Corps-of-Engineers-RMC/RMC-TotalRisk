@@ -162,6 +162,12 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.Trees
                 messages.Add($"Error: {nodeLabel} references {reference}, which was not found.");
             if (ResponseFunction == null && _unresolvedReferences.Count == 0)
                 messages.Add($"Error: {nodeLabel} has no referenced response function.");
+            else if (ResponseFunction is IBivariateResponseFunction)
+            {
+                // The scope guard: evaluating a bivariate response at a single tree hazard would
+                // silently collapse its secondary hazard through the stored weights.
+                messages.Add($"Error: {nodeLabel} references bivariate response function '{ResponseFunction.Name}'; tree probability sources cannot reference bivariate response functions.");
+            }
             else if (ResponseFunction != null)
             {
                 var validation = ResponseFunction.Validate();

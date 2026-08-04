@@ -44,5 +44,23 @@ namespace RMC.TotalRisk.Core.Interfaces
         /// Thrown when a serialized id cannot be resolved.
         /// </exception>
         IRiskFunction? Resolve(Guid? pendingId, string? pendingName, string linkDescription);
+
+        /// <summary>
+        /// Resolves a serialized metadata-link reference leniently: the id is tried first, a name
+        /// falls back when the id is absent or finds nothing, and any miss returns null — this
+        /// overload never throws.
+        /// </summary>
+        /// <param name="pendingId">The serialized function id, when present.</param>
+        /// <param name="pendingName">The serialized function name, when present.</param>
+        /// <returns>The live function, or null on any miss.</returns>
+        /// <remarks>
+        /// The counterpart of <see cref="Resolve"/> for references that are provenance metadata
+        /// rather than compute content — for example, a bivariate response's stored
+        /// secondary-hazard link, whose serialized weights remain the authoritative compute
+        /// content when the link's target has been deleted or renamed. A dangling metadata
+        /// reference must degrade to a validation advisory, never abort a load, so the loud
+        /// stale-id policy deliberately does not apply here.
+        /// </remarks>
+        IRiskFunction? TryResolve(Guid? pendingId, string? pendingName);
     }
 }

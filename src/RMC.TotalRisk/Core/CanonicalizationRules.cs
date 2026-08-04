@@ -38,6 +38,10 @@ namespace RMC.TotalRisk.Core
     /// never return).
     /// <b>Stripped (options convenience):</b> <c>UseDefaults</c> — records who wrote the analysis
     /// integration settings, not what they are; the settings themselves stay hashed.
+    /// <b>Stripped (weight provenance):</b> <c>UseManualWeights</c>,
+    /// <c>SecondaryHazardFunctionId</c>, <c>SecondaryHazardFunctionName</c> — the bivariate
+    /// response's manual/automatic flag and stored secondary-hazard link record who and where its
+    /// weights came from, not what they are; the serialized weights stay hashed.
     /// </para>
     /// <para>
     /// Owned child-element ORDER is preserved by the hasher and is therefore semantic content:
@@ -90,6 +94,13 @@ namespace RMC.TotalRisk.Core
                 // Secondary-axis labels of the bivariate types — axis labels, not math, exactly
                 // like the primary SpecifiedHazard/HazardUnit pair above.
                 "SecondarySpecifiedHazard", "SecondaryHazardUnit",
+                // Bivariate-response weight provenance: the manual/automatic flag and the stored
+                // secondary-hazard link record WHO and WHERE the weights came from, not what they
+                // are — the serialized weights themselves are the compute content and remain
+                // hashed (the UseDefaults precedent). The linked hazard's content therefore never
+                // enters the response's hash: editing it re-rolls nothing until weights are
+                // explicitly re-estimated.
+                "UseManualWeights", "SecondaryHazardFunctionId", "SecondaryHazardFunctionName",
             },
             strippedElements: Array.Empty<string>(),
             rewriters: Array.Empty<Action<XElement>>());

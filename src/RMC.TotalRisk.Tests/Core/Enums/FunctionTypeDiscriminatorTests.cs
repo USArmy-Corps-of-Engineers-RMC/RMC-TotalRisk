@@ -35,7 +35,7 @@ public class FunctionTypeDiscriminatorTests
             new[] { "Tabular", "Linear", "Power", "Composite", "Bivariate" },
             Enum.GetNames<TransformFunctionType>());
         CollectionAssert.AreEqual(
-            new[] { "Tabular", "Parametric", "NonFail", "Composite", "EventTree", "FaultTree" },
+            new[] { "Tabular", "Parametric", "NonFail", "Composite", "EventTree", "FaultTree", "Bivariate" },
             Enum.GetNames<ResponseFunctionType>());
         CollectionAssert.AreEqual(
             new[] { "Tabular", "Parametric", "Composite", "Bivariate" },
@@ -63,6 +63,7 @@ public class FunctionTypeDiscriminatorTests
         Assert.AreEqual(ResponseFunctionType.Composite, new CompositeResponse().FunctionType);
         Assert.AreEqual(ResponseFunctionType.EventTree, new EventTreeResponse().FunctionType);
         Assert.AreEqual(ResponseFunctionType.FaultTree, new FaultTreeResponse().FunctionType);
+        Assert.AreEqual(ResponseFunctionType.Bivariate, new BivariateResponse().FunctionType);
         Assert.AreEqual(ConsequenceFunctionType.Tabular, new TabularConsequence().FunctionType);
         Assert.AreEqual(ConsequenceFunctionType.Parametric, new ParametricConsequence().FunctionType);
         Assert.AreEqual(ConsequenceFunctionType.Composite, new CompositeConsequence().FunctionType);
@@ -94,6 +95,7 @@ public class FunctionTypeDiscriminatorTests
             new NonFailResponse().ToXElement(),
             new CompositeResponse().ToXElement(),
             new FaultTreeResponse().ToXElement(),
+            new BivariateResponse().ToXElement(),
             new TabularConsequence().ToXElement(),
             new ParametricConsequence().ToXElement(),
             new CompositeConsequence().ToXElement(),

@@ -314,6 +314,27 @@ public class HashInvarianceKitchenSinkTests
                 ZValues = new[,] { { 1d, 2d }, { 3d, 5d }, { 4d, 8d } },
             },
             f => ((BivariateConsequence)f).ZValues = new[,] { { 1d, 2d }, { 3d, 5d }, { 4d, 9d } });
+
+        // The bivariate response — a labeled 3×2 probability surface over the default weighted
+        // secondary levels. The mutation edits one cell; weight/level/transform sensitivity and
+        // the provenance strip rows are covered in BivariateResponseTests.
+        yield return new RegistryEntry(
+            nameof(BivariateResponse),
+            () =>
+            {
+                var response = new BivariateResponse
+                {
+                    Name = "PGA-Pool Fragility",
+                    SpecifiedHazard = "Peak Ground Acceleration",
+                    HazardUnit = "g",
+                    SecondarySpecifiedHazard = "Pool Elevation",
+                    SecondaryHazardUnit = "ft",
+                };
+                response.PrimaryHazardLevels.Add(2d);
+                response.ProbabilityValues = new[,] { { 0d, 0.1d }, { 0.2d, 0.5d }, { 0.4d, 0.8d } };
+                return response;
+            },
+            f => ((BivariateResponse)f).ProbabilityValues = new[,] { { 0d, 0.1d }, { 0.2d, 0.5d }, { 0.4d, 0.9d } });
     }
 
     /// <summary>Verifies metadata edits (rename/re-describe/relabel) never move any registered type's hash.</summary>

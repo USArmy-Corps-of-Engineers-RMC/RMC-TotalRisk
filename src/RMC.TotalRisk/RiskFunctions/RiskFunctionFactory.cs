@@ -85,6 +85,7 @@ namespace RMC.TotalRisk.RiskFunctions
                 "Node" when LegacyEventTreeConverter.IsLegacyRoot(xElement) =>
                     new EventTreeResponse(xElement, resolver),
                 nameof(FaultTreeResponse) => new FaultTreeResponse(xElement, resolver),
+                nameof(BivariateResponse) => new BivariateResponse(xElement, resolver),
                 nameof(TabularConsequence) => new TabularConsequence(xElement),
                 nameof(ParametricConsequence) => new ParametricConsequence(xElement),
                 nameof(CompositeConsequence) => new CompositeConsequence(xElement, resolver),

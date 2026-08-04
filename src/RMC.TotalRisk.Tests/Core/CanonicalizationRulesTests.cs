@@ -38,6 +38,10 @@ public class CanonicalizationRulesTests
             // Appended with the bivariate types: secondary-axis labels, exactly like the
             // primary SpecifiedHazard/HazardUnit pair.
             "SecondarySpecifiedHazard", "SecondaryHazardUnit",
+            // Appended with the bivariate response: weight provenance — the manual/automatic
+            // flag and the stored secondary-hazard link record who and where the weights came
+            // from; the serialized weights themselves stay hashed.
+            "UseManualWeights", "SecondaryHazardFunctionId", "SecondaryHazardFunctionName",
         };
 
         // Act

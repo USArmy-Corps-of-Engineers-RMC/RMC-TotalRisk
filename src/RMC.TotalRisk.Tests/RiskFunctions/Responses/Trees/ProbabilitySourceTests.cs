@@ -1,3 +1,4 @@
+using System.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Numerics.Data;
 using Numerics.Distributions;
@@ -32,5 +33,24 @@ public class ProbabilitySourceTests
         Assert.AreSame(table, tableSource.Table);
         Assert.AreEqual(ProbabilitySourceKind.ResponseFunctionReference, responseSource.Kind);
         Assert.AreSame(response, responseSource.ResponseFunction);
+    }
+
+    /// <summary>
+    /// Verifies the bivariate scope guard: a source referencing a bivariate response reports a
+    /// validation error (evaluating it at a single tree hazard would silently collapse the
+    /// secondary hazard through the stored weights).
+    /// </summary>
+    [TestMethod]
+    public void Test_Validate_BivariateReferencedResponse_Error()
+    {
+        // Arrange
+        var source = new ProbabilitySource(new BivariateResponse { Name = "Surface" });
+
+        // Act
+        var messages = source.Validate(new[] { 0d, 1d }, "Chance node 'Breach'", "event-tree");
+
+        // Assert
+        Assert.IsTrue(messages.Any(m =>
+            m.StartsWith("Error:") && m.Contains("bivariate response function")));
     }
 }

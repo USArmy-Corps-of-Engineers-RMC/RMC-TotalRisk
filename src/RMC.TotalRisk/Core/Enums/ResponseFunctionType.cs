@@ -47,5 +47,12 @@ namespace RMC.TotalRisk.Core.Enums
         /// diagram (<c>FaultTreeResponse</c>).
         /// </summary>
         FaultTree,
+
+        /// <summary>
+        /// A deterministic two-dimensional failure-probability surface over a primary and a
+        /// weighted secondary hazard, collapsible onto the primary axis
+        /// (<c>BivariateResponse</c>).
+        /// </summary>
+        Bivariate,
     }
 }

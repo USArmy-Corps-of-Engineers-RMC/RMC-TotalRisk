@@ -64,5 +64,19 @@ namespace RMC.TotalRisk.RiskFunctions
 
             return null;
         }
+
+        /// <inheritdoc/>
+        public IRiskFunction? TryResolve(Guid? pendingId, string? pendingName)
+        {
+            if (pendingId is { } id && id != Guid.Empty)
+            {
+                var byId = _byId(id);
+                if (byId != null) return byId;
+            }
+
+            if (!string.IsNullOrEmpty(pendingName)) return _byName(pendingName!);
+
+            return null;
+        }
     }
 }

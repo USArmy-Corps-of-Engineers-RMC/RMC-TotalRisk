@@ -84,6 +84,23 @@ public class CompositeResponseTests
         return composite;
     }
 
+    /// <summary>Verifies the bivariate scope guard: a bivariate child is rejected loudly by validation and by the sampling gate.</summary>
+    [TestMethod]
+    public void Test_Validate_BivariateChild_Error()
+    {
+        // Arrange — an otherwise valid Mixture composite carrying a bivariate child.
+        var composite = Composite(CompositeCombinationType.Mixture,
+            (NormalChild("Curve", 150d, 10d), 0.5d), (new BivariateResponse { Name = "Surface" }, 0.5d));
+
+        // Act
+        var (isValid, messages) = composite.Validate();
+
+        // Assert — the loud scope guard, and sampling refuses too.
+        Assert.IsFalse(isValid);
+        Assert.IsTrue(messages.Any(m => m.Contains("'Surface' is bivariate")));
+        Assert.ThrowsException<InvalidOperationException>(() => composite.SampleFunction());
+    }
+
     /// <summary>Verifies the v1.0 default construction state (Mixture, independent, empty).</summary>
     [TestMethod]
     public void Test_Defaults_MatchV10()

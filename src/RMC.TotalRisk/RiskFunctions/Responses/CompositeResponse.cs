@@ -413,7 +413,9 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
         /// <remarks>
         /// Errors (invalidating): missing axis labels; no children (or an unresolved serialized
         /// reference, reported precisely instead); a null child entry; a <c>NonFailResponse</c>
-        /// child, which emits no distribution to combine; Mixture weights outside [0, 1] or not
+        /// child, which emits no distribution to combine; a bivariate child, whose univariate
+        /// surface is its own weighted collapse and cannot be combined; Mixture weights outside
+        /// [0, 1] or not
         /// summing to one (±1e-8); a correlation matrix that is missing, wrongly dimensioned, or not
         /// positive definite when the competing-risks dependence requires one; a circular reference;
         /// an invalid child (summary line only). Warnings (advisory): child axis labels that do not
@@ -452,6 +454,11 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
                     messages.Add("Error: A weighted response function has not been defined for the composite function.");
                 if (entry.ResponseFunction is NonFailResponse)
                     messages.Add("Error: A non-failure response cannot be a child of a composite response function; it emits no distribution to combine.");
+                // A bivariate child's univariate surface is the weighted collapse of its OWN
+                // stored weights — combining collapses would silently marginalize the secondary
+                // hazard twice, so bivariate responses are rejected from composites outright.
+                if (entry.ResponseFunction is IBivariateResponseFunction)
+                    messages.Add($"Error: The response function '{entry.ResponseFunction.Name}' is bivariate; a composite response function cannot combine bivariate response functions.");
                 if (weightsApply && (entry.Weight < 0d || entry.Weight > 1d)) anyWeightOutOfRange = true;
                 weightSum += entry.Weight;
             }
@@ -945,8 +952,9 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
         }
 
         /// <summary>
-        /// The sample-time usability gate: at least one entry, every entry configured and not a
-        /// non-failure sentinel, Mixture weights in [0, 1] summing to one, and a usable correlation
+        /// The sample-time usability gate: at least one entry, every entry configured and neither
+        /// a non-failure sentinel nor a bivariate response, Mixture weights in [0, 1] summing to
+        /// one, and a usable correlation
         /// matrix where the dependence requires one.
         /// </summary>
         /// <param name="checkCycles">True to also reject circular references.</param>
@@ -962,6 +970,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
                 {
                     var entry = _responseFunctions[i];
                     if (entry.ResponseFunction == null || entry.ResponseFunction is NonFailResponse
+                        || entry.ResponseFunction is IBivariateResponseFunction
                         || (weightsApply && (entry.Weight < 0d || entry.Weight > 1d)))
                     {
                         usable = false;
