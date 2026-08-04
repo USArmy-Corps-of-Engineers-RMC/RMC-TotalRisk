@@ -29,6 +29,7 @@ public class RiskFunctionFactoryTests
             new TabularHazard(),
             new ParametricUnivariateHazard(),
             new NonparametricHazard(),
+            new BivariateHazard(),
             new TabularTransform(),
             new LinearTransform(),
             new PowerTransform(),
@@ -108,6 +109,8 @@ public class RiskFunctionFactoryTests
 
         // Assert — matches reconstruct.
         Assert.IsNotNull(RiskFunctionFactory.CreateHazardFunction(hazardXml));
+        Assert.IsNotNull(RiskFunctionFactory.CreateHazardFunction(new BivariateHazard().ToXElement()));
+        Assert.IsNull(RiskFunctionFactory.CreateResponseFunction(new BivariateHazard().ToXElement()));
         Assert.IsNotNull(RiskFunctionFactory.CreateTransformFunction(transformXml));
         Assert.IsNotNull(RiskFunctionFactory.CreateTransformFunction(new LinearTransform().ToXElement()));
         Assert.IsNotNull(RiskFunctionFactory.CreateTransformFunction(new PowerTransform().ToXElement()));

@@ -46,5 +46,11 @@ namespace RMC.TotalRisk.Core.Enums
         /// competing-risks (maximum-rule) combination (<c>CompositeHazard</c>).
         /// </summary>
         Composite,
+
+        /// <summary>
+        /// A copula-coupled pair of linked univariate marginal hazard functions with conditional
+        /// secondary discretization (<c>BivariateHazard</c>).
+        /// </summary>
+        Bivariate,
     }
 }

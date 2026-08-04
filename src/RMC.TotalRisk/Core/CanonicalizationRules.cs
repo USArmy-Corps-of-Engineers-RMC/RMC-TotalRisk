@@ -29,7 +29,8 @@ namespace RMC.TotalRisk.Core
     /// re-describing a model object must never change its content hash or re-roll Monte Carlo seeds.
     /// <b>Stripped (axis labels):</b> <c>SpecifiedHazard</c>, <c>HazardUnit</c>,
     /// <c>TransformedHazard</c>, <c>TransformedHazardUnit</c>, <c>SpecifiedConsequence</c>,
-    /// <c>ConsequenceUnit</c> — labels describe the axes, not the math.
+    /// <c>ConsequenceUnit</c>, <c>SecondarySpecifiedHazard</c>, <c>SecondaryHazardUnit</c> —
+    /// labels describe the axes, not the math.
     /// <b>Stripped (UI-envelope, defensive):</b> <c>NameOnDisk</c>, <c>Guid</c>, <c>LeftPosition</c>,
     /// <c>TopPosition</c>, <c>ChartSettings</c> — the model library never writes these, but the
     /// future UI layer wraps model XML in project-tree envelopes; stripping them here guarantees a
@@ -86,6 +87,9 @@ namespace RMC.TotalRisk.Core
                 // integration settings (the user or SetIntegrationDefaults); the settings
                 // themselves are the compute content and remain hashed.
                 "UseDefaults",
+                // Secondary-axis labels of the bivariate types — axis labels, not math, exactly
+                // like the primary SpecifiedHazard/HazardUnit pair above.
+                "SecondarySpecifiedHazard", "SecondaryHazardUnit",
             },
             strippedElements: Array.Empty<string>(),
             rewriters: Array.Empty<Action<XElement>>());

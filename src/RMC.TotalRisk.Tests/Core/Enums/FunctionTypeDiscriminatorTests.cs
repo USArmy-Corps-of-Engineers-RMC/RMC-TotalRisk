@@ -29,7 +29,7 @@ public class FunctionTypeDiscriminatorTests
     {
         // Assert
         CollectionAssert.AreEqual(
-            new[] { "Tabular", "ParametricUnivariate", "Nonparametric", "Composite" },
+            new[] { "Tabular", "ParametricUnivariate", "Nonparametric", "Composite", "Bivariate" },
             Enum.GetNames<HazardFunctionType>());
         CollectionAssert.AreEqual(
             new[] { "Tabular", "Linear", "Power", "Composite" },
@@ -51,6 +51,7 @@ public class FunctionTypeDiscriminatorTests
         Assert.AreEqual(HazardFunctionType.ParametricUnivariate, new ParametricUnivariateHazard().FunctionType);
         Assert.AreEqual(HazardFunctionType.Nonparametric, new NonparametricHazard().FunctionType);
         Assert.AreEqual(HazardFunctionType.Composite, new CompositeHazard().FunctionType);
+        Assert.AreEqual(HazardFunctionType.Bivariate, new BivariateHazard().FunctionType);
         Assert.AreEqual(TransformFunctionType.Tabular, new TabularTransform().FunctionType);
         Assert.AreEqual(TransformFunctionType.Linear, new LinearTransform().FunctionType);
         Assert.AreEqual(TransformFunctionType.Power, new PowerTransform().FunctionType);
@@ -80,6 +81,7 @@ public class FunctionTypeDiscriminatorTests
             new ParametricUnivariateHazard().ToXElement(),
             new NonparametricHazard().ToXElement(),
             new CompositeHazard().ToXElement(),
+            new BivariateHazard().ToXElement(),
             new TabularTransform().ToXElement(),
             new LinearTransform().ToXElement(),
             new PowerTransform().ToXElement(),

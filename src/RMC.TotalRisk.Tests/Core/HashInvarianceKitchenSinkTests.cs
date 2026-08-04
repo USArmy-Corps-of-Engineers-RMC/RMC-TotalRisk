@@ -238,6 +238,23 @@ public class HashInvarianceKitchenSinkTests
                 ((FaultTreeBasicEventNode)gate.Children[0]).ProbabilitySource = new ProbabilitySource(0.35d);
             });
 
+        // The bivariate hazard — linked marginals under an independence copula. The mutation
+        // moves the bin count; copula/θ/marginal-content sensitivity is covered in
+        // BivariateHazardTests.
+        yield return new RegistryEntry(
+            nameof(BivariateHazard),
+            () => new BivariateHazard(
+                new TabularHazard { Name = "PGA Frequency", SpecifiedHazard = "Peak Ground Acceleration", HazardUnit = "g" },
+                new TabularHazard { Name = "Pool Duration Curve", SpecifiedHazard = "Pool Duration", HazardUnit = "days" })
+            {
+                Name = "Seismic-Pool Coupling",
+                SpecifiedHazard = "Peak Ground Acceleration",
+                HazardUnit = "g",
+                SecondarySpecifiedHazard = "Pool Duration",
+                SecondaryHazardUnit = "days",
+            },
+            f => ((BivariateHazard)f).SecondaryIntegrationBins = 50);
+
         // The composite transform (Average-only; the mutation nudges a weight).
         yield return new RegistryEntry(
             nameof(CompositeTransform),

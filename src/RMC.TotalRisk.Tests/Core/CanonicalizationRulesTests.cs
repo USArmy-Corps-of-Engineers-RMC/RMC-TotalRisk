@@ -35,6 +35,9 @@ public class CanonicalizationRulesTests
             // Appended with the analysis options: records who wrote the integration
             // settings, not what they are.
             "UseDefaults",
+            // Appended with the bivariate types: secondary-axis labels, exactly like the
+            // primary SpecifiedHazard/HazardUnit pair.
+            "SecondarySpecifiedHazard", "SecondaryHazardUnit",
         };
 
         // Act

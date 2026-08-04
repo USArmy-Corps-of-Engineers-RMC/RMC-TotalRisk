@@ -411,7 +411,9 @@ namespace RMC.TotalRisk.RiskFunctions.Hazards
         /// <inheritdoc/>
         /// <remarks>
         /// Errors (invalidating): missing axis labels; no children (or an unresolved serialized
-        /// reference, reported precisely instead); a null child entry; Mixture weights outside
+        /// reference, reported precisely instead); a null child entry; a bivariate child (which
+        /// has no univariate collapse — the composite would silently combine its X marginal
+        /// alone); Mixture weights outside
         /// [0, 1] or not summing to one (±1e-8, the Numerics <c>Mixture</c> gate); a correlation
         /// matrix that is missing, wrongly dimensioned, or not positive definite when the
         /// competing-risks dependence requires one; a circular reference through nested composites;
@@ -472,6 +474,16 @@ namespace RMC.TotalRisk.RiskFunctions.Hazards
             {
                 var function = _hazardFunctions[i].HazardFunction;
                 if (function == null) continue;
+
+                // A bivariate child has no univariate collapse — the composite would silently
+                // combine its X marginal alone. Rejected without recursing into its Validate,
+                // which also keeps a cycle through a bivariate hazard's marginal links from
+                // recursing forever.
+                if (function is IBivariateHazardFunction)
+                {
+                    messages.Add($"Error: The hazard function '{function.Name}' is bivariate; a composite hazard function cannot combine bivariate hazard functions.");
+                    continue;
+                }
 
                 // A cyclic child would recurse forever through its own Validate; the circular
                 // error above already reports the precise cause.
@@ -892,7 +904,8 @@ namespace RMC.TotalRisk.RiskFunctions.Hazards
 
         /// <summary>
         /// The sample-time usability gate (the cluster's invalid-configuration throw): at least one
-        /// entry, every entry configured, Mixture weights in [0, 1] summing to one, and a usable
+        /// entry, every entry configured and univariate (a bivariate child has no univariate
+        /// collapse), Mixture weights in [0, 1] summing to one, and a usable
         /// correlation matrix where the dependence requires one. Cycle detection is opt-in because
         /// the per-realization path runs this on every draw and a cycle cannot survive
         /// <see cref="SetupSampler"/>.
@@ -909,7 +922,8 @@ namespace RMC.TotalRisk.RiskFunctions.Hazards
                 for (int i = 0; i < _hazardFunctions.Count; i++)
                 {
                     var entry = _hazardFunctions[i];
-                    if (entry.HazardFunction == null || (weightsApply && (entry.Weight < 0d || entry.Weight > 1d)))
+                    if (entry.HazardFunction == null || entry.HazardFunction is IBivariateHazardFunction ||
+                        (weightsApply && (entry.Weight < 0d || entry.Weight > 1d)))
                     {
                         usable = false;
                         break;

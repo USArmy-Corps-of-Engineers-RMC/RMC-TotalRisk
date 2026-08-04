@@ -264,6 +264,36 @@ public class CompositeHazardTests
     }
 
     /// <summary>
+    /// A bivariate child is rejected loudly, at validation and at sampling: a composite has no
+    /// univariate collapse for it and would otherwise silently combine its X marginal alone.
+    /// </summary>
+    [TestMethod]
+    public void Test_Validate_BivariateChild_Error()
+    {
+        // Arrange — a valid composite whose second child is a bivariate hazard.
+        var bivariate = new BivariateHazard(
+            NormalChild("PGA", 1d, 0.2d), NormalChild("Pool", 15d, 3d))
+        {
+            Name = "Coupled",
+            SpecifiedHazard = "Peak Flow",
+            HazardUnit = "cfs",
+            SecondarySpecifiedHazard = "Pool Duration",
+            SecondaryHazardUnit = "days",
+        };
+        var composite = Composite(CompositeCombinationType.Mixture,
+            (NormalChild("A", 100d, 20d), 0.5d), (bivariate, 0.5d));
+
+        // Act
+        var (isValid, messages) = composite.Validate();
+
+        // Assert
+        Assert.IsFalse(isValid);
+        Assert.IsTrue(messages.Contains(
+            "Error: The hazard function 'Coupled' is bivariate; a composite hazard function cannot combine bivariate hazard functions."));
+        Assert.ThrowsException<InvalidOperationException>(() => composite.SampleFunction());
+    }
+
+    /// <summary>
     /// Verifies the aleatory mixture rule in closed form: the combined CDF is exactly the
     /// weighted sum of the child CDFs — report Equation 49.
     /// </summary>
