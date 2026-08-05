@@ -10,8 +10,9 @@ namespace RMC.TotalRisk.Systems.Components.Graph
 {
     /// <summary>
     /// The root element of a system component's risk graph: wraps the hazard (frequency)
-    /// function. Output-only — the Hydrologics source analog: no inputs, one output port (two
-    /// once bivariate hazards are introduced).
+    /// function. Output-only — the Hydrologics source analog: no inputs, one output port for a
+    /// univariate hazard, two for a bivariate hazard (port 0 = the primary X signal, port 1 =
+    /// the secondary Y signal).
     /// </summary>
     /// <remarks>
     /// <para>
@@ -97,6 +98,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
                 {
                     _function = SwapFunctionSubscription(_function, value);
                     RaisePropertyChange(nameof(Function));
+                    RaisePropertyChange(nameof(OutputCount));
                 }
             }
         }
@@ -109,11 +111,10 @@ namespace RMC.TotalRisk.Systems.Components.Graph
 
         /// <inheritdoc/>
         /// <remarks>
-        /// One until bivariate hazard functions are introduced, when this getter becomes
-        /// arity-derived (2 for a bivariate wrapped function) — the only code change bivariate
-        /// output ports require.
+        /// Arity-derived: 2 when the wrapped function is bivariate — port 0 carries the primary
+        /// X signal and port 1 the secondary Y signal — otherwise 1.
         /// </remarks>
-        public override int OutputCount => 1;
+        public override int OutputCount => _function is IBivariateHazardFunction ? 2 : 1;
 
         #endregion
 

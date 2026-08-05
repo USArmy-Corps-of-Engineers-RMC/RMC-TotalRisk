@@ -740,6 +740,13 @@ namespace RMC.TotalRisk.Systems.Components
         /// </summary>
         /// <param name="failureMode">The chain-style mode to expand. The graph takes ownership of its function instances.</param>
         /// <exception cref="ArgumentNullException">Thrown when the mode is null.</exception>
+        /// <exception cref="NotSupportedException">
+        /// Thrown when the mode carries bivariate topology — a Secondary hazard binding or
+        /// consequence dimension, or a non-empty secondary-hazard chain. A linear chain
+        /// expansion cannot wire the off-path secondary connections those require, and dropping
+        /// them silently would break the expansion's bit-identical projection contract; author
+        /// bivariate components through the graph surface instead.
+        /// </exception>
         /// <remarks>
         /// The expansion is lossless for failure chains — projecting <see cref="FailureModes"/>
         /// afterwards reproduces the mode bit-identically (same canonical hash). A v1.0-style
@@ -751,6 +758,13 @@ namespace RMC.TotalRisk.Systems.Components
         public void AddFailureMode(FailureMode failureMode)
         {
             if (failureMode == null) throw new ArgumentNullException(nameof(failureMode));
+            if (failureMode.HazardBinding == HazardDimension.Secondary
+                || failureMode.ConsequenceHazardDimension == HazardDimension.Secondary
+                || failureMode.SecondaryHazardToResponse.Count > 0)
+            {
+                throw new NotSupportedException(
+                    "The chain-style expansion cannot wire bivariate topology (a Secondary hazard binding, a Secondary consequence dimension, or a secondary-hazard chain); author bivariate components through the graph surface.");
+            }
 
             var root = RootHazardElement;
             if (root == null)
@@ -932,6 +946,12 @@ namespace RMC.TotalRisk.Systems.Components
                     if (path.Count == 0 || path[0] is not HazardElement)
                     {
                         messages.Add($"Error: The profile hazard element '{profileTransform.Name}' of system component '{Name}' is not connected upstream to the hazard element.");
+                    }
+                    else if (ExitConnection(path[1], path[0])?.SourcePort == 1)
+                    {
+                        // A secondary-branch transform reaches the root and would pass the
+                        // reachability test above, but profiles are a primary-axis surface.
+                        messages.Add($"Error: The profile hazard element '{profileTransform.Name}' of system component '{Name}' consumes the hazard's secondary output (port 1); the profile axis must derive from the primary hazard dimension — select a primary-chain transform, or clear the selection.");
                     }
                     else if (_hazardThreshold != 0d)
                     {
@@ -1353,7 +1373,17 @@ namespace RMC.TotalRisk.Systems.Components
             }
 
             var hazard = HazardFunction;
-            AddFunctionColumns(hazard, "Hazard Function");
+            if (hazard is IBivariateHazardFunction bivariateHazard)
+            {
+                // A bivariate hazard samples through its linked marginals (its own sampling
+                // dimension count is zero); the marginals are the knowledge inputs.
+                AddFunctionColumns(bivariateHazard.MarginalX, "Marginal X Hazard");
+                AddFunctionColumns(bivariateHazard.MarginalY, "Marginal Y Hazard");
+            }
+            else
+            {
+                AddFunctionColumns(hazard, "Hazard Function");
+            }
 
             for (int i = 0; i < modes.Count; i++)
             {
@@ -1385,7 +1415,7 @@ namespace RMC.TotalRisk.Systems.Components
                 }
 
                 // The chain functions, in the walk order: stage transforms, stage responses,
-                // trailing transforms.
+                // trailing transforms, then the secondary-hazard chain.
                 for (int s = 0; s < mode.ResponseStages.Count; s++)
                 {
                     var stage = mode.ResponseStages[s];
@@ -1399,6 +1429,10 @@ namespace RMC.TotalRisk.Systems.Components
                 for (int t = 0; t < mode.ResponseToConsequence.Count; t++)
                 {
                     AddFunctionColumns(mode.ResponseToConsequence[t], "Transform");
+                }
+                for (int t = 0; t < mode.SecondaryHazardToResponse.Count; t++)
+                {
+                    AddFunctionColumns(mode.SecondaryHazardToResponse[t], "Transform");
                 }
             }
         }
@@ -1660,9 +1694,17 @@ namespace RMC.TotalRisk.Systems.Components
         /// the pending chain, each response element closes a stage whose branch polarity is read
         /// from the exit port the path uses (port 0 = Fail, port 1 = Non-Fail), transforms after
         /// the last response become the trailing chain, and the terminal's functions become the
-        /// ordered consequence list. The terminal's hazard-source binding projects to a chain
-        /// position and dimension; the multiple-consequences flag derives from the last
-        /// response's fan-out on the mode's own exit port.
+        /// ordered consequence list. The mode's hazard binding is stamped from the root exit
+        /// port (a path leaving the hazard's secondary output, port 1, is Secondary-bound), and
+        /// the path's resolved secondary chain — the off-path univariate transforms feeding the
+        /// first bivariate element's secondary input — projects into
+        /// <see cref="FailureMode.SecondaryHazardToResponse"/> (unresolvable chains project
+        /// empty; graph validation reports why). The terminal's hazard-source binding projects
+        /// to a chain position and dimension: a primary-path target keeps the established
+        /// position semantics, the hazard's port 1 is the raw secondary signal at position 0,
+        /// and a secondary-chain transform is Secondary position k + 1. The
+        /// multiple-consequences flag derives from the last response's fan-out on the mode's own
+        /// exit port.
         /// </summary>
         /// <param name="terminal">The path's consequence element.</param>
         /// <param name="path">The root-first path ending with the terminal.</param>
@@ -1731,7 +1773,30 @@ namespace RMC.TotalRisk.Systems.Components
                 Parent = this,
                 ProjectedResponseOrdinals = lastResponseElement != null ? stageOrdinals.ToArray() : null,
                 ProjectedTerminalName = terminal.Name,
+                HazardBinding = ExitConnection(path[1], path[0])?.SourcePort == 1
+                    ? HazardDimension.Secondary
+                    : HazardDimension.Primary,
             };
+
+            // The path's secondary chain: the univariate transforms feeding the first bivariate
+            // element's secondary input, upstream → downstream. Unresolvable (or absent) chains
+            // project empty — projection never throws; graph validation reports why.
+            List<TransformElement>? secondaryChain = null;
+            RiskConnection? anchor = ComponentGraph.FindSecondaryAnchor(path);
+            if (anchor != null)
+            {
+                var chainElements = new List<TransformElement>();
+                if (_graph.TryResolveSecondaryChain(anchor, chainElements, out _))
+                {
+                    secondaryChain = chainElements;
+                    var chainFunctions = new List<ITransformFunction>(chainElements.Count);
+                    for (int i = 0; i < chainElements.Count; i++)
+                    {
+                        if (chainElements[i].Function != null) chainFunctions.Add(chainElements[i].Function!);
+                    }
+                    mode.SecondaryHazardToResponse = chainFunctions;
+                }
+            }
 
             if (terminal.HazardSource != null)
             {
@@ -1762,7 +1827,22 @@ namespace RMC.TotalRisk.Systems.Components
                         ? HazardDimension.Secondary
                         : HazardDimension.Primary;
                 }
-                // Off-path bindings leave the default; graph validation reports them.
+                else if (secondaryChain != null)
+                {
+                    // A secondary-chain transform: the consequences consume the secondary
+                    // signal after the k-th chain transform (position 0 is the raw secondary
+                    // signal, stamped by the hazard port-1 match above).
+                    for (int k = 0; k < secondaryChain.Count; k++)
+                    {
+                        if (ReferenceEquals(secondaryChain[k], target))
+                        {
+                            mode.ConsequenceHazardPosition = k + 1;
+                            mode.ConsequenceHazardDimension = HazardDimension.Secondary;
+                            break;
+                        }
+                    }
+                }
+                // Other off-path bindings leave the default; graph validation reports them.
             }
 
             if (lastResponseElement != null)

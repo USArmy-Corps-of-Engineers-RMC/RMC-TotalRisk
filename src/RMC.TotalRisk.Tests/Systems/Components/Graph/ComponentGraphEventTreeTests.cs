@@ -165,7 +165,11 @@ public class ComponentGraphEventTreeTests
         var fixture = NWayComponent();
         RiskConnection unaffected = fixture.Terminals[2].Input!;
         RiskConnection selected = fixture.ResponseElement.CreateBranchConnection(fixture.Branches[0].Id);
-        var transform = new TransformElement("Branch transform") { Input = selected };
+        var transform = new TransformElement("Branch transform")
+        {
+            Input = selected,
+            SecondaryInput = selected,
+        };
         var downstreamResponse = new ResponseElement("Downstream response")
         {
             Function = fixture.Response,
@@ -173,6 +177,7 @@ public class ComponentGraphEventTreeTests
             SecondaryInput = selected,
         };
         fixture.Terminals[1].HazardSource = selected;
+        fixture.Terminals[1].SecondaryInput = selected;
         fixture.Component.Graph.AddElement(transform);
         fixture.Component.Graph.AddElement(downstreamResponse);
 
@@ -182,12 +187,48 @@ public class ComponentGraphEventTreeTests
         Assert.IsNull(fixture.Response.EventTree.FindById(fixture.Branches[0].Id));
         Assert.IsNull(fixture.Terminals[1].Input);
         Assert.IsNull(fixture.Terminals[1].HazardSource);
+        Assert.IsNull(fixture.Terminals[1].SecondaryInput);
         Assert.IsNull(transform.Input);
+        Assert.IsNull(transform.SecondaryInput);
         Assert.IsNull(downstreamResponse.Input);
         Assert.IsNull(downstreamResponse.SecondaryInput);
         Assert.AreSame(unaffected, fixture.Terminals[2].Input);
         Assert.IsFalse(fixture.Component.Graph.Validate().ValidationMessages
             .Any(message => message.Contains("stale branch id", StringComparison.Ordinal)));
+    }
+
+    /// <summary>
+    /// Verifies a rejected graph-aware edit leaves every secondary slot exactly as captured —
+    /// including that the consequence element's three restored slots (input, binding, secondary)
+    /// land back in their own fields, never swapped.
+    /// </summary>
+    [TestMethod]
+    public void Test_DeleteRejected_RestoresSecondarySlotsUnswapped()
+    {
+        // Arrange — distinct connections in every slot kind.
+        var fixture = NWayComponent();
+        RiskConnection branchConnection = fixture.ResponseElement.CreateBranchConnection(fixture.Branches[0].Id);
+        var hazardElement = fixture.Component.Graph.GetElements<HazardElement>().Single();
+        var plainConnection = new RiskConnection(hazardElement);
+        var transform = new TransformElement("Chain transform")
+        {
+            Input = plainConnection,
+            SecondaryInput = branchConnection,
+        };
+        fixture.Component.Graph.AddElement(transform);
+        fixture.Terminals[1].HazardSource = branchConnection;
+        fixture.Terminals[1].SecondaryInput = plainConnection;
+
+        // Act — the referenced branch rejects the delete; the catch path restores every slot.
+        Assert.ThrowsException<InvalidOperationException>(() =>
+            fixture.Component.Graph.DeleteEventTreeNode(fixture.ResponseElement,
+                fixture.Branches[0].Id, TreeDeletePolicy.RejectIfReferenced));
+
+        // Assert — each slot holds its own captured connection.
+        Assert.AreSame(plainConnection, transform.Input);
+        Assert.AreSame(branchConnection, transform.SecondaryInput);
+        Assert.AreSame(branchConnection, fixture.Terminals[1].HazardSource);
+        Assert.AreSame(plainConnection, fixture.Terminals[1].SecondaryInput);
     }
 
     /// <summary>Verifies uncontrolled mutation is diagnosed and linked materialization preserves addresses.</summary>

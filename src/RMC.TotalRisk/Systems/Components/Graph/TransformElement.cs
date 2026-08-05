@@ -11,7 +11,9 @@ namespace RMC.TotalRisk.Systems.Components.Graph
     /// <summary>
     /// A transform element of a system component's risk graph: wraps a transform function that
     /// converts the incoming hazard signal to another hazard type (e.g., a flow-to-stage rating
-    /// curve). One input, one output.
+    /// curve). One input and one output for a univariate transform; a bivariate transform takes
+    /// two inputs (primary x, secondary y) and exposes two outputs (port 0 = z = f(x, y), the
+    /// transformed primary; port 1 = the secondary value passed through unchanged).
     /// </summary>
     /// <remarks>
     /// <para>
@@ -22,6 +24,14 @@ namespace RMC.TotalRisk.Systems.Components.Graph
     /// Transforms advance the hazard signal: each transform element on a path adds a new hazard
     /// type that downstream elements (and the consequence binding) can consume. Transforms may
     /// chain and may fan out to multiple downstream consumers.
+    /// </para>
+    /// <para>
+    /// <see cref="SecondaryInput"/> feeds a bivariate transform's secondary axis. It is a side
+    /// input, never a path edge for the upstream walk: <see cref="GetInputConnections"/> yields
+    /// <see cref="Input"/> first, so the primary path threads through <see cref="Input"/> and
+    /// the secondary chain stays off-path. The graph validates that the secondary input resolves
+    /// to the hazard's secondary output through univariate transforms only
+    /// (<c>ComponentGraph.TryResolveSecondaryChain</c>).
     /// </para>
     /// </remarks>
     public class TransformElement : RiskElementBase
@@ -64,6 +74,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
             if (xElement == null) throw new ArgumentNullException(nameof(xElement));
             ReadBaseFromXElement(xElement);
             _pendingInput = ReadPendingConnection(xElement, "Source");
+            _pendingSecondaryInput = ReadPendingConnection(xElement, "SecondarySource");
 
             var functionChild = xElement.Element(nameof(Function))?.Elements().FirstOrDefault();
             if (functionChild != null)
@@ -91,9 +102,20 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         private RiskConnection? _input;
 
         /// <summary>
+        /// Backing field for <see cref="SecondaryInput"/>.
+        /// </summary>
+        private RiskConnection? _secondaryInput;
+
+        /// <summary>
         /// The pending serialized input reference, resolved by the graph after construction.
         /// </summary>
         private PendingConnection? _pendingInput;
+
+        /// <summary>
+        /// The pending serialized secondary-input reference, resolved by the graph after
+        /// construction.
+        /// </summary>
+        private PendingConnection? _pendingSecondaryInput;
 
         /// <summary>
         /// The wrapped transform function (referenced, not owned: a consuming layer may store one function and use it in several graphs). Null while unset —
@@ -108,6 +130,8 @@ namespace RMC.TotalRisk.Systems.Components.Graph
                 {
                     _function = SwapFunctionSubscription(_function, value);
                     RaisePropertyChange(nameof(Function));
+                    RaisePropertyChange(nameof(InputCount));
+                    RaisePropertyChange(nameof(OutputCount));
                 }
             }
         }
@@ -129,30 +153,66 @@ namespace RMC.TotalRisk.Systems.Components.Graph
             }
         }
 
-        /// <summary>Restores the structural input without publishing a partially rolled-back edit.</summary>
-        /// <param name="input">The checkpointed input.</param>
-        internal void RestoreInputConnection(RiskConnection? input)
+        /// <summary>
+        /// The secondary input feeding a bivariate transform's secondary axis. Setting it while
+        /// the wrapped transform is univariate is a validation error; a bivariate transform
+        /// without it is one too. The graph validates that the connection resolves to the
+        /// hazard's secondary output.
+        /// </summary>
+        public RiskConnection? SecondaryInput
+        {
+            get { return _secondaryInput; }
+            set
+            {
+                if (!Equals(_secondaryInput, value))
+                {
+                    _secondaryInput = value;
+                    RaisePropertyChange(nameof(SecondaryInput));
+                }
+            }
+        }
+
+        /// <summary>Restores both structural inputs without publishing a partially rolled-back edit.</summary>
+        /// <param name="input">The checkpointed primary input.</param>
+        /// <param name="secondaryInput">The checkpointed secondary input.</param>
+        internal void RestoreInputConnections(RiskConnection? input, RiskConnection? secondaryInput)
         {
             _input = input;
+            _secondaryInput = secondaryInput;
         }
 
         /// <inheritdoc/>
         public override RiskElementType ElementType => RiskElementType.Transform;
 
         /// <inheritdoc/>
-        public override int InputCount => 1;
+        /// <remarks>
+        /// Arity-derived: 2 when the wrapped function is bivariate (primary x plus secondary y),
+        /// otherwise 1.
+        /// </remarks>
+        public override int InputCount => _function is IBivariateTransformFunction ? 2 : 1;
 
         /// <inheritdoc/>
-        public override int OutputCount => 1;
+        /// <remarks>
+        /// Arity-derived: 2 when the wrapped function is bivariate — port 0 carries
+        /// z = f(x, y), the transformed primary, and port 1 passes the secondary value through
+        /// unchanged — otherwise 1.
+        /// </remarks>
+        public override int OutputCount => _function is IBivariateTransformFunction ? 2 : 1;
 
         #endregion
 
         #region IRiskElement Methods
 
         /// <inheritdoc/>
+        /// <remarks>
+        /// Yields <see cref="Input"/> first, then <see cref="SecondaryInput"/>. The order is
+        /// load-bearing: the graph's upstream-path walk takes the first connection as the
+        /// primary edge, which keeps secondary chains off-path.
+        /// </remarks>
         public override IEnumerable<RiskConnection> GetInputConnections()
         {
             if (_input != null) yield return _input;
+            if (_secondaryInput != null) yield return _secondaryInput;
         }
 
         /// <inheritdoc/>
@@ -178,9 +238,11 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         }
         /// <inheritdoc/>
         /// <remarks>
-        /// Errors: missing name (base); no wrapped function; the wrapped function's own errors
-        /// (aggregated with the element name as context). Connectivity is validated by the graph,
-        /// which sees the whole topology.
+        /// Errors: missing name (base); no wrapped function; a secondary input while the wrapped
+        /// transform is univariate (the secondary axis has no meaning for it); a bivariate
+        /// wrapped transform without a secondary input (the secondary axis has no source); the
+        /// wrapped function's own errors (aggregated with the element name as context).
+        /// Connectivity is validated by the graph, which sees the whole topology.
         /// </remarks>
         public override (bool IsValid, List<string> ValidationMessages) Validate()
         {
@@ -191,6 +253,14 @@ namespace RMC.TotalRisk.Systems.Components.Graph
             }
             else
             {
+                if (_secondaryInput != null && _function is not IBivariateTransformFunction)
+                {
+                    messages.Add($"Error: The transform element '{Name}' has a secondary input, but its transform function is univariate.");
+                }
+                if (_secondaryInput == null && _function is IBivariateTransformFunction)
+                {
+                    messages.Add($"Error: The transform element '{Name}' wraps a bivariate transform but has no secondary input; connect the hazard's secondary output (or a secondary-chain transform) to its secondary input.");
+                }
                 AggregateWithContext(messages, _function.Validate().ValidationMessages);
             }
             return (messages.FindIndex(m => m.StartsWith("Error:", StringComparison.Ordinal)) < 0, messages);
@@ -202,6 +272,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
             var element = new XElement(nameof(TransformElement));
             AddBaseAttributesToXElement(element);
             WriteConnection(element, "Source", _input);
+            WriteConnection(element, "SecondarySource", _secondaryInput);
             if (_function != null) element.Add(new XElement(nameof(Function), WriteFunctionEntry(_function, mode)));
             return element;
         }
@@ -220,7 +291,9 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         public override void ResolveDeserializedReferences(RiskElementResolver resolver)
         {
             _input = ResolveConnection(_pendingInput, resolver, $"The transform element '{Name}' input");
+            _secondaryInput = ResolveConnection(_pendingSecondaryInput, resolver, $"The transform element '{Name}' secondary input");
             _pendingInput = null;
+            _pendingSecondaryInput = null;
         }
 
         /// <inheritdoc/>
@@ -229,6 +302,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
             if (original is TransformElement transform)
             {
                 _input = RemapConnection(transform._input, cloneMap);
+                _secondaryInput = RemapConnection(transform._secondaryInput, cloneMap);
             }
         }
 

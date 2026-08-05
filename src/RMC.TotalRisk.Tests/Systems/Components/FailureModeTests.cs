@@ -9,6 +9,7 @@ using Numerics.Distributions;
 using RMC.TotalRisk.Core.Enums;
 using RMC.TotalRisk.Core.Interfaces;
 using RMC.TotalRisk.RiskFunctions.Consequences;
+using RMC.TotalRisk.RiskFunctions.Hazards;
 using RMC.TotalRisk.RiskFunctions.Responses;
 using RMC.TotalRisk.RiskFunctions.Transforms;
 using RMC.TotalRisk.Systems.Components;
@@ -702,4 +703,444 @@ public class FailureModeTests
         nullSlot.ConsequenceFunctions.Add(null!);
         Assert.IsFalse(nullSlot.Validate(RiskAnalysisMode.Reliability).IsValid);
     }
+
+    #region Bivariate gate matrix
+
+    /// <summary>Builds a valid labeled bivariate hazard for parenting joint-mode fixtures.</summary>
+    private static BivariateHazard JointHazard()
+    {
+        return new BivariateHazard(
+            new TabularHazard { Name = "Surge Frequency", SpecifiedHazard = "Surge", HazardUnit = "ft" },
+            new TabularHazard { Name = "Pool Frequency", SpecifiedHazard = "Pool Elevation", HazardUnit = "ft" })
+        {
+            Name = "Joint Hazard",
+            SpecifiedHazard = "Surge",
+            HazardUnit = "ft",
+            SecondarySpecifiedHazard = "Pool Elevation",
+            SecondaryHazardUnit = "ft",
+        };
+    }
+
+    /// <summary>Builds a component whose hazard is bivariate, for parenting standalone modes.</summary>
+    private static SystemComponent JointParent()
+    {
+        return new SystemComponent(JointHazard());
+    }
+
+    /// <summary>Builds a valid labeled bivariate response on the default 2×2 grid.</summary>
+    private static BivariateResponse JointResponse()
+    {
+        return new BivariateResponse
+        {
+            Name = "Joint Fragility",
+            SpecifiedHazard = "Surge",
+            HazardUnit = "ft",
+            SecondarySpecifiedHazard = "Pool Elevation",
+            SecondaryHazardUnit = "ft",
+        };
+    }
+
+    /// <summary>Builds a valid labeled bivariate transform.</summary>
+    private static BivariateTransform JointTransform()
+    {
+        return new BivariateTransform
+        {
+            Name = "Surge-Pool Stage",
+            SpecifiedHazard = "Surge",
+            HazardUnit = "ft",
+            SecondarySpecifiedHazard = "Pool Elevation",
+            SecondaryHazardUnit = "ft",
+            TransformedHazard = "Stage",
+            TransformedHazardUnit = "ft",
+            X1Values = new[] { 0d, 10d, 20d },
+            X2Values = new[] { 100d, 200d },
+            ZValues = new[,] { { 1d, 2d }, { 3d, 5d }, { 4d, 8d } },
+        };
+    }
+
+    /// <summary>Builds a valid labeled bivariate consequence surface.</summary>
+    private static BivariateConsequence JointConsequence()
+    {
+        return new BivariateConsequence
+        {
+            Name = "Surge-Pool Damages",
+            SpecifiedHazard = "Surge",
+            HazardUnit = "ft",
+            SecondarySpecifiedHazard = "Pool Elevation",
+            SecondaryHazardUnit = "ft",
+            SpecifiedConsequence = "Damages",
+            ConsequenceUnit = "$",
+            X1Values = new[] { 0d, 10d, 20d },
+            X2Values = new[] { 100d, 200d },
+            ZValues = new[,] { { 1d, 2d }, { 3d, 5d }, { 4d, 8d } },
+        };
+    }
+
+    /// <summary>
+    /// Verifies the univariate/unparented gate rows: Secondary bindings, a secondary chain, and
+    /// bivariate transform/consequence functions all error without a bivariate component hazard.
+    /// </summary>
+    [TestMethod]
+    public void Test_Validate_UnivariateParent_BivariateShapesError()
+    {
+        // Secondary hazard binding.
+        var secondaryBound = ChainMode();
+        secondaryBound.HazardBinding = HazardDimension.Secondary;
+        Assert.IsTrue(secondaryBound.Validate().ValidationMessages
+            .Any(m => m.Contains("hazard binding is Secondary")));
+
+        // Secondary consequence dimension (with a stamped in-range position, so only the
+        // dimension rule fires).
+        var secondaryDimension = ChainMode();
+        secondaryDimension.ConsequenceHazardDimension = HazardDimension.Secondary;
+        secondaryDimension.ConsequenceHazardPosition = 0;
+        Assert.IsTrue(secondaryDimension.Validate().ValidationMessages
+            .Any(m => m.Contains("consequence hazard dimension is Secondary")));
+
+        // A non-empty secondary chain.
+        var chained = ChainMode();
+        chained.SecondaryHazardToResponse.Add(Rating("Pool Elevation", "ft", "Pool Stage", "ft"));
+        Assert.IsTrue(chained.Validate().ValidationMessages
+            .Any(m => m.Contains("carries a secondary-hazard chain")));
+
+        // Bivariate functions in the mode: a stage transform, a trailing transform, and a
+        // consequence each error under a univariate hazard.
+        var stageTransform = ChainMode();
+        stageTransform.HazardToResponse.Add(JointTransform());
+        Assert.IsTrue(stageTransform.Validate().ValidationMessages
+            .Any(m => m.Contains("stage transform") && m.Contains("is bivariate")));
+
+        var trailingTransform = ChainMode();
+        trailingTransform.ResponseToConsequence.Add(JointTransform());
+        Assert.IsTrue(trailingTransform.Validate().ValidationMessages
+            .Any(m => m.Contains("response-to-consequence transform") && m.Contains("is bivariate")));
+
+        var consequence = ChainMode();
+        consequence.ConsequenceFunctions.Add(JointConsequence());
+        Assert.IsTrue(consequence.Validate().ValidationMessages
+            .Any(m => m.Contains("consequence function") && m.Contains("is bivariate")));
+    }
+
+    /// <summary>
+    /// Verifies the collapse-mode row: a bivariate RESPONSE under a univariate (or absent)
+    /// component hazard is legal — standalone, and as a stage of a multi-stage cascade.
+    /// </summary>
+    [TestMethod]
+    public void Test_Validate_UnivariateParent_BivariateResponseLegal()
+    {
+        // A standalone single-stage mode wrapping the bivariate response.
+        var collapse = new FailureMode(
+            new List<ITransformFunction>(),
+            new List<ITransformFunction>(),
+            JointResponse(),
+            Consequence("Surge", "ft"));
+        var (collapseValid, collapseMessages) = collapse.Validate();
+        Assert.IsTrue(collapseValid, string.Join("; ", collapseMessages));
+
+        // A cascade: a univariate initiation stage followed by the collapse-mode response.
+        var cascade = new FailureMode(
+            new List<ResponseStage>
+            {
+                new ResponseStage(new List<ITransformFunction>(), Response("Surge", "ft")),
+                new ResponseStage(new List<ITransformFunction>(), JointResponse()),
+            },
+            new List<ITransformFunction>(),
+            new List<IConsequenceFunction> { Consequence("Surge", "ft") });
+        var (cascadeValid, cascadeMessages) = cascade.Validate();
+        Assert.IsTrue(cascadeValid, string.Join("; ", cascadeMessages));
+    }
+
+    /// <summary>
+    /// Verifies the bivariate-parent rows for univariate responses: both hazard bindings are
+    /// legal, and the Secondary consequence dimension requires a stamped position inside
+    /// [0, secondary-chain length].
+    /// </summary>
+    [TestMethod]
+    public void Test_Validate_BivariateParent_BindingsAndPositions()
+    {
+        var parent = JointParent();
+
+        // A Secondary-bound univariate mode is legal.
+        var secondaryBound = new FailureMode(
+            new List<ITransformFunction>(),
+            new List<ITransformFunction>(),
+            Response("Pool Elevation", "ft"),
+            Consequence("Pool Elevation", "ft"))
+        {
+            Parent = parent,
+            HazardBinding = HazardDimension.Secondary,
+        };
+        var (boundValid, boundMessages) = secondaryBound.Validate();
+        Assert.IsTrue(boundValid, string.Join("; ", boundMessages));
+
+        // The Secondary consequence dimension: position 0 (the raw secondary signal) and the
+        // chain length are in range; beyond the chain length errors; a missing position errors.
+        var mode = new FailureMode(
+            new List<ITransformFunction>(),
+            new List<ITransformFunction>(),
+            Response("Surge", "ft"),
+            Consequence("Pool Stage", "ft"))
+        {
+            Parent = parent,
+            ConsequenceHazardDimension = HazardDimension.Secondary,
+        };
+        mode.SecondaryHazardToResponse.Add(Rating("Pool Elevation", "ft", "Pool Stage", "ft"));
+
+        mode.ConsequenceHazardPosition = 0;
+        Assert.IsTrue(mode.Validate().IsValid, string.Join("; ", mode.Validate().ValidationMessages));
+        mode.ConsequenceHazardPosition = 1;
+        Assert.IsTrue(mode.Validate().IsValid);
+
+        mode.ConsequenceHazardPosition = 2;
+        Assert.IsTrue(mode.Validate().ValidationMessages
+            .Any(m => m.Contains("secondary-hazard chain length (1)")));
+
+        mode.ConsequenceHazardPosition = null;
+        Assert.IsTrue(mode.Validate().ValidationMessages
+            .Any(m => m.Contains("requires an explicit consequence hazard position")));
+    }
+
+    /// <summary>
+    /// Verifies the joint-mode response rows under a bivariate parent: single-stage only, and
+    /// the surface needs at least two secondary levels for an interpolable axis.
+    /// </summary>
+    [TestMethod]
+    public void Test_Validate_BivariateParent_JointResponseRules()
+    {
+        var parent = JointParent();
+
+        // A single-stage joint mode with the default two-level surface is legal.
+        var joint = new FailureMode(
+            new List<ITransformFunction>(),
+            new List<ITransformFunction>(),
+            JointResponse(),
+            Consequence("Surge", "ft"))
+        {
+            Parent = parent,
+        };
+        var (jointValid, jointMessages) = joint.Validate();
+        Assert.IsTrue(jointValid, string.Join("; ", jointMessages));
+
+        // Multi-stage through the bivariate response errors.
+        var multiStage = new FailureMode(
+            new List<ResponseStage>
+            {
+                new ResponseStage(new List<ITransformFunction>(), Response("Surge", "ft")),
+                new ResponseStage(new List<ITransformFunction>(), JointResponse()),
+            },
+            new List<ITransformFunction>(),
+            new List<IConsequenceFunction> { Consequence("Surge", "ft") })
+        {
+            Parent = parent,
+        };
+        Assert.IsTrue(multiStage.Validate().ValidationMessages
+            .Any(m => m.Contains("single-stage modes only")));
+
+        // A single secondary level cannot interpolate the secondary axis.
+        var singleLevel = JointResponse();
+        singleLevel.SecondaryHazardLevels.RemoveAt(1);
+        var degenerate = new FailureMode(
+            new List<ITransformFunction>(),
+            new List<ITransformFunction>(),
+            singleLevel,
+            Consequence("Surge", "ft"))
+        {
+            Parent = parent,
+        };
+        Assert.IsTrue(degenerate.Validate().ValidationMessages
+            .Any(m => m.Contains("secondary hazard level(s)") && m.Contains("at least two")));
+    }
+
+    /// <summary>
+    /// Verifies the secondary-chain entry rules: entries validate like trailing transforms
+    /// (null entries and their own errors), a bivariate transform inside the chain errors, and
+    /// trailing transforms alongside a bivariate consequence error.
+    /// </summary>
+    [TestMethod]
+    public void Test_Validate_SecondaryChainEntries()
+    {
+        var parent = JointParent();
+
+        // A null chain entry.
+        var nullEntry = new FailureMode(
+            new List<ITransformFunction>(),
+            new List<ITransformFunction>(),
+            Response("Surge", "ft"),
+            Consequence("Surge", "ft"))
+        {
+            Parent = parent,
+        };
+        nullEntry.SecondaryHazardToResponse.Add(null!);
+        Assert.IsTrue(nullEntry.Validate().ValidationMessages
+            .Any(m => m.Contains("secondary-hazard transform at index 0 has not been defined")));
+
+        // A bivariate transform inside the chain — the chain is univariate by construction.
+        var bivariateEntry = new FailureMode(
+            new List<ITransformFunction>(),
+            new List<ITransformFunction>(),
+            Response("Surge", "ft"),
+            Consequence("Surge", "ft"))
+        {
+            Parent = parent,
+        };
+        bivariateEntry.SecondaryHazardToResponse.Add(JointTransform());
+        Assert.IsTrue(bivariateEntry.Validate().ValidationMessages
+            .Any(m => m.Contains("secondary-hazard transform at index 0 is bivariate")));
+
+        // An invalid chain entry surfaces its own messages.
+        var invalidEntry = new FailureMode(
+            new List<ITransformFunction>(),
+            new List<ITransformFunction>(),
+            Response("Surge", "ft"),
+            Consequence("Surge", "ft"))
+        {
+            Parent = parent,
+        };
+        invalidEntry.SecondaryHazardToResponse.Add(new TabularTransform());
+        Assert.IsFalse(invalidEntry.Validate().IsValid);
+
+        // Trailing transforms cannot precede a bivariate consequence.
+        var trailingUnderSurface = new FailureMode(
+            new List<ITransformFunction>(),
+            new List<ITransformFunction> { Rating("Surge", "ft", "Stage", "ft") },
+            Response("Surge", "ft"),
+            null)
+        {
+            Parent = parent,
+        };
+        trailingUnderSurface.ConsequenceFunctions.Add(JointConsequence());
+        Assert.IsTrue(trailingUnderSurface.Validate().ValidationMessages
+            .Any(m => m.Contains("trailing transforms cannot precede it")));
+    }
+
+    /// <summary>
+    /// Verifies the secondary-axis label continuity warnings: the chain walks from the bound
+    /// marginal's declared pair, a Secondary-bound mode's incoming labels come from the
+    /// secondary pair, and a joint response's secondary labels compare against the chain's end
+    /// signal — all advisory.
+    /// </summary>
+    [TestMethod]
+    public void Test_Validate_SecondaryAxisLabelWarnings()
+    {
+        var parent = JointParent();
+
+        // The chain's first transform declares a different input than the secondary pair.
+        var chainMismatch = new FailureMode(
+            new List<ITransformFunction>(),
+            new List<ITransformFunction>(),
+            Response("Surge", "ft"),
+            Consequence("Surge", "ft"))
+        {
+            Parent = parent,
+        };
+        chainMismatch.SecondaryHazardToResponse.Add(Rating("Tailwater", "ft", "Pool Stage", "ft"));
+        var (chainValid, chainMessages) = chainMismatch.Validate();
+        Assert.IsTrue(chainValid, string.Join("; ", chainMessages));
+        Assert.IsTrue(chainMessages.Any(m => m.StartsWith("Warning:", StringComparison.Ordinal)
+            && m.Contains("'Pool Elevation'") && m.Contains("secondary-hazard transform")));
+
+        // A Secondary-bound mode's stage walks from the secondary pair: a stage response
+        // declaring the primary label mismatches.
+        var boundMismatch = new FailureMode(
+            new List<ITransformFunction>(),
+            new List<ITransformFunction>(),
+            Response("Surge", "ft"),
+            Consequence("Pool Elevation", "ft"))
+        {
+            Parent = parent,
+            HazardBinding = HazardDimension.Secondary,
+        };
+        var (boundValid, boundMessages) = boundMismatch.Validate();
+        Assert.IsTrue(boundValid, string.Join("; ", boundMessages));
+        Assert.IsTrue(boundMessages.Any(m => m.StartsWith("Warning:", StringComparison.Ordinal)
+            && m.Contains("'Pool Elevation'") && m.Contains("response function")));
+
+        // A joint response whose secondary labels disagree with the (chainless) secondary pair.
+        var jointMismatch = JointResponse();
+        jointMismatch.SecondarySpecifiedHazard = "Tailwater";
+        var jointMode = new FailureMode(
+            new List<ITransformFunction>(),
+            new List<ITransformFunction>(),
+            jointMismatch,
+            Consequence("Surge", "ft"))
+        {
+            Parent = parent,
+        };
+        var (jointValid, jointMessages) = jointMode.Validate();
+        Assert.IsTrue(jointValid, string.Join("; ", jointMessages));
+        Assert.IsTrue(jointMessages.Any(m => m.StartsWith("Warning:", StringComparison.Ordinal)
+            && m.Contains("(secondary axis)")));
+    }
+
+    /// <summary>
+    /// Verifies the secondary chain's serialization contract: ABSENT when empty — with the
+    /// explicit-empty assignment byte-identical to the default (the hash-preservation pin) —
+    /// present and hash-moving when populated, round-tripping faithfully, and carried by Clone.
+    /// </summary>
+    [TestMethod]
+    public void Test_Serialization_SecondaryChain_ConditionalPresence()
+    {
+        // Arrange — the established univariate chain shape.
+        var mode = ChainMode();
+        var baselineXml = mode.ToXElement().ToString();
+        byte[] baselineHash = mode.CanonicalHash();
+        Assert.IsNull(mode.ToXElement().Element(nameof(FailureMode.SecondaryHazardToResponse)));
+
+        // The explicit-empty assignment is byte-inert.
+        mode.SecondaryHazardToResponse = new List<ITransformFunction>();
+        Assert.AreEqual(baselineXml, mode.ToXElement().ToString());
+        CollectionAssert.AreEqual(baselineHash, mode.CanonicalHash());
+
+        // A populated chain serializes, moves the hash, and round-trips faithfully.
+        mode.SecondaryHazardToResponse.Add(Rating("Pool Elevation", "ft", "Pool Stage", "ft"));
+        var populatedXml = mode.ToXElement();
+        Assert.IsNotNull(populatedXml.Element(nameof(FailureMode.SecondaryHazardToResponse)));
+        Assert.IsFalse(mode.CanonicalHash().SequenceEqual(baselineHash),
+            "The secondary chain is compute content and must move the canonical hash.");
+
+        var restored = new FailureMode(populatedXml);
+        Assert.AreEqual(1, restored.SecondaryHazardToResponse.Count);
+        CollectionAssert.AreEqual(mode.CanonicalHash(), restored.CanonicalHash());
+        Assert.AreEqual(populatedXml.ToString(), restored.ToXElement().ToString());
+
+        // Clone carries the chain (the serialization round trip is the clone contract).
+        var clone = mode.Clone();
+        Assert.AreEqual(1, clone.SecondaryHazardToResponse.Count);
+        CollectionAssert.AreEqual(mode.CanonicalHash(), clone.CanonicalHash());
+
+        // The null-coercing setter and its change notification.
+        var raised = new List<string>();
+        clone.PropertyChanged += (_, e) => raised.Add(e.PropertyName ?? string.Empty);
+        clone.SecondaryHazardToResponse = null!;
+        Assert.AreEqual(0, clone.SecondaryHazardToResponse.Count);
+        CollectionAssert.AreEqual(new[] { nameof(FailureMode.SecondaryHazardToResponse) }, raised);
+    }
+
+    /// <summary>
+    /// Verifies the secondary chain participates in the determinism aggregate: an uncertain
+    /// chain transform makes the mode non-deterministic.
+    /// </summary>
+    [TestMethod]
+    public void Test_IsDeterministic_IncludesSecondaryChain()
+    {
+        // Arrange
+        var mode = ChainMode();
+        Assert.IsTrue(mode.IsDeterministic);
+
+        // Act
+        mode.SecondaryHazardToResponse.Add(new LinearTransform
+        {
+            Name = "Pool Rating",
+            SpecifiedHazard = "Pool Elevation",
+            HazardUnit = "ft",
+            TransformedHazard = "Pool Stage",
+            TransformedHazardUnit = "ft",
+            IsUncertain = true,
+        });
+
+        // Assert
+        Assert.IsFalse(mode.IsDeterministic);
+    }
+
+    #endregion
 }

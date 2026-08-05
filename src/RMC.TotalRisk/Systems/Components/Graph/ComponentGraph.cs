@@ -410,13 +410,18 @@ namespace RMC.TotalRisk.Systems.Components.Graph
 
         /// <summary>
         /// Enumerates the hazard signals available at an element's input: every hazard and
-        /// transform output strictly upstream on its path, with chain positions and advisory
-        /// display labels. This is the discoverability API behind binding pickers — binding
-        /// validation reuses it, so the picker and the validator can never disagree. Empty when
-        /// the element's path does not reach a hazard root.
+        /// transform output strictly upstream on its path (primary options), followed by the
+        /// path's resolved secondary-chain signals when a bivariate element anchors one (the raw
+        /// secondary output is the hazard's port-1 option at chain position 0; the k-th
+        /// secondary-chain transform is position k + 1). This is the discoverability API behind
+        /// binding pickers — binding validation reuses the same chain resolution, so the picker
+        /// and the validator can never disagree. Whether an option addresses the primary or the
+        /// secondary dimension derives from chain membership (the hazard's port-1 option and the
+        /// off-path secondary-chain transforms are secondary; everything else is primary). Empty
+        /// when the element's path does not reach a hazard root.
         /// </summary>
         /// <param name="element">The consuming element.</param>
-        /// <returns>The available upstream hazard signals, upstream-first.</returns>
+        /// <returns>The available upstream hazard signals, upstream-first per dimension.</returns>
         /// <exception cref="ArgumentNullException">Thrown when the element is null.</exception>
         public IReadOnlyList<HazardSourceOption> GetAvailableHazardSources(IRiskElement element)
         {
@@ -435,11 +440,13 @@ namespace RMC.TotalRisk.Systems.Components.Graph
                 {
                     for (int port = 0; port < hazardElement.OutputCount; port++)
                     {
-                        // Port 0 carries the hazard's declared label; further ports label with
-                        // the future bivariate cluster.
+                        // Port 0 carries the hazard's declared primary labels; port 1 (bivariate
+                        // hazards only) carries the declared secondary pair, at chain position 0
+                        // of the secondary dimension (the raw Y signal).
+                        var bivariate = hazardElement.Function as IBivariateHazardFunction;
                         options.Add(new HazardSourceOption(hazardElement, port, 0,
-                            port == 0 ? hazardElement.Function?.SpecifiedHazard ?? string.Empty : string.Empty,
-                            port == 0 ? hazardElement.Function?.HazardUnit ?? string.Empty : string.Empty));
+                            port == 0 ? hazardElement.Function?.SpecifiedHazard ?? string.Empty : bivariate?.SecondarySpecifiedHazard ?? string.Empty,
+                            port == 0 ? hazardElement.Function?.HazardUnit ?? string.Empty : bivariate?.SecondaryHazardUnit ?? string.Empty));
                     }
                 }
                 else if (path[i] is TransformElement transformElement)
@@ -452,7 +459,135 @@ namespace RMC.TotalRisk.Systems.Components.Graph
                 // Responses are signal-transparent: they consume the signal and emit failure
                 // probability; the hazard signal passes through unchanged.
             }
+
+            // The path's secondary-chain signals: one option per resolved chain transform, at
+            // secondary chain position k + 1 (position 0 is the hazard's port-1 option above).
+            // Chain transforms are off-path elements, so they append after the primary options.
+            RiskConnection? anchor = FindSecondaryAnchor(path);
+            if (anchor != null)
+            {
+                var chain = new List<TransformElement>();
+                if (TryResolveSecondaryChain(anchor, chain, out _))
+                {
+                    for (int k = 0; k < chain.Count; k++)
+                    {
+                        options.Add(new HazardSourceOption(chain[k], 0, k + 1,
+                            chain[k].Function?.TransformedHazard ?? string.Empty,
+                            chain[k].Function?.TransformedHazardUnit ?? string.Empty));
+                    }
+                }
+            }
             return options.AsReadOnly();
+        }
+
+        /// <summary>
+        /// Resolves a secondary input upstream to the hazard's secondary output, collecting the
+        /// univariate transforms that shape the secondary signal — the path's secondary chain,
+        /// ordered upstream → downstream. Shared by the failure-mode projection, graph
+        /// validation, and the binding picker, so the three can never disagree about what a
+        /// secondary input means.
+        /// </summary>
+        /// <param name="secondaryInput">The secondary-input connection to resolve.</param>
+        /// <param name="chain">Receives the chain's univariate transform elements, upstream first. Cleared on entry; meaningful only on success.</param>
+        /// <param name="error">The failure description, phrased to follow "The element's secondary input …"; empty on success.</param>
+        /// <returns>True when the connection resolves to the hazard's secondary output.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when the connection or the chain list is null.</exception>
+        /// <remarks>
+        /// The walk: the hazard's port 1 completes the chain; a univariate transform's port 0
+        /// front-inserts the transform and continues from its input; a bivariate transform's
+        /// port 1 is a pass-through hop that adds nothing and continues from that transform's own
+        /// secondary input. A hop must be direct — encountering a pass-through output after any
+        /// univariate transform has been collected in the current segment fails, because a
+        /// univariate transform between bivariate elements would give the two elements different
+        /// secondary signals and the path would no longer carry one secondary chain. Everything
+        /// else fails loudly: the hazard's primary output, a bivariate transform's primary (z)
+        /// output, response or consequence sources, unconnected or function-less chain members,
+        /// sources outside the graph, and cycles.
+        /// </remarks>
+        public bool TryResolveSecondaryChain(RiskConnection secondaryInput, List<TransformElement> chain, out string error)
+        {
+            if (secondaryInput == null) throw new ArgumentNullException(nameof(secondaryInput));
+            if (chain == null) throw new ArgumentNullException(nameof(chain));
+
+            chain.Clear();
+            var visited = new HashSet<IRiskElement>();
+            RiskConnection current = secondaryInput;
+            int segmentInserts = 0;
+            while (true)
+            {
+                IRiskElement source = current.Source;
+                if (!_elements.Contains(source))
+                {
+                    error = $"references '{source.Name}', which is not in the graph.";
+                    return false;
+                }
+                if (!visited.Add(source))
+                {
+                    error = "participates in a circular reference.";
+                    return false;
+                }
+
+                if (source is HazardElement)
+                {
+                    if (current.SourcePort == 1)
+                    {
+                        error = string.Empty;
+                        return true;
+                    }
+                    error = $"consumes output port {current.SourcePort} of hazard element '{source.Name}'; a secondary input must resolve to the hazard's secondary output (port 1).";
+                    return false;
+                }
+
+                if (source is TransformElement transform)
+                {
+                    if (transform.Function == null)
+                    {
+                        error = $"cannot be resolved: transform element '{source.Name}' has no transform function assigned.";
+                        return false;
+                    }
+                    if (transform.Function is IBivariateTransformFunction)
+                    {
+                        if (current.SourcePort == 0)
+                        {
+                            error = $"consumes the transformed-primary output (port 0) of bivariate transform element '{source.Name}'; z is a primary-kind signal, and axes never cross.";
+                            return false;
+                        }
+                        if (current.SourcePort != 1)
+                        {
+                            error = $"consumes output port {current.SourcePort} of bivariate transform element '{source.Name}'; a secondary chain continues only through its pass-through output (port 1).";
+                            return false;
+                        }
+                        if (segmentInserts > 0)
+                        {
+                            error = $"reaches the pass-through output of bivariate transform element '{source.Name}' through univariate transform elements; univariate transforms between bivariate elements are not supported — connect directly to the pass-through output, or move the transforms upstream of the first bivariate element.";
+                            return false;
+                        }
+                        if (transform.SecondaryInput == null)
+                        {
+                            error = $"passes through bivariate transform element '{source.Name}', whose own secondary input is not connected.";
+                            return false;
+                        }
+                        current = transform.SecondaryInput;
+                        segmentInserts = 0;
+                        continue;
+                    }
+
+                    // A univariate transform shapes the secondary signal: collect it and walk on
+                    // through its input.
+                    if (transform.Input == null)
+                    {
+                        error = $"does not reach the hazard's secondary output: transform element '{source.Name}' has no input.";
+                        return false;
+                    }
+                    chain.Insert(0, transform);
+                    segmentInserts++;
+                    current = transform.Input;
+                    continue;
+                }
+
+                error = $"consumes {(source is ResponseElement ? "response" : "consequence")} element '{source.Name}'; a secondary chain holds hazard and univariate transform elements only.";
+                return false;
+            }
         }
 
         #endregion
@@ -541,11 +676,12 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         {
             /// <summary>Initializes a connection checkpoint.</summary>
             private ConnectionSnapshot(IRiskElement element, RiskConnection? input,
-                RiskConnection? secondary)
+                RiskConnection? secondary, RiskConnection? binding)
             {
                 Element = element;
                 Input = input;
                 Secondary = secondary;
+                Binding = binding;
             }
 
             private IRiskElement Element { get; }
@@ -554,18 +690,20 @@ namespace RMC.TotalRisk.Systems.Components.Graph
 
             private RiskConnection? Secondary { get; }
 
+            private RiskConnection? Binding { get; }
+
             /// <summary>Captures every mutable connection slot on one element.</summary>
             internal static ConnectionSnapshot Capture(IRiskElement element)
             {
                 return element switch
                 {
                     TransformElement transform => new ConnectionSnapshot(element,
-                        transform.Input, null),
+                        transform.Input, transform.SecondaryInput, null),
                     ResponseElement response => new ConnectionSnapshot(element,
-                        response.Input, response.SecondaryInput),
+                        response.Input, response.SecondaryInput, null),
                     ConsequenceElement consequence => new ConnectionSnapshot(element,
-                        consequence.Input, consequence.HazardSource),
-                    _ => new ConnectionSnapshot(element, null, null),
+                        consequence.Input, consequence.SecondaryInput, consequence.HazardSource),
+                    _ => new ConnectionSnapshot(element, null, null, null),
                 };
             }
 
@@ -575,13 +713,13 @@ namespace RMC.TotalRisk.Systems.Components.Graph
                 switch (Element)
                 {
                     case TransformElement transform:
-                        transform.RestoreInputConnection(Input);
+                        transform.RestoreInputConnections(Input, Secondary);
                         break;
                     case ResponseElement response:
                         response.RestoreInputConnections(Input, Secondary);
                         break;
                     case ConsequenceElement consequence:
-                        consequence.RestoreInputConnections(Input, Secondary);
+                        consequence.RestoreInputConnections(Input, Binding, Secondary);
                         break;
                 }
             }
@@ -622,15 +760,21 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         /// </returns>
         /// <remarks>
         /// Structural checks, in order: exactly one hazard element; duplicate name/Id backstop;
-        /// per-element validation; dangling connections and port bounds (structural inputs AND
-        /// hazard-source bindings); cycle detection; then, on a single-root acyclic graph:
-        /// reachability from the root, leaves must be consequence elements, at least one
-        /// consequence element, at most one response-free (non-failure) path, binding targets on
-        /// the consumer's own path at or before the last response's input, consequence-count
-        /// alignment against the non-failure path (positional excess pairing; count mismatch is
-        /// an error, paired label/unit mismatch a warning), and shared function instances
-        /// (warning). Hazard-type label continuity along chains is validated by the projected
-        /// failure modes, which see the whole path with the component hazard's labels.
+        /// per-element validation; dangling connections and port bounds (structural inputs,
+        /// secondary inputs, AND hazard-source bindings); cycle detection; then, on a
+        /// single-root acyclic graph: reachability from the root, leaves must be consequence
+        /// elements, at least one consequence element, at most one response-free (non-failure)
+        /// path, binding targets on the consumer's own path at or before the last response's
+        /// input (or on its resolved secondary chain), consequence-count alignment against the
+        /// non-failure path (positional excess pairing; count mismatch is an error, paired
+        /// label/unit mismatch a warning), the bivariate wiring rules (secondary chains must
+        /// resolve; under a univariate root bivariate transforms/consequences are unsupported and
+        /// a bivariate response runs in collapse mode with no secondary input; under a bivariate
+        /// root a bivariate response requires its secondary input, joins single-stage paths only,
+        /// and every path carries one consistent secondary chain; primary inputs never trace to
+        /// the secondary dimension; an unconsumed secondary output warns), and shared function
+        /// instances (warning). Hazard-type label continuity along chains is validated by the
+        /// projected failure modes, which see the whole path with the component hazard's labels.
         /// </remarks>
         public (bool IsValid, List<string> ValidationMessages) Validate()
         {
@@ -690,6 +834,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
             if (hazards.Count == 1 && acyclic)
             {
                 ValidatePaths(hazards[0], messages, mode);
+                ValidateBivariateWiring(hazards[0], messages);
                 ValidateSharedInstances(messages);
             }
 
@@ -738,7 +883,9 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         /// <remarks>
         /// The dependency set a consuming layer needs in order to persist the graph
         /// <see cref="RiskSerializationMode.ByReference"/>, and to answer "what would break if this
-        /// function were deleted?" before it removes one from a store.
+        /// function were deleted?" before it removes one from a store. A bivariate hazard's
+        /// linked marginals are part of that set — deleting a stored marginal breaks the hazard —
+        /// so they are yielded after their hazard, through the same seen set.
         /// </remarks>
         public IEnumerable<IRiskFunction> GetReferencedFunctions()
         {
@@ -747,7 +894,13 @@ namespace RMC.TotalRisk.Systems.Components.Graph
             {
                 foreach (var function in _elements[i].GetFunctions())
                 {
-                    if (function != null && seen.Add(function)) yield return function;
+                    if (function == null || !seen.Add(function)) continue;
+                    yield return function;
+                    if (function is IBivariateHazardFunction bivariate)
+                    {
+                        if (bivariate.MarginalX != null && seen.Add(bivariate.MarginalX)) yield return bivariate.MarginalX;
+                        if (bivariate.MarginalY != null && seen.Add(bivariate.MarginalY)) yield return bivariate.MarginalY;
+                    }
                 }
             }
         }
@@ -862,23 +1015,43 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         }
 
         /// <summary>
-        /// Validates every connection (structural inputs and hazard-source bindings): the target
-        /// must be in this graph and the port within the target's output range.
+        /// Validates every connection (structural inputs, secondary inputs, and hazard-source
+        /// bindings): the target must be in this graph and the port within the target's output
+        /// range.
         /// </summary>
         /// <param name="messages">The message sink.</param>
         private void ValidateConnections(List<string> messages)
         {
             for (int i = 0; i < _elements.Count; i++)
             {
+                RiskConnection? secondary = SecondaryInputOf(_elements[i]);
                 foreach (var connection in _elements[i].GetInputConnections())
                 {
-                    CheckConnection(_elements[i], connection, "input", messages);
+                    string kind = secondary != null && ReferenceEquals(connection, secondary) ? "secondary input" : "input";
+                    CheckConnection(_elements[i], connection, kind, messages);
                 }
                 if (_elements[i] is ConsequenceElement consequence && consequence.HazardSource != null)
                 {
                     CheckConnection(_elements[i], consequence.HazardSource, "hazard-source binding", messages);
                 }
             }
+        }
+
+        /// <summary>
+        /// An element's secondary-input connection, or null when the element kind carries none or
+        /// it is unwired.
+        /// </summary>
+        /// <param name="element">The element.</param>
+        /// <returns>The secondary-input connection, or null.</returns>
+        private static RiskConnection? SecondaryInputOf(IRiskElement element)
+        {
+            return element switch
+            {
+                TransformElement transform => transform.SecondaryInput,
+                ResponseElement response => response.SecondaryInput,
+                ConsequenceElement consequence => consequence.SecondaryInput,
+                _ => null,
+            };
         }
 
         /// <summary>Enumerates structural and binding connections held by one element.</summary>
@@ -906,6 +1079,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
                 if (element is TransformElement transform)
                 {
                     if (Matches(transform.Input)) transform.Input = null;
+                    if (Matches(transform.SecondaryInput)) transform.SecondaryInput = null;
                     continue;
                 }
                 if (element is ResponseElement response)
@@ -918,6 +1092,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
                 {
                     if (Matches(consequence.Input)) consequence.Input = null;
                     if (Matches(consequence.HazardSource)) consequence.HazardSource = null;
+                    if (Matches(consequence.SecondaryInput)) consequence.SecondaryInput = null;
                 }
             }
         }
@@ -1139,14 +1314,19 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         /// <summary>
         /// Validates a terminal's hazard-source binding: the target must be a hazard or transform
         /// element strictly upstream on the terminal's own path, at or before the last response's
-        /// input position (trailing transforms after the last response always apply).
+        /// input position (trailing transforms after the last response always apply) — or a
+        /// transform on the path's resolved secondary chain (the off-path elements shaping the
+        /// hazard's secondary signal, always upstream of the first bivariate element by
+        /// construction). A bivariate transform's pass-through output is never a binding target:
+        /// its port 1 merely repeats an upstream secondary signal, which is bound at the hazard's
+        /// secondary output or a secondary-chain transform instead.
         /// </summary>
         /// <param name="terminal">The consequence element.</param>
         /// <param name="path">The terminal's root-first upstream path.</param>
         /// <param name="hasResponse">Whether the path contains a response element.</param>
         /// <param name="lastResponseInput">The chain position of the last response's input.</param>
         /// <param name="messages">The message sink.</param>
-        private static void ValidateBinding(ConsequenceElement terminal, IReadOnlyList<IRiskElement> path,
+        private void ValidateBinding(ConsequenceElement terminal, IReadOnlyList<IRiskElement> path,
             bool hasResponse, int lastResponseInput, List<string> messages)
         {
             if (terminal.HazardSource == null) return;
@@ -1174,12 +1354,336 @@ namespace RMC.TotalRisk.Systems.Components.Graph
 
             if (bindingPosition < 0)
             {
-                messages.Add($"Error: The consequence element '{terminal.Name}' hazard-source binding must reference a hazard or transform element on its own upstream path ('{target.Name}' is not).");
+                // Not on the primary path: legal only as a transform on the path's resolved
+                // secondary chain (consumed at its single output, port 0 — bounds-checked
+                // separately).
+                RiskConnection? anchor = FindSecondaryAnchor(path);
+                if (anchor != null && target is TransformElement)
+                {
+                    var chain = new List<TransformElement>();
+                    if (TryResolveSecondaryChain(anchor, chain, out _))
+                    {
+                        for (int k = 0; k < chain.Count; k++)
+                        {
+                            if (ReferenceEquals(chain[k], target)) return;
+                        }
+                    }
+                }
+                messages.Add($"Error: The consequence element '{terminal.Name}' hazard-source binding must reference a hazard or transform element on its own upstream path or its secondary chain ('{target.Name}' is not).");
+            }
+            else if (target is TransformElement pathTransform && pathTransform.Function is IBivariateTransformFunction
+                && terminal.HazardSource.SourcePort == 1)
+            {
+                messages.Add($"Error: The consequence element '{terminal.Name}' hazard-source binding references the pass-through output (port 1) of bivariate transform element '{target.Name}'; bind at the hazard's secondary output or a secondary-chain transform instead.");
             }
             else if (hasResponse && bindingPosition > lastResponseInput)
             {
                 messages.Add($"Error: The consequence element '{terminal.Name}' hazard-source binding position ({bindingPosition}) must be at or before the last response's input position ({lastResponseInput}).");
             }
+        }
+
+        /// <summary>
+        /// The path's secondary-chain anchor: the first element (root-first, terminal included)
+        /// wrapping a bivariate function, returning its secondary-input connection — null when no
+        /// element on the path is bivariate or the first bivariate element's secondary input is
+        /// unwired (either way there is no chain to resolve; element and wiring validation report
+        /// why). Shared by the picker, binding validation, and the failure-mode projection so the
+        /// three agree on which connection anchors the path's secondary chain.
+        /// </summary>
+        /// <param name="path">The root-first upstream path.</param>
+        /// <returns>The anchoring secondary-input connection, or null.</returns>
+        internal static RiskConnection? FindSecondaryAnchor(IReadOnlyList<IRiskElement> path)
+        {
+            for (int i = 0; i < path.Count; i++)
+            {
+                if (path[i] is TransformElement transform && transform.Function is IBivariateTransformFunction)
+                {
+                    return transform.SecondaryInput;
+                }
+                if (path[i] is ResponseElement response && response.Function is IBivariateResponseFunction)
+                {
+                    return response.SecondaryInput;
+                }
+                if (path[i] is ConsequenceElement consequence)
+                {
+                    for (int k = 0; k < consequence.Functions.Count; k++)
+                    {
+                        if (consequence.Functions[k] is IBivariateConsequenceFunction) return consequence.SecondaryInput;
+                    }
+                }
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// The bivariate wiring rules on a single-root acyclic graph. Under a univariate root:
+        /// bivariate transform and consequence functions are unsupported (they have no collapse
+        /// semantics — no secondary signal exists to feed them), and a bivariate response is
+        /// legal only in collapse mode, meaning its secondary input must stay null (it then
+        /// presents its weighted mean collapse as an ordinary univariate response, cascade stages
+        /// included). Under a bivariate root: every wired secondary input must resolve to the
+        /// hazard's secondary output; a bivariate response must have its secondary input wired
+        /// (joint mode consumes both dimensions) and may sit only on single-response paths; a
+        /// bivariate element's primary input must trace to the primary dimension (axes never
+        /// cross); all bivariate elements on one terminal path must resolve the same secondary
+        /// chain (the engine routes one chain per failure mode); and a secondary output nothing
+        /// consumes is an advisory warning.
+        /// </summary>
+        /// <param name="root">The single hazard element.</param>
+        /// <param name="messages">The message sink.</param>
+        private void ValidateBivariateWiring(HazardElement root, List<string> messages)
+        {
+            bool bivariateRoot = root.Function is IBivariateHazardFunction;
+
+            if (!bivariateRoot)
+            {
+                for (int i = 0; i < _elements.Count; i++)
+                {
+                    if (_elements[i] is TransformElement transform && transform.Function is IBivariateTransformFunction)
+                    {
+                        messages.Add($"Error: The transform element '{transform.Name}' wraps a bivariate transform, but the component hazard is univariate; a bivariate transform has no secondary signal to consume and no collapse semantics.");
+                    }
+                    else if (_elements[i] is ConsequenceElement consequence)
+                    {
+                        for (int k = 0; k < consequence.Functions.Count; k++)
+                        {
+                            if (consequence.Functions[k] is IBivariateConsequenceFunction)
+                            {
+                                messages.Add($"Error: The consequence element '{consequence.Name}' wraps a bivariate consequence, but the component hazard is univariate; a bivariate consequence has no secondary signal to consume and no collapse semantics.");
+                                break;
+                            }
+                        }
+                    }
+                    else if (_elements[i] is ResponseElement response && response.Function is IBivariateResponseFunction
+                        && response.SecondaryInput != null)
+                    {
+                        messages.Add($"Error: The response element '{response.Name}' has a secondary input, but the component hazard is univariate; under a univariate hazard a bivariate response operates in collapse mode, with no secondary (port 1) source to consume.");
+                    }
+                }
+                return;
+            }
+
+            // A bivariate root. Per-element rules first: the joint-mode requirement, chain
+            // resolution for every wired secondary input, and the primary-kind trace.
+            var chainScratch = new List<TransformElement>();
+            for (int i = 0; i < _elements.Count; i++)
+            {
+                IRiskElement element = _elements[i];
+                if (element is ResponseElement jointResponse && jointResponse.Function is IBivariateResponseFunction
+                    && jointResponse.SecondaryInput == null)
+                {
+                    messages.Add($"Error: The response element '{jointResponse.Name}' wraps a bivariate response under a bivariate hazard (joint mode) and must have its secondary input connected to the hazard's secondary output or a secondary-chain transform.");
+                }
+
+                RiskConnection? secondary = SecondaryInputOf(element);
+                if (secondary != null && !TryResolveSecondaryChain(secondary, chainScratch, out string chainError))
+                {
+                    messages.Add($"Error: The {ElementKindName(element)} element '{element.Name}' secondary input {chainError}");
+                }
+
+                if (HasBivariateFunction(element))
+                {
+                    RiskConnection? primary = PrimaryConnectionOf(element);
+                    if (primary != null && TryTraceSignalKind(primary, out bool isSecondaryKind) && isSecondaryKind)
+                    {
+                        messages.Add($"Error: The {ElementKindName(element)} element '{element.Name}' primary input consumes the hazard's secondary signal; a bivariate element's primary input must trace to the primary dimension (axes never cross).");
+                    }
+                }
+            }
+
+            // Per-terminal-path rules: the single-stage guard for joint-mode responses, and the
+            // one-secondary-chain-per-path identity.
+            foreach (var terminal in GetElements<ConsequenceElement>())
+            {
+                var path = GetUpstreamPath(terminal);
+                if (path.Count == 0 || path[0] is not HazardElement) continue;
+
+                int responseCount = 0;
+                ResponseElement? bivariateResponse = null;
+                for (int p = 0; p < path.Count; p++)
+                {
+                    if (path[p] is ResponseElement response)
+                    {
+                        responseCount++;
+                        if (response.Function is IBivariateResponseFunction) bivariateResponse ??= response;
+                    }
+                }
+                if (bivariateResponse != null && responseCount > 1)
+                {
+                    messages.Add($"Error: The path to consequence element '{terminal.Name}' chains {responseCount} response elements through the bivariate response '{bivariateResponse.Name}'; a joint-mode bivariate response is supported on single-response paths only.");
+                }
+
+                ValidatePathChainIdentity(terminal, path, messages);
+            }
+
+            // The unconsumed secondary output: structurally legal (the engine integrates the
+            // secondary dimension out), but almost always a modeling surprise.
+            bool portOneConsumed = false;
+            for (int i = 0; i < _elements.Count && !portOneConsumed; i++)
+            {
+                foreach (var connection in AllConnections(_elements[i]))
+                {
+                    if (ReferenceEquals(connection.Source, root) && connection.SourcePort == 1)
+                    {
+                        portOneConsumed = true;
+                        break;
+                    }
+                }
+            }
+            if (!portOneConsumed)
+            {
+                messages.Add($"Warning: No element consumes the secondary output (port 1) of the bivariate hazard element '{root.Name}'; the secondary hazard dimension is integrated out without affecting any failure mode.");
+            }
+        }
+
+        /// <summary>
+        /// Requires every bivariate element on one terminal path to resolve the same secondary
+        /// chain, element for element. Per-element resolution cannot see this: a downstream
+        /// bivariate element wired to a prefix of the chain resolves cleanly on its own, yet the
+        /// path would carry two different secondary signals while the engine routes exactly one
+        /// chain per failure mode.
+        /// </summary>
+        /// <param name="terminal">The path's consequence element.</param>
+        /// <param name="path">The root-first path ending with the terminal.</param>
+        /// <param name="messages">The message sink.</param>
+        private void ValidatePathChainIdentity(ConsequenceElement terminal, IReadOnlyList<IRiskElement> path,
+            List<string> messages)
+        {
+            List<TransformElement>? reference = null;
+            string? referenceOwner = null;
+            var chain = new List<TransformElement>();
+            for (int p = 0; p < path.Count; p++)
+            {
+                if (!HasBivariateFunction(path[p])) continue;
+                RiskConnection? secondary = SecondaryInputOf(path[p]);
+                if (secondary == null || !TryResolveSecondaryChain(secondary, chain, out _)) continue;
+
+                if (reference == null)
+                {
+                    reference = new List<TransformElement>(chain);
+                    referenceOwner = path[p].Name;
+                    continue;
+                }
+
+                bool identical = chain.Count == reference.Count;
+                for (int k = 0; identical && k < chain.Count; k++)
+                {
+                    identical = ReferenceEquals(chain[k], reference[k]);
+                }
+                if (!identical)
+                {
+                    messages.Add($"Error: The path to consequence element '{terminal.Name}' carries two different secondary chains: '{path[p].Name}' resolves a different transform chain than '{referenceOwner}'; every bivariate element on one path must consume the same secondary signal — connect the downstream element to the upstream bivariate element's pass-through output (port 1).");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Determines whether an element wraps a bivariate function (any entry, for a
+        /// consequence element's ordered list).
+        /// </summary>
+        /// <param name="element">The element.</param>
+        /// <returns>True when the element's wrapped function surface is bivariate.</returns>
+        private static bool HasBivariateFunction(IRiskElement element)
+        {
+            switch (element)
+            {
+                case TransformElement transform:
+                    return transform.Function is IBivariateTransformFunction;
+                case ResponseElement response:
+                    return response.Function is IBivariateResponseFunction;
+                case ConsequenceElement consequence:
+                    for (int i = 0; i < consequence.Functions.Count; i++)
+                    {
+                        if (consequence.Functions[i] is IBivariateConsequenceFunction) return true;
+                    }
+                    return false;
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// An element's primary structural input connection, or null when the element kind
+        /// carries none or it is unwired.
+        /// </summary>
+        /// <param name="element">The element.</param>
+        /// <returns>The primary input connection, or null.</returns>
+        private static RiskConnection? PrimaryConnectionOf(IRiskElement element)
+        {
+            return element switch
+            {
+                TransformElement transform => transform.Input,
+                ResponseElement response => response.Input,
+                ConsequenceElement consequence => consequence.Input,
+                _ => null,
+            };
+        }
+
+        /// <summary>
+        /// A short lower-case kind name for validation messages ("transform", "response",
+        /// "consequence", "hazard").
+        /// </summary>
+        /// <param name="element">The element.</param>
+        /// <returns>The kind name.</returns>
+        private static string ElementKindName(IRiskElement element)
+        {
+            return element switch
+            {
+                TransformElement => "transform",
+                ResponseElement => "response",
+                ConsequenceElement => "consequence",
+                _ => "hazard",
+            };
+        }
+
+        /// <summary>
+        /// Traces a structural connection upstream to the dimension of the signal it carries:
+        /// the hazard's port 0 and a bivariate transform's port 0 (z) originate primary-kind
+        /// signals; the hazard's port 1 and a bivariate transform's port 1 originate
+        /// secondary-kind signals; univariate transforms and responses pass their input's kind
+        /// through unchanged. False when the walk dangles, leaves the graph, cycles, or meets an
+        /// unclassifiable element (a function-less transform) — those states carry their own
+        /// validation errors.
+        /// </summary>
+        /// <param name="connection">The connection to trace.</param>
+        /// <param name="isSecondaryKind">True when the signal originates at a secondary output.</param>
+        /// <returns>True when the kind could be determined.</returns>
+        private bool TryTraceSignalKind(RiskConnection connection, out bool isSecondaryKind)
+        {
+            var visited = new HashSet<IRiskElement>();
+            RiskConnection? current = connection;
+            while (current != null)
+            {
+                IRiskElement source = current.Source;
+                if (!_elements.Contains(source) || !visited.Add(source)) break;
+
+                if (source is HazardElement)
+                {
+                    isSecondaryKind = current.SourcePort == 1;
+                    return true;
+                }
+                if (source is TransformElement transform)
+                {
+                    if (transform.Function is IBivariateTransformFunction)
+                    {
+                        isSecondaryKind = current.SourcePort == 1;
+                        return true;
+                    }
+                    if (transform.Function == null) break;
+                    current = transform.Input;
+                    continue;
+                }
+                if (source is ResponseElement response)
+                {
+                    // Responses are signal-transparent: their outputs carry the pass-through
+                    // hazard signal of their own input.
+                    current = response.Input;
+                    continue;
+                }
+                break;
+            }
+            isSecondaryKind = false;
+            return false;
         }
 
         /// <summary>

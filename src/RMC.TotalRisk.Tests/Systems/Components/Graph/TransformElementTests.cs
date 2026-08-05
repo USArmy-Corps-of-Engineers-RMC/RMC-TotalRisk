@@ -12,8 +12,9 @@ using RMC.TotalRisk.Systems.Components.Graph;
 namespace RMC.TotalRisk.Tests.Systems.Components.Graph;
 
 /// <summary>
-/// Unit tests for <see cref="TransformElement"/> — ports, function ownership, the stored input
-/// connection with dual Id + Name serialization, pending-reference resolution, and cloning.
+/// Unit tests for <see cref="TransformElement"/> — ports (including the bivariate arity gates),
+/// function ownership, the stored input and secondary-input connections with dual Id + Name
+/// serialization, pending-reference resolution, and cloning.
 /// </summary>
 [TestClass]
 public class TransformElementTests
@@ -31,6 +32,24 @@ public class TransformElementTests
             UncertainOrderedPairedData = new UncertainOrderedPairedData(
                 new[] { new UncertainOrdinate(0d, new Deterministic(0d)), new UncertainOrdinate(100d, new Deterministic(50d)) },
                 true, SortOrder.Ascending, false, SortOrder.None, UnivariateDistributionType.Deterministic),
+        };
+    }
+
+    /// <summary>Builds a valid labeled bivariate surge-pool stage transform.</summary>
+    private static BivariateTransform Bivariate()
+    {
+        return new BivariateTransform
+        {
+            Name = "Surge-Pool Stage",
+            SpecifiedHazard = "Surge",
+            HazardUnit = "ft",
+            SecondarySpecifiedHazard = "Pool Elevation",
+            SecondaryHazardUnit = "ft",
+            TransformedHazard = "Stage",
+            TransformedHazardUnit = "ft",
+            X1Values = new[] { 0d, 10d, 20d },
+            X2Values = new[] { 100d, 200d },
+            ZValues = new[,] { { 1d, 2d }, { 3d, 5d }, { 4d, 8d } },
         };
     }
 
@@ -89,6 +108,138 @@ public class TransformElementTests
         var unlabeled = new TransformElement("Rating") { Function = new TabularTransform() };
         Assert.IsTrue(unlabeled.Validate().ValidationMessages.Any(
             m => m.StartsWith("Error: Element 'Rating':", StringComparison.Ordinal)));
+    }
+
+    /// <summary>
+    /// Verifies the bivariate arity gates: both port counts flip to two with a bivariate
+    /// function, and the function setter reports the arity changes alongside the function.
+    /// </summary>
+    [TestMethod]
+    public void Test_Arity_BivariateGate()
+    {
+        // Arrange
+        var element = new TransformElement("Transform") { Function = Rating() };
+        Assert.AreEqual(1, element.InputCount);
+        Assert.AreEqual(1, element.OutputCount);
+        var raised = new List<string>();
+        element.PropertyChanged += (_, e) => raised.Add(e.PropertyName ?? string.Empty);
+
+        // Act
+        element.Function = Bivariate();
+
+        // Assert — two inputs (primary x, secondary y) and two outputs (port 0 = z,
+        // port 1 = the secondary pass-through).
+        Assert.AreEqual(2, element.InputCount);
+        Assert.AreEqual(2, element.OutputCount);
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                nameof(TransformElement.Function), nameof(TransformElement.InputCount),
+                nameof(TransformElement.OutputCount),
+            }, raised);
+    }
+
+    /// <summary>
+    /// Verifies the element-local bivariate validation pair: a secondary input on a univariate
+    /// transform errors, and a bivariate transform without one errors.
+    /// </summary>
+    [TestMethod]
+    public void Test_Validate_SecondaryInputPairing()
+    {
+        // A secondary input while the wrapped transform is univariate.
+        var hazard = new HazardElement("Hazard");
+        var univariate = new TransformElement("Transform")
+        {
+            Function = Rating(),
+            SecondaryInput = new RiskConnection(hazard, 1),
+        };
+        var (univariateValid, univariateMessages) = univariate.Validate();
+        Assert.IsFalse(univariateValid);
+        Assert.IsTrue(univariateMessages.Any(m => m.Contains("secondary input, but its transform function is univariate")));
+
+        // A bivariate transform without a secondary input.
+        var unwired = new TransformElement("Transform") { Function = Bivariate() };
+        var (unwiredValid, unwiredMessages) = unwired.Validate();
+        Assert.IsFalse(unwiredValid);
+        Assert.IsTrue(unwiredMessages.Any(m => m.Contains("wraps a bivariate transform but has no secondary input")));
+
+        // Wired bivariate passes element-local validation (chain rules are graph-level).
+        var wired = new TransformElement("Transform")
+        {
+            Function = Bivariate(),
+            SecondaryInput = new RiskConnection(hazard, 1),
+        };
+        Assert.IsTrue(wired.Validate().IsValid);
+    }
+
+    /// <summary>
+    /// Verifies the secondary connection triple serializes under its kind names, resolves
+    /// pending after load, and re-links through the clone map — the same contract the primary
+    /// input carries.
+    /// </summary>
+    [TestMethod]
+    public void Test_SecondaryInput_SerializationAndCloneRemap()
+    {
+        // Arrange
+        var hazard = new HazardElement("Hazard");
+        var original = new TransformElement("Transform")
+        {
+            Function = Bivariate(),
+            Input = new RiskConnection(hazard),
+            SecondaryInput = new RiskConnection(hazard, 1),
+        };
+        var raised = new List<string>();
+        original.PropertyChanged += (_, e) => raised.Add(e.PropertyName ?? string.Empty);
+        original.SecondaryInput = new RiskConnection(hazard, 1);   // equal — no raise
+
+        // Act
+        var xml = original.ToXElement();
+
+        // Assert — the secondary triple beside the primary triple.
+        CollectionAssert.AreEqual(Array.Empty<string>(), raised);
+        Assert.AreEqual(hazard.Id.ToString("D"), xml.Attribute("SecondarySourceElementId")!.Value);
+        Assert.AreEqual("Hazard", xml.Attribute("SecondarySourceElement")!.Value);
+        Assert.AreEqual("1", xml.Attribute("SecondarySourcePort")!.Value);
+
+        // Pending until the graph resolves; then live.
+        var restored = new TransformElement(xml);
+        Assert.IsNull(restored.SecondaryInput);
+        restored.ResolveDeserializedReferences(ResolverOver(hazard));
+        Assert.AreSame(hazard, restored.SecondaryInput!.Source);
+        Assert.AreEqual(1, restored.SecondaryInput.SourcePort);
+
+        // The clone remaps the secondary connection through the original→clone map.
+        var hazardClone = (HazardElement)hazard.Clone();
+        var clone = (TransformElement)original.Clone();
+        Assert.IsNull(clone.SecondaryInput);
+        clone.ResolveClonedConnections(original,
+            new Dictionary<IRiskElement, IRiskElement> { [hazard] = hazardClone });
+        Assert.AreSame(hazardClone, clone.Input!.Source);
+        Assert.AreSame(hazardClone, clone.SecondaryInput!.Source);
+        Assert.AreEqual(1, clone.SecondaryInput.SourcePort);
+    }
+
+    /// <summary>
+    /// Verifies a univariate element's serialized form carries no secondary attributes — the
+    /// byte-compatibility guarantee for every existing model.
+    /// </summary>
+    [TestMethod]
+    public void Test_Serialization_NoSecondary_NoNewAttributes()
+    {
+        // Arrange
+        var element = new TransformElement("Transform")
+        {
+            Function = Rating(),
+            Input = new RiskConnection(new HazardElement("Hazard")),
+        };
+
+        // Act
+        var xml = element.ToXElement();
+
+        // Assert
+        Assert.IsNull(xml.Attribute("SecondarySourceElementId"));
+        Assert.IsNull(xml.Attribute("SecondarySourceElement"));
+        Assert.IsNull(xml.Attribute("SecondarySourcePort"));
     }
 
     /// <summary>Verifies connection serialization: dual Id + Name + port, resolved after load.</summary>

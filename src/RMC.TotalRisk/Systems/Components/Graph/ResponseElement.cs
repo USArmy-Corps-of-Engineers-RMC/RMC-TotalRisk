@@ -31,10 +31,14 @@ namespace RMC.TotalRisk.Systems.Components.Graph
     /// element (validated).
     /// </para>
     /// <para>
-    /// <see cref="SecondaryInput"/> and its serialized <c>SecondarySource*</c> attributes are
-    /// reserved now for future bivariate response functions: a bivariate response consumes
-    /// both outputs of a bivariate hazard. Setting it while the wrapped response is univariate is
-    /// an error — the serialized shape needs no change when the capability goes live.
+    /// <see cref="SecondaryInput"/> (serialized <c>SecondarySource*</c> attributes) feeds a
+    /// bivariate response's secondary axis in joint mode: the response consumes both dimensions
+    /// of a bivariate hazard. Setting it while the wrapped response is univariate is an error.
+    /// The wired-versus-null rule for a bivariate response depends on the root hazard, which the
+    /// element cannot see, so it lives in the graph: under a bivariate root the secondary input
+    /// must be wired (joint mode); under a univariate root it must stay null (collapse mode —
+    /// the response presents its weighted mean collapse as an ordinary univariate response).
+    /// Outputs are unchanged either way: a bivariate response consumes y, it never re-emits it.
     /// </para>
     /// </remarks>
     public class ResponseElement : RiskElementBase
@@ -137,6 +141,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
                 {
                     _function = SwapFunctionSubscription(_function, value);
                     RaisePropertyChange(nameof(Function));
+                    RaisePropertyChange(nameof(InputCount));
                     RaisePropertyChange(nameof(OutputCount));
                 }
             }
@@ -177,8 +182,10 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         }
 
         /// <summary>
-        /// The reserved secondary input for future bivariate response functions. Setting it
-        /// while the wrapped response is univariate is a validation error.
+        /// The secondary input feeding a bivariate response's secondary axis (joint mode).
+        /// Setting it while the wrapped response is univariate is a validation error; whether a
+        /// bivariate response requires it (joint mode, bivariate root) or forbids it (collapse
+        /// mode, univariate root) is validated by the graph, which can see the root hazard.
         /// </summary>
         public RiskConnection? SecondaryInput
         {
@@ -207,10 +214,11 @@ namespace RMC.TotalRisk.Systems.Components.Graph
 
         /// <inheritdoc/>
         /// <remarks>
-        /// One until bivariate response functions are introduced, when this getter becomes
-        /// arity-derived (2 for a bivariate wrapped function).
+        /// Arity-derived: 2 when the wrapped function is bivariate (the secondary port is
+        /// OFFERED — whether it must be wired depends on the root hazard, so that rule lives in
+        /// the graph), otherwise 1.
         /// </remarks>
-        public override int InputCount => 1;
+        public override int InputCount => _function is IBivariateResponseFunction ? 2 : 1;
 
         /// <inheritdoc/>
         /// <remarks>
@@ -382,9 +390,11 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         /// <remarks>
         /// Errors: missing name (base); no wrapped function; the non-failure sentinel wrapped in
         /// a response element (a non-failure path is a path with NO response element); a secondary
-        /// input while the wrapped response is univariate (reserved for future bivariate
-        /// responses); the wrapped
-        /// function's own errors (aggregated with the element name as context).
+        /// input while the wrapped response is univariate (the secondary axis has no meaning for
+        /// it); the wrapped function's own errors (aggregated with the element name as context).
+        /// The mode-dependent secondary rules for a bivariate response (wired under a bivariate
+        /// root, null under a univariate root) are graph checks — the element cannot see the
+        /// root hazard.
         /// </remarks>
         public override (bool IsValid, List<string> ValidationMessages) Validate()
         {
@@ -399,17 +409,16 @@ namespace RMC.TotalRisk.Systems.Components.Graph
                 {
                     messages.Add($"Error: The response element '{Name}' wraps the non-failure response sentinel; a non-failure path is a path with no response element.");
                 }
+                if (_secondaryInput != null && _function is not IBivariateResponseFunction)
+                {
+                    messages.Add($"Error: The response element '{Name}' has a secondary input, but its response function is univariate.");
+                }
                 AggregateWithContext(messages, _function.Validate().ValidationMessages);
             }
 
             if (_expandBranchOutputs && _function is not IBranchingResponseFunction)
             {
                 messages.Add($"Error: The response element '{Name}' enables expanded branch outputs, but its response function is not branching.");
-            }
-
-            if (_secondaryInput != null)
-            {
-                messages.Add($"Error: The response element '{Name}' has a secondary input, which is reserved for future bivariate response functions.");
             }
 
             return (messages.FindIndex(m => m.StartsWith("Error:", StringComparison.Ordinal)) < 0, messages);

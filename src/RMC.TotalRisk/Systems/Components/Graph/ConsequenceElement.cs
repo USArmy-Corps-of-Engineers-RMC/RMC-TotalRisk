@@ -34,6 +34,16 @@ namespace RMC.TotalRisk.Systems.Components.Graph
     /// never a hazard-type label — renaming labels can never rewire compute; the projection
     /// converts the reference to a chain-position index for hashing and the engine.
     /// </para>
+    /// <para>
+    /// <see cref="SecondaryInput"/> feeds bivariate consequence functions' secondary axis. It is
+    /// a side input, never a path edge for the upstream walk: <see cref="GetInputConnections"/>
+    /// yields <see cref="Input"/> first, so the primary path threads through
+    /// <see cref="Input"/> and the secondary chain stays off-path. The graph validates that the
+    /// secondary input resolves to the hazard's secondary output
+    /// (<c>ComponentGraph.TryResolveSecondaryChain</c>). A terminal cannot mix bivariate and
+    /// univariate consequence entries — a two-input terminal routes one signal pair, which the
+    /// two kinds would consume incompatibly.
+    /// </para>
     /// </remarks>
     public class ConsequenceElement : RiskElementBase
     {
@@ -80,6 +90,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
             ReadBaseFromXElement(xElement);
             _pendingInput = ReadPendingConnection(xElement, "Source");
             _pendingHazardSource = ReadPendingConnection(xElement, "HazardSource");
+            _pendingSecondaryInput = ReadPendingConnection(xElement, "SecondarySource");
 
             var functionsElement = xElement.Element(nameof(Functions));
             if (functionsElement != null)
@@ -119,6 +130,11 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         private RiskConnection? _hazardSource;
 
         /// <summary>
+        /// Backing field for <see cref="SecondaryInput"/>.
+        /// </summary>
+        private RiskConnection? _secondaryInput;
+
+        /// <summary>
         /// The pending serialized input reference, resolved by the graph after construction.
         /// </summary>
         private PendingConnection? _pendingInput;
@@ -127,6 +143,12 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         /// The pending serialized binding reference, resolved by the graph after construction.
         /// </summary>
         private PendingConnection? _pendingHazardSource;
+
+        /// <summary>
+        /// The pending serialized secondary-input reference, resolved by the graph after
+        /// construction.
+        /// </summary>
+        private PendingConnection? _pendingSecondaryInput;
 
         /// <summary>
         /// The ordered consequence functions (referenced, not owned — a consuming layer may store
@@ -155,6 +177,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
 
                 ReconcileFunctionSubscriptions();
                 RaisePropertyChange(nameof(Functions));
+                RaisePropertyChange(nameof(InputCount));
             }
         }
 
@@ -215,20 +238,57 @@ namespace RMC.TotalRisk.Systems.Components.Graph
             }
         }
 
-        /// <summary>Restores structural and binding inputs without publishing a partially rolled-back edit.</summary>
+        /// <summary>
+        /// The secondary input feeding bivariate consequence functions' secondary axis. Setting
+        /// it while every wrapped consequence is univariate is a validation error; a bivariate
+        /// entry without it is one too. The graph validates that the connection resolves to the
+        /// hazard's secondary output.
+        /// </summary>
+        public RiskConnection? SecondaryInput
+        {
+            get { return _secondaryInput; }
+            set
+            {
+                if (!Equals(_secondaryInput, value))
+                {
+                    _secondaryInput = value;
+                    RaisePropertyChange(nameof(SecondaryInput));
+                }
+            }
+        }
+
+        /// <summary>Restores structural, binding, and secondary inputs without publishing a partially rolled-back edit.</summary>
         /// <param name="input">The checkpointed structural input.</param>
         /// <param name="hazardSource">The checkpointed hazard-source binding.</param>
-        internal void RestoreInputConnections(RiskConnection? input, RiskConnection? hazardSource)
+        /// <param name="secondaryInput">The checkpointed secondary input.</param>
+        internal void RestoreInputConnections(RiskConnection? input, RiskConnection? hazardSource,
+            RiskConnection? secondaryInput)
         {
             _input = input;
             _hazardSource = hazardSource;
+            _secondaryInput = secondaryInput;
         }
 
         /// <inheritdoc/>
         public override RiskElementType ElementType => RiskElementType.Consequence;
 
         /// <inheritdoc/>
-        public override int InputCount => 1;
+        /// <remarks>
+        /// Arity-derived: 2 when any wrapped consequence function is bivariate (primary x plus
+        /// secondary y), otherwise 1. Mixing bivariate and univariate entries is a validation
+        /// error, so the arity is well-defined for every valid element.
+        /// </remarks>
+        public override int InputCount
+        {
+            get
+            {
+                for (int i = 0; i < _functions.Count; i++)
+                {
+                    if (_functions[i] is IBivariateConsequenceFunction) return 2;
+                }
+                return 1;
+            }
+        }
 
         /// <inheritdoc/>
         public override int OutputCount => 0;
@@ -239,13 +299,16 @@ namespace RMC.TotalRisk.Systems.Components.Graph
 
         /// <inheritdoc/>
         /// <remarks>
-        /// Yields the structural input only. <see cref="HazardSource"/> is a binding — it reads a
-        /// signal from an element already on the path and is validated separately by the graph,
-        /// never treated as a path edge.
+        /// Yields <see cref="Input"/> first, then <see cref="SecondaryInput"/> — the order is
+        /// load-bearing: the graph's upstream-path walk takes the first connection as the
+        /// primary edge, which keeps secondary chains off-path. <see cref="HazardSource"/> is a
+        /// binding — it reads a signal from an element already on the path and is validated
+        /// separately by the graph, never treated as a path edge.
         /// </remarks>
         public override IEnumerable<RiskConnection> GetInputConnections()
         {
             if (_input != null) yield return _input;
+            if (_secondaryInput != null) yield return _secondaryInput;
         }
 
         /// <inheritdoc/>
@@ -335,6 +398,30 @@ namespace RMC.TotalRisk.Systems.Components.Graph
                 }
             }
 
+            // The bivariate arity rules: the two kinds cannot mix on one terminal (a two-input
+            // terminal routes one signal pair), a bivariate entry needs the secondary source,
+            // and a secondary source needs a bivariate entry to consume it.
+            bool anyBivariate = false;
+            bool anyUnivariate = false;
+            for (int i = 0; i < _functions.Count; i++)
+            {
+                if (_functions[i] is null) continue;
+                if (_functions[i] is IBivariateConsequenceFunction) anyBivariate = true;
+                else anyUnivariate = true;
+            }
+            if (anyBivariate && anyUnivariate)
+            {
+                messages.Add($"Error: The consequence element '{Name}' mixes bivariate and univariate consequence functions; a terminal routes one signal set, which the two kinds consume incompatibly — use separate terminals.");
+            }
+            if (_secondaryInput != null && !anyBivariate)
+            {
+                messages.Add($"Error: The consequence element '{Name}' has a secondary input, but none of its consequence functions is bivariate.");
+            }
+            if (_secondaryInput == null && anyBivariate)
+            {
+                messages.Add($"Error: The consequence element '{Name}' wraps a bivariate consequence but has no secondary input; connect the hazard's secondary output (or a secondary-chain transform) to its secondary input.");
+            }
+
             return (messages.FindIndex(m => m.StartsWith("Error:", StringComparison.Ordinal)) < 0, messages);
         }
 
@@ -345,6 +432,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
             AddBaseAttributesToXElement(element);
             WriteConnection(element, "Source", _input);
             WriteConnection(element, "HazardSource", _hazardSource);
+            WriteConnection(element, "SecondarySource", _secondaryInput);
 
             var functions = new XElement(nameof(Functions));
             for (int i = 0; i < _functions.Count; i++)
@@ -374,8 +462,10 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         {
             _input = ResolveConnection(_pendingInput, resolver, $"The consequence element '{Name}' input");
             _hazardSource = ResolveConnection(_pendingHazardSource, resolver, $"The consequence element '{Name}' hazard-source binding");
+            _secondaryInput = ResolveConnection(_pendingSecondaryInput, resolver, $"The consequence element '{Name}' secondary input");
             _pendingInput = null;
             _pendingHazardSource = null;
+            _pendingSecondaryInput = null;
         }
 
         /// <inheritdoc/>
@@ -385,6 +475,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
             {
                 _input = RemapConnection(consequence._input, cloneMap);
                 _hazardSource = RemapConnection(consequence._hazardSource, cloneMap);
+                _secondaryInput = RemapConnection(consequence._secondaryInput, cloneMap);
             }
         }
 
@@ -394,7 +485,8 @@ namespace RMC.TotalRisk.Systems.Components.Graph
 
         /// <summary>
         /// Keeps the element's change subscriptions in step with the ordered list, and reports the
-        /// membership change as <c>Functions</c>.
+        /// membership change as <c>Functions</c> (and as <c>InputCount</c> — adding or removing a
+        /// bivariate entry changes the element's arity).
         /// </summary>
         /// <param name="sender">The ordered collection.</param>
         /// <param name="e">The membership change.</param>
@@ -402,6 +494,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         {
             ReconcileFunctionSubscriptions();
             RaisePropertyChange(nameof(Functions));
+            RaisePropertyChange(nameof(InputCount));
         }
 
         /// <summary>

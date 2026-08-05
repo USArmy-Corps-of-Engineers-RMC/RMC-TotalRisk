@@ -31,6 +31,24 @@ public class ConsequenceElementTests
         };
     }
 
+    /// <summary>Builds a valid labeled bivariate stage-pool consequence surface.</summary>
+    private static BivariateConsequence BivariateDamages()
+    {
+        return new BivariateConsequence
+        {
+            Name = "Stage-Pool Life Loss",
+            SpecifiedHazard = "Stage",
+            HazardUnit = "ft",
+            SecondarySpecifiedHazard = "Pool Elevation",
+            SecondaryHazardUnit = "ft",
+            SpecifiedConsequence = "Life Loss",
+            ConsequenceUnit = "lives",
+            X1Values = new[] { 0d, 10d, 20d },
+            X2Values = new[] { 100d, 200d },
+            ZValues = new[,] { { 1d, 2d }, { 3d, 5d }, { 4d, 8d } },
+        };
+    }
+
     /// <summary>Builds a resolver over a fixed element set.</summary>
     private static RiskElementResolver ResolverOver(params IRiskElement[] elements)
     {
@@ -68,9 +86,14 @@ public class ConsequenceElementTests
         element.Functions = new ObservableCollection<IConsequenceFunction> { Damages(), Damages("Life Loss", "lives") };
         element.Functions = null!;   // coerces to empty and notifies
 
-        // Assert
+        // Assert — each assignment reports the membership change and the (possibly changed)
+        // arity, since a bivariate entry flips InputCount.
         CollectionAssert.AreEqual(
-            new[] { nameof(ConsequenceElement.Functions), nameof(ConsequenceElement.Functions) }, raised);
+            new[]
+            {
+                nameof(ConsequenceElement.Functions), nameof(ConsequenceElement.InputCount),
+                nameof(ConsequenceElement.Functions), nameof(ConsequenceElement.InputCount),
+            }, raised);
         Assert.AreEqual(0, element.Functions.Count);
 
         // Enumeration skips null entries.
@@ -101,9 +124,14 @@ public class ConsequenceElementTests
         element.Functions.Remove(first);       // Remove
         element.Functions.Clear();             // Reset
 
-        // Assert — one notification per membership change, all naming Functions.
-        Assert.AreEqual(5, raised.Count);
-        Assert.IsTrue(raised.All(name => name == nameof(ConsequenceElement.Functions)));
+        // Assert — each membership change reports Functions and the (possibly changed) arity,
+        // since a bivariate entry flips InputCount.
+        Assert.AreEqual(10, raised.Count);
+        for (int i = 0; i < raised.Count; i += 2)
+        {
+            Assert.AreEqual(nameof(ConsequenceElement.Functions), raised[i]);
+            Assert.AreEqual(nameof(ConsequenceElement.InputCount), raised[i + 1]);
+        }
     }
 
     /// <summary>
@@ -347,5 +375,118 @@ public class ConsequenceElementTests
         withInvalid.Functions.Add(new TabularConsequence { Name = "Empty Table" });
         Assert.IsFalse(withInvalid.Validate(RiskAnalysisMode.Reliability).IsValid,
             "Reliability mode relaxes absence, never correctness.");
+    }
+
+    /// <summary>
+    /// Verifies the bivariate arity gate: the input count flips to two when any wrapped entry is
+    /// bivariate, tracking in-place membership changes.
+    /// </summary>
+    [TestMethod]
+    public void Test_InputCount_BivariateGate()
+    {
+        // Arrange
+        var element = new ConsequenceElement("Damages");
+        element.Functions.Add(Damages());
+        Assert.AreEqual(1, element.InputCount);
+
+        // Act / Assert — adding a bivariate entry flips the arity; removing it restores.
+        var bivariate = BivariateDamages();
+        element.Functions.Add(bivariate);
+        Assert.AreEqual(2, element.InputCount);
+        element.Functions.Remove(bivariate);
+        Assert.AreEqual(1, element.InputCount);
+    }
+
+    /// <summary>
+    /// Verifies the element-local bivariate validation rules: mixing the two kinds errors, a
+    /// secondary input needs a bivariate entry, and a bivariate entry needs the secondary input.
+    /// </summary>
+    [TestMethod]
+    public void Test_Validate_BivariateRules()
+    {
+        var hazard = new HazardElement("Hazard");
+
+        // Mixing bivariate and univariate entries on one terminal.
+        var mixed = new ConsequenceElement("Damages")
+        {
+            SecondaryInput = new RiskConnection(hazard, 1),
+        };
+        mixed.Functions.Add(Damages());
+        mixed.Functions.Add(BivariateDamages());
+        var (mixedValid, mixedMessages) = mixed.Validate();
+        Assert.IsFalse(mixedValid);
+        Assert.IsTrue(mixedMessages.Any(m => m.Contains("mixes bivariate and univariate consequence functions")));
+
+        // A secondary input with no bivariate entry to consume it.
+        var univariate = new ConsequenceElement("Damages")
+        {
+            SecondaryInput = new RiskConnection(hazard, 1),
+        };
+        univariate.Functions.Add(Damages());
+        var (univariateValid, univariateMessages) = univariate.Validate();
+        Assert.IsFalse(univariateValid);
+        Assert.IsTrue(univariateMessages.Any(m => m.Contains("none of its consequence functions is bivariate")));
+
+        // A bivariate entry without the secondary input.
+        var unwired = new ConsequenceElement("Damages");
+        unwired.Functions.Add(BivariateDamages());
+        var (unwiredValid, unwiredMessages) = unwired.Validate();
+        Assert.IsFalse(unwiredValid);
+        Assert.IsTrue(unwiredMessages.Any(m => m.Contains("wraps a bivariate consequence but has no secondary input")));
+
+        // A wired all-bivariate terminal passes element-local validation.
+        var wired = new ConsequenceElement("Damages")
+        {
+            SecondaryInput = new RiskConnection(hazard, 1),
+        };
+        wired.Functions.Add(BivariateDamages());
+        Assert.IsTrue(wired.Validate().IsValid);
+    }
+
+    /// <summary>
+    /// Verifies the secondary connection triple serializes under its kind names, resolves
+    /// pending after load, remaps through the clone map, and is absent from univariate forms.
+    /// </summary>
+    [TestMethod]
+    public void Test_SecondaryInput_SerializationAndCloneRemap()
+    {
+        // Arrange
+        var hazard = new HazardElement("Hazard");
+        var original = new ConsequenceElement("Damages")
+        {
+            Input = new RiskConnection(hazard),
+            SecondaryInput = new RiskConnection(hazard, 1),
+        };
+        original.Functions.Add(BivariateDamages());
+
+        // Act
+        var xml = original.ToXElement();
+
+        // Assert — the secondary triple beside the primary and binding triples.
+        Assert.AreEqual(hazard.Id.ToString("D"), xml.Attribute("SecondarySourceElementId")!.Value);
+        Assert.AreEqual("Hazard", xml.Attribute("SecondarySourceElement")!.Value);
+        Assert.AreEqual("1", xml.Attribute("SecondarySourcePort")!.Value);
+
+        // Pending until the graph resolves; then live.
+        var restored = new ConsequenceElement(xml);
+        Assert.IsNull(restored.SecondaryInput);
+        restored.ResolveDeserializedReferences(ResolverOver(hazard));
+        Assert.AreSame(hazard, restored.SecondaryInput!.Source);
+        Assert.AreEqual(1, restored.SecondaryInput.SourcePort);
+
+        // The clone remaps the secondary connection through the original→clone map.
+        var hazardClone = (HazardElement)hazard.Clone();
+        var clone = (ConsequenceElement)original.Clone();
+        Assert.IsNull(clone.SecondaryInput);
+        clone.ResolveClonedConnections(original,
+            new Dictionary<IRiskElement, IRiskElement> { [hazard] = hazardClone });
+        Assert.AreSame(hazardClone, clone.SecondaryInput!.Source);
+        Assert.AreEqual(1, clone.SecondaryInput.SourcePort);
+
+        // A univariate element's form carries no secondary attributes (byte compatibility).
+        var plain = new ConsequenceElement("Damages") { Input = new RiskConnection(hazard) };
+        plain.Functions.Add(Damages());
+        Assert.IsNull(plain.ToXElement().Attribute("SecondarySourceElementId"));
+        Assert.IsNull(plain.ToXElement().Attribute("SecondarySourcePort"));
     }
 }

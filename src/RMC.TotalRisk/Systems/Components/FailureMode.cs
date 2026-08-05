@@ -23,7 +23,7 @@ namespace RMC.TotalRisk.Systems.Components
     ///     Haden Smith, USACE Risk Management Center, cole.h.smith@usace.army.mil
     /// </para>
     /// <para>
-    /// Ported from v1.0 <c>FailureMode</c> with the domain surface preserved and three deliberate
+    /// Ported from v1.0 <c>FailureMode</c> with the domain surface preserved and four deliberate
     /// v1.1 generalizations: (1) <b>response chains</b> — v1.0 fixed one
     /// response between two transform lists; v1.1 holds ordered <see cref="ResponseStages"/>
     /// (grammar <c>T* (R T*)* C</c>), and the v1.0 members <see cref="HazardToResponse"/> /
@@ -34,7 +34,12 @@ namespace RMC.TotalRisk.Systems.Components
     /// binding</b> — <see cref="ConsequenceHazardPosition"/> lets the consequences consume the
     /// hazard signal at any chain position (0 = the raw hazard) instead of only the last
     /// response's input, with trailing <see cref="ResponseToConsequence"/> transforms folding
-    /// from the bound position.
+    /// from the bound position; (4) <b>the secondary hazard dimension</b> — under a bivariate
+    /// component hazard the mode can originate at the secondary signal
+    /// (<see cref="HazardBinding"/>), route its consequences to it
+    /// (<see cref="ConsequenceHazardDimension"/>), and carry the path's secondary-chain
+    /// transforms (<see cref="SecondaryHazardToResponse"/>, serialized only when non-empty so
+    /// pre-bivariate modes' forms, hashes, and seeds are untouched).
     /// </para>
     /// <para>
     /// Serialization is self-contained: functions are owned inline children (v1.0's name-based
@@ -154,6 +159,24 @@ namespace RMC.TotalRisk.Systems.Components
                     _consequenceFunctions.Add(consequence);
                 }
             }
+
+            // Written only when non-empty; a missing child loads as the empty chain, so every
+            // pre-bivariate payload reads forward unchanged.
+            var secondaryChainElement = xElement.Element(nameof(SecondaryHazardToResponse));
+            if (secondaryChainElement != null)
+            {
+                foreach (var child in secondaryChainElement.Elements())
+                {
+                    var transform = RiskFunctionFactory.CreateTransformFunction(child);
+                    if (transform == null)
+                    {
+                        throw new InvalidOperationException(
+                            $"Unrecognized transform function element '{child.Name.LocalName}' in a serialized failure mode's secondary-hazard chain. " +
+                            "The failure mode cannot be reconstructed faithfully; the serialized form may come from a newer version.");
+                    }
+                    _secondaryHazardToResponse.Add(transform);
+                }
+            }
         }
 
         #endregion
@@ -175,6 +198,11 @@ namespace RMC.TotalRisk.Systems.Components
         /// Backing field for <see cref="ResponseToConsequence"/>.
         /// </summary>
         private List<ITransformFunction> _responseToConsequence = new List<ITransformFunction>();
+
+        /// <summary>
+        /// Backing field for <see cref="SecondaryHazardToResponse"/>.
+        /// </summary>
+        private List<ITransformFunction> _secondaryHazardToResponse = new List<ITransformFunction>();
 
         /// <summary>
         /// Backing field for <see cref="ConsequenceFunctions"/>.
@@ -271,6 +299,37 @@ namespace RMC.TotalRisk.Systems.Components
         }
 
         /// <summary>
+        /// The univariate transforms shaping the hazard's secondary signal on the way to this
+        /// mode's bivariate elements — the path's secondary chain, upstream → downstream,
+        /// projected from the graph (the transforms feeding the first bivariate element's
+        /// secondary input). Empty for every univariate mode. Assigning null coerces to an empty
+        /// list; the failure mode takes ownership of an assigned list.
+        /// </summary>
+        /// <remarks>
+        /// Compute-relevant when present: the chain serializes (and therefore hashes) as a
+        /// <c>SecondaryHazardToResponse</c> child written only when non-empty, so every
+        /// pre-bivariate mode's serialized form, canonical hash, and seeds are untouched. The
+        /// chain's samplers are seeded after the trailing transforms — appended walk positions —
+        /// so existing modes' sampler ordinals never move. The engine evaluates the chain on the
+        /// secondary axis: a Secondary-bound consequence consumes the secondary signal after
+        /// <see cref="ConsequenceHazardPosition"/> chain transforms (position 0 is the raw
+        /// secondary signal), and a joint-mode bivariate response receives the chain's full
+        /// output as its secondary coordinate.
+        /// </remarks>
+        public List<ITransformFunction> SecondaryHazardToResponse
+        {
+            get { return _secondaryHazardToResponse; }
+            set
+            {
+                if (!ReferenceEquals(_secondaryHazardToResponse, value))
+                {
+                    _secondaryHazardToResponse = value ?? new List<ITransformFunction>();
+                    RaisePropertyChange(nameof(SecondaryHazardToResponse));
+                }
+            }
+        }
+
+        /// <summary>
         /// The ordered consequence functions: index 0 is the primary consequence used for risk
         /// integration; all entries are computed and tracked. Assigning null coerces to an empty
         /// list; the failure mode takes ownership of an assigned list.
@@ -289,9 +348,13 @@ namespace RMC.TotalRisk.Systems.Components
         }
 
         /// <summary>
-        /// Which hazard dimension the chain consumes: <see cref="HazardDimension.Primary"/> for
-        /// univariate hazards (the default), <see cref="HazardDimension.Secondary"/> only when
-        /// the component hazard is bivariate (future work). Compute-relevant — hashed.
+        /// Which hazard dimension the chain consumes as its signal origin:
+        /// <see cref="HazardDimension.Primary"/> (the default, and the only legal value under a
+        /// univariate component hazard), or <see cref="HazardDimension.Secondary"/> when the
+        /// component hazard is bivariate and the mode's path leaves the hazard's secondary
+        /// output — the projection stamps it from the root exit port. A Secondary-bound mode's
+        /// stage chain runs with the secondary signal as its origin, through ordinary univariate
+        /// machinery. Compute-relevant — hashed.
         /// </summary>
         public HazardDimension HazardBinding
         {
@@ -307,10 +370,25 @@ namespace RMC.TotalRisk.Systems.Components
         }
 
         /// <summary>
-        /// Which hazard dimension the consequence binding consumes at its bound position.
-        /// <see cref="HazardDimension.Primary"/> until bivariate hazards are introduced.
-        /// Compute-relevant — hashed.
+        /// Which hazard dimension the consequence binding consumes at its bound position:
+        /// <see cref="HazardDimension.Primary"/> (the default, and the only legal value under a
+        /// univariate component hazard), or <see cref="HazardDimension.Secondary"/> when the
+        /// consequences of a bivariate component consume the secondary signal — stamped by the
+        /// projection from a binding onto the hazard's secondary output (position 0) or a
+        /// secondary-chain transform (position k + 1). Compute-relevant — hashed.
         /// </summary>
+        /// <remarks>
+        /// The consequence input routing contract the engine implements: a univariate
+        /// consequence with a Primary dimension consumes the transformed primary signal at
+        /// <see cref="ConsequenceHazardPosition"/> (exact v1.0 behavior); with a Secondary
+        /// dimension it consumes the secondary signal after
+        /// <see cref="ConsequenceHazardPosition"/> secondary-chain transforms; the trailing
+        /// <see cref="ResponseToConsequence"/> transforms fold after either (they are
+        /// one-argument and axis-agnostic). A bivariate consequence evaluates its surface at
+        /// both bound signals — this dimension is then inert, and trailing transforms under it
+        /// are a validation error (a one-argument transform cannot precede a two-argument
+        /// evaluation).
+        /// </remarks>
         public HazardDimension ConsequenceHazardDimension
         {
             get { return _consequenceHazardDimension; }
@@ -325,11 +403,15 @@ namespace RMC.TotalRisk.Systems.Components
         }
 
         /// <summary>
-        /// The chain position whose hazard signal feeds the consequences: 0 is the raw component
-        /// hazard, k is the signal after the k-th stage transform. Null means the v1.0 default —
-        /// the last response's input (<see cref="TotalStageTransformCount"/>). Trailing
-        /// <see cref="ResponseToConsequence"/> transforms always apply, folding from the bound
-        /// position. Compute-relevant — hashed; serialized resolved (see <see cref="ToXElement"/>).
+        /// The chain position whose hazard signal feeds the consequences. Under the Primary
+        /// <see cref="ConsequenceHazardDimension"/>: 0 is the raw component hazard, k is the
+        /// signal after the k-th stage transform, and null means the v1.0 default — the last
+        /// response's input (<see cref="TotalStageTransformCount"/>). Under the Secondary
+        /// dimension: 0 is the raw secondary signal and k is the signal after the k-th
+        /// <see cref="SecondaryHazardToResponse"/> transform (always stamped explicitly by the
+        /// projection). Trailing <see cref="ResponseToConsequence"/> transforms always apply,
+        /// folding from the bound position. Compute-relevant — hashed; serialized resolved (see
+        /// <see cref="ToXElement"/>).
         /// </summary>
         public int? ConsequenceHazardPosition
         {
@@ -373,8 +455,9 @@ namespace RMC.TotalRisk.Systems.Components
         }
 
         /// <summary>
-        /// Determines whether every stage, trailing transform, and consequence function carries
-        /// no knowledge uncertainty. Null entries are skipped (validation reports them).
+        /// Determines whether every stage, trailing transform, secondary-hazard-chain transform,
+        /// and consequence function carries no knowledge uncertainty. Null entries are skipped
+        /// (validation reports them).
         /// </summary>
         public bool IsDeterministic
         {
@@ -387,6 +470,10 @@ namespace RMC.TotalRisk.Systems.Components
                 for (int i = 0; i < _responseToConsequence.Count; i++)
                 {
                     if (_responseToConsequence[i] is not null && !_responseToConsequence[i].IsDeterministic) return false;
+                }
+                for (int i = 0; i < _secondaryHazardToResponse.Count; i++)
+                {
+                    if (_secondaryHazardToResponse[i] is not null && !_secondaryHazardToResponse[i].IsDeterministic) return false;
                 }
                 for (int i = 0; i < _consequenceFunctions.Count; i++)
                 {
@@ -514,11 +601,19 @@ namespace RMC.TotalRisk.Systems.Components
         /// </list>
         /// </returns>
         /// <remarks>
-        /// Errors: no stages; null stage, trailing-transform, or consequence entries; the
-        /// non-failure sentinel inside a multi-stage chain; no consequence functions; a
-        /// consequence hazard position outside [0, <see cref="TotalStageTransformCount"/>]; and
-        /// every owned function's own errors (aggregated). Hazard-type label mismatches along the
-        /// chain are advisory warnings — a deliberate v1.1 divergence from v1.0, where label
+        /// Errors: no stages; null stage, trailing-transform, secondary-chain, or consequence
+        /// entries; the non-failure sentinel inside a multi-stage chain; no consequence
+        /// functions; a consequence hazard position outside its dimension's range (Primary:
+        /// [0, <see cref="TotalStageTransformCount"/>]; Secondary: [0, the secondary-hazard
+        /// chain length], explicit position required); the bivariate gate matrix — under a
+        /// univariate or unknown component hazard, Secondary bindings, secondary chains, and
+        /// bivariate transform/consequence functions are errors while a bivariate response is
+        /// legal in collapse mode; under a bivariate hazard a bivariate response must be
+        /// single-stage with at least two secondary levels; a bivariate transform inside the
+        /// secondary chain; trailing transforms alongside a bivariate consequence; and every
+        /// owned function's own errors (aggregated). Hazard-type label mismatches along the
+        /// chain — including the secondary axis, which walks from the bound marginal's declared
+        /// pair — are advisory warnings, a deliberate v1.1 divergence from v1.0, where label
         /// mismatches were invalidating (labels are unhashed display metadata).
         /// </remarks>
         public (bool IsValid, List<string> ValidationMessages) Validate()
@@ -577,6 +672,23 @@ namespace RMC.TotalRisk.Systems.Components
                 messages.AddRange(_responseToConsequence[i].Validate().ValidationMessages);
             }
 
+            // The secondary-hazard chain validates like the trailing transforms — and it is
+            // univariate by construction: a bivariate transform inside it would need its own
+            // secondary source, which the chain is.
+            for (int i = 0; i < _secondaryHazardToResponse.Count; i++)
+            {
+                if (_secondaryHazardToResponse[i] is null)
+                {
+                    messages.Add($"Error: The secondary-hazard transform at index {i} has not been defined.");
+                    continue;
+                }
+                messages.AddRange(_secondaryHazardToResponse[i].Validate().ValidationMessages);
+                if (_secondaryHazardToResponse[i] is IBivariateTransformFunction)
+                {
+                    messages.Add($"Error: The secondary-hazard transform at index {i} is bivariate; the secondary chain shapes one signal and is univariate by construction.");
+                }
+            }
+
             if (_consequenceFunctions.Count == 0 && mode == RiskAnalysisMode.Risk)
             {
                 messages.Add("Error: The failure mode must have at least one consequence function.");
@@ -591,21 +703,112 @@ namespace RMC.TotalRisk.Systems.Components
                 messages.AddRange(_consequenceFunctions[i].Validate().ValidationMessages);
             }
 
-            if (_consequenceHazardPosition.HasValue &&
+            // Position bounds by dimension: a Primary position addresses the stage-transform
+            // chain (null = the v1.0 last-response-input default); a Secondary position
+            // addresses the secondary-hazard chain and is always stamped explicitly by the
+            // projection.
+            if (_consequenceHazardDimension == HazardDimension.Secondary)
+            {
+                if (!_consequenceHazardPosition.HasValue)
+                {
+                    messages.Add("Error: The Secondary consequence hazard dimension requires an explicit consequence hazard position (0 is the raw secondary signal, k is the signal after the k-th secondary-chain transform).");
+                }
+                else if (_consequenceHazardPosition.Value < 0 || _consequenceHazardPosition.Value > _secondaryHazardToResponse.Count)
+                {
+                    messages.Add($"Error: The consequence hazard position ({_consequenceHazardPosition.Value}) must be between 0 (the raw secondary signal) and the secondary-hazard chain length ({_secondaryHazardToResponse.Count}) under the Secondary consequence hazard dimension.");
+                }
+            }
+            else if (_consequenceHazardPosition.HasValue &&
                 (_consequenceHazardPosition.Value < 0 || _consequenceHazardPosition.Value > TotalStageTransformCount))
             {
                 messages.Add($"Error: The consequence hazard position ({_consequenceHazardPosition.Value}) must be between 0 (the raw hazard) and the total stage transform count ({TotalStageTransformCount}).");
             }
 
-            // Every hazard function is univariate until the bivariate cluster is introduced;
-            // a Secondary dimension cannot be satisfied today and the checks below relax then.
-            if (_hazardBinding == HazardDimension.Secondary)
+            // The bivariate gate matrix, keyed on the owning component's hazard. Under a
+            // univariate (or unknown — the mode is unparented) hazard no secondary dimension
+            // exists: Secondary bindings, secondary chains, and bivariate transform/consequence
+            // functions are errors, while a bivariate RESPONSE stays legal — it operates in
+            // collapse mode, presenting its weighted mean collapse as an ordinary univariate
+            // response, cascade stages included. Under a bivariate hazard a bivariate response
+            // runs in joint mode: single-stage only, and its surface needs an interpolable
+            // secondary axis (at least two secondary hazard levels).
+            bool bivariateParent = _parent?.HazardFunction is IBivariateHazardFunction;
+            if (!bivariateParent)
             {
-                messages.Add("Error: The failure mode hazard binding is Secondary, which requires a bivariate hazard (not yet supported).");
+                if (_hazardBinding == HazardDimension.Secondary)
+                {
+                    messages.Add("Error: The failure mode hazard binding is Secondary, which requires a bivariate component hazard.");
+                }
+                if (_consequenceHazardDimension == HazardDimension.Secondary)
+                {
+                    messages.Add("Error: The failure mode consequence hazard dimension is Secondary, which requires a bivariate component hazard.");
+                }
+                if (_secondaryHazardToResponse.Count > 0)
+                {
+                    messages.Add("Error: The failure mode carries a secondary-hazard chain, which requires a bivariate component hazard.");
+                }
+                for (int s = 0; s < _responseStages.Count; s++)
+                {
+                    var stage = _responseStages[s];
+                    if (stage is null) continue;
+                    for (int t = 0; t < stage.Transforms.Count; t++)
+                    {
+                        if (stage.Transforms[t] is IBivariateTransformFunction)
+                        {
+                            messages.Add($"Error: The stage transform '{stage.Transforms[t].Name}' is bivariate, which requires a bivariate component hazard; a bivariate transform has no secondary signal to consume and no collapse semantics.");
+                        }
+                    }
+                }
+                for (int i = 0; i < _responseToConsequence.Count; i++)
+                {
+                    if (_responseToConsequence[i] is IBivariateTransformFunction)
+                    {
+                        messages.Add($"Error: The response-to-consequence transform '{_responseToConsequence[i].Name}' is bivariate, which requires a bivariate component hazard; a bivariate transform has no secondary signal to consume and no collapse semantics.");
+                    }
+                }
+                for (int i = 0; i < _consequenceFunctions.Count; i++)
+                {
+                    if (_consequenceFunctions[i] is IBivariateConsequenceFunction)
+                    {
+                        messages.Add($"Error: The consequence function '{_consequenceFunctions[i].Name}' is bivariate, which requires a bivariate component hazard; a bivariate consequence has no secondary signal to consume and no collapse semantics.");
+                    }
+                }
             }
-            if (_consequenceHazardDimension == HazardDimension.Secondary)
+            else
             {
-                messages.Add("Error: The failure mode consequence hazard dimension is Secondary, which requires a bivariate hazard (not yet supported).");
+                bool anyBivariateResponse = false;
+                for (int s = 0; s < _responseStages.Count; s++)
+                {
+                    var stage = _responseStages[s];
+                    if (stage?.Response is IBivariateResponseFunction jointResponse)
+                    {
+                        anyBivariateResponse = true;
+                        if (jointResponse.SecondaryLevelCount < 2)
+                        {
+                            messages.Add($"Error: The bivariate response '{stage.Response.Name}' has {jointResponse.SecondaryLevelCount} secondary hazard level(s); joint evaluation under a bivariate hazard requires at least two for an interpolable secondary axis.");
+                        }
+                    }
+                }
+                if (anyBivariateResponse && _responseStages.Count > 1)
+                {
+                    messages.Add($"Error: The failure mode chains {_responseStages.Count} response stages through a bivariate response; a joint-mode bivariate response is supported on single-stage modes only.");
+                }
+            }
+
+            // Trailing transforms cannot precede a bivariate consequence: they are one-argument
+            // and the surface evaluates at both bound signals directly.
+            bool anyBivariateConsequence = false;
+            for (int i = 0; i < _consequenceFunctions.Count; i++)
+            {
+                if (_consequenceFunctions[i] is IBivariateConsequenceFunction)
+                {
+                    anyBivariateConsequence = true;
+                    break;
+                }
+            }
+            if (anyBivariateConsequence && _responseToConsequence.Count > 0)
+            {
+                messages.Add("Error: The failure mode carries response-to-consequence transforms alongside a bivariate consequence; a bivariate consequence evaluates at both bound signals directly, so one-argument trailing transforms cannot precede it.");
             }
 
             // The branch-explosion guardrails under per-type marginal compute
@@ -648,8 +851,11 @@ namespace RMC.TotalRisk.Systems.Components
         /// <summary>
         /// Sets up this mode's samplers for a run: allocates the consequence coupling matrix
         /// (this mode claims the first ordinal), then walks the chain — stage transforms, stage
-        /// responses, trailing transforms, in declared order — seeding each function on its first
-        /// encounter with a content-derived seed. Consequence functions are deliberately not in
+        /// responses, trailing transforms, then the secondary-hazard chain, in declared order —
+        /// seeding each function on its first encounter with a content-derived seed. The
+        /// secondary-hazard chain sits at the end of the walk deliberately: its positions are
+        /// appended, so every pre-bivariate mode's ordinals (and therefore seeds) are
+        /// bit-identical to the walk without it. Consequence functions are deliberately not in
         /// the walk: they need no percentile matrices, because the coupling matrix supplies their
         /// shared knowledge percentile (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §5.8.7).
         /// </summary>
@@ -705,6 +911,10 @@ namespace RMC.TotalRisk.Systems.Components
             for (int i = 0; i < _responseToConsequence.Count; i++)
             {
                 ordinal = SetupFunction(_responseToConsequence[i], sampleSize, componentSeed, ordinal, scheme, seededFunctions, scribe);
+            }
+            for (int i = 0; i < _secondaryHazardToResponse.Count; i++)
+            {
+                ordinal = SetupFunction(_secondaryHazardToResponse[i], sampleSize, componentSeed, ordinal, scheme, seededFunctions, scribe);
             }
             return ordinal;
         }
@@ -765,7 +975,9 @@ namespace RMC.TotalRisk.Systems.Components
         /// append-only. The consequence hazard position is written resolved (the null default
         /// becomes the explicit last-response-input position), so a defaulted mode and an
         /// explicitly-equal mode serialize and hash identically; a restored mode therefore pins
-        /// the position explicitly. Null entries are skipped (validation reports them).
+        /// the position explicitly. The secondary-hazard chain is written only when non-empty
+        /// (conditional presence — the shape every pre-bivariate mode serialized under). Null
+        /// entries are skipped (validation reports them).
         /// </summary>
         /// <returns>The serialized form.</returns>
         public XElement ToXElement()
@@ -796,6 +1008,19 @@ namespace RMC.TotalRisk.Systems.Components
                 if (_consequenceFunctions[i] is not null) consequences.Add(_consequenceFunctions[i].ToXElement());
             }
             element.Add(consequences);
+
+            // Conditional presence is the compatibility contract: an always-written empty
+            // container would move every existing failure-mode hash and re-roll all seeds, so
+            // the secondary-hazard chain appears only when it has content.
+            if (_secondaryHazardToResponse.Count > 0)
+            {
+                var secondaryChain = new XElement(nameof(SecondaryHazardToResponse));
+                for (int i = 0; i < _secondaryHazardToResponse.Count; i++)
+                {
+                    if (_secondaryHazardToResponse[i] is not null) secondaryChain.Add(_secondaryHazardToResponse[i].ToXElement());
+                }
+                element.Add(secondaryChain);
+            }
 
             return element;
         }
@@ -867,14 +1092,38 @@ namespace RMC.TotalRisk.Systems.Components
         /// position, appending advisory warnings on mismatches. Transforms advance the signal
         /// cursor; responses compare at their input without advancing (the hazard signal passes
         /// through a response); consequences compare at the bound position after folding the
-        /// trailing transforms. Comparisons are skipped when either side is empty (the v1.0
+        /// trailing transforms. The secondary axis walks in parallel: the secondary-hazard chain
+        /// compares from the bivariate component hazard's declared secondary pair, bivariate
+        /// stage functions compare their secondary labels against the chain's end signal, and a
+        /// Secondary-dimension consequence binding reads its expected pair from the secondary
+        /// checkpoints. Comparisons are skipped when either side is empty (the v1.0
         /// unknown-context fallback) and are case-insensitive (v1.0 behavior).
         /// </summary>
         /// <param name="messages">The message sink.</param>
         private void ValidateLabelContinuity(List<string> messages)
         {
+            // Checkpoints of the secondary signal: index 0 is the bivariate component hazard's
+            // declared secondary pair (empty for standalone or univariate-parent modes, which
+            // silences every secondary comparison), index k is the signal after the k-th
+            // secondary-chain transform.
+            var bivariateParent = _parent?.HazardFunction as IBivariateHazardFunction;
+            var secondaryLabels = new List<string> { bivariateParent?.SecondarySpecifiedHazard ?? string.Empty };
+            var secondaryUnits = new List<string> { bivariateParent?.SecondaryHazardUnit ?? string.Empty };
+            for (int i = 0; i < _secondaryHazardToResponse.Count; i++)
+            {
+                var transform = _secondaryHazardToResponse[i];
+                if (transform is null) continue;
+                CompareLabels(messages, secondaryLabels[secondaryLabels.Count - 1], secondaryUnits[secondaryUnits.Count - 1],
+                    transform.SpecifiedHazard, transform.HazardUnit, $"secondary-hazard transform function '{transform.Name}'");
+                secondaryLabels.Add(transform.TransformedHazard);
+                secondaryUnits.Add(transform.TransformedHazardUnit);
+            }
+            string secondaryEndLabel = secondaryLabels[secondaryLabels.Count - 1];
+            string secondaryEndUnit = secondaryUnits[secondaryUnits.Count - 1];
+
             // Checkpoints of the hazard signal: index 0 is the incoming component hazard
-            // (unknown for a standalone failure mode), index k is the signal after the k-th
+            // (unknown for a standalone failure mode; a Secondary-bound mode originates at the
+            // bound marginal's secondary pair), index k is the signal after the k-th
             // stage transform.
             var labels = new List<string> { IncomingHazardLabel() };
             var units = new List<string> { IncomingHazardUnit() };
@@ -890,6 +1139,12 @@ namespace RMC.TotalRisk.Systems.Components
                     if (transform is null) continue;
                     CompareLabels(messages, labels[labels.Count - 1], units[units.Count - 1],
                         transform.SpecifiedHazard, transform.HazardUnit, $"transform function '{transform.Name}'");
+                    if (transform is IBivariateTransformFunction bivariateTransform)
+                    {
+                        CompareLabels(messages, secondaryEndLabel, secondaryEndUnit,
+                            bivariateTransform.SecondarySpecifiedHazard, bivariateTransform.SecondaryHazardUnit,
+                            $"bivariate transform function '{transform.Name}' (secondary axis)");
+                    }
                     labels.Add(transform.TransformedHazard);
                     units.Add(transform.TransformedHazardUnit);
                 }
@@ -898,16 +1153,37 @@ namespace RMC.TotalRisk.Systems.Components
                 {
                     CompareLabels(messages, labels[labels.Count - 1], units[units.Count - 1],
                         stage.Response.SpecifiedHazard, stage.Response.HazardUnit, $"response function '{stage.Response.Name}'");
+                    if (stage.Response is IBivariateResponseFunction bivariateResponse && bivariateParent != null)
+                    {
+                        // Joint mode only: in collapse mode (univariate parent) the secondary
+                        // axis is internal to the response and no graph signal reaches it —
+                        // the empty secondary checkpoint silences the comparison anyway.
+                        CompareLabels(messages, secondaryEndLabel, secondaryEndUnit,
+                            bivariateResponse.SecondarySpecifiedHazard, bivariateResponse.SecondaryHazardUnit,
+                            $"bivariate response function '{stage.Response.Name}' (secondary axis)");
+                    }
                 }
             }
 
-            // The consequence input: the signal at the bound position, folded through the
-            // trailing transforms. An out-of-range explicit position is already an error; clamp
-            // for the advisory walk.
-            int position = Math.Min(ResolvedConsequenceHazardPosition, labels.Count - 1);
-            position = Math.Max(position, 0);
-            string label = labels[position];
-            string unit = units[position];
+            // The consequence input: the signal at the bound position on the bound dimension,
+            // folded through the trailing transforms. An out-of-range explicit position is
+            // already an error; clamp for the advisory walk.
+            string label;
+            string unit;
+            if (_consequenceHazardDimension == HazardDimension.Secondary)
+            {
+                int secondaryPosition = Math.Min(_consequenceHazardPosition ?? 0, secondaryLabels.Count - 1);
+                secondaryPosition = Math.Max(secondaryPosition, 0);
+                label = secondaryLabels[secondaryPosition];
+                unit = secondaryUnits[secondaryPosition];
+            }
+            else
+            {
+                int position = Math.Min(ResolvedConsequenceHazardPosition, labels.Count - 1);
+                position = Math.Max(position, 0);
+                label = labels[position];
+                unit = units[position];
+            }
 
             for (int i = 0; i < _responseToConsequence.Count; i++)
             {
@@ -923,30 +1199,53 @@ namespace RMC.TotalRisk.Systems.Components
             {
                 var consequence = _consequenceFunctions[i];
                 if (consequence is null) continue;
+                if (consequence is IBivariateConsequenceFunction bivariateConsequence)
+                {
+                    // A bivariate consequence consumes both axes directly: its primary labels
+                    // compare against the primary bound signal and its secondary labels against
+                    // the secondary chain's end signal.
+                    CompareLabels(messages, label, unit, consequence.SpecifiedHazard, consequence.HazardUnit,
+                        $"bivariate consequence function '{consequence.Name}'");
+                    CompareLabels(messages, secondaryEndLabel, secondaryEndUnit,
+                        bivariateConsequence.SecondarySpecifiedHazard, bivariateConsequence.SecondaryHazardUnit,
+                        $"bivariate consequence function '{consequence.Name}' (secondary axis)");
+                    continue;
+                }
                 CompareLabels(messages, label, unit, consequence.SpecifiedHazard, consequence.HazardUnit,
                     $"consequence function '{consequence.Name}'");
             }
         }
 
         /// <summary>
-        /// The hazard-type label entering the chain: the owning component hazard's label when the
-        /// mode is parented, otherwise empty (standalone modes skip the incoming comparison —
-        /// the v1.0 unknown-context fallback).
+        /// The hazard-type label entering the chain: the owning component hazard's label at the
+        /// bound dimension when the mode is parented (a Secondary binding originates at a
+        /// bivariate hazard's declared secondary label), otherwise empty (standalone modes skip
+        /// the incoming comparison — the v1.0 unknown-context fallback).
         /// </summary>
         /// <returns>The incoming hazard-type label, or empty when unknown.</returns>
         private string IncomingHazardLabel()
         {
-            return _parent?.HazardFunction?.SpecifiedHazard ?? string.Empty;
+            var hazard = _parent?.HazardFunction;
+            if (hazard is IBivariateHazardFunction bivariate && _hazardBinding == HazardDimension.Secondary)
+            {
+                return bivariate.SecondarySpecifiedHazard ?? string.Empty;
+            }
+            return hazard?.SpecifiedHazard ?? string.Empty;
         }
 
         /// <summary>
-        /// The hazard-unit label entering the chain: the owning component hazard's unit when the
-        /// mode is parented, otherwise empty.
+        /// The hazard-unit label entering the chain: the owning component hazard's unit at the
+        /// bound dimension when the mode is parented, otherwise empty.
         /// </summary>
         /// <returns>The incoming hazard-unit label, or empty when unknown.</returns>
         private string IncomingHazardUnit()
         {
-            return _parent?.HazardFunction?.HazardUnit ?? string.Empty;
+            var hazard = _parent?.HazardFunction;
+            if (hazard is IBivariateHazardFunction bivariate && _hazardBinding == HazardDimension.Secondary)
+            {
+                return bivariate.SecondaryHazardUnit ?? string.Empty;
+            }
+            return hazard?.HazardUnit ?? string.Empty;
         }
 
         /// <summary>

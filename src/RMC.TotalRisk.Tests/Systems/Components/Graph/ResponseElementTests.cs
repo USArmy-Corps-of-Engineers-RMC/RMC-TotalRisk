@@ -10,8 +10,9 @@ using RMC.TotalRisk.Systems.Components.Graph;
 namespace RMC.TotalRisk.Tests.Systems.Components.Graph;
 
 /// <summary>
-/// Unit tests for <see cref="ResponseElement"/> — ports, the sentinel-wrap guard, the reserved
-/// bivariate secondary input, connection serialization, and cloning.
+/// Unit tests for <see cref="ResponseElement"/> — ports (including the bivariate input-arity
+/// gate), the sentinel-wrap guard, the bivariate secondary input, connection serialization, and
+/// cloning.
 /// </summary>
 [TestClass]
 public class ResponseElementTests
@@ -20,6 +21,19 @@ public class ResponseElementTests
     private static TabularResponse Fragility()
     {
         return new TabularResponse { Name = "Fragility", SpecifiedHazard = "Stage", HazardUnit = "ft" };
+    }
+
+    /// <summary>Builds a valid labeled bivariate response on the default 2×2 grid.</summary>
+    private static BivariateResponse BivariateFragility()
+    {
+        return new BivariateResponse
+        {
+            Name = "Joint Fragility",
+            SpecifiedHazard = "Stage",
+            HazardUnit = "ft",
+            SecondarySpecifiedHazard = "Pool Elevation",
+            SecondaryHazardUnit = "ft",
+        };
     }
 
     /// <summary>Builds a resolver over a fixed element set.</summary>
@@ -63,7 +77,7 @@ public class ResponseElementTests
         Assert.AreEqual(2, element.GetInputConnections().Count());
     }
 
-    /// <summary>Verifies the validation matrix: sentinel wrap and reserved secondary input.</summary>
+    /// <summary>Verifies the validation matrix: sentinel wrap and secondary-with-univariate input.</summary>
     [TestMethod]
     public void Test_Validate_Matrix()
     {
@@ -79,7 +93,8 @@ public class ResponseElementTests
         Assert.IsFalse(sentinelValid);
         Assert.IsTrue(sentinelMessages.Any(m => m.Contains("non-failure response sentinel")));
 
-        // The secondary input is reserved for future bivariate responses.
+        // A secondary input while the wrapped response is univariate is an error — the
+        // secondary axis has no meaning for it.
         var secondary = new ResponseElement("Breach")
         {
             Function = Fragility(),
@@ -87,7 +102,46 @@ public class ResponseElementTests
         };
         var (secondaryValid, secondaryMessages) = secondary.Validate();
         Assert.IsFalse(secondaryValid);
-        Assert.IsTrue(secondaryMessages.Any(m => m.Contains("reserved for future bivariate")));
+        Assert.IsTrue(secondaryMessages.Any(m => m.Contains("secondary input, but its response function is univariate")));
+
+        // A bivariate response is element-locally valid with OR without the secondary input —
+        // the wired-versus-null rule depends on the root hazard, which only the graph can see.
+        Assert.IsTrue(new ResponseElement("Breach") { Function = BivariateFragility() }.Validate().IsValid);
+        var joint = new ResponseElement("Breach")
+        {
+            Function = BivariateFragility(),
+            SecondaryInput = new RiskConnection(new HazardElement("Hazard"), 1),
+        };
+        Assert.IsTrue(joint.Validate().IsValid);
+    }
+
+    /// <summary>
+    /// Verifies the bivariate input-arity gate: the input count flips to two with a bivariate
+    /// wrapped function (the secondary port is offered) while the outputs stay the aggregate
+    /// Fail/Non-Fail pair, with the arity raises alongside the function.
+    /// </summary>
+    [TestMethod]
+    public void Test_InputCount_BivariateGate()
+    {
+        // Arrange
+        var element = new ResponseElement("Breach") { Function = Fragility() };
+        Assert.AreEqual(1, element.InputCount);
+        var raised = new List<string>();
+        element.PropertyChanged += (_, e) => raised.Add(e.PropertyName ?? string.Empty);
+
+        // Act
+        element.Function = BivariateFragility();
+
+        // Assert — two inputs offered; outputs unchanged (a bivariate response consumes y,
+        // it never re-emits it).
+        Assert.AreEqual(2, element.InputCount);
+        Assert.AreEqual(2, element.OutputCount);
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                nameof(ResponseElement.Function), nameof(ResponseElement.InputCount),
+                nameof(ResponseElement.OutputCount),
+            }, raised);
     }
 
     /// <summary>Verifies connection serialization including the reserved secondary triple.</summary>

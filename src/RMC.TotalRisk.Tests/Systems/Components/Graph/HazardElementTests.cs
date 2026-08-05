@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Xml.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -23,6 +24,21 @@ public class HazardElementTests
         return new TabularHazard { Name = "Flow Frequency", SpecifiedHazard = "Flow", HazardUnit = "cfs" };
     }
 
+    /// <summary>Builds a valid labeled bivariate hazard over two tabular marginals.</summary>
+    private static BivariateHazard ValidBivariateHazard()
+    {
+        return new BivariateHazard(
+            new TabularHazard { Name = "Surge Frequency", SpecifiedHazard = "Surge", HazardUnit = "ft" },
+            new TabularHazard { Name = "Pool Frequency", SpecifiedHazard = "Pool Elevation", HazardUnit = "ft" })
+        {
+            Name = "Joint Hazard",
+            SpecifiedHazard = "Surge",
+            HazardUnit = "ft",
+            SecondarySpecifiedHazard = "Pool Elevation",
+            SecondaryHazardUnit = "ft",
+        };
+    }
+
     /// <summary>Verifies the source-analog shape: no inputs, one output, nothing wrapped.</summary>
     [TestMethod]
     public void Test_Defaults_SourceShape()
@@ -38,21 +54,25 @@ public class HazardElementTests
         Assert.AreEqual(0, element.GetFunctions().Count());
     }
 
-    /// <summary>Verifies function assignment notifies and surfaces through GetFunctions.</summary>
+    /// <summary>
+    /// Verifies function assignment notifies (the arity-bearing OutputCount alongside Function)
+    /// and surfaces through GetFunctions.
+    /// </summary>
     [TestMethod]
     public void Test_Function_AssignmentAndEnumeration()
     {
         // Arrange
         var element = new HazardElement("Hazard");
-        string? raised = null;
-        element.PropertyChanged += (_, e) => raised = e.PropertyName;
+        var raised = new List<string?>();
+        element.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
         var hazard = ValidHazard();
 
         // Act
         element.Function = hazard;
 
         // Assert
-        Assert.AreEqual(nameof(HazardElement.Function), raised);
+        CollectionAssert.AreEqual(
+            new[] { nameof(HazardElement.Function), nameof(HazardElement.OutputCount) }, raised);
         Assert.AreSame(hazard, element.GetFunctions().Single());
     }
 
@@ -188,5 +208,70 @@ public class HazardElementTests
         Assert.IsNotNull(clone.Function);
         Assert.AreNotSame(original.Function, clone.Function);
         CollectionAssert.AreEqual(original.Function!.CanonicalHash(), clone.Function!.CanonicalHash());
+    }
+
+    /// <summary>
+    /// Verifies the bivariate arity gate: the output count flips to two with a bivariate wrapped
+    /// function (port 0 = primary X, port 1 = secondary Y) and back, with the arity raise.
+    /// </summary>
+    [TestMethod]
+    public void Test_OutputCount_BivariateGate()
+    {
+        // Arrange
+        var element = new HazardElement("Hazard") { Function = ValidHazard() };
+        Assert.AreEqual(1, element.OutputCount);
+        var raised = new List<string?>();
+        element.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+        // Act / Assert — bivariate opens port 1; univariate closes it.
+        element.Function = ValidBivariateHazard();
+        Assert.AreEqual(2, element.OutputCount);
+        element.Function = ValidHazard();
+        Assert.AreEqual(1, element.OutputCount);
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                nameof(HazardElement.Function), nameof(HazardElement.OutputCount),
+                nameof(HazardElement.Function), nameof(HazardElement.OutputCount),
+            }, raised);
+    }
+
+    /// <summary>
+    /// Verifies the graph's port-bounds check across the gate: a connection to port 1 of a
+    /// univariate hazard is a dangling-port error, and the identical wiring under a bivariate
+    /// hazard passes the bounds check.
+    /// </summary>
+    [TestMethod]
+    public void Test_Graph_PortOneBounds_FollowTheGate()
+    {
+        // Arrange — a terminal consuming hazard port 1 (a Secondary-bound non-failure path).
+        static ComponentGraph BuildGraph(IHazardFunction hazardFunction)
+        {
+            var graph = new ComponentGraph();
+            var hazard = new HazardElement("Hazard") { Function = hazardFunction };
+            var terminal = new ConsequenceElement("Damages")
+            {
+                Input = new RiskConnection(hazard, 1),
+            };
+            terminal.Functions.Add(new RMC.TotalRisk.RiskFunctions.Consequences.TabularConsequence
+            {
+                Name = "Damages",
+                SpecifiedHazard = "Pool Elevation",
+                HazardUnit = "ft",
+                SpecifiedConsequence = "Damages",
+                ConsequenceUnit = "$",
+            });
+            graph.AddElement(hazard);
+            graph.AddElement(terminal);
+            return graph;
+        }
+
+        // Act / Assert — univariate: port 1 exceeds the single output.
+        var univariateMessages = BuildGraph(ValidHazard()).Validate().ValidationMessages;
+        Assert.IsTrue(univariateMessages.Any(m => m.Contains("references output port 1") && m.Contains("exposes 1 output(s)")));
+
+        // Bivariate: the same wiring is within bounds (no port-bounds message).
+        var bivariateMessages = BuildGraph(ValidBivariateHazard()).Validate().ValidationMessages;
+        Assert.IsFalse(bivariateMessages.Any(m => m.Contains("exposes")));
     }
 }
