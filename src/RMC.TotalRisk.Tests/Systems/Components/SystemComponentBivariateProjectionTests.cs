@@ -542,4 +542,115 @@ public class SystemComponentBivariateProjectionTests
     }
 
     #endregion
+
+    #region Engine guardrails
+
+    /// <summary>
+    /// Builds a two-response bivariate component: a primary-bound surge path and, optionally, a
+    /// second path bound to the hazard's secondary output — the competing-guard matrix fixture.
+    /// </summary>
+    private static SystemComponent CompetingFixture(bool secondPathSecondary, bool twoPaths = true)
+    {
+        var component = new SystemComponent(JointHazard()) { Name = "Competing Component" };
+        var hazard = component.Graph.GetElements<HazardElement>().Single();
+        var primaryBreach = new ResponseElement("Surge Breach")
+        {
+            Function = Fragility("Surge Fragility"),
+            Input = new RiskConnection(hazard),
+        };
+        component.Graph.AddElement(primaryBreach);
+        AddTerminal(component, "Surge Damages", primaryBreach);
+        if (twoPaths)
+        {
+            var secondBreach = new ResponseElement("Second Breach")
+            {
+                Function = Fragility("Second Fragility", secondPathSecondary ? "Pool Elevation" : "Surge"),
+                Input = new RiskConnection(hazard, secondPathSecondary ? 1 : 0),
+            };
+            component.Graph.AddElement(secondBreach);
+            AddTerminal(component, "Second Damages", secondBreach);
+        }
+        AddTerminal(component, "Baseline Damages", hazard);
+        component.FailureModeMethod = FailureModeMethod.CompetingFailures;
+        return component;
+    }
+
+    /// <summary>
+    /// Verifies the multi-unit competing guard: a Secondary-bound failure mode over a bivariate
+    /// hazard is a validation error, while an all-primary configuration stays legal.
+    /// </summary>
+    [TestMethod]
+    public void Test_CompetingGuard_MultiUnitSecondaryBound_Errors()
+    {
+        // Act
+        var mixed = CompetingFixture(secondPathSecondary: true).Validate();
+        var allPrimary = CompetingFixture(secondPathSecondary: false).Validate();
+
+        // Assert
+        Assert.IsTrue(mixed.ValidationMessages.Any(m =>
+            m.StartsWith("Error:", StringComparison.Ordinal) && m.Contains("competing failure modes over a bivariate hazard")));
+        Assert.IsFalse(allPrimary.ValidationMessages.Any(m => m.Contains("competing failure modes over a bivariate hazard")));
+    }
+
+    /// <summary>
+    /// Verifies single-unit competing stays legal for any binding: one Secondary-bound failure
+    /// mode needs no incidence pre-processing, so the guard does not fire.
+    /// </summary>
+    [TestMethod]
+    public void Test_CompetingGuard_SingleUnitSecondaryBound_Legal()
+    {
+        // Arrange — one Secondary-bound failure path only.
+        var component = new SystemComponent(JointHazard()) { Name = "Single Unit" };
+        var hazard = component.Graph.GetElements<HazardElement>().Single();
+        var breach = new ResponseElement("Pool Breach")
+        {
+            Function = Fragility("Pool Fragility", "Pool Elevation"),
+            Input = new RiskConnection(hazard, 1),
+        };
+        component.Graph.AddElement(breach);
+        AddTerminal(component, "Pool Damages", breach);
+        AddTerminal(component, "Baseline Damages", hazard);
+        component.FailureModeMethod = FailureModeMethod.CompetingFailures;
+
+        // Act
+        var result = component.Validate();
+
+        // Assert
+        Assert.IsFalse(result.ValidationMessages.Any(m => m.Contains("competing failure modes over a bivariate hazard")));
+    }
+
+    /// <summary>
+    /// Verifies the recorded-entry estimate prices the conditional-bin cross product: a
+    /// bivariate hazard multiplies the univariate-equivalent bound by (bins + 1).
+    /// </summary>
+    [TestMethod]
+    public void Test_EstimateRecordedFailureEntries_ScalesByNodeCount()
+    {
+        // Arrange — the same single-mode shape under a univariate and a bivariate hazard.
+        var univariate = new SystemComponent(UnivariateHazard()) { Name = "Univariate" };
+        var uHazard = univariate.Graph.GetElements<HazardElement>().Single();
+        var uBreach = new ResponseElement("Breach") { Function = Fragility(), Input = new RiskConnection(uHazard) };
+        univariate.Graph.AddElement(uBreach);
+        AddTerminal(univariate, "Damages", uBreach);
+        AddTerminal(univariate, "Baseline", uHazard);
+
+        var joint = JointHazard();
+        joint.SecondaryIntegrationBins = 10;
+        var bivariate = new SystemComponent(joint) { Name = "Bivariate" };
+        var bHazard = bivariate.Graph.GetElements<HazardElement>().Single();
+        var bBreach = new ResponseElement("Breach")
+        {
+            Function = Fragility("Pool Fragility", "Pool Elevation"),
+            Input = new RiskConnection(bHazard, 1),
+        };
+        bivariate.Graph.AddElement(bBreach);
+        AddTerminal(bivariate, "Damages", bBreach);
+        AddTerminal(bivariate, "Baseline", bHazard);
+
+        // Act / Assert — the bivariate estimate is the univariate bound × (bins + 1).
+        long univariateEstimate = univariate.EstimateRecordedFailureEntries();
+        Assert.AreEqual(univariateEstimate * 11L, bivariate.EstimateRecordedFailureEntries());
+    }
+
+    #endregion
 }

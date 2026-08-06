@@ -731,6 +731,38 @@ public class BivariateHazardTests
         Assert.AreEqual(15d, snapshot.MarginalY.InverseCDF(0.5d), 1e-12);
     }
 
+    /// <summary>
+    /// The mean overload freezes the Y marginal's mean frequency curve with the same cloned
+    /// copula and bin geometry — the shape the engine's mean pass and deterministic probes
+    /// consume.
+    /// </summary>
+    [TestMethod]
+    public void Test_SampleBivariate_MeanOverload_FreezesMeanMarginal()
+    {
+        // Arrange
+        var hazard = Configured();
+        hazard.Copula = new ClaytonCopula(2d);
+
+        // Act / Assert — the mean overload shares the setup gate.
+        var exception = Assert.ThrowsException<InvalidOperationException>(() => hazard.SampleBivariate());
+        StringAssert.Contains(exception.Message, "SetupSampler");
+
+        hazard.SetupSampler(8, 12345, SamplingScheme.LatinHypercube);
+        var snapshot = hazard.SampleBivariate();
+        var expected = hazard.SampleSecondaryFunction();
+
+        // Assert — bin geometry, cloned copula, and the mean Y surface.
+        Assert.AreEqual(20, snapshot.SecondaryIntegrationBins);
+        Assert.AreEqual(21, snapshot.ConditionalNodeCount);
+        Assert.IsInstanceOfType<ClaytonCopula>(snapshot.Copula);
+        Assert.AreNotSame(hazard.Copula, snapshot.Copula);
+        foreach (double probability in new[] { 0.1d, 0.5d, 0.9d })
+        {
+            Assert.AreEqual(expected.InverseCDF(probability), snapshot.MarginalY.InverseCDF(probability), 0d,
+                $"mean marginal at p = {probability}");
+        }
+    }
+
     /// <summary>The allocating diagnostic overload agrees with the buffer kernel.</summary>
     [TestMethod]
     public void Test_SampleConditionalYGivenX_AgreesWithBufferKernel()

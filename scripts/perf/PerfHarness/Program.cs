@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using Numerics.Data;
@@ -15,6 +16,7 @@ using RMC.TotalRisk.RiskFunctions.Responses.EventTrees;
 using RMC.TotalRisk.RiskFunctions.Responses.FaultTrees;
 using RMC.TotalRisk.RiskFunctions.Responses.Trees;
 using RMC.TotalRisk.Systems.Components;
+using RMC.TotalRisk.Systems.Components.Graph;
 
 namespace RMC.TotalRisk.PerfHarness
 {
@@ -46,7 +48,11 @@ namespace RMC.TotalRisk.PerfHarness
     /// <b>F7</b> — a fault tree whose ~20 pooled basic events repeat three to five times through
     /// shared-logical transfers across eight crossing trains and two k-of-n voting gates, with
     /// mixed scalar and uncertain-table sources, measured directly at the sampler-setup and
-    /// indexed-read boundaries with the frozen decision-diagram size reported.
+    /// indexed-read boundaries with the frozen decision-diagram size reported; <b>F8</b> — a
+    /// single bivariate component (independence copula, 20 conditional bins, uncertain tabular
+    /// marginals) carrying a Secondary-bound failure mode and a joint bivariate-response failure
+    /// mode at N = 1000, the shape whose per-evaluation cost is the conditional-bin sweep —
+    /// every hazard evaluation runs the combination kernels once per bin node.
     /// Each engine fixture reports the mean-only and full-uncertainty medians of three runs plus
     /// the SHA-256 of the concatenated results JSON (mean, lower, upper, median realizations and
     /// the summary ensemble).
@@ -67,7 +73,7 @@ namespace RMC.TotalRisk.PerfHarness
         /// <c>--reps 3</c> for the committed baseline/final table rows.</summary>
         private static int _reps = 1;
 
-        /// <summary>Runs the requested fixtures (args: optional <c>--reps N</c> plus fixture names among F1 F2 F3 F4 F5 F6 F7; default all).</summary>
+        /// <summary>Runs the requested fixtures (args: optional <c>--reps N</c> plus fixture names among F1 F2 F3 F4 F5 F6 F7 F8; default all).</summary>
         /// <param name="args">Optional repetition count and fixture filter.</param>
         /// <returns>Zero on success.</returns>
         public static int Main(string[] args)
@@ -101,6 +107,7 @@ namespace RMC.TotalRisk.PerfHarness
             if (All("F5")) MeasureEventTree();
             if (All("F6")) Measure("F6 composite hazard + day/night consequence, N=500", () => BuildF6());
             if (All("F7")) MeasureFaultTree();
+            if (All("F8")) Measure("F8 bivariate component, 20 conditional bins, N=1000", () => BuildF8());
             return 0;
         }
 
@@ -489,6 +496,134 @@ namespace RMC.TotalRisk.PerfHarness
                 ConsequenceUnit = "dollars",
             };
             analysis.Options.Realizations = 500;
+            return analysis;
+        }
+
+        /// <summary>
+        /// Builds the F8 bivariate fixture at N = 1000: an independence-copula hazard over
+        /// uncertain tabular marginals at the default 20 conditional bins, carrying a
+        /// Secondary-bound pool-fragility failure mode and a joint bivariate-response failure
+        /// mode plus a primary background path. Every hazard evaluation sweeps the 21 conditional
+        /// nodes, running the combination kernels per node — the (bins + 1)× cost shape the
+        /// conditional-trapezoid design prices.
+        /// </summary>
+        private static RiskAnalysis BuildF8()
+        {
+            static TabularHazard Marginal(string name, string hazard, double median, double extreme)
+            {
+                return new TabularHazard
+                {
+                    Name = name,
+                    SpecifiedHazard = hazard,
+                    HazardUnit = "ft",
+                    UncertaintyValue = FunctionUncertainty.Hazard,
+                    HazardUncertainFunction = new UncertainOrderedPairedData(
+                        new[]
+                        {
+                            new UncertainOrdinate(0.999d, new Normal(0d, 0.01d)),
+                            new UncertainOrdinate(0.5d, new Normal(median, median * 0.05d)),
+                            new UncertainOrdinate(0.001d, new Normal(extreme, extreme * 0.05d)),
+                        },
+                        true, SortOrder.Descending, true, SortOrder.Ascending, UnivariateDistributionType.Normal),
+                };
+            }
+
+            static TabularConsequence PathDamages(string name, string hazard, double max, double valueAtMax)
+            {
+                return new TabularConsequence
+                {
+                    Name = name,
+                    SpecifiedHazard = hazard,
+                    HazardUnit = "ft",
+                    SpecifiedConsequence = "Damage",
+                    ConsequenceUnit = "dollars",
+                    UncertainOrderedPairedData = new UncertainOrderedPairedData(
+                        new[] { new UncertainOrdinate(0d, new Deterministic(0d)), new UncertainOrdinate(max, new Deterministic(valueAtMax)) },
+                        true, SortOrder.Ascending, false, SortOrder.None, UnivariateDistributionType.Deterministic),
+                };
+            }
+
+            var joint = new BivariateHazard(
+                Marginal("Surge Marginal", "Surge", 10d, 30d),
+                Marginal("Pool Marginal", "Pool Elevation", 50d, 100d))
+            {
+                Name = "Joint Hazard",
+                SpecifiedHazard = "Surge",
+                HazardUnit = "ft",
+                SecondarySpecifiedHazard = "Pool Elevation",
+                SecondaryHazardUnit = "ft",
+            };
+            var component = new SystemComponent(joint) { Name = "Joint Dam" };
+            var hazard = component.Graph.GetElements<HazardElement>().Single();
+
+            // The Secondary-bound path: the hazard's secondary output drives an uncertain pool
+            // fragility whose damages read the pool signal.
+            var poolBreach = new ResponseElement("Pool Breach")
+            {
+                Function = new TabularResponse
+                {
+                    Name = "Pool Fragility",
+                    SpecifiedHazard = "Pool Elevation",
+                    HazardUnit = "ft",
+                    UncertainOrderedPairedData = new UncertainOrderedPairedData(
+                        new[]
+                        {
+                            new UncertainOrdinate(20d, new Triangular(0d, 0.02d, 0.05d)),
+                            new UncertainOrdinate(100d, new Triangular(0.6d, 0.8d, 1d)),
+                        },
+                        true, SortOrder.Ascending, false, SortOrder.None, UnivariateDistributionType.Triangular),
+                },
+                Input = new RiskConnection(hazard, 1),
+            };
+            component.Graph.AddElement(poolBreach);
+            var poolFailure = new ConsequenceElement("Pool Damages") { Input = new RiskConnection(poolBreach) };
+            poolFailure.Functions.Add(PathDamages("Pool Loss", "Pool Elevation", 100d, 800d));
+            component.Graph.AddElement(poolFailure);
+
+            // The joint-mode path: the surface response consumes both hazard outputs.
+            var surface = new BivariateResponse
+            {
+                Name = "Joint Fragility",
+                SpecifiedHazard = "Surge",
+                HazardUnit = "ft",
+                SecondarySpecifiedHazard = "Pool Elevation",
+                SecondaryHazardUnit = "ft",
+            };
+            surface.PrimaryHazardLevels.Clear();
+            surface.PrimaryHazardLevels.Add(0d);
+            surface.PrimaryHazardLevels.Add(15d);
+            surface.PrimaryHazardLevels.Add(30d);
+            surface.SecondaryHazardLevels.Clear();
+            surface.SecondaryHazardLevels.Add(new WeightedHazardLevel { Level = 0d, Weight = 0.3d });
+            surface.SecondaryHazardLevels.Add(new WeightedHazardLevel { Level = 50d, Weight = 0.4d });
+            surface.SecondaryHazardLevels.Add(new WeightedHazardLevel { Level = 100d, Weight = 0.3d });
+            surface.ProbabilityValues = new[,]
+            {
+                { 0.001d, 0.01d, 0.05d },
+                { 0.02d, 0.10d, 0.30d },
+                { 0.10d, 0.40d, 0.80d },
+            };
+            var jointBreach = new ResponseElement("Joint Breach")
+            {
+                Function = surface,
+                Input = new RiskConnection(hazard),
+                SecondaryInput = new RiskConnection(hazard, 1),
+            };
+            component.Graph.AddElement(jointBreach);
+            var jointFailure = new ConsequenceElement("Joint Damages") { Input = new RiskConnection(jointBreach) };
+            jointFailure.Functions.Add(PathDamages("Joint Loss", "Surge", 30d, 1200d));
+            component.Graph.AddElement(jointFailure);
+
+            var background = new ConsequenceElement("Baseline Damages") { Input = new RiskConnection(hazard) };
+            background.Functions.Add(PathDamages("Baseline Loss", "Surge", 30d, 90d));
+            component.Graph.AddElement(background);
+
+            var analysis = new RiskAnalysis(new[] { component })
+            {
+                SpecifiedConsequence = "Damage",
+                ConsequenceUnit = "dollars",
+            };
+            analysis.Options.Realizations = 1000;
             return analysis;
         }
 

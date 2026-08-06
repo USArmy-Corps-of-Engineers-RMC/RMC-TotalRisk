@@ -5,6 +5,7 @@ using Numerics.Data;
 using Numerics.Distributions;
 using Numerics.Functions;
 using RMC.TotalRisk.Core.Enums;
+using RMC.TotalRisk.Core.Interfaces;
 using RMC.TotalRisk.RiskFunctions.Responses.Trees;
 using RMC.TotalRisk.Systems.Components;
 
@@ -79,6 +80,9 @@ namespace RMC.TotalRisk.Results
             Name = failureMode.ResponseFunction.Name;
             IsNonFailureMode = failureMode.IsNonFailureMode;
             _consequencePosition = failureMode.ResolvedConsequenceHazardPosition;
+            _hazardBinding = failureMode.HazardBinding;
+            _consequenceDimension = failureMode.ConsequenceHazardDimension;
+            bool bivariateParent = failureMode.Parent?.HazardFunction is IBivariateHazardFunction;
 
             bool mean = realizationIndex < 0;
 
@@ -105,13 +109,37 @@ namespace RMC.TotalRisk.Results
                 var transforms = stages[s].Transforms;
                 for (int i = 0; i < transforms.Count; i++)
                 {
-                    _stageTransforms[cursor++] = mean ? transforms[i].SampleFunction() : transforms[i].SampleFunction(realizationIndex);
+                    // A bivariate stage transform (legal only under a bivariate component
+                    // hazard) evaluates as a deterministic two-way surface: its 1-argument
+                    // sampling trio deliberately throws, so the capture is a fresh configured
+                    // interpolator over the shared grid (the pinned per-realization thread
+                    // discipline) held in a parallel slot.
+                    if (transforms[i] is IBivariateTransformFunction bivariateTransform)
+                    {
+                        _stageBivariateTransforms ??= new Bilinear?[totalTransforms];
+                        _stageBivariateTransforms[cursor] = bivariateTransform.CreateInterpolator();
+                        _stageTransforms[cursor++] = null!;
+                    }
+                    else
+                    {
+                        _stageTransforms[cursor++] = mean ? transforms[i].SampleFunction() : transforms[i].SampleFunction(realizationIndex);
+                    }
                 }
                 var response = stages[s].Response;
                 _stagePolarities[s] = stages[s].BranchPolarity;
                 ResponseBranchDescriptor? selectedBranch = stages[s].GetSelectedBranch();
                 if (selectedBranch == null)
                 {
+                    // Joint mode: under a bivariate component hazard a bivariate response
+                    // evaluates its probability surface at (x′, y′) through SRPAt; the stored
+                    // univariate sample remains the preserved v1.0 weighted collapse
+                    // (deterministic, no draws), keeping SRP(hazardLevel) total. Under a
+                    // univariate hazard the collapse IS the mode's response — no surface.
+                    if (bivariateParent && response is IBivariateResponseFunction jointResponse)
+                    {
+                        _jointResponseSurfaces ??= new Bilinear?[stageCount];
+                        _jointResponseSurfaces[s] = jointResponse.CreateInterpolator();
+                    }
                     _stageResponses[s] = mean
                         ? response.SampleFunction()
                         : response.SampleFunction(realizationIndex);
@@ -146,7 +174,32 @@ namespace RMC.TotalRisk.Results
             _responseToConsequence = new IUnivariateFunction[trailing.Count];
             for (int i = 0; i < trailing.Count; i++)
             {
-                _responseToConsequence[i] = mean ? trailing[i].SampleFunction() : trailing[i].SampleFunction(realizationIndex);
+                if (trailing[i] is IBivariateTransformFunction bivariateTrailing)
+                {
+                    _trailingBivariateTransforms ??= new Bilinear?[trailing.Count];
+                    _trailingBivariateTransforms[i] = bivariateTrailing.CreateInterpolator();
+                    _responseToConsequence[i] = null!;
+                }
+                else
+                {
+                    _responseToConsequence[i] = mean ? trailing[i].SampleFunction() : trailing[i].SampleFunction(realizationIndex);
+                }
+            }
+
+            // The path's secondary-hazard chain (bivariate components only): ordinary
+            // univariate transforms shaping the secondary signal, sampled from the
+            // content-seeded streams the mode's sampler walk appended after the trailing
+            // transforms. Its folded output y′ is the one secondary signal every
+            // bivariate element on the mode's path consumes (the one-chain-per-path
+            // identity rule).
+            var secondaryChain = failureMode.SecondaryHazardToResponse;
+            if (secondaryChain.Count > 0)
+            {
+                _secondaryTransforms = new IUnivariateFunction[secondaryChain.Count];
+                for (int i = 0; i < secondaryChain.Count; i++)
+                {
+                    _secondaryTransforms[i] = mean ? secondaryChain[i].SampleFunction() : secondaryChain[i].SampleFunction(realizationIndex);
+                }
             }
 
             // Every consequence position, branch-enumerated and coupled per type on one
@@ -163,6 +216,16 @@ namespace RMC.TotalRisk.Results
                 var consequence = k < consequences.Count ? consequences[k] : null;
                 if (consequence == null)
                 {
+                    _failureBranchesByType[k] = ZeroBranch;
+                }
+                else if (consequence is IBivariateConsequenceFunction bivariateConsequence)
+                {
+                    // A bivariate consequence is a deterministic two-way surface: its exposure
+                    // branch is the single unit-weight placeholder and the value comes from a
+                    // fresh per-realization interpolator evaluated at (bound signal, y′). No
+                    // coupling read — the surface carries no knowledge uncertainty.
+                    _failureSurfacesByType ??= new Bilinear?[typeCount];
+                    _failureSurfacesByType[k] = bivariateConsequence.CreateInterpolator();
                     _failureBranchesByType[k] = ZeroBranch;
                 }
                 else if (mean)
@@ -184,6 +247,12 @@ namespace RMC.TotalRisk.Results
                     var paired = k < pairedConsequences.Count ? pairedConsequences[k] : null;
                     if (paired == null)
                     {
+                        _nonFailureBranchesByType[k] = ZeroBranch;
+                    }
+                    else if (paired is IBivariateConsequenceFunction pairedBivariate)
+                    {
+                        _nonFailureSurfacesByType ??= new Bilinear?[typeCount];
+                        _nonFailureSurfacesByType[k] = pairedBivariate.CreateInterpolator();
                         _nonFailureBranchesByType[k] = ZeroBranch;
                     }
                     else
@@ -220,6 +289,22 @@ namespace RMC.TotalRisk.Results
                     _scratchNonFailValues[k] = new double[pairedCount];
                 }
             }
+
+            // The bin-invariance classification (bivariate components): a mode whose response
+            // probability is a pure primary-axis function is SRP-bin-invariant (the multi-unit
+            // competing prerequisite), and one whose entire machinery — probabilities and
+            // consequences — ignores the secondary signal is bin-invariant, evaluated once per
+            // hazard level and reused across the conditional bins. Every univariate mode is
+            // trivially both.
+            IsSrpBinInvariant = _hazardBinding == HazardDimension.Primary
+                && _jointResponseSurfaces == null
+                && _stageBivariateTransforms == null;
+            IsBinInvariant = IsSrpBinInvariant
+                && _consequenceDimension == HazardDimension.Primary
+                && _secondaryTransforms == null
+                && _trailingBivariateTransforms == null
+                && _failureSurfacesByType == null
+                && _nonFailureSurfacesByType == null;
         }
 
         #endregion
@@ -267,6 +352,98 @@ namespace RMC.TotalRisk.Results
         /// The sampled trailing transform curves applied from the bound consequence position.
         /// </summary>
         private readonly IUnivariateFunction[] _responseToConsequence;
+
+        /// <summary>
+        /// The per-realization interpolators of the bivariate stage transforms, index-aligned
+        /// with <see cref="_stageTransforms"/> (whose slot is then null); null when the mode has
+        /// none — every univariate mode.
+        /// </summary>
+        private readonly Bilinear?[]? _stageBivariateTransforms;
+
+        /// <summary>
+        /// The per-realization interpolators of the bivariate trailing transforms, index-aligned
+        /// with <see cref="_responseToConsequence"/> (whose slot is then null); null when the
+        /// mode has none.
+        /// </summary>
+        private readonly Bilinear?[]? _trailingBivariateTransforms;
+
+        /// <summary>
+        /// The per-stage joint-mode response surfaces (a bivariate response under a bivariate
+        /// component hazard): the per-realization raw interpolator whose back-transformed value
+        /// clamps to [0, 1] inside <see cref="SRPAt"/>. Null for every collapse-mode and
+        /// univariate mode — the stage's stored sample is then the response itself.
+        /// </summary>
+        private readonly Bilinear?[]? _jointResponseSurfaces;
+
+        /// <summary>
+        /// The sampled secondary-hazard chain — the path's univariate transforms shaping the
+        /// secondary signal, whose folded output y′ is the one secondary signal every bivariate
+        /// element on the mode's path consumes. Null (not empty) for every univariate mode.
+        /// </summary>
+        private readonly IUnivariateFunction[]? _secondaryTransforms;
+
+        /// <summary>
+        /// The per-type, per-realization interpolators of bivariate failure consequences,
+        /// index-aligned with <see cref="_failureBranchesByType"/> (whose entry is then the
+        /// single unit-weight placeholder branch); null when no type is bivariate.
+        /// </summary>
+        private readonly Bilinear?[]? _failureSurfacesByType;
+
+        /// <summary>
+        /// The per-type, per-realization interpolators of bivariate paired non-failure
+        /// consequences; null when no paired type is bivariate.
+        /// </summary>
+        private readonly Bilinear?[]? _nonFailureSurfacesByType;
+
+        /// <summary>
+        /// Which hazard dimension the stage chain consumes as its signal origin (the projection
+        /// stamp; Primary for every univariate mode).
+        /// </summary>
+        private readonly HazardDimension _hazardBinding;
+
+        /// <summary>
+        /// Which hazard dimension the consequence binding consumes at its bound position (the
+        /// projection stamp; Primary for every univariate mode).
+        /// </summary>
+        private readonly HazardDimension _consequenceDimension;
+
+        /// <summary>
+        /// The paired excess partner of the active binned evaluation, captured by
+        /// <see cref="BeginBinnedEvaluation"/>.
+        /// </summary>
+        private SampledFailureMode? _binPaired;
+
+        /// <summary>
+        /// Whether the active binned evaluation records this mode's own streams (the univariate
+        /// record rule: recording, not the non-failure mode, not a claimed state).
+        /// </summary>
+        private bool _binRecord;
+
+        /// <summary>
+        /// Whether the active binned evaluation reuses one full-weight bin-0 computation — the
+        /// mode and its excess partner are both bin-invariant, so the conditional evaluation
+        /// point never moves.
+        /// </summary>
+        private bool _binInvariant;
+
+        /// <summary>
+        /// Whether the invariant bin-0 computation has run for the active evaluation (the reuse
+        /// latch of <see cref="ComputeRiskBinned"/>).
+        /// </summary>
+        private bool _binEvaluated;
+
+        /// <summary>
+        /// The consequence-type count of the active binned evaluation (clamped to this mode's
+        /// own axis, mirroring the univariate computed-types rule).
+        /// </summary>
+        private int _binComputedTypes;
+
+        /// <summary>
+        /// The per-type staged entry lists of the active recording binned evaluation, adopted by
+        /// the committed risk points; null on non-recording evaluations (which therefore
+        /// allocate nothing — the univariate recording contract).
+        /// </summary>
+        private BinnedCurveStaging[]? _binStaging;
 
         /// <summary>
         /// The weighted exposure branches of each failure consequence type at this realization's
@@ -335,6 +512,23 @@ namespace RMC.TotalRisk.Results
         internal bool SuppressModeRecording { get; set; }
 
         /// <summary>
+        /// Determines whether the mode's response probability is a pure primary-axis function —
+        /// a Primary hazard binding with no joint response surface and no bivariate stage
+        /// transform. The multi-unit competing-risks prerequisite on a bivariate component
+        /// (the cumulative-incidence pre-processing marginals are primary-axis curves); true for
+        /// every univariate mode.
+        /// </summary>
+        internal bool IsSrpBinInvariant { get; }
+
+        /// <summary>
+        /// Determines whether the mode's entire machinery — response probability and every
+        /// consequence path — ignores the secondary hazard signal, so a conditional-bin sweep
+        /// evaluates it once per hazard level and reuses the result across bins. True for every
+        /// univariate mode.
+        /// </summary>
+        internal bool IsBinInvariant { get; }
+
+        /// <summary>
         /// The number of weighted exposure branches the primary failure consequence carries.
         /// </summary>
         public int FailureBranchCount => _failureBranchesByType[0].Count;
@@ -370,8 +564,16 @@ namespace RMC.TotalRisk.Results
         /// </summary>
         /// <param name="hazardLevel">The hazard level.</param>
         /// <returns>The response probability.</returns>
+        /// <exception cref="InvalidOperationException">
+        /// Thrown when the mode carries a bivariate stage transform — the chain then needs the
+        /// secondary signal, which only <see cref="SRPAt"/> supplies. A Secondary-bound mode's
+        /// chain is origin-agnostic (pass the secondary signal), and a joint-mode bivariate
+        /// response returns its stored v1.0 weighted collapse here.
+        /// </exception>
         public double SRP(double hazardLevel)
         {
+            if (_stageBivariateTransforms != null)
+                throw new InvalidOperationException("The failure mode's stage chain carries a bivariate transform, which needs the secondary hazard signal; evaluate SRPAt(x, y) instead.");
             double signal = hazardLevel;
             double weight = 1d;
             for (int s = 0; s < _stageResponses.Length; s++)
@@ -404,10 +606,11 @@ namespace RMC.TotalRisk.Results
         public double InverseSRP(double probability)
         {
             if (_stageResponses.Length != 1 || _stagePolarities[0] != BranchPolarity.Fail
-                || _stageUsesExpandedBranches[0])
+                || _stageUsesExpandedBranches[0] || _hazardBinding != HazardDimension.Primary
+                || _jointResponseSurfaces != null || _stageBivariateTransforms != null)
             {
                 throw new NotSupportedException(
-                    "InverseSRP is exact only for a single-stage aggregate Fail-polarity mode; expanded branches and cascade polarity products are not generally monotone in the hazard.");
+                    "InverseSRP is exact only for a single-stage aggregate Fail-polarity Primary-bound univariate mode; expanded branches, cascade polarity products, secondary bindings, and joint bivariate evaluations have no monotone primary-axis inverse.");
             }
 
             double signal = _stageResponses[0].InverseCDF(probability);
@@ -426,8 +629,16 @@ namespace RMC.TotalRisk.Results
         /// </summary>
         /// <param name="hazardLevel">The raw hazard level.</param>
         /// <returns>The consequence input signal.</returns>
+        /// <exception cref="InvalidOperationException">
+        /// Thrown when the routed segments carry a bivariate transform or the consequence
+        /// dimension is Secondary — the signal then depends on the secondary hazard, which only
+        /// <see cref="ConsequenceInputAt"/> supplies.
+        /// </exception>
         public double ConsequenceInput(double hazardLevel)
         {
+            if (_stageBivariateTransforms != null || _trailingBivariateTransforms != null
+                || _consequenceDimension == HazardDimension.Secondary)
+                throw new InvalidOperationException("The failure mode's consequence input depends on the secondary hazard signal; evaluate ConsequenceInputAt(x, y) instead.");
             double signal = hazardLevel;
             int bound = Math.Min(_consequencePosition, _stageTransforms.Length);
             for (int i = 0; i < bound; i++)
@@ -471,6 +682,8 @@ namespace RMC.TotalRisk.Results
         public void EvaluateConsequenceBranches(double hazardLevel, int typeIndex, RiskComputeFlags flags, out double[] weights, out double[] values)
         {
             if (flags == null) throw new ArgumentNullException(nameof(flags));
+            if (_failureSurfacesByType != null)
+                throw new InvalidOperationException("The failure mode carries a bivariate consequence surface, which needs the secondary hazard signal; evaluate EvaluateConsequenceBranchesAt(x, y, ...) instead.");
 
             double signal = ConsequenceInput(hazardLevel);
             var branches = _failureBranchesByType[typeIndex];
@@ -749,9 +962,466 @@ namespace RMC.TotalRisk.Results
             return output;
         }
 
+        /// <summary>
+        /// Folds the raw secondary hazard signal through the mode's sampled secondary-hazard
+        /// chain — the y′ every bivariate element on the mode's path consumes (the
+        /// one-chain-per-path identity rule). The identity when the mode carries no chain.
+        /// </summary>
+        /// <param name="secondaryLevel">The raw secondary hazard level y.</param>
+        /// <returns>The folded secondary signal y′.</returns>
+        internal double FoldSecondary(double secondaryLevel)
+        {
+            var chain = _secondaryTransforms;
+            if (chain == null) return secondaryLevel;
+            double signal = secondaryLevel;
+            for (int i = 0; i < chain.Length; i++)
+            {
+                signal = chain[i].Function(signal);
+            }
+            return signal;
+        }
+
+        /// <summary>
+        /// The end state's weight at one joint hazard evaluation point (x, y): the polarity
+        /// product over the stages with the signal origin selected by the hazard binding, each
+        /// bivariate stage transform evaluated at (signal, y′), and a joint-mode bivariate
+        /// response evaluated as its probability surface at (x′, y′) — clamped to [0, 1] after
+        /// the surface's back-transform. Reduces exactly to <see cref="SRP"/> for a mode with no
+        /// bivariate machinery.
+        /// </summary>
+        /// <param name="hazardLevel">The primary hazard level x.</param>
+        /// <param name="secondaryLevel">The raw secondary hazard level y.</param>
+        /// <returns>The response probability.</returns>
+        public double SRPAt(double hazardLevel, double secondaryLevel)
+        {
+            return SRPAtCore(hazardLevel, secondaryLevel, FoldSecondary(secondaryLevel));
+        }
+
+        /// <summary>
+        /// The <see cref="SRPAt"/> kernel over a precomputed folded secondary signal — the
+        /// per-bin path computes y′ once and shares it with the consequence routing.
+        /// </summary>
+        /// <param name="x">The primary hazard level.</param>
+        /// <param name="y">The raw secondary hazard level.</param>
+        /// <param name="yPrime">The chain-folded secondary signal.</param>
+        /// <returns>The response probability.</returns>
+        private double SRPAtCore(double x, double y, double yPrime)
+        {
+            double signal = _hazardBinding == HazardDimension.Secondary ? y : x;
+            double weight = 1d;
+            for (int s = 0; s < _stageResponses.Length; s++)
+            {
+                for (int i = _stageTransformOffsets[s]; i < _stageTransformOffsets[s + 1]; i++)
+                {
+                    var surface = _stageBivariateTransforms?[i];
+                    signal = surface != null ? surface.Interpolate(signal, yPrime) : _stageTransforms[i].Function(signal);
+                }
+                var joint = _jointResponseSurfaces?[s];
+                double p = joint != null
+                    ? Tools.Clamp(joint.Interpolate(signal, yPrime), 0d, 1d)
+                    : Tools.Clamp(_stageResponses[s].CDF(signal), 0d, 1d);
+                weight *= _stageUsesExpandedBranches[s]
+                    ? p
+                    : _stagePolarities[s] == BranchPolarity.Fail ? p : 1d - p;
+            }
+            return Tools.Clamp(weight, 0d, 1d);
+        }
+
+        /// <summary>
+        /// The hazard signal feeding this mode's consequences at one joint evaluation point
+        /// (x, y): under the Primary consequence dimension the binding-origin signal folded
+        /// through the bound number of stage transforms (bivariate ones at (signal, y′)); under
+        /// the Secondary dimension the raw secondary signal folded through the bound number of
+        /// secondary-chain transforms; the trailing transforms fold after either. Reduces
+        /// exactly to <see cref="ConsequenceInput"/> for a mode with no bivariate machinery.
+        /// </summary>
+        /// <param name="hazardLevel">The primary hazard level x.</param>
+        /// <param name="secondaryLevel">The raw secondary hazard level y.</param>
+        /// <returns>The consequence input signal.</returns>
+        public double ConsequenceInputAt(double hazardLevel, double secondaryLevel)
+        {
+            return ConsequenceInputAtCore(hazardLevel, secondaryLevel, FoldSecondary(secondaryLevel));
+        }
+
+        /// <summary>
+        /// The <see cref="ConsequenceInputAt"/> kernel over a precomputed folded secondary
+        /// signal.
+        /// </summary>
+        /// <param name="x">The primary hazard level.</param>
+        /// <param name="y">The raw secondary hazard level.</param>
+        /// <param name="yPrime">The chain-folded secondary signal.</param>
+        /// <returns>The consequence input signal.</returns>
+        private double ConsequenceInputAtCore(double x, double y, double yPrime)
+        {
+            double signal;
+            if (_consequenceDimension == HazardDimension.Secondary)
+            {
+                signal = y;
+                var chain = _secondaryTransforms;
+                int chainBound = Math.Min(_consequencePosition, chain?.Length ?? 0);
+                for (int i = 0; i < chainBound; i++)
+                {
+                    signal = chain![i].Function(signal);
+                }
+            }
+            else
+            {
+                signal = _hazardBinding == HazardDimension.Secondary ? y : x;
+                int bound = Math.Min(_consequencePosition, _stageTransforms.Length);
+                for (int i = 0; i < bound; i++)
+                {
+                    var surface = _stageBivariateTransforms?[i];
+                    signal = surface != null ? surface.Interpolate(signal, yPrime) : _stageTransforms[i].Function(signal);
+                }
+            }
+            for (int i = 0; i < _responseToConsequence.Length; i++)
+            {
+                var surface = _trailingBivariateTransforms?[i];
+                signal = surface != null ? surface.Interpolate(signal, yPrime) : _responseToConsequence[i].Function(signal);
+            }
+            return signal;
+        }
+
+        /// <summary>
+        /// Evaluates this mode's own exposure branches at one joint evaluation point (x, y) for
+        /// one consequence type — the binned analog of
+        /// <see cref="EvaluateConsequenceBranches(double, int, RiskComputeFlags, out double[], out double[])"/>
+        /// the component uses on the non-failure mode and the claimed states inside its
+        /// conditional-bin loop. A bivariate consequence type evaluates its surface at
+        /// (bound signal, y′) on its single unit-weight branch.
+        /// </summary>
+        /// <param name="hazardLevel">The primary hazard level x.</param>
+        /// <param name="secondaryLevel">The raw secondary hazard level y.</param>
+        /// <param name="typeIndex">The consequence-type position (0 is the primary).</param>
+        /// <param name="flags">The realization's computational-warning flags (negative values clamp with the matching flag).</param>
+        /// <param name="weights">Receives the branch weights — a reused per-type buffer, valid until the next evaluation at this type on this mode (never retain it).</param>
+        /// <param name="values">Receives the branch consequence values, clamped at zero — the same reuse contract.</param>
+        /// <exception cref="ArgumentNullException">Thrown when the flags sink is null.</exception>
+        internal void EvaluateConsequenceBranchesAt(double hazardLevel, double secondaryLevel, int typeIndex,
+            RiskComputeFlags flags, out double[] weights, out double[] values)
+        {
+            if (flags == null) throw new ArgumentNullException(nameof(flags));
+
+            double yPrime = FoldSecondary(secondaryLevel);
+            double signal = ConsequenceInputAtCore(hazardLevel, secondaryLevel, yPrime);
+            var branches = _failureBranchesByType[typeIndex];
+            var surface = _failureSurfacesByType?[typeIndex];
+            int count = branches.Count;
+            weights = _scratchOwnWeights[typeIndex];
+            values = _scratchOwnValues[typeIndex];
+            for (int i = 0; i < count; i++)
+            {
+                weights[i] = branches[i].Weight;
+                double value = surface != null
+                    ? surface.Interpolate(signal, yPrime)
+                    : branches[i].Function?.Function(signal) ?? 0d;
+                if (value < 0d)
+                {
+                    if (IsNonFailureMode)
+                    {
+                        flags.HasNegativeNonFailureConsequence = true;
+                    }
+                    else
+                    {
+                        flags.HasNegativeFailureConsequence = true;
+                    }
+                    value = 0d;
+                }
+                values[i] = value;
+            }
+        }
+
+        /// <summary>
+        /// Opens one binned evaluation at a hazard level: captures the excess pairing partner,
+        /// resolves the record and invariance state, and — on recording evaluations only —
+        /// allocates the fresh per-type staged entry lists the committed risk points adopt
+        /// (non-recording evaluations allocate nothing, the univariate recording contract).
+        /// The component calls this once per hazard evaluation before its conditional-bin loop.
+        /// </summary>
+        /// <param name="paired">The mode's sampled excess pairing partner, or null.</param>
+        /// <param name="record">True when the evaluation records risk-point entries.</param>
+        /// <param name="computedTypes">The component's computed consequence-type count.</param>
+        internal void BeginBinnedEvaluation(SampledFailureMode? paired, bool record, int computedTypes)
+        {
+            _binPaired = paired;
+            _binRecord = record && !IsNonFailureMode && !SuppressModeRecording;
+            _binInvariant = IsBinInvariant && (paired == null || paired.IsBinInvariant);
+            _binEvaluated = false;
+            _binComputedTypes = Math.Min(computedTypes, _failureBranchesByType.Length);
+            if (_binRecord)
+            {
+                _binStaging = new BinnedCurveStaging[_binComputedTypes];
+                for (int k = 0; k < _binComputedTypes; k++)
+                {
+                    _binStaging[k] = new BinnedCurveStaging();
+                }
+            }
+            else
+            {
+                _binStaging = null;
+            }
+        }
+
+        /// <summary>
+        /// Computes this mode's risk at one conditional bin (x, y_j) of the active binned
+        /// evaluation: the response probability and branch consequences at the joint point, the
+        /// staged w_j-scaled entry accumulation, and the per-type outputs — the conditional
+        /// per-bin analog of <see cref="ComputeRisk"/>'s per-type kernel, with no recording of
+        /// its own (the accumulated point commits once per hazard level through
+        /// <see cref="CommitBinnedPoint"/>). A bin-invariant mode with a bin-invariant partner
+        /// computes once at full weight on the first bin and reuses the outputs afterwards; its
+        /// staged entries then carry the unscaled univariate shape.
+        /// </summary>
+        /// <param name="hazardLevel">The primary hazard level x.</param>
+        /// <param name="secondaryLevel">The bin's conditional secondary hazard level y_j.</param>
+        /// <param name="binWeight">The bin's trapezoid weight w_j.</param>
+        /// <param name="flags">The realization's computational-warning flags.</param>
+        /// <param name="typeOutputs">
+        /// Receives the per-type conditional outputs (workspace-backed scratch, valid until the
+        /// next bin on this mode); entries beyond the mode's computed types are untouched.
+        /// </param>
+        /// <exception cref="ArgumentNullException">Thrown when the flags or output sink is null.</exception>
+        internal void ComputeRiskBinned(double hazardLevel, double secondaryLevel, double binWeight,
+            RiskComputeFlags flags, ComponentRiskOutput[] typeOutputs)
+        {
+            if (flags == null) throw new ArgumentNullException(nameof(flags));
+            if (typeOutputs == null) throw new ArgumentNullException(nameof(typeOutputs));
+
+            if (_binInvariant && _binEvaluated)
+            {
+                for (int k = 0; k < _binComputedTypes; k++)
+                {
+                    typeOutputs[k] = _scratchOutputs[k];
+                }
+                return;
+            }
+
+            double entryWeight = _binInvariant ? 1d : binWeight;
+            double yPrime = FoldSecondary(secondaryLevel);
+            double probabilityOfFailure = SRPAtCore(hazardLevel, secondaryLevel, yPrime);
+            double consequenceSignal = ConsequenceInputAtCore(hazardLevel, secondaryLevel, yPrime);
+
+            var paired = _binPaired;
+            bool hasPairedNonFailure = _nonFailureBranchesByType != null && paired != null;
+            double nonFailSignal = 0d;
+            double nonFailYPrime = 0d;
+            if (hasPairedNonFailure)
+            {
+                nonFailYPrime = paired!.FoldSecondary(secondaryLevel);
+                nonFailSignal = paired.ConsequenceInputAtCore(hazardLevel, secondaryLevel, nonFailYPrime);
+            }
+
+            for (int k = 0; k < _binComputedTypes; k++)
+            {
+                typeOutputs[k] = ComputeTypeRiskBinned(k, probabilityOfFailure, consequenceSignal, yPrime,
+                    nonFailSignal, nonFailYPrime, hasPairedNonFailure, entryWeight, flags);
+            }
+            _binEvaluated = true;
+        }
+
+        /// <summary>
+        /// Computes one consequence type's conditional risk at one bin — the binned counterpart
+        /// of <see cref="ComputeTypeRisk"/>: the paired non-failure branches at the partner's
+        /// joint signals, the failure branches (a bivariate type through its surface), the exact
+        /// excess pairs at the shared conditional point, the staged entry accumulation, and the
+        /// conditional per-type output.
+        /// </summary>
+        /// <param name="typeIndex">The consequence-type position (0 is the primary).</param>
+        /// <param name="probabilityOfFailure">The mode's response probability at the bin (type-independent).</param>
+        /// <param name="consequenceSignal">This mode's consequence input signal at the bin.</param>
+        /// <param name="yPrime">This mode's chain-folded secondary signal at the bin.</param>
+        /// <param name="nonFailSignal">The partner's consequence input signal at the bin.</param>
+        /// <param name="nonFailYPrime">The partner's chain-folded secondary signal at the bin.</param>
+        /// <param name="hasPairedNonFailure">Whether a paired non-failure consequence exists.</param>
+        /// <param name="entryWeight">The staged-entry scale: the bin's trapezoid weight, or one on the invariant single evaluation.</param>
+        /// <param name="flags">The realization's computational-warning flags.</param>
+        /// <returns>The type's conditional risk output at the bin.</returns>
+        private ComponentRiskOutput ComputeTypeRiskBinned(int typeIndex, double probabilityOfFailure,
+            double consequenceSignal, double yPrime, double nonFailSignal, double nonFailYPrime,
+            bool hasPairedNonFailure, double entryWeight, RiskComputeFlags flags)
+        {
+            var output = _scratchOutputs[typeIndex];
+            output.Reset();
+            var failureBranches = _failureBranchesByType[typeIndex];
+            var failureSurface = _failureSurfacesByType?[typeIndex];
+
+            // Paired non-failure branches at the partner's joint signals, with THIS mode's
+            // paired sample at this type's coupling column (the univariate shared-draw rule).
+            int nonFailCount = 1;
+            double meanNonFail = 0d;
+            double[] nonFailWeights = _singleUnitWeight;
+            double[] nonFailValues = _singleZeroValue;
+            if (hasPairedNonFailure)
+            {
+                var nonFailureBranches = _nonFailureBranchesByType![typeIndex];
+                var nonFailureSurface = _nonFailureSurfacesByType?[typeIndex];
+                nonFailCount = nonFailureBranches.Count;
+                nonFailWeights = _scratchNonFailWeights![typeIndex];
+                nonFailValues = _scratchNonFailValues![typeIndex];
+                for (int j = 0; j < nonFailCount; j++)
+                {
+                    nonFailWeights[j] = nonFailureBranches[j].Weight;
+                    double value = nonFailureSurface != null
+                        ? nonFailureSurface.Interpolate(nonFailSignal, nonFailYPrime)
+                        : nonFailureBranches[j].Function?.Function(nonFailSignal) ?? 0d;
+                    if (value < 0d)
+                    {
+                        flags.HasNegativeNonFailureConsequence = true;
+                        value = 0d;
+                    }
+                    nonFailValues[j] = value;
+                    meanNonFail += nonFailWeights[j] * value;
+                }
+            }
+
+            var staging = _binRecord ? _binStaging![typeIndex] : null;
+            double meanFailure = 0d;
+            double meanExcess = 0d;
+            for (int i = 0; i < failureBranches.Count; i++)
+            {
+                double weight = failureBranches[i].Weight;
+                double failureValue = failureSurface != null
+                    ? failureSurface.Interpolate(consequenceSignal, yPrime)
+                    : failureBranches[i].Function?.Function(consequenceSignal) ?? 0d;
+                if (failureValue < 0d)
+                {
+                    if (probabilityOfFailure > 0d) flags.HasNegativeFailureConsequence = true;
+                    failureValue = 0d;
+                }
+                meanFailure += weight * failureValue;
+
+                // Excess per failure/non-failure branch pair at the shared conditional point —
+                // the exact pair distribution, coherent on one (x, y_j) scenario.
+                double pairedExcess = 0d;
+                for (int j = 0; j < nonFailCount; j++)
+                {
+                    double excess = failureValue - nonFailValues[j];
+                    if (excess < 0d)
+                    {
+                        if (probabilityOfFailure > 0d) flags.HasNegativeExcessConsequence = true;
+                        excess = 0d;
+                    }
+                    pairedExcess += nonFailWeights[j] * excess;
+                    if (staging != null)
+                    {
+                        double entryProbability = Tools.Clamp(probabilityOfFailure * weight * nonFailWeights[j], 0d, 1d);
+                        staging.ExcessProbabilities.Add(Tools.Clamp(entryProbability * entryWeight, 0d, 1d));
+                        staging.ExcessValues.Add(excess);
+                    }
+                }
+                meanExcess += weight * pairedExcess;
+
+                output.ResponseProbabilities.Add(Tools.Clamp(probabilityOfFailure * weight, 0d, 1d));
+                output.FailureConsequences.Add(failureValue);
+                output.ExcessConsequences.Add(Math.Max(0d, failureValue - meanNonFail));
+            }
+
+            // Stage the mode-level decomposition entries: the bin's failure, background,
+            // non-failure, and Total union entries at the staged-entry scale, in bin-major
+            // order across the sweep.
+            if (staging != null)
+            {
+                double probabilityOfNonFailure = Tools.Clamp(1d - probabilityOfFailure, 0d, 1d);
+                for (int i = 0; i < failureBranches.Count; i++)
+                {
+                    double failProbability = Tools.Clamp(output.ResponseProbabilities[i] * entryWeight, 0d, 1d);
+                    staging.FailProbabilities.Add(failProbability);
+                    staging.FailValues.Add(output.FailureConsequences[i]);
+                    staging.TotalProbabilities.Add(failProbability);
+                    staging.TotalValues.Add(output.FailureConsequences[i]);
+                }
+                for (int j = 0; j < nonFailCount; j++)
+                {
+                    double backgroundProbability = Tools.Clamp(nonFailWeights[j] * entryWeight, 0d, 1d);
+                    double nonFailProbability = Tools.Clamp(probabilityOfNonFailure * nonFailWeights[j] * entryWeight, 0d, 1d);
+                    staging.BackgroundProbabilities.Add(backgroundProbability);
+                    staging.BackgroundValues.Add(nonFailValues[j]);
+                    staging.NonFailProbabilities.Add(nonFailProbability);
+                    staging.NonFailValues.Add(nonFailValues[j]);
+                    staging.TotalProbabilities.Add(nonFailProbability);
+                    staging.TotalValues.Add(nonFailValues[j]);
+                }
+            }
+
+            output.ProbabilityOfFailure = probabilityOfFailure;
+            output.ProbabilityOfNonFailure = Tools.Clamp(1d - probabilityOfFailure, 0d, 1d);
+            output.NonFailureConsequences = meanNonFail;
+            output.MeanFailureConsequences = meanFailure;
+            output.MeanExcessConsequences = meanExcess;
+            return output;
+        }
+
+        /// <summary>
+        /// Commits the active binned evaluation's staged entries as one risk point per stream
+        /// per consequence type — the one-point-per-X rule the recorded-mass accounting depends
+        /// on — and releases the staging (the points adopt the lists). A no-op on non-recording
+        /// evaluations.
+        /// </summary>
+        /// <param name="realization">The failure mode's realization sink.</param>
+        /// <param name="recordedLevel">The hazard coordinate the recorded points carry (the profile-axis signal when one is selected).</param>
+        /// <param name="probability">The hazard non-exceedance probability at the evaluation point.</param>
+        /// <param name="hazardExceedanceProbability">The driving hazard's exceedance probability (the system response profile's X coordinate; NaN skips it).</param>
+        /// <exception cref="ArgumentNullException">Thrown when the realization sink is null.</exception>
+        internal void CommitBinnedPoint(FailureModeRealization realization, double recordedLevel,
+            double probability, double hazardExceedanceProbability)
+        {
+            if (realization == null) throw new ArgumentNullException(nameof(realization));
+            var staging = _binStaging;
+            if (staging == null) return;
+            for (int k = 0; k < staging.Length; k++)
+            {
+                var target = k == 0 ? realization.Curves : realization.AdditionalCurves[k - 1];
+                var entries = staging[k];
+                target.Background.AddRiskPoint(recordedLevel, probability, entries.BackgroundProbabilities, entries.BackgroundValues);
+                target.NonFail.AddRiskPoint(recordedLevel, probability, entries.NonFailProbabilities, entries.NonFailValues);
+                target.Total.AddRiskPoint(recordedLevel, probability, entries.TotalProbabilities, entries.TotalValues);
+                target.Fail.AddRiskPoint(recordedLevel, probability, entries.FailProbabilities, entries.FailValues, hazardExceedanceProbability);
+                target.Excess.AddRiskPoint(recordedLevel, probability, entries.ExcessProbabilities, entries.ExcessValues);
+            }
+            _binStaging = null;
+        }
+
         #endregion
 
         #region Private Helpers
+
+        /// <summary>
+        /// One consequence type's staged entry lists of a recording binned evaluation — the
+        /// five mode-scope streams accumulated across the conditional bins and adopted by the
+        /// committed risk points (allocated fresh per recording evaluation, never reused).
+        /// </summary>
+        private sealed class BinnedCurveStaging
+        {
+            /// <summary>The staged Fail-stream entry probabilities.</summary>
+            public List<double> FailProbabilities { get; } = new List<double>();
+
+            /// <summary>The staged Fail-stream entry values.</summary>
+            public List<double> FailValues { get; } = new List<double>();
+
+            /// <summary>The staged Excess-stream entry probabilities.</summary>
+            public List<double> ExcessProbabilities { get; } = new List<double>();
+
+            /// <summary>The staged Excess-stream entry values.</summary>
+            public List<double> ExcessValues { get; } = new List<double>();
+
+            /// <summary>The staged Background-stream entry probabilities.</summary>
+            public List<double> BackgroundProbabilities { get; } = new List<double>();
+
+            /// <summary>The staged Background-stream entry values.</summary>
+            public List<double> BackgroundValues { get; } = new List<double>();
+
+            /// <summary>The staged NonFail-stream entry probabilities.</summary>
+            public List<double> NonFailProbabilities { get; } = new List<double>();
+
+            /// <summary>The staged NonFail-stream entry values.</summary>
+            public List<double> NonFailValues { get; } = new List<double>();
+
+            /// <summary>The staged Total-stream entry probabilities.</summary>
+            public List<double> TotalProbabilities { get; } = new List<double>();
+
+            /// <summary>The staged Total-stream entry values.</summary>
+            public List<double> TotalValues { get; } = new List<double>();
+        }
 
         /// <summary>
         /// The shared single-unit-weight array for the no-non-failure case.

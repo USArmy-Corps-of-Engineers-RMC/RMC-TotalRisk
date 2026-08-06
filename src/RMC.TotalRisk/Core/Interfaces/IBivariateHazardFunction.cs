@@ -115,6 +115,18 @@ namespace RMC.TotalRisk.Core.Interfaces
         double MaxSecondaryHazard(bool meanOnly);
 
         /// <summary>
+        /// Samples the frozen mean bivariate snapshot the engine's conditional-bin loop consumes on
+        /// the mean pass and the deterministic probes: the mean Y marginal (the expected frequency
+        /// curve across the Y marginal's knowledge uncertainty), an independently cloned copula,
+        /// and the non-allocating <see cref="SampledBivariateHazard.FillConditionalBins"/> kernel
+        /// over the precomputed trapezoid nodes and weights.
+        /// <see cref="IRiskFunction.SetupSampler"/> must be called first (it precomputes the
+        /// node and weight vectors).
+        /// </summary>
+        /// <returns>The frozen mean bivariate snapshot.</returns>
+        SampledBivariateHazard SampleBivariate();
+
+        /// <summary>
         /// Samples the frozen per-realization bivariate snapshot the engine's conditional-bin loop
         /// consumes: the sampled Y marginal, an independently cloned copula, and the non-allocating
         /// <see cref="SampledBivariateHazard.FillConditionalBins"/> kernel over the precomputed

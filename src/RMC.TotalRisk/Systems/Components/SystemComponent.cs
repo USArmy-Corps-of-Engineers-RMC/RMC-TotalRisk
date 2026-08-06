@@ -989,6 +989,41 @@ namespace RMC.TotalRisk.Systems.Components
                 messages.Add($"Error: The competing failure-mode method is undefined for system component '{Name}': a failure state rides a Non-Fail branch (an else-chain), so its probability is not monotone in the hazard and no weak-link ordering exists — use Joint, Common Cause, or Mutually Exclusive.");
             }
 
+            // The bivariate competing-risks guard: the multi-unit weak-link machinery
+            // pre-processes cumulative incidence functions over PRIMARY hazard levels, so it
+            // cannot represent a response probability that depends on the secondary hazard.
+            // Every failure state must therefore be a pure primary function — a Primary hazard
+            // binding with no joint bivariate response and no bivariate stage transform.
+            // Single-unit competing needs no pre-processing and stays legal for any binding.
+            if (_failureModeMethod == FailureModeMethod.CompetingFailures && layout.CombinationUnitCount > 1
+                && HazardFunction is IBivariateHazardFunction)
+            {
+                int stateIndex = 0;
+                for (int i = 0; i < modes.Count; i++)
+                {
+                    if (modes[i].IsNonFailureMode) continue;
+                    bool isFailureState = layout.IsFailureState[stateIndex++];
+                    if (!isFailureState) continue;
+
+                    bool secondaryDependent = modes[i].HazardBinding == HazardDimension.Secondary;
+                    var stages = modes[i].ResponseStages;
+                    for (int s = 0; s < stages.Count && !secondaryDependent; s++)
+                    {
+                        if (stages[s] is null) continue;
+                        if (stages[s].Response is IBivariateResponseFunction) secondaryDependent = true;
+                        var transforms = stages[s].Transforms;
+                        for (int t = 0; t < transforms.Count && !secondaryDependent; t++)
+                        {
+                            if (transforms[t] is IBivariateTransformFunction) secondaryDependent = true;
+                        }
+                    }
+                    if (secondaryDependent)
+                    {
+                        messages.Add($"Error: System component '{Name}' combines competing failure modes over a bivariate hazard, but failure mode '{modes[i].ResponseFunction?.Name}' has a secondary-dependent response probability (a Secondary hazard binding, a joint bivariate response, or a bivariate stage transform); the cumulative-incidence pre-processing over primary hazard levels cannot represent it — use Joint, Common Cause, or Mutually Exclusive, or bind every failure mode to the primary axis.");
+                    }
+                }
+            }
+
             // The branch-explosion guardrail at the component level: joint failure pathways
             // take the cross product of the participating combination units' exposure branches
             // within one consequence type (per-type marginal compute — types never cross;
@@ -1054,6 +1089,14 @@ namespace RMC.TotalRisk.Systems.Components
                 }
                 long typeEstimate = _failureModeMethod == FailureModeMethod.JointFailures ? jointBound - 1 : perModeBound;
                 estimate = Math.Max(estimate, typeEstimate);
+            }
+
+            // A bivariate hazard's recorded entries enumerate (bin × pathway × branch): the
+            // conditional-bin sweep multiplies every combination width by its node count, so the
+            // joint-entry limits price the cross product.
+            if (HazardFunction is IBivariateHazardFunction bivariateHazard)
+            {
+                estimate = Math.Min(cap, estimate * (bivariateHazard.SecondaryIntegrationBins + 1));
             }
             return Math.Max(1, Math.Min(cap, estimate));
         }

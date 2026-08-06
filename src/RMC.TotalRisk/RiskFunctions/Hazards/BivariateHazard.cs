@@ -558,6 +558,27 @@ namespace RMC.TotalRisk.RiskFunctions.Hazards
 
         /// <inheritdoc/>
         /// <remarks>
+        /// The mean snapshot holds the Y marginal's mean frequency curve (the same
+        /// <see cref="SampleSecondaryFunction()"/> surface), an independently cloned copula, and
+        /// the precomputed node/weight vectors shared read-only across snapshots — the shape the
+        /// engine's mean pass and its deterministic probes consume.
+        /// </remarks>
+        /// <exception cref="InvalidOperationException">
+        /// Thrown when the bivariate configuration is invalid, or when <see cref="SetupSampler"/>
+        /// has not been called since the last bin-count change.
+        /// </exception>
+        public SampledBivariateHazard SampleBivariate()
+        {
+            ThrowIfUnusable();
+            if (_conditionalNodes == null || _conditionalWeights == null)
+                throw new InvalidOperationException("SetupSampler() must be called before sampling the bivariate snapshot.");
+
+            return new SampledBivariateHazard(_marginalY!.SampleFunction(), _copula.Clone(),
+                _conditionalNodes, _conditionalWeights);
+        }
+
+        /// <inheritdoc/>
+        /// <remarks>
         /// The snapshot holds the realization's sampled Y marginal, an independently cloned copula
         /// (thread isolation — the sampled marginal and the copula's own marginal caches are not
         /// safe to share across threads), and the precomputed node/weight vectors shared read-only

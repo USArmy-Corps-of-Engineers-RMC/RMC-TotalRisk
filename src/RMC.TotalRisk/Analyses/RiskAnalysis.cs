@@ -1831,6 +1831,10 @@ namespace RMC.TotalRisk.Analyses
                 }
 
                 var typeOutputs = new ComponentRiskOutput[sampled.ConsequenceTypeCount];
+
+                // The probability argument is a placeholder coordinate here (nothing records),
+                // so a bivariate component derives its slice's true non-exceedance probability
+                // from its own sampled primary marginal (hazardNonExceedance left NaN).
                 sampled.ComputeRisk(0.5d, raw, flags, scratch, recordOutput: false, typeOutputs);
                 var output = typeOutputs[consequenceType];
                 double expectedFailure = output.ProbabilityOfFailure * output.MeanFailureConsequences;
@@ -2511,12 +2515,17 @@ namespace RMC.TotalRisk.Analyses
             RiskComputeFlags flags, double probability, bool recordOutput)
         {
             double hazardLevel = sampled.Hazard.InverseCDF(probability);
-            return sampled.ComputeRisk(probability, hazardLevel, flags, componentRealization, recordOutput);
+            return sampled.ComputeRisk(probability, hazardLevel, flags, componentRealization, recordOutput,
+                hazardNonExceedance: probability);
         }
 
         /// <summary>
         /// The refinement-objective value at one evaluation (the
-        /// docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §7.7 table).
+        /// docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §7.7 table). Every member operates on
+        /// the component output as delivered — for a bivariate component that output is already
+        /// marginalized over the conditional secondary bins, with the entry lists enumerating
+        /// the conditional mixture, and the tail objective's α boundary lies on the PRIMARY
+        /// hazard's probability axis.
         /// </summary>
         /// <param name="output">The component risk output at the evaluation point.</param>
         /// <param name="probability">The hazard non-exceedance probability.</param>
@@ -2766,7 +2775,9 @@ namespace RMC.TotalRisk.Analyses
         /// The deterministic annual-failure-probability probe: integrates one component's
         /// combined failure probability over its hazard probability domain on the mean sample
         /// with adaptive Gauss–Kronrod — the one call site where the integral's returned value is
-        /// the product.
+        /// the product. For a bivariate component each evaluation is the secondary-marginalized
+        /// failure probability, so the probe returns the correct tail-focus target with no
+        /// modification (each evaluation inherits the conditional-bin factor).
         /// </summary>
         /// <param name="component">The component to probe (its samplers are already set up).</param>
         /// <returns>The component's annualized failure probability on the mean sample.</returns>
@@ -2784,7 +2795,8 @@ namespace RMC.TotalRisk.Analyses
             var support = HazardProbabilitySupport.Create(bins);
             double FailureProbability(double probability)
             {
-                return Tools.Clamp(sampled.ComputeRisk(probability, sampled.Hazard.InverseCDF(probability), flags, scratch).ProbabilityOfFailure, 0d, 1d);
+                return Tools.Clamp(sampled.ComputeRisk(probability, sampled.Hazard.InverseCDF(probability), flags, scratch,
+                    hazardNonExceedance: probability).ProbabilityOfFailure, 0d, 1d);
             }
 
             double result = 0d;
@@ -2971,15 +2983,19 @@ namespace RMC.TotalRisk.Analyses
                     hazardLevels[i] = sampledComponents[i].Hazard.InverseCDF(probability);
 
                     // The VEGAS weight is the recorded probability-mass coordinate (v1.0
-                    // semantics — the component sinks record mass = weight directly).
+                    // semantics — the component sinks record mass = weight directly), so a
+                    // bivariate component takes its slice's non-exceedance probability through
+                    // the dedicated parameter.
                     if (recordSecondary)
                     {
-                        sampledComponents[i].ComputeRisk(weight, hazardLevels[i], flags, componentRealizations[i], recording, outputsByType[i]);
+                        sampledComponents[i].ComputeRisk(weight, hazardLevels[i], flags, componentRealizations[i], recording, outputsByType[i],
+                            hazardNonExceedance: probability);
                         outputs[i] = outputsByType[i][0];
                     }
                     else
                     {
-                        outputs[i] = sampledComponents[i].ComputeRisk(weight, hazardLevels[i], flags, componentRealizations[i], recording);
+                        outputs[i] = sampledComponents[i].ComputeRisk(weight, hazardLevels[i], flags, componentRealizations[i], recording,
+                            hazardNonExceedance: probability);
                         outputsByType[i][0] = outputs[i];
                     }
                     failureProbabilities[i] = Tools.Clamp(outputs[i].ProbabilityOfFailure, 0d, 1d);

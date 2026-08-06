@@ -7,6 +7,7 @@ using Numerics.Distributions;
 using Numerics.Functions;
 using Numerics.Sampling;
 using RMC.TotalRisk.Core.Enums;
+using RMC.TotalRisk.Core.Interfaces;
 using RMC.TotalRisk.Systems.Components;
 
 namespace RMC.TotalRisk.Results
@@ -111,6 +112,19 @@ namespace RMC.TotalRisk.Results
 
 
             Hazard = realizationIndex < 0 ? hazardFunction.SampleFunction() : hazardFunction.SampleFunction(realizationIndex);
+
+            // The conditional secondary dimension: a bivariate hazard freezes its per-realization
+            // snapshot (the sampled Y marginal, a cloned copula, and the shared trapezoid
+            // vectors) and the caller-owned bin buffers here — the conditional-bin loop inside
+            // ComputeRisk then evaluates already-sampled functions only. Null for every
+            // univariate component, whose construction and evaluation are untouched.
+            if (hazardFunction is IBivariateHazardFunction bivariateHazard)
+            {
+                _conditionalHazard = realizationIndex < 0 ? bivariateHazard.SampleBivariate() : bivariateHazard.SampleBivariate(realizationIndex);
+                int nodeCount = _conditionalHazard.ConditionalNodeCount;
+                _binY = new double[nodeCount];
+                _binW = new double[nodeCount];
+            }
 
             // The profile-axis remap: sample the component's resolved profile
             // transform chain for this realization. The chain functions are the same seeded
@@ -230,6 +244,43 @@ namespace RMC.TotalRisk.Results
                     }
                     _scratchPairWeights[k] = new double[size];
                     _scratchPairValues[k] = new double[size];
+                }
+            }
+
+            // The bivariate per-evaluation accumulators: the per-type cross-bin sums and the
+            // per-type, per-mode contribution accumulation the conditional-bin loop folds into
+            // (allocated once here, reused per evaluation — never on univariate components).
+            if (_conditionalHazard != null)
+            {
+                _binExpectedFailure = new double[consequenceTypeCount];
+                _binExpectedExcess = new double[consequenceTypeCount];
+                _binNonFailure = new double[consequenceTypeCount];
+                _binMinN = new double[consequenceTypeCount];
+                _binMaxN = new double[consequenceTypeCount];
+                _binContributionProbability = new double[consequenceTypeCount][];
+                _binContributionFailure = new double[consequenceTypeCount][];
+                _binContributionExcess = new double[consequenceTypeCount][];
+                for (int k = 0; k < consequenceTypeCount; k++)
+                {
+                    _binContributionProbability[k] = new double[_fModes.Count];
+                    _binContributionFailure[k] = new double[_fModes.Count];
+                    _binContributionExcess[k] = new double[_fModes.Count];
+                }
+
+                // The engine-side competing-risks guard (the validation error's loud runtime
+                // mirror): the multi-unit cumulative-incidence pre-processing marginals are
+                // primary-axis curves, so every failure state's response probability must be a
+                // pure primary function. Single-unit competing needs no pre-processing and
+                // stays legal for any binding.
+                if (_failureModeMethod == FailureModeMethod.CompetingFailures && _layout.CombinationUnitCount > 1)
+                {
+                    for (int j = 0; j < _fModes.Count; j++)
+                    {
+                        if (_layout.IsFailureState[j] && !_fModes[j].IsSrpBinInvariant)
+                        {
+                            throw new InvalidOperationException($"System component '{Name}' combines competing failure modes over a bivariate hazard, but failure mode '{_fModes[j].Name}' has a secondary-dependent response probability; the cumulative-incidence pre-processing cannot represent it. Call Validate() and correct the reported errors before sampling.");
+                        }
+                    }
                 }
             }
 
@@ -414,6 +465,71 @@ namespace RMC.TotalRisk.Results
         private readonly List<EmpiricalDistribution>? _cumulativeIncidenceFunctions;
 
         /// <summary>
+        /// The frozen per-realization bivariate snapshot driving the conditional-bin loop; null
+        /// for every univariate component — the single branch selecting the unchanged univariate
+        /// <see cref="ComputeRisk"/> body.
+        /// </summary>
+        private readonly SampledBivariateHazard? _conditionalHazard;
+
+        /// <summary>
+        /// The reusable conditional secondary-hazard node buffer (length bins + 1); null on
+        /// univariate components.
+        /// </summary>
+        private readonly double[]? _binY;
+
+        /// <summary>
+        /// The reusable trapezoid weight buffer, index-aligned with <see cref="_binY"/> and
+        /// summing exactly to one; null on univariate components.
+        /// </summary>
+        private readonly double[]? _binW;
+
+        /// <summary>
+        /// The reusable per-type cross-bin Σ w_j · (adjusted probability × failure consequence)
+        /// accumulators of one bivariate evaluation; null on univariate components.
+        /// </summary>
+        private readonly double[]? _binExpectedFailure;
+
+        /// <summary>
+        /// The reusable per-type cross-bin expected-excess accumulators.
+        /// </summary>
+        private readonly double[]? _binExpectedExcess;
+
+        /// <summary>
+        /// The reusable per-type cross-bin Σ w_j · (bin non-failure consequence) accumulators —
+        /// the marginalized background mean.
+        /// </summary>
+        private readonly double[]? _binNonFailure;
+
+        /// <summary>
+        /// The reusable per-type running minimum consequence extents of one bivariate
+        /// evaluation.
+        /// </summary>
+        private readonly double[]? _binMinN;
+
+        /// <summary>
+        /// The reusable per-type running maximum consequence extents of one bivariate
+        /// evaluation.
+        /// </summary>
+        private readonly double[]? _binMaxN;
+
+        /// <summary>
+        /// The reusable per-type, per-mode attributed-probability accumulators of one recording
+        /// bivariate evaluation (contribution samples accumulate across bins and submit once per
+        /// evaluation and type); null on univariate components.
+        /// </summary>
+        private readonly double[][]? _binContributionProbability;
+
+        /// <summary>
+        /// The reusable per-type, per-mode attributed failure-value accumulators.
+        /// </summary>
+        private readonly double[][]? _binContributionFailure;
+
+        /// <summary>
+        /// The reusable per-type, per-mode attributed excess-value accumulators.
+        /// </summary>
+        private readonly double[][]? _binContributionExcess;
+
+        /// <summary>
         /// The reusable exclusive-pathway probability buffer for the independent joint
         /// decomposition, allocated on first use.
         /// </summary>
@@ -586,6 +702,15 @@ namespace RMC.TotalRisk.Results
         /// (entry k receives type k's output; entry 0 is the returned primary). Secondary types
         /// are computed only when recording or when this sink is supplied.
         /// </param>
+        /// <param name="hazardNonExceedance">
+        /// The hazard non-exceedance probability u of the evaluation's X slice, used only by a
+        /// bivariate component to condition its secondary discretization: the 1D objective and
+        /// the failure-probability probe pass their true u, the VEGAS integrand passes its
+        /// clamped local probability (its <paramref name="probability"/> argument is the
+        /// recorded weight, not u), and NaN (the default) derives
+        /// <c>Clamp(Hazard.CDF(hazardLevel), 1e-16, 1 − 1e-16)</c>. Univariate components never
+        /// read it.
+        /// </param>
         /// <returns>
         /// The component's primary-type risk output at the evaluation point. The returned output
         /// (and every sink entry) is workspace-backed scratch, valid until the next evaluation
@@ -594,10 +719,18 @@ namespace RMC.TotalRisk.Results
         /// </returns>
         /// <exception cref="ArgumentNullException">Thrown when the flags or realization sink is null.</exception>
         public ComponentRiskOutput ComputeRisk(double probability, double hazardLevel, RiskComputeFlags flags,
-            ComponentRealization realization, bool recordOutput = false, ComponentRiskOutput[]? typeOutputs = null)
+            ComponentRealization realization, bool recordOutput = false, ComponentRiskOutput[]? typeOutputs = null,
+            double hazardNonExceedance = double.NaN)
         {
             if (flags == null) throw new ArgumentNullException(nameof(flags));
             if (realization == null) throw new ArgumentNullException(nameof(realization));
+
+            // The single bivariate dispatch: a conditional hazard selects the conditional-bin
+            // body; every univariate component falls through to the unchanged body below.
+            if (_conditionalHazard != null)
+            {
+                return ComputeRiskBivariate(probability, hazardLevel, flags, realization, recordOutput, typeOutputs, hazardNonExceedance);
+            }
 
             // The profile-axis remap: recorded hazard levels are the raw driving
             // hazard unless a profile transform chain is selected, in which case every recorded
@@ -1046,6 +1179,596 @@ namespace RMC.TotalRisk.Results
             realization.MaxH = Math.Max(realization.MaxH, recordedHazard);
 
             return primary;
+        }
+
+        /// <summary>
+        /// Computes a bivariate component's risk at one primary hazard evaluation point by
+        /// integrating the conditional secondary dimension: the trapezoid bins discretize
+        /// Y | X = x in conditional-probability space, every failure mode evaluates at the same
+        /// (x, y_j), the combination kernels run per bin on the per-bin response probabilities
+        /// (combine-then-marginalize — marginalizing first would drop the modes' shared-Y
+        /// covariance), and the w_j-weighted sums fold into ONE risk point per stream per
+        /// evaluation with the entry lists enumerating (bin × pathway × branch). Contribution
+        /// samples accumulate across bins and submit once per evaluation and type, so the
+        /// recorded-mass and contribution-ledger accounting hold unchanged.
+        /// </summary>
+        /// <param name="probability">The recorded probability coordinate (the VEGAS path passes its weight).</param>
+        /// <param name="hazardLevel">The primary hazard level.</param>
+        /// <param name="flags">The realization's computational-warning flags.</param>
+        /// <param name="realization">The component's realization sink.</param>
+        /// <param name="recordOutput">True to record risk-point entries on the realization curves.</param>
+        /// <param name="typeOutputs">The optional per-type output sink (entry 0 is the returned primary).</param>
+        /// <param name="hazardNonExceedance">The slice's non-exceedance probability u, or NaN to derive it from the sampled primary marginal.</param>
+        /// <returns>The component's primary-type risk output, marginalized over the conditional bins.</returns>
+        private ComponentRiskOutput ComputeRiskBivariate(double probability, double hazardLevel, RiskComputeFlags flags,
+            ComponentRealization realization, bool recordOutput, ComponentRiskOutput[]? typeOutputs,
+            double hazardNonExceedance)
+        {
+            var conditional = _conditionalHazard!;
+            double u = double.IsNaN(hazardNonExceedance)
+                ? Tools.Clamp(Hazard.CDF(hazardLevel), ProbabilityFloor, 1d - ProbabilityFloor)
+                : Tools.Clamp(hazardNonExceedance, ProbabilityFloor, 1d - ProbabilityFloor);
+            conditional.FillConditionalBins(u, _binY!, _binW!);
+            int nodeCount = conditional.ConditionalNodeCount;
+
+            // The profile-axis remap and the recorded exceedance coordinate — the univariate
+            // rules verbatim (both are primary-axis quantities).
+            double recordedHazard = hazardLevel;
+            var profile = _profileTransforms;
+            if (profile != null)
+            {
+                for (int i = 0; i < profile.Length; i++)
+                {
+                    recordedHazard = profile[i].Function(recordedHazard);
+                }
+            }
+            double hazardExceedance = recordOutput
+                ? Tools.Clamp(1d - Hazard.CDF(hazardLevel), 0d, 1d)
+                : double.NaN;
+
+            bool wantSecondary = ConsequenceTypeCount > 1 && (recordOutput || typeOutputs != null);
+            int componentTypes = wantSecondary ? ConsequenceTypeCount : 1;
+            bool hasClaimed = _layout.ClaimedStateCount > 0;
+            int unitCount = _layout.CombinationUnitCount;
+            bool accumulateContribution = recordOutput && _fModes.Count > 0;
+            bool recordAdjusted = recordOutput && RecordAdjustedModeCurves && _fModes.Count > 0;
+
+            // Open the modes' staged evaluations and reset the cross-bin accumulators.
+            for (int j = 0; j < _fModes.Count; j++)
+            {
+                _fModes[j].BeginBinnedEvaluation(_pairedSampled[j], recordOutput, componentTypes);
+            }
+            for (int k = 0; k < componentTypes; k++)
+            {
+                _scratchTypeOutputs[k].Reset();
+                _scratchExcessProbabilities[k].Clear();
+                _scratchExcessValues[k].Clear();
+                _binExpectedFailure![k] = 0d;
+                _binExpectedExcess![k] = 0d;
+                _binNonFailure![k] = 0d;
+                _binMinN![k] = k == 0 ? realization.MinN : realization.AdditionalMinN[k - 1];
+                _binMaxN![k] = k == 0 ? realization.MaxN : realization.AdditionalMaxN[k - 1];
+                if (accumulateContribution)
+                {
+                    Array.Clear(_binContributionProbability![k], 0, _fModes.Count);
+                    Array.Clear(_binContributionFailure![k], 0, _fModes.Count);
+                    Array.Clear(_binContributionExcess![k], 0, _fModes.Count);
+                }
+            }
+
+            // Recording staging: fresh lists per recording evaluation, adopted by the committed
+            // risk points (the univariate recording contract — non-recording evaluations
+            // allocate nothing).
+            List<double>[]? backgroundProbabilityStaging = null;
+            List<double>[]? backgroundValueStaging = null;
+            List<double>[]? nonFailProbabilityStaging = null;
+            List<double>[]? nonFailValueStaging = null;
+            List<double>[]? totalProbabilityStaging = null;
+            List<double>[]? totalValueStaging = null;
+            List<double>[][]? claimedProbabilityStaging = null;
+            List<double>[][]? claimedValueStaging = null;
+            List<double>[][]? adjustedFailProbabilityStaging = null;
+            List<double>[][]? adjustedFailValueStaging = null;
+            List<double>[][]? adjustedExcessProbabilityStaging = null;
+            List<double>[][]? adjustedExcessValueStaging = null;
+            double[]? contributionSnapshot = null;
+            if (recordOutput)
+            {
+                backgroundProbabilityStaging = new List<double>[componentTypes];
+                backgroundValueStaging = new List<double>[componentTypes];
+                nonFailProbabilityStaging = new List<double>[componentTypes];
+                nonFailValueStaging = new List<double>[componentTypes];
+                totalProbabilityStaging = new List<double>[componentTypes];
+                totalValueStaging = new List<double>[componentTypes];
+                for (int k = 0; k < componentTypes; k++)
+                {
+                    backgroundProbabilityStaging[k] = new List<double>();
+                    backgroundValueStaging[k] = new List<double>();
+                    nonFailProbabilityStaging[k] = new List<double>();
+                    nonFailValueStaging[k] = new List<double>();
+                    totalProbabilityStaging[k] = new List<double>();
+                    totalValueStaging[k] = new List<double>();
+                }
+                if (hasClaimed)
+                {
+                    claimedProbabilityStaging = new List<double>[componentTypes][];
+                    claimedValueStaging = new List<double>[componentTypes][];
+                    for (int k = 0; k < componentTypes; k++)
+                    {
+                        claimedProbabilityStaging[k] = new List<double>[_fModes.Count];
+                        claimedValueStaging[k] = new List<double>[_fModes.Count];
+                        for (int j = 0; j < _fModes.Count; j++)
+                        {
+                            if (_layout.IsFailureState[j]) continue;
+                            claimedProbabilityStaging[k][j] = new List<double>();
+                            claimedValueStaging[k][j] = new List<double>();
+                        }
+                    }
+                }
+                if (recordAdjusted)
+                {
+                    adjustedFailProbabilityStaging = new List<double>[componentTypes][];
+                    adjustedFailValueStaging = new List<double>[componentTypes][];
+                    adjustedExcessProbabilityStaging = new List<double>[componentTypes][];
+                    adjustedExcessValueStaging = new List<double>[componentTypes][];
+                    for (int k = 0; k < componentTypes; k++)
+                    {
+                        adjustedFailProbabilityStaging[k] = new List<double>[_fModes.Count];
+                        adjustedFailValueStaging[k] = new List<double>[_fModes.Count];
+                        adjustedExcessProbabilityStaging[k] = new List<double>[_fModes.Count];
+                        adjustedExcessValueStaging[k] = new List<double>[_fModes.Count];
+                        for (int j = 0; j < _fModes.Count; j++)
+                        {
+                            if (!_layout.IsFailureState[j]) continue;
+                            adjustedFailProbabilityStaging[k][j] = new List<double>();
+                            adjustedFailValueStaging[k][j] = new List<double>();
+                            adjustedExcessProbabilityStaging[k][j] = new List<double>();
+                            adjustedExcessValueStaging[k][j] = new List<double>();
+                        }
+                    }
+                    if (_failureModeMethod == FailureModeMethod.JointFailures)
+                    {
+                        contributionSnapshot = new double[_fModes.Count];
+                    }
+                }
+            }
+
+            double totalProbabilityOfFailure = 0d;
+            for (int b = 0; b < nodeCount; b++)
+            {
+                double binY = _binY![b];
+                double binWeight = _binW![b];
+
+                // Every mode at the same (x, y_j) — the conditional-independence point the
+                // combination kernels require.
+                var modeOutputs = _scratchModeOutputs;
+                var modeTypeOutputs = _scratchModeTypeOutputs;
+                var responseProbabilities = _scratchResponseProbabilities;
+                responseProbabilities.Clear();
+                for (int j = 0; j < _fModes.Count; j++)
+                {
+                    _fModes[j].ComputeRiskBinned(hazardLevel, binY, binWeight, flags, modeTypeOutputs[j]);
+                    modeOutputs[j] = modeTypeOutputs[j][0];
+                    responseProbabilities.Add(Tools.Clamp(modeOutputs[j].ProbabilityOfFailure, 0d, 1d));
+                }
+
+                // The bin's combination structure — type-independent, the univariate kernels on
+                // the per-bin unit masses. The joint pathway probabilities are w_j-scaled in
+                // place after decomposition: the scale flows linearly and exactly through every
+                // entry probability, expected sum, and attribution split, while the raw unit
+                // masses keep driving the conditional branch weights.
+                List<double>? pathwayProbabilities = null;
+                List<int[]>? pathwayIndicators = null;
+                double[]? adjustedProbabilities = null;
+                double binProbabilityOfFailure = 0d;
+                var unitProbabilities = _scratchUnitProbabilities;
+                unitProbabilities.Clear();
+                if (_fModes.Count > 0 && unitCount > 0)
+                {
+                    for (int un = 0; un < unitCount; un++)
+                    {
+                        var members = _layout.CombinationUnitStates[un];
+                        double mass = 0d;
+                        for (int m = 0; m < members.Length; m++)
+                        {
+                            mass += responseProbabilities[members[m]];
+                        }
+                        unitProbabilities.Add(Tools.Clamp(mass, 0d, 1d));
+                    }
+
+                    if (_failureModeMethod == FailureModeMethod.JointFailures)
+                    {
+                        ComputePathwayDecomposition(unitProbabilities, out pathwayProbabilities, out pathwayIndicators);
+                        for (int j = 0; j < pathwayProbabilities.Count; j++)
+                        {
+                            binProbabilityOfFailure += pathwayProbabilities[j];
+                            pathwayProbabilities[j] *= binWeight;
+                        }
+                    }
+                    else
+                    {
+                        adjustedProbabilities = _scratchAdjustedProbabilities;
+                        double commonCauseFactor = _failureModeMethod == FailureModeMethod.CommonCauseFailures
+                            ? CommonCauseFactor(unitProbabilities)
+                            : 0d;
+                        double normalization = 1d;
+                        if (_failureModeMethod == FailureModeMethod.MutuallyExclusive)
+                        {
+                            normalization = Probability.MutuallyExclusiveAdjustment(unitProbabilities);
+                            if (normalization < 1d) flags.HasProbabilityGreaterThanOne = true;
+                        }
+                        for (int un = 0; un < unitCount; un++)
+                        {
+                            double adjusted;
+                            if (_failureModeMethod == FailureModeMethod.CompetingFailures)
+                            {
+                                adjusted = unitCount == 1 ? unitProbabilities[0] : _cumulativeIncidenceFunctions![un].CDF(hazardLevel);
+                            }
+                            else if (_failureModeMethod == FailureModeMethod.CommonCauseFailures)
+                            {
+                                adjusted = unitProbabilities[un] * commonCauseFactor;
+                            }
+                            else
+                            {
+                                adjusted = unitProbabilities[un] * normalization;
+                            }
+                            adjusted = Tools.Clamp(adjusted, 0d, 1d);
+                            binProbabilityOfFailure += adjusted;
+
+                            var members = _layout.CombinationUnitStates[un];
+                            double unitMass = unitProbabilities[un];
+                            for (int m = 0; m < members.Length; m++)
+                            {
+                                int state = members[m];
+                                adjustedProbabilities[state] = unitMass > 0d
+                                    ? Tools.Clamp(adjusted * (responseProbabilities[state] / unitMass), 0d, 1d)
+                                    : 0d;
+                            }
+                        }
+                    }
+                }
+                binProbabilityOfFailure = Tools.Clamp(binProbabilityOfFailure, 0d, 1d);
+                totalProbabilityOfFailure += binWeight * binProbabilityOfFailure;
+                double binProbabilityOfNonFailure = Tools.Clamp(1d - binProbabilityOfFailure, 0d, 1d);
+
+                // The bin's claimed complement shares — the univariate §7.9.5 arithmetic on the
+                // bin's masses.
+                double claimedShareTotal = 0d;
+                if (hasClaimed)
+                {
+                    var claimedConditional = _scratchClaimedConditional!;
+                    for (int j = 0; j < _fModes.Count; j++)
+                    {
+                        if (_layout.IsFailureState[j])
+                        {
+                            claimedConditional[j] = 0d;
+                            continue;
+                        }
+                        int owningUnit = _layout.ClaimedStateUnit[j];
+                        double divisor = owningUnit >= 0 ? Tools.Clamp(1d - unitProbabilities[owningUnit], 0d, 1d) : 1d;
+                        double share = divisor > 0d ? responseProbabilities[j] / divisor : 0d;
+                        claimedConditional[j] = Tools.Clamp(share, 0d, 1d);
+                        claimedShareTotal += claimedConditional[j];
+                    }
+                    if (claimedShareTotal > 1d)
+                    {
+                        for (int j = 0; j < _fModes.Count; j++)
+                        {
+                            claimedConditional[j] /= claimedShareTotal;
+                        }
+                        claimedShareTotal = 1d;
+                    }
+                }
+
+                // The per-type consequence kernels at this bin, appending w_j-scaled entries
+                // into the cross-bin accumulators.
+                for (int k = 0; k < componentTypes; k++)
+                {
+                    double[] nonFailWeights = _unitWeight;
+                    double[] nonFailValues = _zeroValue;
+                    double binNonFailureConsequences = 0d;
+                    if (_nfMode != null)
+                    {
+                        _nfMode.EvaluateConsequenceBranchesAt(hazardLevel, binY, k, flags, out nonFailWeights, out nonFailValues);
+                        for (int j = 0; j < nonFailWeights.Length; j++)
+                        {
+                            binNonFailureConsequences += nonFailWeights[j] * nonFailValues[j];
+                        }
+                    }
+
+                    var typeOutput = _scratchTypeOutputs[k];
+                    var failEntryProbabilities = typeOutput.ResponseProbabilities;
+                    var failEntryValues = typeOutput.FailureConsequences;
+                    List<double> excessEntryProbabilities = _scratchExcessProbabilities[k];
+                    List<double> excessEntryValues = _scratchExcessValues[k];
+                    int failStart = failEntryValues.Count;
+
+                    double expectedFailureConsequences = _binExpectedFailure![k];
+                    double expectedExcessConsequences = _binExpectedExcess![k];
+                    double minN = _binMinN![k];
+                    double maxN = _binMaxN![k];
+
+                    // The bin's complement pair baseline — the raw background branches, or the
+                    // claimed conditional mixture (§7.9.5) at this bin's shares.
+                    double[] pairWeights = nonFailWeights;
+                    double[] pairValues = nonFailValues;
+                    if (hasClaimed)
+                    {
+                        double remainderShare = Tools.Clamp(1d - claimedShareTotal, 0d, 1d);
+                        pairWeights = _scratchPairWeights![k];
+                        pairValues = _scratchPairValues![k];
+                        int cursor = 0;
+                        if (_nfMode != null)
+                        {
+                            for (int q = 0; q < nonFailWeights.Length; q++)
+                            {
+                                pairWeights[cursor] = remainderShare * nonFailWeights[q];
+                                pairValues[cursor++] = nonFailValues[q];
+                            }
+                        }
+                        for (int j = 0; j < _fModes.Count; j++)
+                        {
+                            if (_layout.IsFailureState[j]) continue;
+                            double share = _scratchClaimedConditional![j];
+                            _fModes[j].EvaluateConsequenceBranchesAt(hazardLevel, binY, k, flags, out double[] claimedWeights, out double[] claimedValues);
+                            for (int q = 0; q < claimedWeights.Length; q++)
+                            {
+                                pairWeights[cursor] = share * claimedWeights[q];
+                                pairValues[cursor++] = claimedValues[q];
+                                minN = Math.Min(minN, claimedValues[q]);
+                                maxN = Math.Max(maxN, claimedValues[q]);
+                            }
+
+                            // The claimed states' conditional complement entries at this bin
+                            // (§7.9.2), folded by the bin weight.
+                            if (recordOutput)
+                            {
+                                var stateProbabilities = claimedProbabilityStaging![k][j];
+                                var stateValues = claimedValueStaging![k][j];
+                                for (int q = 0; q < claimedWeights.Length; q++)
+                                {
+                                    stateProbabilities.Add(Tools.Clamp(binWeight * binProbabilityOfNonFailure * share * claimedWeights[q], 0d, 1d));
+                                    stateValues.Add(claimedValues[q]);
+                                }
+                            }
+                        }
+                        binNonFailureConsequences = 0d;
+                        for (int q = 0; q < cursor; q++)
+                        {
+                            binNonFailureConsequences += pairWeights[q] * pairValues[q];
+                        }
+                    }
+                    _binNonFailure![k] += binWeight * binNonFailureConsequences;
+
+                    if (_fModes.Count > 0 && unitCount > 0)
+                    {
+                        var typeModeOutputs = k == 0 ? modeOutputs : FillTypeColumn(k);
+                        if (_failureModeMethod == FailureModeMethod.JointFailures)
+                        {
+                            if (contributionSnapshot != null)
+                            {
+                                Array.Copy(_binContributionProbability![k], contributionSnapshot, _fModes.Count);
+                            }
+                            ComputeJointPathwayEntries(unitProbabilities, typeModeOutputs, pathwayProbabilities!, pathwayIndicators!,
+                                pairWeights, pairValues,
+                                failEntryProbabilities, failEntryValues, excessEntryProbabilities, excessEntryValues,
+                                ref expectedFailureConsequences, ref expectedExcessConsequences, ref minN, ref maxN,
+                                accumulateContribution ? _binContributionProbability![k] : null,
+                                accumulateContribution ? _binContributionFailure![k] : null,
+                                accumulateContribution ? _binContributionExcess![k] : null);
+
+                            // The adjusted-mode entries at this bin: the mode's conditional
+                            // entries rescaled to its bin attribution (the contribution delta
+                            // this bin added, already w_j-folded).
+                            if (recordAdjusted && contributionSnapshot != null)
+                            {
+                                for (int j = 0; j < _fModes.Count; j++)
+                                {
+                                    if (!_layout.IsFailureState[j]) continue;
+                                    double binAttribution = _binContributionProbability![k][j] - contributionSnapshot[j];
+                                    AppendAdjustedEntries(typeModeOutputs[j], responseProbabilities[j], binAttribution,
+                                        adjustedFailProbabilityStaging![k][j], adjustedFailValueStaging![k][j],
+                                        adjustedExcessProbabilityStaging![k][j], adjustedExcessValueStaging![k][j]);
+                                }
+                            }
+                        }
+                        else
+                        {
+                            for (int j = 0; j < _fModes.Count; j++)
+                            {
+                                if (!_layout.IsFailureState[j]) continue;
+
+                                double weightedAdjusted = binWeight * adjustedProbabilities![j];
+                                AppendModeEntries(typeModeOutputs[j], responseProbabilities[j], weightedAdjusted,
+                                    failEntryProbabilities, failEntryValues, excessEntryProbabilities, excessEntryValues, ref minN, ref maxN);
+
+                                if (recordAdjusted)
+                                {
+                                    AppendAdjustedEntries(typeModeOutputs[j], responseProbabilities[j], weightedAdjusted,
+                                        adjustedFailProbabilityStaging![k][j], adjustedFailValueStaging![k][j],
+                                        adjustedExcessProbabilityStaging![k][j], adjustedExcessValueStaging![k][j]);
+                                }
+
+                                expectedFailureConsequences += weightedAdjusted * typeModeOutputs[j].MeanFailureConsequences;
+                                expectedExcessConsequences += weightedAdjusted * typeModeOutputs[j].MeanExcessConsequences;
+
+                                if (accumulateContribution)
+                                {
+                                    _binContributionProbability![k][j] += weightedAdjusted;
+                                    _binContributionFailure![k][j] += weightedAdjusted * typeModeOutputs[j].MeanFailureConsequences;
+                                    _binContributionExcess![k][j] += weightedAdjusted * typeModeOutputs[j].MeanExcessConsequences;
+                                }
+                            }
+                        }
+                    }
+
+                    // The bin's interim excess-list entries against ITS OWN complement baseline
+                    // (conditional coherence on one (x, y_j) scenario — the documented
+                    // ComponentRiskOutput interim).
+                    for (int e = failStart; e < failEntryValues.Count; e++)
+                    {
+                        typeOutput.ExcessConsequences.Add(Math.Max(0d, failEntryValues[e] - binNonFailureConsequences));
+                    }
+
+                    // The bin's complement-stream entries, w_j-folded.
+                    if (recordOutput)
+                    {
+                        var backgroundProbabilities = backgroundProbabilityStaging![k];
+                        var backgroundValues = backgroundValueStaging![k];
+                        var nonFailProbabilities = nonFailProbabilityStaging![k];
+                        var nonFailValues2 = nonFailValueStaging![k];
+                        var totalProbabilities = totalProbabilityStaging![k];
+                        var totalValues = totalValueStaging![k];
+                        for (int e = failStart; e < failEntryValues.Count; e++)
+                        {
+                            totalProbabilities.Add(failEntryProbabilities[e]);
+                            totalValues.Add(failEntryValues[e]);
+                        }
+                        for (int q = 0; q < pairWeights.Length; q++)
+                        {
+                            double backgroundProbability = Tools.Clamp(binWeight * pairWeights[q], 0d, 1d);
+                            double nonFailProbability = Tools.Clamp(binWeight * binProbabilityOfNonFailure * pairWeights[q], 0d, 1d);
+                            backgroundProbabilities.Add(backgroundProbability);
+                            backgroundValues.Add(pairValues[q]);
+                            nonFailProbabilities.Add(nonFailProbability);
+                            nonFailValues2.Add(pairValues[q]);
+                            totalProbabilities.Add(nonFailProbability);
+                            totalValues.Add(pairValues[q]);
+                        }
+                    }
+
+                    _binExpectedFailure[k] = expectedFailureConsequences;
+                    _binExpectedExcess[k] = expectedExcessConsequences;
+                    _binMinN[k] = minN;
+                    _binMaxN[k] = maxN;
+                }
+            }
+            totalProbabilityOfFailure = Tools.Clamp(totalProbabilityOfFailure, 0d, 1d);
+            double probabilityOfNonFailure = Tools.Clamp(1d - totalProbabilityOfFailure, 0d, 1d);
+
+            // Contribution samples submit once per evaluation and type — the ledger dedupes
+            // rows by probability coordinate, so the fold must arrive as one row.
+            if (accumulateContribution)
+            {
+                for (int k = 0; k < componentTypes; k++)
+                {
+                    for (int j = 0; j < _fModes.Count; j++)
+                    {
+                        realization.FailureModes[j].AddContributionSample(k, probability,
+                            _binContributionProbability![k][j], _binContributionFailure![k][j], _binContributionExcess![k][j]);
+                    }
+                }
+            }
+
+            // Finalize per type: the marginalized scalars, the committed component points (one
+            // per stream per evaluation), and the extents.
+            ComponentRiskOutput primary = null!;
+            for (int k = 0; k < componentTypes; k++)
+            {
+                var typeOutput = _scratchTypeOutputs[k];
+                if (k == 0) primary = typeOutput;
+                double effectiveNonFailure = _binNonFailure![k];
+                double meanFailureConsequences = totalProbabilityOfFailure == 0d ? 0d : _binExpectedFailure![k] / totalProbabilityOfFailure;
+                double meanExcessConsequences = totalProbabilityOfFailure == 0d ? 0d : _binExpectedExcess![k] / totalProbabilityOfFailure;
+
+                if (recordOutput)
+                {
+                    var target = k == 0 ? realization.Curves : realization.AdditionalCurves[k - 1];
+                    if (_fModes.Count > 0)
+                    {
+                        target.Fail.AddRiskPoint(recordedHazard, probability,
+                            new List<double>(typeOutput.ResponseProbabilities), new List<double>(typeOutput.FailureConsequences), hazardExceedance);
+                        target.Excess.AddRiskPoint(recordedHazard, probability,
+                            new List<double>(_scratchExcessProbabilities[k]), new List<double>(_scratchExcessValues[k]));
+                    }
+                    if (hasClaimed)
+                    {
+                        for (int j = 0; j < _fModes.Count; j++)
+                        {
+                            if (_layout.IsFailureState[j]) continue;
+                            var claimedTarget = k == 0 ? realization.FailureModes[j].Curves : realization.FailureModes[j].AdditionalCurves[k - 1];
+                            claimedTarget.NonFail.AddRiskPoint(recordedHazard, probability,
+                                claimedProbabilityStaging![k][j], claimedValueStaging![k][j]);
+                        }
+                    }
+                    target.Background.AddRiskPoint(recordedHazard, probability, backgroundProbabilityStaging![k], backgroundValueStaging![k]);
+                    target.NonFail.AddRiskPoint(recordedHazard, probability, nonFailProbabilityStaging![k], nonFailValueStaging![k]);
+                    target.Total.AddRiskPoint(recordedHazard, probability, totalProbabilityStaging![k], totalValueStaging![k]);
+                    if (recordAdjusted)
+                    {
+                        for (int j = 0; j < _fModes.Count; j++)
+                        {
+                            if (!_layout.IsFailureState[j]) continue;
+                            var adjustedTarget = realization.FailureModes[j].AdjustedCurvesFor(k);
+                            if (adjustedTarget == null) continue;
+                            adjustedTarget.Fail.AddRiskPoint(recordedHazard, probability,
+                                adjustedFailProbabilityStaging![k][j], adjustedFailValueStaging![k][j], hazardExceedance);
+                            adjustedTarget.Excess.AddRiskPoint(recordedHazard, probability,
+                                adjustedExcessProbabilityStaging![k][j], adjustedExcessValueStaging![k][j]);
+                        }
+                    }
+                }
+
+                double minN = Math.Min(_binMinN![k], effectiveNonFailure);
+                double maxN = Math.Max(_binMaxN![k], Math.Max(meanFailureConsequences, effectiveNonFailure));
+                if (k == 0)
+                {
+                    realization.MinN = minN;
+                    realization.MaxN = maxN;
+                }
+                else
+                {
+                    realization.AdditionalMinN[k - 1] = minN;
+                    realization.AdditionalMaxN[k - 1] = maxN;
+                }
+
+                typeOutput.ProbabilityOfFailure = totalProbabilityOfFailure;
+                typeOutput.ProbabilityOfNonFailure = probabilityOfNonFailure;
+                typeOutput.NonFailureConsequences = effectiveNonFailure;
+                typeOutput.MeanFailureConsequences = meanFailureConsequences;
+                typeOutput.MeanExcessConsequences = meanExcessConsequences;
+                if (typeOutputs != null) typeOutputs[k] = typeOutput;
+            }
+
+            // The modes' staged points commit once per evaluation.
+            if (recordOutput)
+            {
+                for (int j = 0; j < _fModes.Count; j++)
+                {
+                    _fModes[j].CommitBinnedPoint(realization.FailureModes[j], recordedHazard, probability, hazardExceedance);
+                }
+            }
+
+            realization.MinH = Math.Min(realization.MinH, recordedHazard);
+            realization.MaxH = Math.Max(realization.MaxH, recordedHazard);
+            return primary;
+        }
+
+        /// <summary>
+        /// Appends one mode's conditional entries onto its adjusted-curve staging at one bin:
+        /// the mode's branch entries rescaled from its conditional marginal probability to its
+        /// w_j-folded combination attribution at that bin (summing the folded attribution across
+        /// bins reproduces the mode's recorded adjusted share exactly).
+        /// </summary>
+        /// <param name="modeOutput">The mode's conditional risk output at the bin (one consequence type).</param>
+        /// <param name="rawProbability">The mode's conditional marginal probability at the bin.</param>
+        /// <param name="attributedProbability">The mode's w_j-folded attributed probability at the bin.</param>
+        /// <param name="failProbabilities">The accumulating adjusted Fail entry probabilities.</param>
+        /// <param name="failValues">The accumulating adjusted Fail entry values.</param>
+        /// <param name="excessProbabilities">The accumulating adjusted Excess entry probabilities.</param>
+        /// <param name="excessValues">The accumulating adjusted Excess entry values.</param>
+        private static void AppendAdjustedEntries(ComponentRiskOutput modeOutput, double rawProbability, double attributedProbability,
+            List<double> failProbabilities, List<double> failValues, List<double> excessProbabilities, List<double> excessValues)
+        {
+            double scale = rawProbability > 0d ? attributedProbability / rawProbability : 0d;
+            for (int i = 0; i < modeOutput.ResponseProbabilities.Count; i++)
+            {
+                double entryProbability = Tools.Clamp(modeOutput.ResponseProbabilities[i] * scale, 0d, 1d);
+                failProbabilities.Add(entryProbability);
+                failValues.Add(modeOutput.FailureConsequences[i]);
+                excessProbabilities.Add(entryProbability);
+                excessValues.Add(modeOutput.ExcessConsequences[i]);
+            }
         }
 
         /// <summary>

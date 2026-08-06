@@ -29,6 +29,7 @@ below are the measurement history and pin provenance (superseded pins remain as 
 | F5 | `2ae3925bfb7488cbfa4bd516cc2d4eb7d71c6f84bfff9f4891873a2bfd811349` |
 | F6 | `c183d28f83f41db40a4921542225382e30dc72cafc5df13ffc6ebe76be2d9132` |
 | F7 | `f985ca0228952ac0ba66cc29b39cf9006247ea3965264b966ab785fa74317084` |
+| F8 | `5f4d4c397f43f76f551a6d29ea046bb351be4da6befbee2f8059b346c3e450b3` |
 
 Fixtures:
 
@@ -66,6 +67,13 @@ Fixtures:
   unifies 60 Boolean variables and freezes a 23,344-node exact decision diagram. It measures
   sampler setup plus 32 indexed top-event curve reads at N = 64; the byte gate hashes every
   hazard/probability ordinate of the final indexed curve in G17/invariant form.
+- **F8** (added 2026-08-06) — a single bivariate component: an independence-copula
+  `BivariateHazard` over uncertain tabular marginals at the default 20 conditional bins,
+  carrying a Secondary-bound uncertain pool-fragility failure mode and a joint
+  `BivariateResponse` surface failure mode plus a primary background path, N = 1000. The shape
+  whose per-evaluation cost is the conditional-bin sweep: every hazard evaluation fills the 21
+  trapezoid nodes and runs the failure-mode combination kernels once per node — the
+  (bins + 1)× factor the conditional-trapezoid design prices.
 
 Each fixture also reports the process-wide allocated-bytes delta and GC collection counts of
 the final full run (`GC.GetTotalAllocatedBytes(precise)`) — the direct signal for the
@@ -571,3 +579,28 @@ evaluation; optionally skip the lock on the configured-state mean path, which mu
 state. (2) `EnsembleFunction` — retain the parsed template `XElement` and hand the factory a
 `new XElement(template)` deep copy instead of re-parsing per draw, and hoist the constructor's
 per-set validation instance out of the loop.
+
+## F8 — the bivariate conditional-bin fixture (2026-08-06)
+
+The conditional-bin engine landing added F8 so the (bins + 1)× evaluation shape has a committed
+reference: an independence-copula `BivariateHazard` over uncertain tabular marginals at the
+default 20 bins, carrying a Secondary-bound uncertain pool fragility and a joint
+`BivariateResponse` surface mode plus a primary background path, N = 1000. Every hazard
+evaluation fills the 21 conditional trapezoid nodes from the frozen per-realization snapshot
+and runs the failure-mode combination kernels once per node; all sampling stays in the sampled
+constructors (the bin loop evaluates already-sampled functions at deterministic points only).
+The committed row (isolated invocation, Release, `--reps 3`):
+
+| Fixture | Mean-only median (s) | Full median (s) | Full alloc (GB) | SHA-256 |
+|---|---:|---:|---:|---|
+| F8 | 2.652 | 76.001 | 38.25 | `5f4d4c397f43f76f551a6d29ea046bb351be4da6befbee2f8059b346c3e450b3` |
+
+The full-run cost sits near F1's pre-C8 scale despite the lean two-mode shape — the expected
+conditional-bin factor at 21 nodes per evaluation. The allocation is dominated by the recording
+path: the 1D objective records at every accepted evaluation, and a recording bivariate
+evaluation stages fresh entry lists per mode and per stream that the committed risk points
+adopt (the same allocate-what-the-point-adopts contract as the univariate multi-entry path,
+paid once per stream instead of once per bin). Recorded for a future dedicated perf session
+per the no-preoptimization rule; the close-out round this session ran all seven prior fixtures
+bit-exact alongside this baseline, F1 being the univariate zero-overhead proof for the
+`ComputeRisk` dispatch branch.
