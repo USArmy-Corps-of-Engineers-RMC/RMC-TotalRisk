@@ -2,7 +2,42 @@
 
 > Living architectural specification for `RMC.TotalRisk.dll` — the headless .NET 10 compute library at the heart of the v1.1.0 modernization. **Authoritative home (since 2026-07-20): `docs/requirements/` in the RMC-TotalRisk repo**; the phased plan implementing this spec is [../ROADMAP.md](../ROADMAP.md). The copy at the `C:\GIT\RMC-TotalRisk-Dev` root is frozen with a pointer here, and legacy porting-source paths referenced below (e.g., `RMC-TotalRisk/RMC.TotalRisk.IO/...`) live in that Dev repo. The locked sections are the contract every cluster-port PR references.
 
-**Status**: 2026-07-31 — **v0.23** (Phase 10B complete). The exact static fault-tree response now
+**Status**: 2026-08-07 — **v0.24** (Phase 11 bivariate capability implemented and verified). The
+complete copula-based bivariate surface is landed per the ratified
+[BIVARIATE_RISK_DESIGN.md](BIVARIATE_RISK_DESIGN.md): ONE hazard type (`BivariateHazard` with
+Id-linked univariate marginals and a fixed-parameter Numerics copula defaulting to Independence —
+the v0.5 `ParametricBivariateHazard`/`BestFitBivariateHazard`/`BestFitTabularHazard` trio is
+superseded; the BestFit import types move to the external-imports phase), the two deterministic
+two-way tables (`BivariateTransform`/`BivariateConsequence` on `Numerics.Data.Bilinear`), the
+`BivariateResponse` port preserving the v1.0 collapse mode beside the joint surface mode, the
+two-port graph surface with off-path secondary chains, and the conditional-trapezoid engine
+integration inside `SampledComponent.ComputeRisk` (one VEGAS dimension per component; univariate
+models bit-identical through one dispatch branch — the F1 byte gate is the proof). §6.1.2, §6.3.1,
+§6.5, and §7.4 are rewritten from the superseded sketches to the implemented reality; §5.5.3 and
+§5.8.4 carry the real hash and dimension rows. Verification: `BivariateRiskVerification` (the
+legacy `Test_Bivariate_Risk` oracle, the exact union-grid SRP closed form with the re-captured
+legacy 100M cross-check, the re-anchored DAMRAE chained-bilinear oracle, the collapse-vs-joint
+consistency cross-anchor, and the axis-choice measurement), `CopulaDependenceVerification`
+(independence exactness, Normal/Clayton analytic anchors, the bin-convergence study whose measured
+allowances are the family's tolerance source, the Gumbel orientation pin, and posterior-injected
+marginal parity), and four bivariate pins in `EngineReproducibilityVerification`. The Gumbel
+orientation pin found and closed a real Numerics defect: `GumbelCopula.InverseConditionalCDF` (and
+`JoeCopula`'s — the only two numerically solved conditional inverses) threw "root is not bracketed"
+at conditional levels within a ulp of 1, crashing any engine run through those families; both now
+saturate at the boundary.
+
+**The axis-choice result (measured, and it governs practice):** the two axes are not
+interchangeable, because the primary is integrated exactly while the secondary is discretized. On
+the legacy seismic scenario, driving on PGA with stage as the conditional secondary carries 35.4%
+relative error at the default 20 bins, while the v1.0 arrangement — stage primary with PGA
+collapsed out through the response's automatic Voronoi weights — lands 0.241% from the exact
+reference on both the probability and risk axes, beating even a 1000-bin conditional run at ~1/50th
+the cost. The preserved collapse mode is therefore not a legacy compatibility shim but the
+better-conditioned arrangement whenever the secondary variable is mass-concentrated and mildly
+influential; see §7.4's cost model and
+[../technical-reference/bivariate-hazards.md](../technical-reference/bivariate-hazards.md).
+
+Prior status — 2026-07-31 — **v0.23** (Phase 10B complete). The exact static fault-tree response now
 meets every applicable definition-of-done gate in the normative tree-response design: the
 single-parent authored tree with shared-logical/independent transfers, the exact ROBDD evaluator
 with its loud runtime budget, Rauzy cut-set inspection with the non-coherence rule, three-kind
@@ -231,7 +266,11 @@ src/RMC.TotalRisk/
 │       │                                    ComputeUncertaintyResults + Validate + ToXElement + CanonicalHash)
 │       ├── IHazardFunction.cs
 │       ├── IUnivariateHazardFunction.cs    (marker; sampling returns IUnivariateDistribution)
-│       ├── IBivariateHazardFunction.cs     (Phase 11: MarginalX, MarginalY, SampleConditionalYGivenX)
+│       ├── IBivariateHazardFunction.cs     (Id-linked MarginalX/MarginalY, copula, bins,
+│       │                                    SampleBivariate engine seam, SampleConditionalYGivenX diagnostic)
+│       ├── IBivariateTransformFunction.cs  (two-way table: Evaluate(x, y) + CreateInterpolator)
+│       ├── IBivariateResponseFunction.cs   (joint surface + collapse; SurfaceProbability + CreateInterpolator)
+│       ├── IBivariateConsequenceFunction.cs
 │       ├── ITransformFunction.cs
 │       ├── IResponseFunction.cs
 │       ├── IConsequenceFunction.cs
@@ -243,16 +282,15 @@ src/RMC.TotalRisk/
 │   ├── Hazards/
 │   │   ├── HazardFunctionBase.cs
 │   │   ├── UnivariateHazardBase.cs
-│   │   ├── BivariateHazardBase.cs          (Phase 11)
 │   │   ├── WeightedHazardFunction.cs
 │   │   ├── TabularHazard.cs
 │   │   ├── ParametricUnivariateHazard.cs   (renamed from ParametricHazard)
 │   │   ├── NonparametricHazard.cs          (Phase 7)
-│   │   ├── RFAHazard.cs                    (Phase 9+)
+│   │   ├── RFAHazard.cs                    (external-imports phase)
 │   │   ├── CompositeHazard.cs              (Phase 9+)
-│   │   ├── ParametricBivariateHazard.cs    (Phase 11: marginal X + marginal Y + copula)
-│   │   ├── BestFitBivariateHazard.cs       (Phase 11: marginals + copula + ParameterSet[] posterior)
-│   │   └── BestFitTabularHazard.cs         (Phase 11: coincident-frequency X/Y/Z arrays + posterior bounds)
+│   │   └── BivariateHazard.cs              (Id-linked univariate marginals + fixed-parameter copula;
+│   │                                        the v0.5 BestFit bivariate/tabular import types moved to
+│   │                                        the external-imports phase)
 │   ├── Transforms/
 │   │   ├── TransformFunctionBase.cs
 │   │   ├── WeightedTransformFunction.cs
@@ -260,7 +298,8 @@ src/RMC.TotalRisk/
 │   │   ├── LinearTransform.cs              (Phase 7)
 │   │   ├── PowerTransform.cs               (Phase 7)
 │   │   ├── CompositeTransform.cs           (weighted average / mixture of transforms)
-│   │   └── BestFitTransform.cs             (SegmentedPowerFunction + ParameterSet[] posterior import)
+│   │   ├── BivariateTransform.cs           (deterministic two-way table z = f(x, y) on Bilinear)
+│   │   └── BestFitTransform.cs             (external-imports phase: SegmentedPowerFunction + posterior)
 │   ├── Responses/
 │   │   ├── ResponseFunctionBase.cs
 │   │   ├── WeightedResponseFunction.cs
@@ -282,8 +321,9 @@ src/RMC.TotalRisk/
 │       ├── TabularConsequence.cs
 │       ├── ParametricConsequence.cs        (power form per USACE ER 1110-2-1156)
 │       ├── CompositeConsequence.cs
-│       ├── LifeSimConsequence.cs
-│       └── LifeSimResult.cs
+│       ├── BivariateConsequence.cs         (deterministic two-way table on Bilinear)
+│       ├── LifeSimConsequence.cs           (external-imports phase)
+│       └── LifeSimResult.cs                (external-imports phase)
 ├── Systems/                                (v0.10 — the system being analyzed; the namespace root is
 │   └── Components/                          reserved for a future multi-component SystemModel)
 │       ├── SystemComponent.cs
@@ -496,20 +536,19 @@ Architecture is contract. The tables below enumerate each type's **compute-relev
 | `CompositeHazard` | typeTag, **CompositeCombinationType**, DependencyType, CorrelationMatrix, HazardTransform, ProbabilityTransform, weighted-list count, per entry (effective weight and sub.CanonicalHash) — a **projected identity form**. *(Amended at implementation, 2026-07-25: the original row omitted the combination mode and the interpolation transforms, the same omission the `CompositeConsequence` row was amended for. Three coercions keep inert edits from re-rolling seeds — weights project as 1 under CompetingRisks, the dependence projects as Independent under Mixture, and the matrix projects empty outside the one mode that reads it.)* |
 | `WeightedHazardFunction` | typeTag, weight, hazardFunction.CanonicalHash |
 
-**Bivariate hazards** (new in v1.1.0):
+**Bivariate hazards** (implemented; the BestFit bivariate/tabular import types moved to the external-imports phase):
 
 | Type | Canonical fields |
 |---|---|
-| `ParametricBivariateHazard` | typeTag, MarginalX.CanonicalHash, MarginalY.CanonicalHash, copulaTypeTag, copulaParams, SecondaryIntegrationBins |
-| `BestFitBivariateHazard` | typeTag, imported BivariateAnalysis posterior bytes, SecondaryIntegrationBins |
-| `BestFitTabularHazard` | typeTag, imported (X, Y, Z) coincident-frequency table bytes |
+| `BivariateHazard` | typeTag, SecondaryIntegrationBins, copula type name, copula parameters (pipe-G17), `MarginalXHash`/`MarginalYHash` as named attributes — a **projected identity form**: marginal CONTENT hashes fold in (never their Ids or names, so link repair and renames are hash-inert), the serialization mode is invisible, the secondary axis labels are stripped, and the X↔Y roles are deliberately asymmetric (swapping marginals moves the hash). Seeding follows the composite forward rule: `HashCombine(seed, marginal.CanonicalHash(), 0/1)` with ordinal 2 reserved for a future copula-parameter posterior. |
 
 **Responses**:
 
 | Type | Canonical fields |
 |---|---|
 | `ParametricResponse` / `TabularResponse` / `NonFailResponse` | analogous to corresponding hazard types |
-| `BivariateResponse` | typeTag, surface ordinates, PrimaryHazardType, SecondaryHazardType |
+| `BivariateResponse` | typeTag, primary levels, weighted secondary levels (levels AND weights — weights are the authoritative collapse content, so a weight edit re-rolls seeds even in joint mode, where the engine never reads them), probability grid, and all three transforms (`HazardTransform`/`SecondaryHazardTransform`/`ProbabilityTransform`). Stripped: `UseManualWeights` and the `SecondaryHazardFunctionId`/`SecondaryHazardFunctionName` weight-provenance link — the linked hazard's content NEVER enters this hash (editing it moves ITS hash, not the response's; pinned by test). |
+| `BivariateTransform` / `BivariateConsequence` | default leaf-path hash over the serialized form: both axes, every grid cell, and the per-axis/output transforms move it (transposing a surface moves it); labels and ids are stripped by the standing rules. Deterministic — no sampler content. |
 | `EventTreeResponse` | projected tree identity: hazard axis, source content, terminal failure classification, topology, target subtree/function canonical identities, and link mode; IDs/names/reference wrappers stripped; canonical occurrence paths replace persistence IDs |
 | `FaultTreeResponse` | projected tree identity: hazard axis, gates/K/basic-source content/topology, target canonical identities, and shared-logical versus independent-clone mode; IDs/names/reference wrappers stripped; commutative gate inputs sorted by child canonical hash. *(Implementation note, 2026-07-31: shared-logical unification is encoded through `SharedVariable` first-occurrence ordinals in the projected form — the surface that distinguishes `AND(A,A)`-shared from two content-identical independent events.)* |
 | `CompositeResponse` | typeTag, **CompositeCombinationType**, DependencyType, CorrelationMatrix, HazardTransform, ProbabilityTransform, weighted-list count, per entry (effective weight and sub.CanonicalHash) — a **projected identity form**, identical recipe to `CompositeHazard`. *(Amended at implementation, 2026-07-25.)* |
@@ -780,7 +819,9 @@ public abstract class RiskFunctionBase : IRiskFunction
 | `ParametricHazard`, `BestFitHazard`, `ParametricResponse` | 0 | bootstrap index lookup; posterior pre-computed |
 | `NonparametricHazard`, `TabularHazard`, `RFAHazard` | 1 | percentile-driven ordinate |
 | `TabularResponse`, `NonFailResponse` | 1 | percentile lookup |
-| `BivariateResponse` | 0 | deterministic |
+| `BivariateResponse` | 0 | deterministic surface; the collapse curve and the joint surface are both built from serialized content, and percentile/index sampling returns the mean collapse |
+| `BivariateHazard` | 0 | the marginals own their dimensions and are set up recursively under the composite forward rule (`HashCombine(seed, marginal.CanonicalHash(), 0/1)`); the copula's parameters are fixed (ordinal 2 reserved for a future θ posterior) |
+| `BivariateTransform`, `BivariateConsequence` | 0 | deterministic two-way tables |
 | `EventTreeResponse`, `FaultTreeResponse` | local uncertain-source dimensions plus recursively owned referenced-function dimensions; independent link occurrences bind independent canonical occurrences, shared fault events bind once | see §5.8.6 and the normative tree-response design §8 |
 | `TabularConsequence`, `LifeSimConsequence` | 1 | percentile-driven `UncertainOrderedPairedData` |
 | `CompositeHazard`, `CompositeConsequence` | **0** | *(Corrected 2026-07-25, Phase 9 — this row was pre-Q-V.)* `CompositeConsequence` is 0 under ratified Q-V (branches enumerated, not drawn). `CompositeHazard` is 0 because its mixture is **aleatory**: `SampleFunction(k)` returns a real `Mixture` distribution built from the children sampled at realization k, so no branch is ever selected. Children own their own dimensions and are set up recursively. |
@@ -900,44 +941,18 @@ Six concrete types. The two imported/posterior types are renamed for clarity:
 
 **Recommendation declined**: do NOT collapse `Parametric*` and `BestFit*` into a single `UnivariateHazard` with a flag. The two have different lineage (user-defined parameters vs. imported posterior bytes), different validation rules, different XElement schemas, and different canonical-hash recipes (parameters vs. posterior bytes). Unifying via a flag would create branching everywhere. They share `UnivariateHazardBase` for genuine commonality (both produce a posterior-indexed `IUnivariateDistribution` from `SampleFunction(int idx)`). Mirrors BestFit's own split between `UnivariateDistribution` (model) and the analyses that estimate it.
 
-#### 6.1.2 Bivariate hazards (new in v1.1.0)
+#### 6.1.2 Bivariate hazards (implemented; supersedes the pre-implementation three-type sketch)
 
-Three concrete types support compound-hazard analyses (e.g., flood depth × flood duration, wind speed × wind direction, primary flow × tributary contribution):
+ONE concrete type supports compound-hazard analyses (e.g., seismic PGA × reservoir stage, flood depth × flood duration): **`BivariateHazard`**, the normative design's ratified shape ([BIVARIATE_RISK_DESIGN.md](BIVARIATE_RISK_DESIGN.md)). The v0.5 sketch's `BestFitBivariateHazard` (θ-posterior import) and `BestFitTabularHazard` (coincident-frequency table import) move to the external-imports phase; copula-parameter uncertainty arrives with them.
 
-- `ParametricBivariateHazard` — user picks marginal X + marginal Y from existing univariate hazard types, manually sets copula type and parameters. Mirrors BestFit's `BivariateAnalysis`.
-- `BestFitBivariateHazard` — posterior-import of a fitted `BivariateAnalysis` (Numerics marginals + copula + `ParameterSet[]` posterior; the UI layer reads the `.rmcbf`).
-- `BestFitTabularHazard` — imports a `CoincidentFrequencyAnalysis` result as primitive (X, Y, Z[i,j]) arrays + posterior bounds. Stores the coincident-frequency table directly; no internal integration needed.
+- **Marginals are LINKED, not owned**: `MarginalX`/`MarginalY` reference univariate hazard functions already in the analysis by `IRiskFunction.Id` (lenient name fallback, resolver repair, both serialization modes — the tree `FunctionReference` precedent). Typed `IHazardFunction?` so a future phase can admit bivariate marginals without a serialization break; univariateness is a validation rule, which doubles as the nested-copula guard.
+- **The copula is user-set with FIXED parameters**, defaulting to `IndependenceCopula` (a null assignment coerces to fresh Independence; a missing `<Copula>` child reads as Independence). The (u, v) arguments are NON-exceedance probabilities — the convention every conditional formula in the engine rides.
+- **`SecondaryIntegrationBins`** defaults to 20, validation-gated to [3, 1000]. Bins live on the hazard and enter identity through its hash — `RiskAnalysisOptions` gained no field.
+- **The engine seam** is `SampleBivariate()` / `SampleBivariate(int)`: a frozen per-realization `SampledBivariateHazard` snapshot (the realization's sampled Y marginal + a CLONED copula + the precomputed conditional node/weight vectors) whose `FillConditionalBins(u, yNodes, weights)` evaluates `y_j = MarginalY.InverseCDF(copula.InverseConditionalCDF(u, t_j))` over N + 1 conditional-trapezoid nodes clamped to [1e-16, 1 − 1e-16], with the last weight the exact residual so the ordered weight sum is exactly one. Zero allocation; caller-owned buffers. The mean overload serves the engine's mean pass and deterministic probes. `SampleConditionalYGivenX` is the allocating diagnostic for oracles and tests, never the engine path.
+- **Identity and seeding**: the projected-identity hash folds marginal CONTENT plus copula type/parameters plus bins (mode/id/name/label-inert, X↔Y asymmetric); seeding follows the composite forward rule with one component ordinal per marginal. See the §5.5.3 row.
+- **Scope guards** (ratified): nested copulas (a bivariate marginal), copula-parameter uncertainty, and 2-D surface uncertainty are deliberately deferred with loud validation errors; `CompositeHazard` rejects a bivariate child in both `Validate` and `ThrowIfUnusable`.
 
-Common contract `IBivariateHazardFunction`:
-
-```csharp
-public interface IBivariateHazardFunction : IHazardFunction
-{
-    /// <summary>The marginal X (primary) hazard distribution.</summary>
-    IUnivariateHazardFunction MarginalX { get; }
-
-    /// <summary>The marginal Y (secondary) hazard distribution.</summary>
-    IUnivariateHazardFunction MarginalY { get; }
-
-    /// <summary>Number of integration bins for Y given X. Default 50.</summary>
-    int SecondaryIntegrationBins { get; set; }
-
-    /// <summary>
-    /// Returns the conditional Y | X discretization at the given X hazard level for the
-    /// realization-index-th sampled copula. Each entry is (Y value, conditional probability weight).
-    /// Weights sum to 1 across the returned array.
-    /// </summary>
-    IReadOnlyList<(double Y, double Weight)> SampleConditionalYGivenX(int realizationIndex, double xHazardLevel);
-}
-```
-
-`IHazardFunction.SampleFunction(int idx)` continues to return the X marginal as `IUnivariateDistribution`. The risk-analysis integrator switches to nested integration when `hazard is IBivariateHazardFunction` (see §7.4).
-
-**`ParametricBivariateHazard`** — user wires existing univariate hazards as marginals, picks a copula from `Numerics.Distributions.Copulas` (Gaussian, Gumbel, Clayton, Frank, Student-t, etc.), supplies copula parameters. The copula is sampled via parameter uncertainty (if any); marginals propagate their own uncertainty. The realization index drives all three samplers together.
-
-**`BestFitBivariateHazard`** — imports fitted marginals + copula + MCMC posterior from BestFit. The realization index looks up the i-th MCMC sample.
-
-**`BestFitTabularHazard`** — imports the (X, Y, Z) coincident-frequency table. `SampleConditionalYGivenX(idx, x)` interpolates the Z column at x to get the Y | X distribution; uncertainty comes from MCMC sample bounds on Z. Suitable when an external coincident analysis has already been done in BestFit.
+`IHazardFunction.SampleFunction(int idx)` continues to return the X marginal's sampled distribution, so every univariate consumer of the hazard surface is untouched. The risk engine detects `IBivariateHazardFunction` at `SampledComponent` construction and switches to the conditional-bin evaluation (§7.4).
 
 #### 6.1.3 Original interface
 
@@ -1049,31 +1064,14 @@ Concrete types: `ParametricResponse`, `TabularResponse`, `BivariateResponse`, `N
 
 Tree-response details are specified in [EVENT_AND_FAULT_TREE_RESPONSE_DESIGN.md](EVENT_AND_FAULT_TREE_RESPONSE_DESIGN.md). In summary, `EventTreeResponse` owns initiating/chance/remainder/independent-link nodes and exposes aggregate and stable per-leaf conditional probabilities; `FaultTreeResponse` owns static gate/basic/house/transfer nodes and returns exact top-event conditional probability. Both are response functions, not hazard or risk calculators. `SecondaryHazardNode` is excluded as confirmed inactive legacy code. `WeightedHazardLevel` remains with Phase 11 `BivariateResponse`, not the event-node hierarchy.
 
-#### 6.3.1 BivariateResponse extended for bivariate hazards
+#### 6.3.1 BivariateResponse — the preserved collapse mode plus the joint surface (implemented)
 
-Today `BivariateResponse` is wired only to a primary hazard dimension. The v1.1.0 update connects it to a parent component's `IBivariateHazardFunction`:
+`BivariateResponse` is the v1.0 port with BOTH operating modes, selected ONLY by the parent — the response holds no mode state:
 
-```csharp
-public class BivariateResponse : ResponseFunctionBase
-{
-    /// <summary>The hazard label this response's primary axis aligns to (must equal MarginalX.SpecifiedHazard on the parent component).</summary>
-    public string PrimaryHazardType { get; set; }
-    public string PrimaryHazardUnit { get; set; }
+- **Collapse mode (v1.0, fully preserved)** under a univariate parent: SRP(xᵢ) = Σⱼ P[i,j]·wⱼ over the weighted secondary levels, wrapped as an empirical curve carrying `HazardTransform`/`ProbabilityTransform`, with first/last-ordinate min/max semantics and the legacy grid auto-resize on level add/remove. Three ratified refinements over v1.0 (design decision 12): the stored `SecondaryHazardFunction` weight-provenance link persists as TWO metadata attributes repaired through the never-throwing `IRiskFunctionResolver.TryResolve` (miss ⇒ null, never an Error — resolver-less round trips stay bit-equal); serialized weights are the authoritative compute content, re-derived ONLY by the explicit `EstimateWeights()` overloads (the exact legacy Voronoi-midpoint algorithm against the linked hazard's mean CDF; the v1.0 load-order overwrite bug does not port); staleness is a `Validate` Warning, never a silent rewrite.
+- **Joint surface mode** under a bivariate parent with a wired secondary input: `SurfaceProbability(x, y)` interpolates the grid bilinearly in the three transform spaces with the interpolator's native edge-clamp extrapolation, then clamps to [0, 1] after back-transform. `CreateInterpolator()` is the engine seam (one fresh interpolator per sampled realization sharing the function's arrays — `Bilinear` carries mutable search state and is never share-safe). Joint mode requires a single response stage and at least two secondary levels; the weights are compute-inert here but remain hashed content (mode is external state).
 
-    /// <summary>The hazard label this response's secondary axis aligns to (must equal MarginalY.SpecifiedHazard on the parent component).</summary>
-    public string SecondaryHazardType { get; set; }
-    public string SecondaryHazardUnit { get; set; }
-
-    /// <summary>The 2D failure-probability surface P(F | X, Y).</summary>
-    public BivariateSurface Surface { get; set; }
-
-    public double SurfaceProbability(double x, double y);  // bilinear interpolation
-}
-```
-
-Validation in `SystemComponent`: the FM's BivariateResponse is allowed only when the SC's hazard is bivariate, and the four `(Primary|Secondary)HazardType` strings must match `MarginalX.SpecifiedHazard` and `MarginalY.SpecifiedHazard` exactly.
-
-The owning `FailureMode` exposes `ConsequenceHazardBinding ∈ { Primary, Secondary }` to indicate which dimension feeds the consequence function (which is itself univariate). See §6.5 and §7.4.
+The XML envelope keeps the LEGACY child names (`PrimaryHazardLevels`, `WeightedHazardLevel Level Weight` children, `Probability_Row` rows) so the future `.tra` importer lifts payloads verbatim. Persistence, hashing, and the univariate-parent legality rules are in the §5.5.3 row and §6.5; the deterministic (D = 0) posture is ratified Q-R.
 
 #### 6.3.2 EventTreeResponse and FaultTreeResponse
 
@@ -1164,41 +1162,16 @@ construction: it changes which joint outcomes exist. Implementation waits for a 
 every output produced today is a per-type marginal, which the shared draw provably cannot move —
 only cross-type joint measures (e.g., P(life loss > a AND damages > b)) would observe it.
 
-### 6.5 SystemComponent dimensional binding (bivariate hazard support)
+### 6.5 SystemComponent dimensional binding (implemented — the two-port graph surface)
 
-Each `FailureMode` declares which hazard dimension it operates on. For univariate hazards this is a no-op; for bivariate hazards it routes the FM's transform/response/consequence chain to either the X or Y marginal.
+Dimensional binding is STRUCTURAL, derived from graph wiring at projection — never a label match and never a UI-set enum. The confirmed surface:
 
-```csharp
-public enum HazardDimension { Primary = 0, Secondary = 1 }
-
-public class FailureMode
-{
-    /// <summary>
-    /// Which hazard dimension feeds this FM's transform → response → consequence chain.
-    /// Ignored when the parent component's hazard is univariate (treated as Primary).
-    /// </summary>
-    public HazardDimension HazardBinding { get; set; } = HazardDimension.Primary;
-
-    /// <summary>
-    /// Which hazard dimension feeds the consequence function. Used when ResponseFunction is a
-    /// BivariateResponse (the response evaluates at (X, Y) jointly but the consequence is 1D).
-    /// Ignored otherwise.
-    /// </summary>
-    public HazardDimension ConsequenceHazardBinding { get; set; } = HazardDimension.Primary;
-
-    // ... existing fields
-}
-```
-
-`SystemComponent.Validate()` adds:
-
-| Hazard kind | Constraint |
-|---|---|
-| Univariate | All FMs must have `HazardBinding == Primary`. UI auto-coerces. |
-| Bivariate, FM with non-bivariate response | `HazardBinding ∈ {Primary, Secondary}`; FM transform/response/consequence units must align with the bound marginal's hazard type and unit. |
-| Bivariate, FM with `BivariateResponse` | Both response axes must align: `BivariateResponse.PrimaryHazardType == hazard.MarginalX.SpecifiedHazard` and `SecondaryHazardType == hazard.MarginalY.SpecifiedHazard`. `ConsequenceHazardBinding` is required and feeds the consequence function with the chosen marginal. |
-
-Canonical hash of `FailureMode` adds the two binding enums; canonical hash of `SystemComponent` already includes its hazard's canonical hash, which differs between univariate and bivariate types. No additional field needed at the SC level.
+- **Ports.** A bivariate hazard element exposes two output ports (port 0 = the primary X signal, port 1 = the raw secondary Y); a bivariate transform element is 2-in/2-out (output port 0 = z, port 1 = the secondary passthrough); a bivariate response element offers a `SecondaryInput`; a consequence element whose list carries a bivariate entry offers one too. Every connection serializes its `SourcePort` (the v0.9 reservation, now live).
+- **Secondary chains.** `ComponentGraph.TryResolveSecondaryChain` walks a secondary side-input back to the hazard's port 1: univariate transforms front-insert into the chain, a bivariate transform's port 1 is a passthrough hop, and a per-segment directness guard forbids univariate transforms between bivariate elements. The projection collects the path's chain into the serialized `FailureMode.SecondaryHazardToResponse` (written only when non-empty — every pre-bivariate mode's form, hash, and seeds are bit-identical, pinned by test), and the sampler walk appends the chain AFTER `ResponseToConsequence` so existing ordinals never move.
+- **Bindings.** `FailureMode.HazardBinding` stamps from the path's root exit port (existing models always exit port 0 ⇒ the Primary no-op). Hazard-source bindings generalize: hazard port 1 = raw-Y position 0, the k-th secondary-chain transform = Secondary position k + 1; `ConsequenceHazardDimension`/position carry the routing the engine consumes. A bivariate consequence's secondary input is the full secondary-chain output y′ — the one signal every bivariate element on a path consumes (the one-secondary-chain-per-path identity Error makes that literal).
+- **The mode-dependent wiring matrix.** Under a univariate root: bivariate transforms/consequences are Errors; a bivariate response with a CONNECTED secondary is an Error, while a null secondary is the legal collapse mode (cascade stages included). Under a bivariate root: every wired secondary must resolve; a bivariate response must be wired (joint mode), single-response-path, single-stage, with `SecondaryLevelCount` ≥ 2; bivariate elements' primary inputs must trace primary-kind; an unused port 1 is a Warning. `FailureMode.Validate` mirrors the matrix parent-typed, with secondary-axis label continuity walking the bound marginal's declared pair (Warnings only).
+- **Guards.** `AddFailureMode` refuses bivariate topology with `NotSupportedException` (a linear expansion cannot wire secondary connections); multi-unit `CompetingFailures` over a bivariate hazard requires every failure state SRP-primary-pure — Primary binding, no joint response, no bivariate stage transform — as a Validate Error mirrored by a loud `SampledComponent` constructor throw (the 200-level cumulative-incidence pre-processing cannot represent a y-dependent SRP); the profile selector rejects secondary-chain transforms.
+- **Hashing.** `HazardBinding`, the binding positions, and the `SecondaryHazardToResponse` chain are serialized compute content inside the projected identity form; the hazard's own projected hash (marginal content + copula + bins) already distinguishes univariate from bivariate parents. `CollectSensitivityInputs` enumerates `MarginalX`/`MarginalY` columns (the bivariate hazard itself contributes none) and walks the secondary chain after trailing transforms, mirroring the seeding walk by contract.
 
 ## 7. Risk Analysis engine
 
@@ -1340,63 +1313,17 @@ The `Compute(seed, idx)` per-realization method ports the legacy structure — a
 8. **`Options.RiskIntegrand`** (default `MeanTotalRisk`) selects the adaptive refinement objective (§4, §7.7). Discontinuous integrands (`TailConditionalRisk`, `ThresholdExceedanceProbability`) inject their discontinuity `p` as an extra stratification-bin boundary.
 9. **System aggregation is rebuilt** (v0.13; §7.8): additive assumes strict independence and convolves component LECs via FFT (producing a real system LEC v1.0 never built); joint enumerates true component failure/non-failure combinations and exposes the Vegas power transform.
 
-### 7.4 Bivariate hazard integration
+### 7.4 Bivariate hazard integration (implemented; supersedes the pre-implementation sketch)
 
-When a component's hazard is bivariate, the outer integration over X probability is unchanged. At each X integration point, the bivariate hazard is asked for `SecondaryIntegrationBins` discretized (Y, weight) pairs from the conditional Y | X distribution. Each FM contributes based on its `HazardBinding`:
+The conditional-bin loop lives ENTIRELY inside `SampledComponent.ComputeRisk`, behind one `_conditionalHazard == null` dispatch branch — the univariate body below it is verbatim-untouched, which is why the F1 byte gate is the standing zero-overhead proof. Nothing about the outer machinery moves: the 1D adaptive quadrature, the stratification build, the endpoint rectangles, the ledger gates, and the results pipeline all operate exactly as §7.7 describes.
 
-```csharp
-double IntegrateAtX(SampledComponent sc, int idx, double pX)
-{
-    bool bivariate = sc.SystemComponent.HazardFunction is IBivariateHazardFunction biv;
-    double hX = sc.Hazard.InverseCDF(pX);
-    var yBins = bivariate
-        ? biv!.SampleConditionalYGivenX(idx, hX)
-        : new[] { (Y: hX, Weight: 1.0) };  // univariate: Y collapses to a single point
-
-    double total = 0;
-    foreach (var fm in sc.FailureModes)
-    {
-        if (fm.SystemComponent.ResponseFunction is BivariateResponse br)
-        {
-            // Bivariate response: evaluate failure surface at (X, Y) pairs
-            foreach (var (yVal, w) in yBins)
-            {
-                double pF = br.SurfaceProbability(hX, yVal);
-                double hForC = fm.SystemComponent.ConsequenceHazardBinding == HazardDimension.Primary ? hX : yVal;
-                double cF = fm.Consequences.Function(ApplyTransforms(fm.ResponseToConsequence, hForC));
-                total += w * pF * cF;
-            }
-        }
-        else
-        {
-            // Univariate response on either dimension
-            double hIn = fm.SystemComponent.HazardBinding == HazardDimension.Primary ? hX : 0;
-            if (fm.SystemComponent.HazardBinding == HazardDimension.Secondary)
-            {
-                foreach (var (yVal, w) in yBins)
-                {
-                    double th = ApplyTransforms(fm.HazardToResponse, yVal);
-                    double pF = fm.Response.CDF(th);
-                    double cF = fm.Consequences.Function(ApplyTransforms(fm.ResponseToConsequence, th));
-                    total += w * pF * cF;
-                }
-            }
-            else
-            {
-                double th = ApplyTransforms(fm.HazardToResponse, hX);
-                double pF = fm.Response.CDF(th);
-                double cF = fm.Consequences.Function(ApplyTransforms(fm.ResponseToConsequence, th));
-                total += pF * cF;   // weight = 1 (Y dimension not used)
-            }
-        }
-    }
-    return total;
-}
-```
-
-Univariate hazards collapse to the same code path: `yBins` holds a single `(hX, 1.0)` entry, and `BivariateResponse` is rejected at validation. Performance: bivariate analyses do `SecondaryIntegrationBins` × outer-integrator-evaluation work, typically 30–100× more than univariate. `SecondaryIntegrationBins` defaults to 50; tunable per-hazard.
-
-Joint-risk inclusion-exclusion across multiple bivariate components composes the same way: each component contributes its own integrated risk profile; combinatorial assembly happens at the system level as today.
+- **Placement and shape.** `ComputeRisk` gains one trailing optional `hazardNonExceedance` parameter (NaN ⇒ derive the clamped CDF from the sampled primary marginal). The 1D `Evaluate` objective and the AFP probe pass their true u; the joint VEGAS integrand passes its clamped local probability while its probability argument stays the recorded weight; sensitivity leaves NaN. At each X the engine calls `FillConditionalBins` ONCE, then runs bin-outer/type-inner: EVERY failure mode is evaluated at the same (x, y_j), the EXISTING combination kernels run per bin, and the results fold into ONE risk point per stream per evaluation.
+- **Combine-then-marginalize (ratified D.3).** Failure-mode combination happens per (X, Y_j) and THEN weight-sums: marginalizing each mode's SRP first and combining the marginals errs by exactly −Cov_j(P_A, P_B) — the conditional covariance the shared secondary induces — and is forbidden. The joint pathway probabilities pre-scale by w_j after decomposition, so the linear fold flows exactly through entry probabilities, expected sums, and the Shapley/consequence-proportional contribution splits, while raw unit masses keep driving conditional branch weights.
+- **No draws in the bin loop (ratified decision 8).** Per-realization state is frozen before evaluation: the sampled secondary marginal, the cloned copula, the per-realization `Bilinear` wrappers for bivariate stage/trailing transforms, the joint response surface (clamped [0, 1] after back-transform), and per-type bivariate consequence surfaces. Pinned by counting-double tests — one construction draw per function, zero across repeated binned evaluations.
+- **Ledger invariance.** One committed point per stream per X and the exact Σw = 1 conditional weights keep BOTH quadrature-ledger adoption gates intact (the compensated weight total against Σ bin widths; the matched-abscissa count against `DistinctAbscissaCount`). `BuildHazardBins` and the endpoint rectangles stay on the PRIMARY support — exhaustive mass is exactly one, untouched by the secondary axis. Bin-invariant modes (with bin-invariant partners) compute once at full weight and record unscaled single-bin entries; component streams always enumerate bins, and zero-probability pathways record no entries (the univariate rule).
+- **One VEGAS dimension per component (ratified).** A bivariate component contributes ONE dimension to the joint system integrand — its secondary axis is integrated to a marginalized scalar inside `ComputeRisk`, exactly like the 1D path. The rejected alternative — surfacing Y as a second VEGAS dimension per bivariate component — was declined honestly, not for cost alone: it would couple the secondary axis into the joint driving stream (voiding the per-component conditional-trapezoid exactness properties and the §5.5 content-seed layering for that axis), inflate the VEGAS dimensionality limit consumption, and make univariate/bivariate components asymmetric inside one system. The marginalized-scalar contract keeps every `RiskIntegrand` member, the TailConditionalRisk α boundary, and the tolerance discipline operating on the primary axis unchanged. The AFP probe returns the y-marginalized failure probability — already the correct VEGAS tail-focus γ target.
+- **Cost model.** Every X evaluation prices ×(bins + 1) function work relative to univariate (N + 1 conditional nodes), and `EstimateRecordedFailureEntries` prices the (bin × pathway × branch) cross product for the joint-entry guardrails. The default 20 bins is a cost/accuracy compromise whose adequacy is FIXTURE-DEPENDENT: the verification convergence study measures textbook O(N⁻²) on smooth surfaces but percent-to-tens-of-percent errors on tail-concentrated log-scale surfaces under normal-Z-tailed marginals (the uniform-t trapezoid is rate-limited by the Φ⁻¹ endpoint blow-up before saturation) — see [../verification/copula-dependence.md](../verification/copula-dependence.md) for the measured figures and [../technical-reference/bivariate-hazards.md](../technical-reference/bivariate-hazards.md) for the practitioner guidance.
+- **The axis asymmetry is a modeling decision, not an implementation detail.** Because the primary axis is integrated to the quadrature's tolerance and the secondary is discretized, the same joint model expressed with the axes swapped can differ by two orders of magnitude in accuracy at fixed cost. The measured legacy case: PGA-primary/stage-conditional carries 35.4% relative error at the default bins, while stage-primary with PGA collapsed through the response's Voronoi weights lands 0.241%. The rule the engine's design implies — put the steep, heavy-tailed, consequence-bearing axis on the primary and collapse the mass-concentrated one — belongs in the practitioner documentation, and the collapse mode exists to make that arrangement expressible.
 
 ### 7.5 Results pipeline
 
@@ -1707,6 +1634,16 @@ when stale (a dangling persistent reference means the stored form is inconsisten
 reference is lenient and surfaces through validation as an unresolved reference naming it, which is
 deliberately distinguished from "no function assigned".
 
+**Bivariate marginal links ride the same machinery.** `BivariateHazard` persists its marginals as
+per-marginal containers on the `FunctionReference` recipe in BOTH modes (a stale id throws, an
+id-less lenient-name miss records for `Validate`, and the resolver re-attaches the LIVE stored
+instances), and its projected-identity hash folds marginal CONTENT so neither the link ids nor the
+mode can move a seed. Two lenient counterparts exist for METADATA links only:
+`IRiskFunctionResolver.TryResolve` (id-first, name fallback, miss ⇒ null, never throws) repairs
+`BivariateResponse`'s stored weight-provenance link, whose unresolved id/name pair is re-written
+verbatim so resolver-less round trips stay bit-equal — provenance never silently drops and never
+becomes an Error.
+
 **Invariant (tested):** the mode cannot move a canonical hash. `SystemComponent.CanonicalHash()`
 hashes the projected `FailureMode` XML, and `FailureMode`/`ResponseStage` always serialize their
 functions inline regardless of mode. A component seeds identically however it was stored — if this
@@ -1901,12 +1838,13 @@ Living section. Append entries as we go. Once an item is resolved, move it under
 - **Q-H**: Numerics's `Random.NextIntegers(int)` — confirm it's part of public `Numerics.Utilities` API; if not, inline equivalent.
 - **Q-J** *(answered for the consequence composite 2026-07-21)*: Should the `OccurrenceIndex` ALSO be applied within composites (e.g., a `CompositeHazard` containing two identical sub-hazards with different weights)? `CompositeConsequence.SetupSampler` answers it structurally: each child's seed is `HashCombine(seed, child.CanonicalHash(), ordinal)`, so identical-content siblings get independent draws from the list ordinal — no occurrence-index machinery and no dependence on distinguishing weights (pinned by test: two identical-content children draw independently). `CompositeHazard`/`CompositeResponse` adopt the same recipe in Phase 9.
 - **Q-M**: Bootstrap posterior size vs. Realizations count. `ParametricHazard.SampleFunction(int idx)` looks up the idx-th posterior parameter set. The legacy bootstrap stores M ∈ [100, 100000] samples; risk analysis runs N ∈ [1000, 10000+] realizations. If M < N, indices currently wrap modularly. Two options: keep the index-based path (simpler, parity with legacy) or convert to a `SamplingDimensions = 1` percentile-based path (`posterior[(int)(p * M)]`) so the bootstrap participates in LHS. Decide during Phase 2.1; for the initial port, preserve index-based.
-- **Q-P**: `BestFitTabularHazard` import shape. BestFit's `CoincidentFrequencyAnalysis` produces an X × Y × Z table with MCMC sample bounds. Decide what gets stored in canonical hash: the full Z[i,j] grid, or a compressed posterior-summary representation. Affects file size on save and canonical-hash bytes; doesn't affect math. Resolve during Phase 2.1.
-- **Q-Q**: Copula sampling under LHS for `ParametricBivariateHazard`. The copula's parameter uncertainty (if present) needs to be one LHS dimension; the marginals each have their own. `SamplingDimensions` for a parametric bivariate hazard is `MarginalX.SamplingDimensions + MarginalY.SamplingDimensions + (copula uncertain ? 1 : 0)`. Confirm during Phase 2.1.
-- **Q-R**: `BivariateResponse` surface uncertainty. The existing legacy `BivariateResponse` is deterministic (D=0 per the explore agent's report). For v1.1.0, do we add knowledge uncertainty on the surface itself (e.g., uncertainty per surface ordinate)? Default proposal: keep deterministic for the initial port; revisit in v2 if users request it. Tracked.
+- **Q-P** *(deferred 2026-08-03 to the external-imports phase)*: `BestFitTabularHazard` import shape. BestFit's `CoincidentFrequencyAnalysis` produces an X × Y × Z table with MCMC sample bounds. Decide what gets stored in canonical hash: the full Z[i,j] grid, or a compressed posterior-summary representation. Affects file size on save and canonical-hash bytes; doesn't affect math. The type itself moved out of the bivariate phase with the ratified one-type `BivariateHazard` design; resolve when the import type lands.
 - **Q-S** *(added 2026-07-19)*: Phase 2.0 design details tracked in [SHARED_FUNCTIONS_STRATEGY.md](SHARED_FUNCTIONS_STRATEGY.md) §9: `SegmentedPowerFunction` parameter-layout verification vs BestFit `RatingCurve.cs` (S-1); `EnsembleFunction` index-wrap/percentile policy (S-2 — interacts with Q-M for imported posteriors); `KernelDensity` round-trip (S-3); `CanonicalContentHasher` upstreaming to `Numerics.Utilities` (S-4); `UncertainOrderedPairedData` extension needs (S-5).
 
 ### Resolved
+
+- **Q-Q** *(RESOLVED 2026-08-03 at the bivariate design ratification; implemented 2026-08-03)*: Copula sampling under LHS. `BivariateHazard.SamplingDimensions` is **0** — the marginals own their dimensions and are set up recursively under the composite forward rule (`HashCombine(seed, marginal.CanonicalHash(), 0/1)`, exactly the Q-J recipe), and the copula's parameters are fixed by ratified decision, so no copula dimension exists. Ordinal 2 is reserved for the future θ posterior (the external-imports phase), which will slot in without moving the marginal seeds.
+- **Q-R** *(RESOLVED 2026-08-03 — ratified deterministic)*: `BivariateResponse` surface uncertainty. Every 2-D surface in the bivariate capability — the response surface, `BivariateTransform`, `BivariateConsequence` — is DETERMINISTIC by ratified decision (D = 0; percentile/index sampling returns the mean collapse), with 2-D surface uncertainty deliberately deferred behind loud guards. The v1.0 parity fact (the legacy type was deterministic) became the contract rather than an interim default.
 
 - **Q-B / Q-O** *(resolved 2026-07-28, v0.21)*: The complete tree-response design is [EVENT_AND_FAULT_TREE_RESPONSE_DESIGN.md](EVENT_AND_FAULT_TREE_RESPONSE_DESIGN.md). Canonical identity uses projected topology and target content rather than names/IDs; mathematically commutative fault inputs sort canonically while stable branch IDs preserve event-tree output connections. Event trees compile independent links and propagate conditional mass in linear time. Static fault trees distinguish shared logical events from independent clones and use an exact ROBDD; cut sets are inspection only. Both recursively participate in LHS and produce conditional fragility, leaving hazard frequency and risk to the existing function/graph/analysis layers.
 

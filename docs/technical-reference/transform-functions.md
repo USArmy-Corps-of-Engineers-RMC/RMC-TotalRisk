@@ -77,6 +77,17 @@ Thin wrappers over the Numerics `LinearFunction`/`PowerFunction` — the wrapper
 
 Both declare `SamplingDimensions = 1` while `IsUncertain` (else 0), serialize σ only while uncertain (the hash-recipe conditional), and surface `ComputeUncertaintyResults` percentile summaries. Verification: [closed-form-functions](../verification/closed-form-functions.md) — closed-form anchors plus engine-chain ensembles against a flat Monte Carlo oracle.
 
+## BivariateTransform
+
+A deterministic two-way table z = f(x, y) on the Numerics `Bilinear` interpolator (convention `z[i, j] = z(x1[i], x2[j])`), with per-axis transforms (`HazardTransform`, `SecondaryHazardTransform`) and an output transform (`TransformTransform`). In a component graph the element is two-in/two-out: output port 0 carries z, output port 1 passes the secondary signal through unchanged, so bivariate transforms CHAIN — deformation(pga, pool) → warning-time(deformation, pool) — with every element on the path reading the same secondary-chain signal (see [bivariate-hazards](bivariate-hazards.md)).
+
+Two policies are pinned by test and shared with every bivariate table:
+
+- **Extrapolation** is the interpolator's native clamp: both coordinates out of range returns the exact nearest-corner cell; one out of range clamps to the edge row/column and interpolates linearly along the in-range axis. Never a linear extension beyond the grid.
+- **Thread discipline**: `CreateInterpolator()` builds one fresh configured instance per sampled realization, sharing the function's arrays (`Bilinear` carries mutable correlated-search state — a shared instance across the parallel realization loop is a data race). Nothing is cached on the function; `Evaluate(x, y)` is the allocating convenience for tests and diagnostics.
+
+The one-argument transform surface throws `NotSupportedException` naming `Evaluate(x, y)` — a fabricated univariate bridge would silently evaluate at a meaningless secondary value, and graph arity plus validation make the throw unreachable in valid models. Composite transforms reject bivariate children.
+
 ## v1.1 changes vs. the v1.0 report
 
 - Sampling is index-driven through the pre-allocated percentile matrix (`SetupSampler`; Latin hypercube default).

@@ -7,6 +7,7 @@ Pages (mirroring the model-library namespaces):
 | Page | Contents |
 |---|---|
 | [hazard-functions.md](hazard-functions.md) | Hazard (frequency) functions: tabular uncertainty modes, parametric bootstrap, posterior import, composite mixtures |
+| [bivariate-hazards.md](bivariate-hazards.md) | Copula-based bivariate hazards: linked marginals, the (u, v) non-exceedance convention, conditional-trapezoid integration, engine placement, seeding, the measured cost/accuracy model, and scope guards |
 | [transform-functions.md](transform-functions.md) | Transform (composition) functions: tabular, closed-form linear and power, composite weighted average |
 | [response-functions.md](response-functions.md) | System response (fragility) functions: R-S formulation, tabular, parametric, non-fail sentinel, composites, event-tree and fault-tree responses; links to the normative event/fault-tree design |
 | [consequence-functions.md](consequence-functions.md) | Consequence (damage) functions: tabular, parametric power model, composite exposure mixtures, incremental-consequence coupling |

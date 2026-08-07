@@ -115,6 +115,12 @@ Each child owns its sampler, seeded content-derived per [`MODEL_LIBRARY_ARCHITEC
 
 Under `SelfContained` (the storeless default: headless callers, oracles, failure-mode projection XML) child content serializes inline. Under `ByReference` (the stored form) each entry carries only its weight and a `FunctionReference` marker — **a store never duplicates child function content** — and an `IRiskFunctionResolver` reattaches the live stored instances on load (unresolvable references keep their weighted entries and surface through `Validate()`). `CanonicalHash()` hashes a projected identity form (mode, entry count, effective weights, child content hashes) rather than the persisted form, so the serialization mode, child metadata, and Additive-mode weight edits can never move the hash — the second instance of the `SystemComponent` identity-form exception.
 
+## BivariateConsequence
+
+A deterministic two-way consequence table on the Numerics `Bilinear` interpolator — the same grid design, pinned extrapolation policy (native corner/edge clamps), and per-realization interpolator thread discipline as `BivariateTransform` (see the [transform-functions](transform-functions.md) section), with cluster-specific surfaces: the output transform is `ConsequenceTransform`, output labels ride `SpecifiedConsequence`/`ConsequenceUnit`, negative surface cells are an advisory Warning, and the exposure-branch surface is structurally single-branch (branch sampling throws alongside the one-argument evaluation members).
+
+In a failure mode, a bivariate consequence's primary input is the mode's consequence signal (per the hazard-source binding) and its secondary input is the full secondary-chain output — e.g., life loss as a function of (warning time, pool stage) with warning time arriving from a chained bivariate transform (see [bivariate-hazards](bivariate-hazards.md)). Trailing response-to-consequence transforms are illegal under a bivariate consequence, and composite consequences reject bivariate children.
+
 ## Later family members
 
 - **LifeSimConsequence** (future work) — a tabular consequence built from imported LifeSim Monte Carlo results: per hazard level the user selects an alternative/time-of-day result set, and a distribution (truncated normal by default) is auto-fit to all iterations (fit methods per the report: moments for Deterministic/Triangular/Normal/Ln-Normal/Truncated Normal, percentiles for PERT). A LifeSim day result and night result wrapped in a Mixture composite is the intended day/night import path.

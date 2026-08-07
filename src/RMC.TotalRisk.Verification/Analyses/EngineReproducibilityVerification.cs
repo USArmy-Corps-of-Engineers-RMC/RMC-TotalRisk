@@ -1,12 +1,18 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Numerics.Data;
 using Numerics.Distributions;
 using RMC.TotalRisk.Analyses;
+using RMC.TotalRisk.Core.Enums;
+using RMC.TotalRisk.Core.Interfaces;
+using RMC.TotalRisk.RiskFunctions;
 using RMC.TotalRisk.RiskFunctions.Consequences;
 using RMC.TotalRisk.RiskFunctions.Hazards;
 using RMC.TotalRisk.RiskFunctions.Responses;
 using RMC.TotalRisk.Systems.Components;
+using RMC.TotalRisk.Systems.Components.Graph;
 
 namespace RMC.TotalRisk.Verification.Analyses;
 
@@ -176,6 +182,319 @@ public class EngineReproducibilityVerification
             baselineAnalysis.UpperRiskResults!.Curves.Fail.LECProbabilities,
             roundTripped.UpperRiskResults!.Curves.Fail.LECProbabilities,
             "Metadata edits or the round trip moved the upper confidence curve.");
+    }
+
+    #region Bivariate fixtures
+
+    /// <summary>Builds an uncertain marginal (Normal knowledge uncertainty on the ordinates).</summary>
+    /// <param name="name">The function name.</param>
+    /// <param name="hazard">The hazard type label.</param>
+    /// <param name="median">The median hazard level.</param>
+    /// <param name="extreme">The 0.001-exceedance hazard level.</param>
+    private static TabularHazard UncertainMarginal(string name, string hazard, double median, double extreme)
+    {
+        return new TabularHazard
+        {
+            Name = name,
+            SpecifiedHazard = hazard,
+            HazardUnit = "ft",
+            ProbabilityTransform = Transform.None,
+            UncertaintyValue = FunctionUncertainty.Hazard,
+            HazardUncertainFunction = new UncertainOrderedPairedData(
+                new[]
+                {
+                    new UncertainOrdinate(0.999d, new Normal(0d, 0.01d)),
+                    new UncertainOrdinate(0.5d, new Normal(median, median * 0.05d)),
+                    new UncertainOrdinate(0.001d, new Normal(extreme, extreme * 0.05d)),
+                },
+                true, SortOrder.Descending, true, SortOrder.Ascending, UnivariateDistributionType.Normal),
+        };
+    }
+
+    /// <summary>Builds a deterministic linear fragility from (lo → 0) to (hi → 1).</summary>
+    /// <param name="hazard">The hazard type label the fragility reads.</param>
+    /// <param name="lo">The zero-probability hazard level.</param>
+    /// <param name="hi">The certain-failure hazard level.</param>
+    private static TabularResponse LinearFragility(string hazard, double lo, double hi)
+    {
+        return new TabularResponse
+        {
+            Name = $"{hazard} Fragility",
+            SpecifiedHazard = hazard,
+            HazardUnit = "ft",
+            UncertainOrderedPairedData = new UncertainOrderedPairedData(
+                new[] { new UncertainOrdinate(lo, new Deterministic(0d)), new UncertainOrdinate(hi, new Deterministic(1d)) },
+                true, SortOrder.Ascending, false, SortOrder.None, UnivariateDistributionType.Deterministic),
+        };
+    }
+
+    /// <summary>Builds a deterministic linear damage from (0 → 0) to (max → valueAtMax).</summary>
+    /// <param name="name">The function name.</param>
+    /// <param name="hazard">The hazard type label the damage reads.</param>
+    /// <param name="max">The top hazard level.</param>
+    /// <param name="valueAtMax">The damage at the top level.</param>
+    private static TabularConsequence LinearDamage(string name, string hazard, double max, double valueAtMax)
+    {
+        return new TabularConsequence
+        {
+            Name = name,
+            SpecifiedHazard = hazard,
+            HazardUnit = "ft",
+            SpecifiedConsequence = "Damages",
+            ConsequenceUnit = "$",
+            UncertainOrderedPairedData = new UncertainOrderedPairedData(
+                new[] { new UncertainOrdinate(0d, new Deterministic(0d)), new UncertainOrdinate(max, new Deterministic(valueAtMax)) },
+                true, SortOrder.Ascending, false, SortOrder.None, UnivariateDistributionType.Deterministic),
+        };
+    }
+
+    /// <summary>
+    /// Builds the uncertain bivariate component: an independence-copula hazard over uncertain
+    /// Surge and Pool marginals with the failure path bound either to the raw secondary
+    /// (pool fragility and pool damages off hazard port 1) or entirely to the primary axis
+    /// (surge fragility and surge damages — the integrand then never reads the secondary).
+    /// </summary>
+    /// <param name="secondaryBound">True for the pool-bound failure path.</param>
+    /// <param name="poolMedian">The pool marginal's median level (the perturbation knob).</param>
+    private static SystemComponent BivariateComponent(bool secondaryBound, double poolMedian = 50d)
+    {
+        var joint = new BivariateHazard(
+            UncertainMarginal("Surge Marginal", "Surge", 10d, 30d),
+            UncertainMarginal("Pool Marginal", "Pool", poolMedian, poolMedian * 2d))
+        {
+            Name = "Joint Hazard",
+            SpecifiedHazard = "Surge",
+            HazardUnit = "ft",
+            SecondarySpecifiedHazard = "Pool",
+            SecondaryHazardUnit = "ft",
+            SecondaryIntegrationBins = 8,
+        };
+        var component = new SystemComponent(joint) { Name = "Joint Component" };
+        var hazard = component.Graph.GetElements<HazardElement>().Single();
+        var breach = new ResponseElement("Breach")
+        {
+            Function = secondaryBound ? LinearFragility("Pool", 0d, 100d) : LinearFragility("Surge", 5d, 30d),
+            Input = secondaryBound ? new RiskConnection(hazard, 1) : new RiskConnection(hazard),
+        };
+        component.Graph.AddElement(breach);
+        var failure = new ConsequenceElement("Failure Damages") { Input = new RiskConnection(breach) };
+        failure.Functions.Add(secondaryBound
+            ? LinearDamage("Failure Loss", "Pool", 100d, 600d)
+            : LinearDamage("Failure Loss", "Surge", 30d, 600d));
+        component.Graph.AddElement(failure);
+        var background = new ConsequenceElement("Baseline Damages") { Input = new RiskConnection(hazard) };
+        background.Functions.Add(LinearDamage("Baseline Loss", "Surge", 30d, 60d));
+        component.Graph.AddElement(background);
+        return component;
+    }
+
+    /// <summary>Builds an ensemble analysis over the given components.</summary>
+    /// <param name="components">The system components.</param>
+    private static RiskAnalysis BivariateAnalysis(params SystemComponent[] components)
+    {
+        var analysis = new RiskAnalysis(components) { Name = "Bivariate Reproducibility" };
+        analysis.Options.EstimateMeanRiskOnly = false;
+        analysis.Options.Realizations = 100;
+        return analysis;
+    }
+
+    #endregion
+
+    /// <summary>
+    /// Same bivariate content at thread counts one, four, and unbounded: the conditional-bin
+    /// fold must be bit-identical at any parallelism (index-owned writes, sequential
+    /// reductions, and the no-draws-in-the-bin-loop contract leave nothing schedule-
+    /// dependent).
+    /// </summary>
+    [TestMethod]
+    public void Test_Bivariate_ThreadCounts_BitIdentical()
+    {
+        // Arrange / Act
+        var single = BivariateAnalysis(BivariateComponent(secondaryBound: true));
+        single.MaximumDegreeOfParallelismOverride = 1;
+        var four = BivariateAnalysis(BivariateComponent(secondaryBound: true));
+        four.MaximumDegreeOfParallelismOverride = 4;
+        var unbounded = BivariateAnalysis(BivariateComponent(secondaryBound: true));
+        var first = Run(single);
+        var second = Run(four);
+        var third = Run(unbounded);
+
+        // Assert
+        Assert.AreEqual(first.Ensemble, second.Ensemble, "One and four threads diverged.");
+        Assert.AreEqual(first.Ensemble, third.Ensemble, "One and unbounded threads diverged.");
+        Assert.AreEqual(first.Mean, second.Mean, "Mean curves diverged at four threads.");
+        Assert.AreEqual(first.Mean, third.Mean, "Mean curves diverged unbounded.");
+    }
+
+    /// <summary>
+    /// Bivariate presentation is not identity: renaming every function including BOTH
+    /// marginal links (with fresh ids), moving every graph element on the canvas, and
+    /// round-tripping through BOTH serialization modes (self-contained, and by-reference
+    /// through a live resolver) must leave the numeric surface byte-identical. The stamped
+    /// end-state display labels legitimately echo current names and are stripped exactly as
+    /// in the univariate metadata pin.
+    /// </summary>
+    [TestMethod]
+    public void Test_Bivariate_MetadataCanvasAndModes_BitIdentical()
+    {
+        // Arrange — baseline.
+        var baseline = Run(BivariateAnalysis(BivariateComponent(secondaryBound: true)));
+        static string StripDisplayLabels(string json) => System.Text.RegularExpressions.Regex.Replace(
+            json, "\"(Name|PathLabel)\":\"[^\"]*\",?", string.Empty);
+
+        // Act — renames (marginals included), fresh ids, and canvas moves.
+        var editedComponent = BivariateComponent(secondaryBound: true);
+        editedComponent.Name = "Renamed Joint Component";
+        foreach (var function in editedComponent.GetReferencedFunctions())
+        {
+            function.Name = $"{function.Name} (renamed)";
+            function.AssignNewId();
+        }
+        foreach (var element in editedComponent.Graph.Elements)
+        {
+            element.LeftPosition += 250d;
+            element.TopPosition += 125d;
+        }
+        var edited = Run(BivariateAnalysis(editedComponent));
+
+        // The self-contained round trip.
+        var selfContained = Run(BivariateAnalysis(
+            new SystemComponent(BivariateComponent(secondaryBound: true).ToXElement())));
+
+        // The by-reference round trip: the stored functions stay live and the resolver
+        // re-attaches them (marginal links included).
+        var source = BivariateComponent(secondaryBound: true);
+        var store = source.GetReferencedFunctions().ToDictionary(f => f.Id, f => f);
+        var resolver = new RiskFunctionResolver(
+            id => store.TryGetValue(id, out var function) ? function : null,
+            name => store.Values.FirstOrDefault(f => f.Name == name));
+        var byReference = Run(BivariateAnalysis(
+            new SystemComponent(source.ToXElement(RiskSerializationMode.ByReference), resolver)));
+
+        // Assert — every numeric byte matches.
+        Assert.AreEqual(StripDisplayLabels(baseline.Ensemble), StripDisplayLabels(edited.Ensemble),
+            "Renames, fresh ids, or canvas moves moved the bivariate ensemble.");
+        Assert.AreEqual(StripDisplayLabels(baseline.Ensemble), StripDisplayLabels(selfContained.Ensemble),
+            "The self-contained round trip moved the bivariate ensemble.");
+        Assert.AreEqual(StripDisplayLabels(baseline.Ensemble), StripDisplayLabels(byReference.Ensemble),
+            "The by-reference round trip moved the bivariate ensemble.");
+        Assert.AreEqual(StripDisplayLabels(baseline.Mean), StripDisplayLabels(edited.Mean),
+            "Renames or canvas moves moved the mean curves (display labels stripped).");
+        Assert.AreEqual(StripDisplayLabels(baseline.Mean), StripDisplayLabels(selfContained.Mean),
+            "The self-contained round trip moved the mean curves.");
+        Assert.AreEqual(StripDisplayLabels(baseline.Mean), StripDisplayLabels(byReference.Mean),
+            "The by-reference round trip moved the mean curves.");
+    }
+
+    /// <summary>
+    /// Seed stability against unrelated growth: appending an unrelated univariate component
+    /// to the analysis must leave the bivariate component's own results bit-identical —
+    /// component seeds derive from (analysis seed, component content hash, occurrence
+    /// index), never from neighbors.
+    /// </summary>
+    [TestMethod]
+    public void Test_Bivariate_SeedStability_UnrelatedComponentAdded()
+    {
+        // Arrange
+        var alone = BivariateAnalysis(BivariateComponent(secondaryBound: true));
+        alone.RunAsync().GetAwaiter().GetResult();
+        Assert.IsTrue(alone.IsEstimated);
+
+        var unrelated = new SystemComponent { Name = "Unrelated Reach" };
+        unrelated.HazardFunction = UncertainMarginal("Unrelated Hazard", "Stage", 20d, 60d);
+        unrelated.AddFailureMode(new FailureMode(null, null,
+            LinearFragility("Stage", 0d, 80d), LinearDamage("Unrelated Loss", "Stage", 80d, 100d)));
+        var grown = BivariateAnalysis(BivariateComponent(secondaryBound: true), unrelated);
+
+        // Act
+        grown.RunAsync().GetAwaiter().GetResult();
+        Assert.IsTrue(grown.IsEstimated);
+
+        // Assert — the component's computed numbers are bit-identical at every realization
+        // and in the mean summary. The comparison rides the per-component SUMMARY surfaces
+        // deliberately: output CURVES resample onto analysis-level consequence grids, whose
+        // extents legitimately widen when another component joins the system, so curve
+        // ordinates are presentation, not the seed-stability claim.
+        for (int i = 0; i < alone.Options.Realizations; i++)
+        {
+            var baselineRealization = alone.RiskResults![i]!.ComponentResults[0];
+            var grownRealization = grown.RiskResults![i]!.ComponentResults[0];
+            Assert.AreEqual(BitConverter.DoubleToInt64Bits(baselineRealization.Total.Mean),
+                BitConverter.DoubleToInt64Bits(grownRealization.Total.Mean),
+                $"Realization {i}: the component total mean moved when an unrelated component was added.");
+            Assert.AreEqual(BitConverter.DoubleToInt64Bits(baselineRealization.Fail.Mean),
+                BitConverter.DoubleToInt64Bits(grownRealization.Fail.Mean),
+                $"Realization {i}: the component failure mean moved when an unrelated component was added.");
+            Assert.AreEqual(BitConverter.DoubleToInt64Bits(baselineRealization.Fail.TotalProbability),
+                BitConverter.DoubleToInt64Bits(grownRealization.Fail.TotalProbability),
+                $"Realization {i}: the component failure probability moved when an unrelated component was added.");
+        }
+        var baselineMean = new RMC.TotalRisk.Results.SystemRiskResults(alone.MeanRiskResults!).ComponentResults[0];
+        var grownMean = new RMC.TotalRisk.Results.SystemRiskResults(grown.MeanRiskResults!).ComponentResults[0];
+        Assert.AreEqual(BitConverter.DoubleToInt64Bits(baselineMean.Total.Mean),
+            BitConverter.DoubleToInt64Bits(grownMean.Total.Mean),
+            "The mean-pass component total mean moved when an unrelated component was added.");
+        Assert.AreEqual(BitConverter.DoubleToInt64Bits(baselineMean.Fail.TotalProbability),
+            BitConverter.DoubleToInt64Bits(grownMean.Fail.TotalProbability),
+            "The mean-pass component failure probability moved when an unrelated component was added.");
+    }
+
+    /// <summary>
+    /// The seed-stable perturbation pin crossed with conditional bins, both ways. On an
+    /// all-primary-bound component the integrand never reads the secondary axis — the
+    /// conditional weights depend only on the bin count and every per-bin evaluation repeats
+    /// the primary value — so perturbing the secondary marginal's content under
+    /// <c>PinnedSamplerSeeds</c> must be BIT-IDENTICAL (the content edit re-rolls seeds; the
+    /// pin restores them; nothing else flows). On the secondary-bound component the same
+    /// perturbation is a pure parameter effect: the pinned results move away from the
+    /// baseline, and repeating the pinned perturbed run reproduces itself bit-identically.
+    /// </summary>
+    [TestMethod]
+    public void Test_Bivariate_PinnedSeeds_SecondaryPerturbation()
+    {
+        // The results manifest embeds the component content hashes and the analysis content
+        // hash — a perturbed component legitimately carries different provenance even when
+        // every computed number is identical, so the bit-identity comparison strips the flat
+        // manifest object and compares the entire remaining payload.
+        static string StripManifest(string json) => System.Text.RegularExpressions.Regex.Replace(
+            json, "\"Manifest\":\\{[^{}]*\\},", string.Empty);
+
+        // Arrange — the all-primary-bound baseline and its captured seeds.
+        var baseline = BivariateAnalysis(BivariateComponent(secondaryBound: false));
+        var baselineResult = Run(baseline);
+        var map = baseline.CapturedSamplerSeeds!;
+
+        // Act — perturb the pool marginal's content under the pin.
+        var perturbed = BivariateAnalysis(BivariateComponent(secondaryBound: false, poolMedian: 57d));
+        perturbed.PinnedSamplerSeeds = map;
+        var perturbedResult = Run(perturbed);
+
+        // Assert — bit-identical: the integrand never reads the secondary axis.
+        Assert.AreEqual(StripManifest(baselineResult.Ensemble), StripManifest(perturbedResult.Ensemble),
+            "A pinned secondary perturbation moved an all-primary-bound ensemble.");
+        Assert.AreEqual(StripManifest(baselineResult.Mean), StripManifest(perturbedResult.Mean),
+            "A pinned secondary perturbation moved all-primary-bound mean curves.");
+
+        // Arrange — the secondary-bound counterpart.
+        var boundBaseline = BivariateAnalysis(BivariateComponent(secondaryBound: true));
+        var boundResult = Run(boundBaseline);
+        var boundMap = boundBaseline.CapturedSamplerSeeds!;
+
+        // Act — the same perturbation where the consequence-bearing path reads the secondary.
+        var boundPerturbed = BivariateAnalysis(BivariateComponent(secondaryBound: true, poolMedian: 57d));
+        boundPerturbed.PinnedSamplerSeeds = boundMap;
+        var boundPerturbedResult = Run(boundPerturbed);
+        var repeat = BivariateAnalysis(BivariateComponent(secondaryBound: true, poolMedian: 57d));
+        repeat.PinnedSamplerSeeds = boundMap;
+        var repeatResult = Run(repeat);
+
+        // Assert — a pure, reproducible parameter effect.
+        Assert.AreNotEqual(boundResult.Ensemble, boundPerturbedResult.Ensemble,
+            "A secondary-bound perturbation must move the results.");
+        Assert.AreEqual(boundPerturbedResult.Ensemble, repeatResult.Ensemble,
+            "The pinned perturbed run must reproduce itself bit-identically.");
+        Assert.AreEqual(boundPerturbedResult.Mean, repeatResult.Mean,
+            "The pinned perturbed mean curves must reproduce bit-identically.");
     }
 
     /// <summary>
