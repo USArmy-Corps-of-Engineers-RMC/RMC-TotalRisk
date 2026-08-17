@@ -3,6 +3,12 @@ using System;
 namespace RMC.TotalRisk.RiskFunctions.Responses.Trees
 {
     /// <summary>Describes one stable modeled end-state branch of a branching response.</summary>
+    /// <remarks>
+    /// <para>
+    ///     <b>Authors:</b>
+    ///     Haden Smith, USACE Risk Management Center, cole.h.smith@usace.army.mil
+    /// </para>
+    /// </remarks>
     public sealed class ResponseBranchDescriptor
     {
         /// <summary>Initializes a response branch descriptor.</summary>

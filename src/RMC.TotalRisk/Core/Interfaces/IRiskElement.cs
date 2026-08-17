@@ -79,13 +79,13 @@ namespace RMC.TotalRisk.Core.Interfaces
 
         /// <summary>
         /// The number of input slots the element exposes: 0 for hazards, 1 elsewhere (2 for a
-        /// future bivariate response).
+        /// bivariate response).
         /// </summary>
         int InputCount { get; }
 
         /// <summary>
         /// The number of output ports the element exposes: 0 for consequences (terminal), 1
-        /// elsewhere (2 for a future bivariate hazard).
+        /// elsewhere (2 for a bivariate hazard).
         /// </summary>
         int OutputCount { get; }
 
@@ -120,8 +120,8 @@ namespace RMC.TotalRisk.Core.Interfaces
         /// <remarks>
         /// The assignment path for graph editors, which hold elements as
         /// <see cref="IRiskElement"/> and would otherwise need a downcast per element type — the
-        /// mapping most likely to drift as new clusters land. It reports a mismatch rather than
-        /// throwing, because dropping the wrong function onto a node is ordinary user error.
+        /// mapping most likely to drift as function types are added. It reports a mismatch rather
+        /// than throwing, because dropping the wrong function onto a node is ordinary user error.
         /// </remarks>
         bool TryAssignFunction(IRiskFunction function, out string error);
 

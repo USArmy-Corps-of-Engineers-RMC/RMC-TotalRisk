@@ -23,15 +23,21 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
     /// mutually exclusive end-state probabilities.
     /// </summary>
     /// <remarks>
-    /// The current implementation supports scalar, uncertain-tabular, ordinary-response,
+    /// <para>
+    ///     <b>Authors:</b>
+    ///     Haden Smith, USACE Risk Management Center, cole.h.smith@usace.army.mil
+    /// </para>
+    /// <para>
+    /// Supports scalar, uncertain-tabular, ordinary-response,
     /// and recursively nested event-tree probability sources together with internal/external
-    /// independent-clone link occurrences. It also reads the recursive node XML emitted by the
+    /// independent-clone link occurrences. Reads the recursive node XML emitted by the
     /// v1.0 product and writes only the explicit v1.1 graph form. Every nested occurrence
     /// participates in recursive sampling, two-mode serialization, projected hashing, and mixed
     /// source/link cycle diagnostics. Expanded graph ports are append-only. An instance-scoped
     /// immutable occurrence/evaluation plan is published once and invalidated through controlled
     /// revisions plus defensive live-content fingerprints; branch-address preparation remains lazy
     /// so identity-only reads do not mutate persistence state.
+    /// </para>
     /// </remarks>
     public sealed class EventTreeResponse : ResponseFunctionBase, IBranchingResponseFunction,
         ITreeComputeSource, IProjectedIdentityResponse
@@ -1158,6 +1164,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
         /// <summary>One exact cache/revision authoring checkpoint.</summary>
         private sealed class CompiledPlanCheckpoint
         {
+            /// <summary>Initializes a checkpoint from the pre-mutation cache state.</summary>
             internal CompiledPlanCheckpoint(CompiledEventTreePlan? plan,
                 CompiledBranchPlan? branches, long computeRevision, long planBuildCount)
             {
@@ -1167,11 +1174,13 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                 PlanBuildCount = planBuildCount;
             }
 
+            /// <summary>The pre-mutation published plan, when one exists.</summary>
             internal CompiledEventTreePlan? Plan { get; }
 
             /// <summary>The pre-mutation branch-address plan, when already prepared.</summary>
             internal CompiledBranchPlan? Branches { get; }
 
+            /// <summary>The pre-mutation compute revision.</summary>
             internal long ComputeRevision { get; }
 
             /// <summary>The pre-mutation diagnostic publication count.</summary>
@@ -1181,11 +1190,13 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
         /// <summary>An immutable published occurrence/evaluation plan.</summary>
         private sealed class CompiledEventTreePlan
         {
+            /// <summary>Initializes a published plan over one expanded occurrence plan.</summary>
             internal CompiledEventTreePlan(EventTreeOccurrencePlan occurrences)
             {
                 Occurrences = occurrences;
             }
 
+            /// <summary>The immutable expanded occurrence plan.</summary>
             internal EventTreeOccurrencePlan Occurrences { get; }
         }
 
@@ -1195,6 +1206,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
         /// </summary>
         private sealed class CompiledBranchPlan
         {
+            /// <summary>Initializes the immutable branch addressing over an expanded plan.</summary>
             internal CompiledBranchPlan(EventTreeOccurrencePlan occurrences,
                 IReadOnlyList<BranchBinding> bindings)
             {
@@ -1216,12 +1228,16 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                     branchIndexByPath);
             }
 
+            /// <summary>The expanded occurrence plan the addresses were prepared from.</summary>
             internal EventTreeOccurrencePlan Occurrences { get; }
 
+            /// <summary>The immutable branch bindings in output-port order.</summary>
             internal IReadOnlyList<BranchBinding> Bindings { get; }
 
+            /// <summary>Maps each modeled occurrence's canonical path to its binding index.</summary>
             internal IReadOnlyDictionary<string, int> BranchIndexByPath { get; }
 
+            /// <summary>The index of the implicit (unmodeled) branch binding.</summary>
             internal int ImplicitBranchIndex { get; }
 
             /// <summary>Creates descriptors with current metadata over immutable addresses.</summary>
@@ -1237,20 +1253,24 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
         /// <summary>One realization-sampling binding keyed by canonical occurrence path.</summary>
         private sealed class SamplingBinding
         {
+            /// <summary>Initializes a realization-sampling binding.</summary>
             internal SamplingBinding(int localDimension, IResponseFunction? responseFunction)
             {
                 LocalDimension = localDimension;
                 ResponseFunction = responseFunction;
             }
 
+            /// <summary>The tree-local knowledge dimension backing an uncertain-tabular percentile lookup.</summary>
             internal int LocalDimension { get; }
 
+            /// <summary>The referenced response function, or null for non-response sources.</summary>
             internal IResponseFunction? ResponseFunction { get; }
         }
 
         /// <summary>Associates one expanded terminal occurrence with its public branch descriptor.</summary>
         private sealed class BranchBinding
         {
+            /// <summary>Initializes a branch binding.</summary>
             internal BranchBinding(EventTreeOccurrenceNode? occurrence, Guid branchId,
                 int outputPort)
             {
@@ -1259,10 +1279,13 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                 OutputPort = outputPort;
             }
 
+            /// <summary>The expanded terminal occurrence, or null for the implicit unmodeled branch.</summary>
             internal EventTreeOccurrenceNode? Occurrence { get; }
 
+            /// <summary>The stable public branch identity.</summary>
             internal Guid BranchId { get; }
 
+            /// <summary>The graph output port reserved for the branch.</summary>
             internal int OutputPort { get; }
 
             /// <summary>Creates a descriptor with the current compute-inert display name.</summary>

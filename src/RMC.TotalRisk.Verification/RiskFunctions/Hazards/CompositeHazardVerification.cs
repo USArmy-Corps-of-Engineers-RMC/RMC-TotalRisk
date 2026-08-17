@@ -496,19 +496,17 @@ public class CompositeHazardVerification
     /// <remarks>
     /// <para>
     /// The "second instance" here is a serialization round-trip of the first rather than a second
-    /// independently estimated composite, and that is deliberate. <b>Upstream history:</b>
-    /// two separate <c>Estimate()</c> calls on a parametric child with identical inputs and an
-    /// identical <c>PRNGSeed</c> once did <i>not</i> produce a bit-identical posterior — the
-    /// Numerics <c>BootstrapAnalysis</c> summary assembly used a parallel, order-nondeterministic
-    /// reduction. The estimated posterior is serialized content, so a composite over freshly
-    /// estimated parametric children inherited that instability in its canonical hash.
+    /// independently estimated composite, and that is deliberate: round-tripping carries the
+    /// estimated posterior verbatim, which is exactly what a stored project does, so it isolates
+    /// the composite's own contract from the estimation path.
     /// </para>
     /// <para>
-    /// The upstream reduction now sums over a fixed chunk count, and
-    /// <see cref="Test_UpstreamEstimation_IsBitReproducible"/> pins the repaired behavior. This
-    /// test keeps the round-trip form deliberately: round-tripping carries the posterior
-    /// verbatim, which is exactly what a stored project does, so it isolates the composite's
-    /// own contract from the estimation path.
+    /// Estimation-path bit-reproducibility is a separate contract with its own pin. The estimated
+    /// posterior is serialized content, so any order-nondeterminism in the Numerics
+    /// <c>BootstrapAnalysis</c> summary reductions would surface as an unstable canonical hash on
+    /// a composite over freshly estimated parametric children;
+    /// <see cref="Test_UpstreamEstimation_IsBitReproducible"/> pins that two <c>Estimate()</c>
+    /// calls at identical inputs and <c>PRNGSeed</c> are bit-identical.
     /// </para>
     /// </remarks>
     [TestMethod]

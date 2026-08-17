@@ -122,8 +122,9 @@ namespace RMC.TotalRisk.RiskFunctions
         /// <see cref="ArgumentOutOfRangeException"/> once the index passes it. Composites make that
         /// mismatch far easier to hit — one 10,000-realization parametric child alongside a tabular
         /// child that samples happily at a million. Failing at setup with both counts named beats
-        /// failing deep inside a realization loop. The check is scoped to composites for now;
-        /// generalizing it to <c>SystemComponent.SetupSamplers</c> is a follow-on.
+        /// failing deep inside a realization loop. The check is scoped to composites, where the
+        /// mismatch is easiest to construct; <c>SystemComponent.SetupSamplers</c> performs no
+        /// equivalent check.
         /// </remarks>
         internal static void ThrowIfPosteriorCapacityTooSmall(IRiskFunction child, int sampleSize, string ownerName)
         {

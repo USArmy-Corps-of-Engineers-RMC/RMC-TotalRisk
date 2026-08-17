@@ -33,7 +33,7 @@ namespace RMC.TotalRisk.Core
     /// labels describe the axes, not the math.
     /// <b>Stripped (UI-envelope, defensive):</b> <c>NameOnDisk</c>, <c>Guid</c>, <c>LeftPosition</c>,
     /// <c>TopPosition</c>, <c>ChartSettings</c> — the model library never writes these, but the
-    /// future UI layer wraps model XML in project-tree envelopes; stripping them here guarantees a
+    /// consuming UI layer wraps model XML in project-tree envelopes; stripping them here guarantees a
     /// UI-wrapped form still hashes to the same content (the v1.0 canvas-position seed bug can
     /// never return).
     /// <b>Stripped (options convenience):</b> <c>UseDefaults</c> — records who wrote the analysis

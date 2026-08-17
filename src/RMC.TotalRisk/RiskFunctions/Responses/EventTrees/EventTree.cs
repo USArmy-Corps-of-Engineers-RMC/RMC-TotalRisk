@@ -16,6 +16,12 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
     /// A controlled event-tree node collection. Public views are read-only and every structural
     /// mutation is validated before the authored graph changes.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    ///     <b>Authors:</b>
+    ///     Haden Smith, USACE Risk Management Center, cole.h.smith@usace.army.mil
+    /// </para>
+    /// </remarks>
     public sealed partial class EventTree
     {
         /// <summary>Initializes an event tree with one initiating root.</summary>

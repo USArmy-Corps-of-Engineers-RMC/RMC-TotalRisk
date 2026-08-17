@@ -8,6 +8,12 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.Trees
     /// One sampled branching response: a common ascending hazard axis and a probability curve for
     /// every modeled end state. Branch probabilities form an exhaustive partition at each hazard.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    ///     <b>Authors:</b>
+    ///     Haden Smith, USACE Risk Management Center, cole.h.smith@usace.army.mil
+    /// </para>
+    /// </remarks>
     public sealed class ResponseBranchSample
     {
         /// <summary>The absolute tolerance used to validate the exhaustive branch sum.</summary>

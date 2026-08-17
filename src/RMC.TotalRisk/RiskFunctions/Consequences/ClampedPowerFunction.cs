@@ -21,8 +21,8 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
     /// a wrapper over <see cref="PowerFunction"/> deliberately: that class has no upper-bound
     /// clamp, returns an epsilon-offset value at the location parameter instead of an exact
     /// zero, and its multiplicative residual keyed to <see cref="ConfidenceLevel"/> is the wrong
-    /// uncertainty shape for realized coefficients. If a future upstream Numerics
-    /// <c>CompositeFunction</c> expansion covers this shape, this form is a candidate to
+    /// uncertainty shape for realized coefficients. Should an upstream Numerics
+    /// <c>CompositeFunction</c> expansion cover this shape, this form is a candidate to
     /// fold into the Numerics functions namespace alongside it.
     /// </para>
     /// <para>

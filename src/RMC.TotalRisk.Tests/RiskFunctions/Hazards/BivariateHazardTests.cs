@@ -689,7 +689,7 @@ public class BivariateHazardTests
     }
 
     /// <summary>
-    /// <see cref="BivariateHazard.SampleBivariate"/> requires sampler setup, and a bin-count edit
+    /// <see cref="BivariateHazard.SampleBivariate(int)"/> requires sampler setup, and a bin-count edit
     /// invalidates the previous setup so the snapshot geometry can never disagree with the
     /// configured count.
     /// </summary>

@@ -11,7 +11,7 @@ namespace RMC.TotalRisk.Core.Enums
     /// <para>
     /// Ported from v1.0 <c>RiskAnalysis.FailureModeMethod</c> with member names and declared order
     /// preserved — the names are serialized contract. The Monte Carlo combination math itself is
-    /// the risk engine's concern (v1.0 <c>SampledComponent</c>; ported with the engine phase):
+    /// the risk engine's concern (<c>SampledComponent</c>, as in v1.0):
     /// joint failures draw correlated latent normals per the component's
     /// <see cref="DependencyType"/>, competing failures use the cumulative-incidence treatment,
     /// and the common-cause and mutually-exclusive methods select at most one mode per

@@ -11,9 +11,15 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.Trees
     /// fragment; every pasted node receives a fresh persistent identifier.
     /// </summary>
     /// <remarks>
+    /// <para>
+    ///     <b>Authors:</b>
+    ///     Haden Smith, USACE Risk Management Center, cole.h.smith@usace.army.mil
+    /// </para>
+    /// <para>
     /// A fragment is an authoring artifact rather than a serializable model definition. External
     /// function references remain live references, while the fragment's owned node content is
     /// snapshotted at copy time.
+    /// </para>
     /// </remarks>
     public sealed class TreeFragment
     {

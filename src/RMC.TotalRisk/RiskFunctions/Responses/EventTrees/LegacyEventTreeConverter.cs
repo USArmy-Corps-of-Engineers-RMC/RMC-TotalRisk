@@ -16,6 +16,12 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
     /// explicit v1.1 node-and-edge representation. The converter is deliberately an import-only
     /// boundary; no legacy discriminator or wrapper enters the runtime model or current writer.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    ///     <b>Authors:</b>
+    ///     Haden Smith, USACE Risk Management Center, cole.h.smith@usace.army.mil
+    /// </para>
+    /// </remarks>
     internal static class LegacyEventTreeConverter
     {
         /// <summary>The exact recursive element name used by the legacy reader and writer.</summary>
@@ -354,7 +360,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                     "SecondaryHazardNode is excluded by the event-tree design");
             if (string.Equals(type, "WeightedHazardLevel", StringComparison.Ordinal))
                 throw MigrationError(path,
-                    "WeightedHazardLevel belongs to the future bivariate-response capability and cannot be loaded as an event-tree node");
+                    "WeightedHazardLevel is a bivariate-response construct and cannot be loaded as an event-tree node");
         }
 
         /// <summary>Reads a persistent node id, accepting both legacy casing variants.</summary>

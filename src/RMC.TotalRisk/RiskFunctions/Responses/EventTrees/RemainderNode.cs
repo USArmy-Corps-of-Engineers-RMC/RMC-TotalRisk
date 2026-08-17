@@ -6,6 +6,12 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
     /// The residual sibling branch whose probability is one minus the normalized explicit sibling
     /// total. At most one remainder may exist under a parent.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    ///     <b>Authors:</b>
+    ///     Haden Smith, USACE Risk Management Center, cole.h.smith@usace.army.mil
+    /// </para>
+    /// </remarks>
     public sealed class RemainderNode : EventNodeBase
     {
         /// <summary>Initializes a remainder node.</summary>

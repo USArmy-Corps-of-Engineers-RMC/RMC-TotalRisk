@@ -16,6 +16,12 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.Trees
     /// The discriminated conditional-probability value of a tree probability node: a fixed
     /// scalar, an uncertain table aligned to the owning tree hazards, or a referenced response.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    ///     <b>Authors:</b>
+    ///     Haden Smith, USACE Risk Management Center, cole.h.smith@usace.army.mil
+    /// </para>
+    /// </remarks>
     public sealed class ProbabilitySource
     {
         /// <summary>Initializes a deterministic scalar source.</summary>

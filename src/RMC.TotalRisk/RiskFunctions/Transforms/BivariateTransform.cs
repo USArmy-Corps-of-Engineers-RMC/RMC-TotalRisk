@@ -260,7 +260,7 @@ namespace RMC.TotalRisk.RiskFunctions.Transforms
         public override TransformFunctionType FunctionType => TransformFunctionType.Bivariate;
 
         /// <inheritdoc/>
-        /// <remarks>Always true — the surface carries no knowledge uncertainty in this phase.</remarks>
+        /// <remarks>Always true — the surface carries no knowledge uncertainty.</remarks>
         public override bool IsDeterministic => true;
 
         /// <inheritdoc/>

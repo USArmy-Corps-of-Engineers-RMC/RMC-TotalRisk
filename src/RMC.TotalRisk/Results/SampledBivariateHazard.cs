@@ -23,7 +23,7 @@ namespace RMC.TotalRisk.Results
     /// snapshots — they are realization-independent, precomputed once per sampler setup.
     /// </para>
     /// <para>
-    /// The discretization (docs/requirements/BIVARIATE_RISK_DESIGN.md, decision 7): N bins produce
+    /// The discretization (docs/requirements/BIVARIATE_RISK_DESIGN.md): N bins produce
     /// N + 1 nodes t_j = j/N uniform on [0, 1] in CONDITIONAL-probability space, with the endpoint
     /// nodes clamped to [1e-16, 1 − 1e-16] for inverse evaluations (the engine's probability floor,
     /// keeping y finite for unbounded marginals); y_j inverts the copula's conditional distribution

@@ -28,8 +28,9 @@ namespace RMC.TotalRisk.Systems.Components
     /// (deliberately preserving the legacy fan-out semantics). Classification
     /// is final-stage polarity (§7.9.2): Fail-final modes are failure states; Non-Fail-final
     /// modes are claimed non-failure states that ride the complement. Chain-authored modes carry
-    /// no ordinals and behave as standalone Fail-final units — every pre-cascade model produces
-    /// the trivial layout, whose combination kernels are byte-for-byte the pre-cascade paths.
+    /// no ordinals and behave as standalone Fail-final units — every non-cascading model produces
+    /// the trivial layout, whose combination kernels reduce byte-for-byte to the plain per-mode
+    /// paths.
     /// </para>
     /// <para>
     /// Public because consuming layers legitimately need the same structure the engine combines
@@ -52,7 +53,7 @@ namespace RMC.TotalRisk.Systems.Components
         /// <param name="claimedStateCount">The number of claimed non-failure states in the layout.</param>
         /// <param name="claimingCascadeCount">The number of cascades carrying claimed states.</param>
         /// <param name="hasNonFailBranchFailureState">Whether any failure state rides a Non-Fail branch.</param>
-        /// <param name="isTrivial">Whether the layout is the trivial pre-cascade shape.</param>
+        /// <param name="isTrivial">Whether the layout is trivial (every state a standalone Fail-final unit).</param>
         private EndStateGroupLayout(int[] stateToCombinationUnit, int[][] combinationUnitStates,
             bool[] isFailureState, int[] pairingPartnerState, int[] claimedStateUnit,
             int claimedStateCount, int claimingCascadeCount, bool hasNonFailBranchFailureState, bool isTrivial)
@@ -272,7 +273,7 @@ namespace RMC.TotalRisk.Systems.Components
         /// The number of combination units — the entities the failure-mode combination method
         /// operates over: exclusive state groups plus standalone failure states. This is the
         /// dimension of the combination caches, the multivariate normal, and the correlation
-        /// matrix. Equals the failure-path count for every pre-cascade layout.
+        /// matrix. Equals the failure-path count when the layout is trivial.
         /// </summary>
         public int CombinationUnitCount => CombinationUnitStates.Length;
 
@@ -330,10 +331,10 @@ namespace RMC.TotalRisk.Systems.Components
         public bool HasNonFailBranchFailureState { get; }
 
         /// <summary>
-        /// Whether the layout is the trivial pre-cascade shape: every state is a standalone
-        /// Fail-final unit
-        /// (all pre-cascade models, chain-authored modes, and legacy same-branch fan-out). The
-        /// combination kernels take the byte-identical pre-cascade paths under a trivial layout.
+        /// Whether the layout is trivial: every state is a standalone Fail-final unit
+        /// (chain-authored modes and legacy same-branch fan-out — every non-cascading model).
+        /// The combination kernels reduce byte-identically to the plain per-mode paths under a
+        /// trivial layout.
         /// </summary>
         public bool IsTrivial { get; }
 

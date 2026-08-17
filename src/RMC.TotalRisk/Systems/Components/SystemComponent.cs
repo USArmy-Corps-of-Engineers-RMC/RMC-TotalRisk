@@ -1070,7 +1070,7 @@ namespace RMC.TotalRisk.Systems.Components
                 // Within a combination unit the exclusive states' branch entries ADD; across
                 // units they MULTIPLY. Claimed non-failure states record
                 // complement entries, so they ride the additive bound. Both reduce to the
-                // pre-cascade per-mode arithmetic under a trivial layout.
+                // plain per-mode arithmetic under a trivial layout.
                 long perModeBound = 0;
                 for (int s = 0; s < stateModes.Count; s++)
                 {
@@ -1939,8 +1939,8 @@ namespace RMC.TotalRisk.Systems.Components
         /// The failure-mode combination dimension: the number of combination units in the
         /// current end-state layout — exclusive state groups plus standalone
         /// failure states, driving the combination caches, the multivariate normal, and the
-        /// correlation-matrix dimension. Equals the v1.0 failure-path count for every
-        /// pre-cascade layout. Built fresh from the projection (the engine's per-realization reads hit the
+        /// correlation-matrix dimension. Equals the v1.0 failure-path count when the layout is
+        /// trivial. Built fresh from the projection (the engine's per-realization reads hit the
         /// count-keyed caches above, so the rebuild cost is a per-realization structural walk at
         /// component scale — the projection's documented cost profile).
         /// </summary>
@@ -1967,7 +1967,7 @@ namespace RMC.TotalRisk.Systems.Components
         /// automatic modes the derived matrix is written back to the correlation-matrix field
         /// (v1.0 behavior); it never serializes from those modes.
         /// </summary>
-        /// <param name="dimension">The combination-unit count D (the failure-path count for pre-cascade layouts).</param>
+        /// <param name="dimension">The combination-unit count D (the failure-path count under a trivial layout).</param>
         private void UpdateMultivariateNormal(int dimension)
         {
             _mvnForCount = dimension;

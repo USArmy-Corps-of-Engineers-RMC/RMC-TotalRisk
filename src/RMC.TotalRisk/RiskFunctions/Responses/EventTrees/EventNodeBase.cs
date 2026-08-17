@@ -10,6 +10,12 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
     /// intentionally separate from the compute-relevant node kind, probability, and terminal
     /// classification.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    ///     <b>Authors:</b>
+    ///     Haden Smith, USACE Risk Management Center, cole.h.smith@usace.army.mil
+    /// </para>
+    /// </remarks>
     public abstract class EventNodeBase : INotifyPropertyChanged
     {
         /// <summary>Initializes a new event node.</summary>

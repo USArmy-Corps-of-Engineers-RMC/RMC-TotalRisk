@@ -13,6 +13,12 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
     /// Immutable expanded event-tree occurrence plan. Authored link nodes are retained in the
     /// projected identity and occurrence paths but resolved to their target subtrees for compute.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    ///     <b>Authors:</b>
+    ///     Haden Smith, USACE Risk Management Center, cole.h.smith@usace.army.mil
+    /// </para>
+    /// </remarks>
     internal sealed class EventTreeOccurrencePlan
     {
         /// <summary>Initializes a completed occurrence plan.</summary>
@@ -400,6 +406,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
     /// <summary>One effective node occurrence in an expanded event-tree plan.</summary>
     internal sealed class EventTreeOccurrenceNode
     {
+        /// <summary>Initializes an expanded occurrence node.</summary>
         internal EventTreeOccurrenceNode(EventTreeResponse sourceFunction, EventNodeBase sourceNode,
             IReadOnlyList<EventTreeOccurrenceNode> children, XElement identity, bool isLinkedOccurrence,
             bool isFailure, EventNodeBase displayNode, string persistencePath,

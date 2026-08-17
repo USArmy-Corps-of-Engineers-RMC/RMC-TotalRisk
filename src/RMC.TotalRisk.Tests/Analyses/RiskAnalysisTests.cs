@@ -270,7 +270,7 @@ public class RiskAnalysisTests
     }
 
     /// <summary>
-    /// Verifies a wide joint component is no longer rejected by a dense-matrix limit and instead
+    /// Verifies a wide joint component is not rejected by any dense-matrix limit and instead
     /// reports the lazy buffer range and combinatorial slow-convergence warning.
     /// </summary>
     [TestMethod]

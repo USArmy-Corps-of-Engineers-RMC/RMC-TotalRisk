@@ -66,7 +66,7 @@ namespace RMC.TotalRisk.RiskFunctions.Hazards
     /// recomputed on load, so the canonical-hash identity surface is exactly the user-specified
     /// content — v1.0 persisted the derived table too, but its own load path already re-derived
     /// before overwriting, so the stored copy only ever mattered when it diverged from the
-    /// algorithm. The standard caveat applies: a future change to the derivation moves loaded
+    /// algorithm. The standard caveat applies: a change to the derivation moves loaded
     /// results without moving hashes (a documented re-pin event, the <c>ForceMonotonic</c>
     /// precedent). Beyond the §5.5.3 summary row, <see cref="ExtrapolationEP"/> and
     /// <see cref="IsUncertain"/> are serialized and hashed — both are compute-relevant.

@@ -15,6 +15,12 @@ using RMC.TotalRisk.RiskFunctions.Responses.Trees;
 namespace RMC.TotalRisk.Verification.RiskFunctions.Responses;
 
 /// <summary>Legacy-conversion and shipped-template cases in the event-tree family.</summary>
+/// <remarks>
+/// <para>
+///     <b>Authors:</b>
+///     Haden Smith, USACE Risk Management Center, cole.h.smith@usace.army.mil
+/// </para>
+/// </remarks>
 public partial class EventTreeVerification
 {
     /// <summary>Converts the exact legacy TestIO Basic shape and asserts every terminal analytically.</summary>

@@ -20,8 +20,9 @@ namespace RMC.TotalRisk.Core.Interfaces
     /// <para>
     /// The marginals are typed <see cref="IHazardFunction"/> rather than
     /// <see cref="IUnivariateHazardFunction"/> deliberately: univariateness is enforced by
-    /// <see cref="IRiskFunction.Validate"/> today, so a future phase can admit a bivariate
-    /// marginal (a nested/vine dependence structure) without a contract or serialization break.
+    /// <see cref="IRiskFunction.Validate"/>, not by the type system, so admitting a bivariate
+    /// marginal (a nested/vine dependence structure) would require no contract or serialization
+    /// break.
     /// The copula convention throughout is that (u, v) are NON-exceedance marginal probabilities:
     /// upper-tail dependence in (u, v) is joint extreme-hazard dependence, and an exceedance
     /// probability p converts as u = 1 − p.
@@ -141,7 +142,7 @@ namespace RMC.TotalRisk.Core.Interfaces
         /// Evaluates the conditional secondary discretization at a primary hazard level for one
         /// realization, returning the (Y, Weight) node list with weights summing to one. A
         /// convenience for diagnostics, oracles, and consuming-layer previews only — it allocates
-        /// per call; the engine path is <see cref="SampleBivariate"/> +
+        /// per call; the engine path is the <see cref="SampleBivariate(int)"/> overloads +
         /// <see cref="SampledBivariateHazard.FillConditionalBins"/> over caller-owned buffers.
         /// </summary>
         /// <param name="realizationIndex">The realization index in [0, sample size).</param>

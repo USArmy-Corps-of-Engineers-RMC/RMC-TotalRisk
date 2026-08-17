@@ -2,7 +2,7 @@ namespace RMC.TotalRisk.Core.Enums
 {
     /// <summary>
     /// Identifies which output of a hazard function a binding consumes: the primary hazard
-    /// dimension, or the secondary dimension a future bivariate hazard exposes.
+    /// dimension, or the secondary dimension a bivariate hazard exposes.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -12,10 +12,9 @@ namespace RMC.TotalRisk.Core.Enums
     /// <para>
     /// Dimensional binding (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §6.5). The numeric
     /// values are explicit because they double as output-port indices on graph elements: a
-    /// univariate hazard exposes only port 0 (<see cref="Primary"/>); a future bivariate hazard
-    /// additionally exposes port 1 (<see cref="Secondary"/>). Defining the enum before bivariate
-    /// hazards exist keeps the serialized binding shape stable when bivariate hazard functions
-    /// arrive — no attribute or value changes, only new function types.
+    /// univariate hazard exposes only port 0 (<see cref="Primary"/>); a bivariate hazard
+    /// additionally exposes port 1 (<see cref="Secondary"/>). The values are serialized binding
+    /// contract — append-only, never renumbered.
     /// </para>
     /// </remarks>
     public enum HazardDimension
@@ -27,7 +26,7 @@ namespace RMC.TotalRisk.Core.Enums
         Primary = 0,
 
         /// <summary>
-        /// The secondary hazard dimension — output port 1; exposed only by future bivariate
+        /// The secondary hazard dimension — output port 1; exposed only by bivariate
         /// hazards.
         /// </summary>
         Secondary = 1,

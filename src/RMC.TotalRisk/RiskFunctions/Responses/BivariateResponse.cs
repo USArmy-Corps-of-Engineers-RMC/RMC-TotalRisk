@@ -33,7 +33,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
     /// with last-bin residual absorption in both directions, the
     /// <see cref="EmpiricalDistribution"/> wrapper carrying both interpolation transforms, and
     /// the legacy XML payload shape (<c>PrimaryHazardLevels</c>, <c>WeightedHazardLevel</c>
-    /// children, <c>Probability_Row</c> rows) so a future project importer lifts legacy payloads
+    /// children, <c>Probability_Row</c> rows) so a project importer can lift legacy payloads
     /// verbatim. <see cref="MinProbability"/>/<see cref="MaxProbability"/> report the collapsed
     /// curve's FIRST and LAST ordinates (v1.0 semantics), not its extrema.
     /// </para>
@@ -741,7 +741,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
         /// The v1.1 attribute envelope over the LEGACY inner payload shape — pipe-joined "G17"
         /// <c>PrimaryHazardLevels</c>, <c>WeightedHazardLevel</c> children, and
         /// <c>ProbabilityValues</c> with <c>Probability_Row</c> rows (these cells ARE
-        /// probabilities) — kept deliberately so a future project importer lifts legacy payloads
+        /// probabilities) — kept deliberately so a project importer can lift legacy payloads
         /// verbatim. The link attributes are written from the live function when resolved, from
         /// the retained pending reference when not, and omitted when no link was ever stored.
         /// Unlike v1.0, the surface is written at its stored shape even when it disagrees with

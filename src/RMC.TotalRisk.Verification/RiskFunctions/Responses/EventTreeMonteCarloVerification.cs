@@ -25,6 +25,12 @@ namespace RMC.TotalRisk.Verification.RiskFunctions.Responses;
 /// Latin-hypercube variance reduction, and end-to-end thread-count reproducibility for expanded
 /// per-leaf graph outputs.
 /// </summary>
+/// <remarks>
+/// <para>
+///     <b>Authors:</b>
+///     Haden Smith, USACE Risk Management Center, cole.h.smith@usace.army.mil
+/// </para>
+/// </remarks>
 public partial class EventTreeVerification
 {
     /// <summary>The independent routing-oracle sample size.</summary>

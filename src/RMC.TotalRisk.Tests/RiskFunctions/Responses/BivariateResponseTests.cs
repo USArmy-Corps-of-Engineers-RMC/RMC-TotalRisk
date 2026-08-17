@@ -1664,7 +1664,7 @@ public class BivariateResponseTests
     }
 
     /// <summary>
-    /// THE decision-12 hash pin: the linked hazard's CONTENT never enters the response's hash —
+    /// THE provenance-link hash pin: the linked hazard's CONTENT never enters the response's hash —
     /// editing the linked hazard re-rolls nothing until weights are explicitly re-estimated.
     /// </summary>
     [TestMethod]

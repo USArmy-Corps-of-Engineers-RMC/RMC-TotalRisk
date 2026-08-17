@@ -167,6 +167,55 @@ foreach ($file in $documentedMemberFiles) {
     }
 }
 
+# The Authors attribution block is required in every type-bearing library and Verification
+# source file (test classes are exempt by policy; CLAUDE.md "Critical Quality Standards").
+# Its absence fails the same mandatory gate as the rest of the documentation standard.
+$authorsRequiredFiles = @($sourceFiles | Where-Object {
+    $relative = Get-RelativePath $_.FullName
+    ($relative.StartsWith("src/RMC.TotalRisk/", [System.StringComparison]::OrdinalIgnoreCase) -or
+        $relative.StartsWith("src/RMC.TotalRisk.Verification/", [System.StringComparison]::OrdinalIgnoreCase)) -and
+        $_.Name -notmatch '(AssemblyInfo|MSTestSettings|GlobalUsings)'
+})
+foreach ($file in $authorsRequiredFiles) {
+    $lines = [System.IO.File]::ReadAllLines($file.FullName)
+    $hasTypeDeclaration = $false
+    foreach ($line in $lines) {
+        if ($typeDeclaration.IsMatch($line)) {
+            $hasTypeDeclaration = $true
+            break
+        }
+    }
+    if ($hasTypeDeclaration -and -not ($lines | Where-Object { $_.Contains("Authors:") })) {
+        $relative = Get-RelativePath $file.FullName
+        Add-Failure "${relative} is missing the required Authors block in its type-level <remarks>."
+    }
+}
+
+# Phase and process language is confined to the planning docs (CLAUDE.md): phase numbers,
+# ratification narration, decision numbers, landing narration, planning-doc references, and
+# retired internal history vocabulary must not appear in source files. Comments describe the
+# software as it is.
+$processLanguagePatterns = @(
+    @{ Pattern = '(?i)\bphase\s+[0-9]'; Reason = "a phase number" },
+    @{ Pattern = '(?i)\bratified\b'; Reason = "ratification narration" },
+    @{ Pattern = '(?i)\bdecision[- ][0-9]'; Reason = "a design-decision number" },
+    @{ Pattern = '(?i)pre-cascade'; Reason = "retired internal history vocabulary (pre-cascade)" },
+    @{ Pattern = '(?i)\blanded\b'; Reason = "landing narration" },
+    @{ Pattern = 'ROADMAP\.md|PROGRESS\.md'; Reason = "a planning-doc reference" }
+)
+foreach ($file in $sourceFiles) {
+    $lines = [System.IO.File]::ReadAllLines($file.FullName)
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        foreach ($entry in $processLanguagePatterns) {
+            if ($lines[$i] -match $entry.Pattern) {
+                $relative = Get-RelativePath $file.FullName
+                Add-Failure "${relative}:$($i + 1) contains $($entry.Reason); phase and process language lives only in the planning docs."
+                break
+            }
+        }
+    }
+}
+
 $traceabilityValidator = Join-Path $PSScriptRoot "validate-verification-traceability.ps1"
 try {
     & $traceabilityValidator
@@ -213,4 +262,4 @@ if ($failures.Count -gt 0) {
     exit 1
 }
 
-Write-Host "Code namespace, public-class test coverage, and XML documentation validation passed."
+Write-Host "Code namespace, public-class test coverage, XML documentation, Authors-block, and process-language validation passed."

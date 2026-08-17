@@ -254,8 +254,8 @@ public class SampledFailureModeTests
     }
 
     /// <summary>
-    /// Verifies the consequence-input fold spans every stage's transforms (the cascade fix —
-    /// the pre-cascade fold truncated the bound at stage 0's transform count): position 2 folds
+    /// Verifies the consequence-input fold spans every stage's transforms (a fold truncated at
+    /// stage 0's transform count would miss the later stages): position 2 folds
     /// stage 0's and stage 1's transforms in chain order.
     /// </summary>
     [TestMethod]

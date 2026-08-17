@@ -21,8 +21,7 @@ namespace RMC.TotalRisk.Results
     /// limitation: <see cref="ExcessConsequences"/> entries are computed against the
     /// branch-weighted mean non-failure consequence — the recorded curves carry the exact
     /// failure/non-failure branch pairs, but the list surface collapses the non-failure spread
-    /// (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §7.8; lifting this is tracked as
-    /// future work).
+    /// (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §7.8).
     /// </para>
     /// </remarks>
     public class ComponentRiskOutput

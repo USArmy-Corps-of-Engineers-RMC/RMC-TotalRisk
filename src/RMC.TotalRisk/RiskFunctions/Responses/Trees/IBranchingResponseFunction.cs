@@ -4,6 +4,12 @@ using RMC.TotalRisk.Core.Interfaces;
 namespace RMC.TotalRisk.RiskFunctions.Responses.Trees
 {
     /// <summary>A response function that exposes its mutually exclusive modeled end states.</summary>
+    /// <remarks>
+    /// <para>
+    ///     <b>Authors:</b>
+    ///     Haden Smith, USACE Risk Management Center, cole.h.smith@usace.army.mil
+    /// </para>
+    /// </remarks>
     public interface IBranchingResponseFunction : IResponseFunction
     {
         /// <summary>Gets the stable modeled branch descriptors.</summary>

@@ -408,7 +408,7 @@ namespace RMC.TotalRisk.RiskFunctions.Hazards
         /// Imports an externally fitted posterior instead of bootstrapping: the parameter sets
         /// become the posterior ensemble, <see cref="Realizations"/> aligns to the ensemble size,
         /// and the mean/confidence curves are computed from the ensemble at
-        /// <see cref="ProbabilityOrdinates"/>. The importer layer (future UI) reduces RMC-BestFit
+        /// <see cref="ProbabilityOrdinates"/>. The importer layer (the consuming UI) reduces RMC-BestFit
         /// univariate, Bulletin 17C, and point-process fits to exactly this input.
         /// </summary>
         /// <param name="parameterSets">The posterior parameter sets for <see cref="ParentDistribution"/>.</param>

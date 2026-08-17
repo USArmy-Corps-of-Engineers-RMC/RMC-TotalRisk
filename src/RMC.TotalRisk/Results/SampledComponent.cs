@@ -144,7 +144,7 @@ namespace RMC.TotalRisk.Results
 
             // Resolve each end state's projected pairing partner (§7.9.4): the
             // flipped-final sibling terminal when wired, else the background non-failure mode
-            // (v1.0 parity — every pre-cascade layout resolves to the background). State indexes
+            // (v1.0 parity — every trivial layout resolves to the background). State indexes
             // count the non-background modes in projection order — the layout's index space.
             var stateProjected = new List<FailureMode>(projectedModes.Count);
             for (int i = 0; i < projectedModes.Count; i++)
@@ -306,7 +306,7 @@ namespace RMC.TotalRisk.Results
                 // mass sums its exclusive members' polarity-product weights (validation admits
                 // only all-Fail signatures under competing, so every mass is monotone and the
                 // ascending curve construction holds — §7.9.6). A singleton unit's sum
-                // reproduces the pre-cascade per-mode value bit-identically.
+                // reproduces the plain per-mode value bit-identically.
                 int unitCount = _layout.CombinationUnitCount;
                 var distributions = new EmpiricalDistribution[unitCount];
                 var responseValues = new List<double>[unitCount];
@@ -421,7 +421,7 @@ namespace RMC.TotalRisk.Results
         /// <summary>
         /// The frozen end-state group layout over the states: combination
         /// units, failure/claimed classification, and pairing partners. Trivial for every
-        /// pre-cascade model, where the kernels reduce to the pre-cascade arithmetic.
+        /// non-cascading model, where the kernels reduce to the plain per-mode arithmetic.
         /// </summary>
         private readonly EndStateGroupLayout _layout;
 
@@ -784,7 +784,7 @@ namespace RMC.TotalRisk.Results
             // every consequence kernel. The methods operate over the combination
             // units: a unit's failure mass is the exact sum of its exclusive members'
             // weights, and the adjusted mass distributes back to the members conditionally. A
-            // trivial layout (every pre-cascade model) reduces every step to the pre-cascade
+            // trivial layout (every non-cascading model) reduces every step to the plain
             // per-mode arithmetic bit-identically (singleton sums add zero; the conditional
             // ratio is exactly one).
             List<double>? pathwayProbabilities = null;
@@ -942,7 +942,7 @@ namespace RMC.TotalRisk.Results
                 // plus each claimed state's q-scaled branches. The mixture drives the
                 // non-failure scalar, the joint excess pairs, and the complement recording —
                 // one distribution, three consumers. Without claimed states the baseline stays
-                // the raw background branches, bit-identical to the pre-cascade engine.
+                // the raw background branches, bit-identical to the claim-free path.
                 double[] pairWeights = nonFailWeights;
                 double[] pairValues = nonFailValues;
                 double remainderShare = 1d;
@@ -1108,7 +1108,7 @@ namespace RMC.TotalRisk.Results
                         totalValues.AddRange(failEntryValues);
 
                         // The complement recording consumes the pair baseline directly: the raw
-                        // background branches without claimed states (bit-identical pre-cascade
+                        // background branches without claimed states (bit-identical claim-free
                         // entries), the conditional mixture with them (§7.9.5).
                         var backgroundProbabilities = new List<double>(pairWeights.Length);
                         var backgroundValues = new List<double>(pairValues.Length);
@@ -1996,7 +1996,7 @@ namespace RMC.TotalRisk.Results
         /// weight (state branch mass / unit mass), so within a unit the exclusive states stay
         /// disjoint while across units the weights multiply; the combined consequence follows
         /// the joint-consequence rule, crossed with the component's non-failure branches for
-        /// the exact excess pairs. A singleton unit reproduces the pre-cascade per-mode arithmetic
+        /// the exact excess pairs. A singleton unit reproduces the plain per-mode arithmetic
         /// bit-identically. The pathway decomposition is supplied by the caller — it is
         /// type-independent and shared.
         /// </summary>

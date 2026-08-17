@@ -10,7 +10,7 @@ namespace RMC.TotalRisk.Core.Enums
     /// </para>
     /// <para>
     /// Ported from the v1.0 <c>CompositeHazard.IsMixture</c> / <c>CompositeResponse.IsMixture</c>
-    /// boolean, widened to an enum so a future combination rule (a convolution "sum of random
+    /// boolean, widened to an enum so an additional combination rule (a convolution "sum of random
     /// variables" mode, say) appends rather than breaks the serialized form. <see cref="Mixture"/>
     /// is the default, matching the v1.0 <c>IsMixture = true</c>.
     /// </para>

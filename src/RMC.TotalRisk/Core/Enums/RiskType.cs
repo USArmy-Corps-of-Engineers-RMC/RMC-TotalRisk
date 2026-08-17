@@ -14,8 +14,8 @@ namespace RMC.TotalRisk.Core.Enums
     /// preserved — the names are serialized contract. At a hazard level with per-mode failure
     /// probabilities and consequences, the v1.0 integrand (<c>SampledComponent</c>) computes:
     /// Fail = Σ pₖ·cFₖ; NonFail = (1 − Σ pₖ)·cNF; Total = Fail + NonFail;
-    /// Excess = Σ pₖ·(cFₖ − cNF); Background = cNF unconditionally. The engine phase ports that
-    /// math; this enumeration is the shared vocabulary for results and options.
+    /// Excess = Σ pₖ·(cFₖ − cNF); Background = cNF unconditionally. The v1.1 engine computes the
+    /// same streams; this enumeration is the shared vocabulary for results and options.
     /// </para>
     /// </remarks>
     public enum RiskType

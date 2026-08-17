@@ -9,6 +9,12 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
     /// Controlled fragment, replacement, materialization, pruning, reference-query, and
     /// transactional rollback operations for <see cref="EventTree"/>.
     /// </content>
+    /// <remarks>
+    /// <para>
+    ///     <b>Authors:</b>
+    ///     Haden Smith, USACE Risk Management Center, cole.h.smith@usace.army.mil
+    /// </para>
+    /// </remarks>
     public sealed partial class EventTree
     {
         /// <summary>Copies one authored subtree into an immutable in-memory fragment.</summary>

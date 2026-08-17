@@ -4,6 +4,12 @@ using RMC.TotalRisk.RiskFunctions.Responses.Trees;
 namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
 {
     /// <summary>An explicit conditional event-tree branch backed by a probability source.</summary>
+    /// <remarks>
+    /// <para>
+    ///     <b>Authors:</b>
+    ///     Haden Smith, USACE Risk Management Center, cole.h.smith@usace.army.mil
+    /// </para>
+    /// </remarks>
     public sealed class ChanceNode : EventNodeBase
     {
         /// <summary>Initializes a chance node.</summary>

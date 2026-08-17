@@ -15,9 +15,15 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
     /// the referenced authored subtree.
     /// </summary>
     /// <remarks>
+    /// <para>
+    ///     <b>Authors:</b>
+    ///     Haden Smith, USACE Risk Management Center, cole.h.smith@usace.army.mil
+    /// </para>
+    /// <para>
     /// Event trees support only <see cref="TreeLinkMode.IndependentClone"/>. Shared logical-event
     /// semantics are reserved for the static fault-tree response because event-tree branches are
     /// mutually exclusive outcomes rather than reusable Boolean variables.
+    /// </para>
     /// </remarks>
     public sealed class EventTreeLinkNode : EventNodeBase
     {

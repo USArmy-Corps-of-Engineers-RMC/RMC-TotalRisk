@@ -30,7 +30,7 @@ namespace RMC.TotalRisk.Core
     /// </para>
     /// <para>
     /// <see cref="INotifyPropertyChanged"/> is a passive contract: headless callers never
-    /// subscribe; the future UI layer data-binds to it.
+    /// subscribe; the consuming UI layer data-binds to it.
     /// </para>
     /// </remarks>
     public abstract class RiskFunctionBase : IRiskFunction
@@ -145,7 +145,7 @@ namespace RMC.TotalRisk.Core
 
         /// <summary>
         /// Occurs when a property of the function changes. Passive: headless callers never
-        /// subscribe; the future UI layer data-binds.
+        /// subscribe; the consuming UI layer data-binds.
         /// </summary>
         public event PropertyChangedEventHandler? PropertyChanged;
 

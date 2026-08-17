@@ -3,6 +3,12 @@ using System;
 namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
 {
     /// <summary>The single structural root of an <see cref="EventTree"/>.</summary>
+    /// <remarks>
+    /// <para>
+    ///     <b>Authors:</b>
+    ///     Haden Smith, USACE Risk Management Center, cole.h.smith@usace.army.mil
+    /// </para>
+    /// </remarks>
     public sealed class InitiatingNode : EventNodeBase
     {
         /// <summary>Initializes an initiating node.</summary>

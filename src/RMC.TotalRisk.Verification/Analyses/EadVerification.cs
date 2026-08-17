@@ -270,9 +270,9 @@ public class EadVerification
     /// <summary>
     /// The three-way pins: the oracle validates against the closed form at 4·SE, and both
     /// engine mappings reproduce the closed-form mean and standard deviation at 1e-5 relative.
-    /// The published means read the recorded risk-point masses, which are now the quadrature's
-    /// own weights rather than a midpoint-trapezoid partition over them, so the residual is the
-    /// adaptive refinement's rather than the partition's. Also pinned: the exceedance
+    /// The published means read the recorded risk-point masses — the quadrature's own accepted
+    /// weights, not a midpoint-trapezoid partition over them — so the residual is the
+    /// adaptive refinement's rather than a partition's. Also pinned: the exceedance
     /// ordinates at two off-knot probes, the value-at-risk (the knot damage at α = 0.01), and
     /// the conditional value-at-risk (0.1% relative floors absorb the output-curve
     /// interpolation).

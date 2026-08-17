@@ -61,7 +61,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         /// <remarks>
         /// The authoring entry point for graph editors: it removes the need for a caller to map
         /// function clusters onto element types itself, which is the mapping most likely to drift
-        /// as new clusters land.
+        /// as function types are added.
         /// </remarks>
         public static IRiskElement CreateForFunction(IRiskFunction function, string? name = null)
         {

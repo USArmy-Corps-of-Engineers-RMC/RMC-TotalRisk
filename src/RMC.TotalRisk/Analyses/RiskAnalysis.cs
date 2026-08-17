@@ -98,8 +98,10 @@ namespace RMC.TotalRisk.Analyses
     /// consistency while results identity depends only on compute-relevant content.
     /// </para>
     /// <para>
-    /// <b>Stage gates:</b> multi-stage response composition remains a validation error until the
-    /// event-tree phase, with the message naming the stage.
+    /// <b>Cascading response stages:</b> multi-stage response chains are legal. Each stage
+    /// carries a resolved branch polarity, the sampled compute multiplies the stage polarity
+    /// products, and end states classify by final polarity into combination units
+    /// (docs/technical-reference/cascading-end-states.md).
     /// </para>
     /// </remarks>
     public class RiskAnalysis : AnalysisBase
@@ -656,9 +658,7 @@ namespace RMC.TotalRisk.Analyses
         /// correlation-matrix dependency, or with a combination cross product beyond the
         /// guardrail; any failure or non-failure path that does not carry the declared
         /// consequence-type axis (count and order always; labels and units when both sides are
-        /// non-blank — risk mode only); any projected failure mode with more than one response
-        /// stage (multi-stage engine execution is future work); invalid options; and every
-        /// component's own errors,
+        /// non-blank — risk mode only); invalid options; and every component's own errors,
         /// aggregated with the component name. Component validation runs mode-aware: reliability
         /// relaxes exactly the consequence-content requirements. Advisory: components
         /// whose driving hazards disagree on non-blank axis labels warn — one analysis models one

@@ -14,10 +14,10 @@ namespace RMC.TotalRisk.Systems.Components.Graph
     /// </para>
     /// <para>
     /// Connections are stored on the consumer (fan-in is the bounded side of a risk graph: one
-    /// input everywhere, two typed inputs on a future bivariate response), and fan-out is derived
+    /// input everywhere, two typed inputs on a bivariate response), and fan-out is derived
     /// by the graph container. Rewiring replaces the connection object — the owning element
     /// property raises change notification. <see cref="SourcePort"/> is 0 for every univariate
-    /// output; a future bivariate hazard additionally exposes port 1
+    /// output; a bivariate hazard additionally exposes port 1
     /// (<c>HazardDimension.Secondary</c>). Links are object references in memory and are
     /// serialized dual Id + Name by the owning element (the Hydrologics pattern).
     /// </para>
@@ -50,6 +50,15 @@ namespace RMC.TotalRisk.Systems.Components.Graph
             source.RequireAvailableBranch(branch.Id);
         }
 
+        /// <summary>
+        /// Initializes a connection with an explicit port and optional stable branch identity.
+        /// </summary>
+        /// <param name="source">The upstream element whose output is consumed.</param>
+        /// <param name="sourcePort">The source output port.</param>
+        /// <param name="sourceBranchId">The stable branch id when the connection targets an expanded response branch; otherwise null.</param>
+        /// <param name="sourceBranchName">The branch display name captured for lenient repair; otherwise null.</param>
+        /// <exception cref="ArgumentNullException">Thrown when the source is null.</exception>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown when the port is negative.</exception>
         internal RiskConnection(IRiskElement source, int sourcePort, Guid? sourceBranchId, string? sourceBranchName)
         {
             if (source == null) throw new ArgumentNullException(nameof(source));

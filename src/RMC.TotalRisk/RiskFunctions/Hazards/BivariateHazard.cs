@@ -29,8 +29,8 @@ namespace RMC.TotalRisk.RiskFunctions.Hazards
     /// <para>
     /// The engine integrates the PRIMARY axis exactly as it does a univariate hazard — the
     /// <see cref="SampleFunction()"/> overloads return the sampled X marginal — and evaluates the
-    /// conditional Y discretization inside its per-hazard-level objective through
-    /// <see cref="SampleBivariate"/>. The copula operates on (u, v) as NON-exceedance marginal
+    /// conditional Y discretization inside its per-hazard-level objective through the
+    /// <see cref="SampleBivariate(int)"/> overloads. The copula operates on (u, v) as NON-exceedance marginal
     /// probabilities (an exceedance probability p converts as u = 1 − p), so upper-tail dependence
     /// in (u, v) is joint extreme-hazard dependence. Copula parameters are fixed user-set values —
     /// dependence-parameter uncertainty is deliberately out of scope, while marginal knowledge
@@ -40,9 +40,9 @@ namespace RMC.TotalRisk.RiskFunctions.Hazards
     /// <b>Marginals are referenced, not owned</b> — the consuming layer stores each univariate
     /// hazard function once and this function links it, exactly like a composite's children. Both
     /// marginals must be univariate hazard functions (<see cref="IUnivariateHazardFunction"/>);
-    /// the properties are typed <see cref="IHazardFunction"/> so a future nested (vine) dependence
-    /// structure can be admitted without a serialization break, and <see cref="Validate"/> rejects
-    /// a bivariate marginal loudly today. The two marginals must be distinct instances: one stored
+    /// the properties are typed <see cref="IHazardFunction"/> so a nested (vine) dependence
+    /// structure could be admitted without a serialization break, and <see cref="Validate"/>
+    /// rejects a bivariate marginal. The two marginals must be distinct instances: one stored
     /// function is one knowledge quantity, and coupling a function to itself is a modeling error
     /// (two equal-content instances are legal and draw independently).
     /// </para>
@@ -52,8 +52,8 @@ namespace RMC.TotalRisk.RiskFunctions.Hazards
     /// (<see cref="SamplingDimensions"/> = 0); <see cref="SetupSampler"/> recurses into marginal X
     /// at ordinal 0 and marginal Y at ordinal 1 with
     /// <c>SeedHelpers.HashCombine(seed, marginal.CanonicalHash(), ordinal)</c>, so identical-content
-    /// marginals draw independently and renaming can never change results. A future copula-parameter
-    /// posterior takes ordinal 2 without moving the X/Y streams.
+    /// marginals draw independently and renaming can never change results. Ordinal 2 is reserved
+    /// for a copula-parameter posterior, so the X/Y streams never move.
     /// </para>
     /// <para>
     /// <b>Serialization:</b> under <see cref="RiskSerializationMode.SelfContained"/> (the default)
@@ -67,7 +67,7 @@ namespace RMC.TotalRisk.RiskFunctions.Hazards
     /// swapping the marginals' roles does (the <c>SystemComponent</c> identity-form exception).
     /// </para>
     /// <para>
-    /// <b>Discretization</b> (the ratified conditional-trapezoid rule): N bins produce N + 1 nodes
+    /// <b>Discretization</b> (the conditional-trapezoid rule): N bins produce N + 1 nodes
     /// t_j = j/N uniform in conditional-probability space, endpoint nodes clamped to
     /// [1e-16, 1 − 1e-16] for inverse evaluations; y_j =
     /// MarginalY.InverseCDF(copula.InverseConditionalCDF(u, t_j)); trapezoid weights
@@ -333,8 +333,8 @@ namespace RMC.TotalRisk.RiskFunctions.Hazards
         /// No silent clamp — <see cref="Validate"/> reports a value outside
         /// [<see cref="MinimumSecondaryIntegrationBins"/>, <see cref="MaximumSecondaryIntegrationBins"/>]
         /// as an error. Changing the count clears the precomputed discretization vectors, so
-        /// <see cref="SampleBivariate"/> requires a fresh <see cref="SetupSampler"/> afterwards —
-        /// the snapshot geometry can never disagree with the configured count.
+        /// the <see cref="SampleBivariate(int)"/> overloads require a fresh <see cref="SetupSampler"/>
+        /// afterwards — the snapshot geometry can never disagree with the configured count.
         /// </remarks>
         public int SecondaryIntegrationBins
         {

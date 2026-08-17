@@ -16,8 +16,8 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
     /// </para>
     /// <para>
     /// Ported verbatim from the v1.0 <c>WeightedHazardLevel</c>: the serialized form is the exact
-    /// legacy <c>&lt;WeightedHazardLevel Level Weight/&gt;</c> attribute shape, so a future
-    /// project importer lifts legacy payloads unchanged. Both attributes are compute content —
+    /// legacy <c>&lt;WeightedHazardLevel Level Weight/&gt;</c> attribute shape, so a
+    /// project importer can lift legacy payloads unchanged. Both attributes are compute content —
     /// the level positions the surface column and the weight drives the standalone collapse — so
     /// neither is stripped from canonical hashing.
     /// </para>
@@ -66,8 +66,8 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
         private double _weight;
 
         /// <summary>
-        /// Occurs when a property changes. Passive: headless callers never subscribe; the future
-        /// UI layer data-binds.
+        /// Occurs when a property changes. Passive: headless callers never subscribe; the
+        /// consuming UI layer data-binds.
         /// </summary>
         public event PropertyChangedEventHandler? PropertyChanged;
 

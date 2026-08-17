@@ -276,7 +276,7 @@ public class BivariateTransformTests
         Assert.IsTrue(output.Validate().ValidationMessages.Any(
             m => m.Contains("Error: The transform interpolation transform cannot be normal Z")));
 
-        // Exactly 0 and 1 are legal on a normal-Z axis (the ratified inclusive range).
+        // Exactly 0 and 1 are legal on a normal-Z axis (the inclusive endpoint range).
         var endpoints = ConfiguredTransform();
         endpoints.X1Values = new[] { 0d, 0.5d, 1d };
         endpoints.HazardTransform = Transform.NormalZ;

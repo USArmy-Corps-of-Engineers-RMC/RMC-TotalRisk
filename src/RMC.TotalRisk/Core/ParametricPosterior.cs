@@ -19,7 +19,7 @@ namespace RMC.TotalRisk.Core
     ///     Haden Smith, USACE Risk Management Center, cole.h.smith@usace.army.mil
     /// </para>
     /// <para>
-    /// This backs the v1.1 posterior-injection contract: the future UI importer passes fitted
+    /// This backs the v1.1 posterior-injection contract: the consuming UI importer passes fitted
     /// posteriors (e.g., RMC-BestFit univariate, Bulletin 17C, or point-process analyses) as
     /// already-parsed Numerics artifacts — no BestFit assembly reference ever enters the model
     /// library. The mean curve is the expected quantile per probability ordinate across the

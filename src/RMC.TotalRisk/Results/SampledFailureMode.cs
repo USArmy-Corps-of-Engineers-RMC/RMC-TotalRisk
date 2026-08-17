@@ -39,9 +39,8 @@ namespace RMC.TotalRisk.Results
     /// per-stage transform slices, sampled fragilities, and branch polarities — and the system
     /// response probability is the polarity product ∏ᵢ (polarityᵢ = Fail ? pᵢ(h) : 1 − pᵢ(h)),
     /// each stage's fragility evaluated at its own stage-transformed signal. A single-stage
-    /// Fail-polarity mode reproduces the pre-cascade arithmetic bit-identically (the product's
-    /// single factor multiplies 1.0 exactly). This replaced an earlier constructor throw on
-    /// multi-stage chains.
+    /// Fail-polarity mode reproduces the plain single-CDF arithmetic bit-identically (the
+    /// product's single factor multiplies 1.0 exactly).
     /// </para>
     /// <para>
     /// The multi-consequence axis: every consequence position of the mode's ordered
@@ -87,8 +86,8 @@ namespace RMC.TotalRisk.Results
             bool mean = realizationIndex < 0;
 
             // Every stage's transforms and response, sampled from their own content-seeded
-            // matrices (multi-stage acceptance; the sampler walk has always covered
-            // all stages). Transforms flatten into one chain array with per-stage offsets so the
+            // matrices (the sampler walk covers every stage).
+            // Transforms flatten into one chain array with per-stage offsets so the
             // polarity-product SRP and the consequence-input fold index without allocation.
             var stages = failureMode.ResponseStages;
             int stageCount = stages.Count;
@@ -560,7 +559,7 @@ namespace RMC.TotalRisk.Results
         /// product over the stages — each stage's sampled fragility CDF, evaluated at that
         /// stage's transformed signal and clamped to [0, 1], contributes p under a Fail polarity
         /// and 1 − p under Non-Fail. A single-stage Fail mode reproduces the
-        /// pre-cascade single-CDF arithmetic bit-identically.
+        /// plain single-CDF arithmetic bit-identically.
         /// </summary>
         /// <param name="hazardLevel">The hazard level.</param>
         /// <returns>The response probability.</returns>

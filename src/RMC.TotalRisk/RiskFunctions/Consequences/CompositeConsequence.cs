@@ -50,10 +50,10 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
     /// the weighted branches through <see cref="SampleExposureBranches()"/> at every hazard point,
     /// in the mean-only and full Monte Carlo paths alike, and each realization's loss-exceedance
     /// curve carries the full day/night spread. <see cref="SamplingDimensions"/> is therefore
-    /// zero: the superseded selector dimension is gone, and the standalone per-realization mixture
+    /// zero: no selector dimension is declared, and the standalone per-realization mixture
     /// surface (<see cref="SampleFunction(int)"/>, the uncertainty summary) rides an internal
-    /// selector matrix generated with the identical seed fold and scheme, keeping those streams
-    /// bit-for-bit unchanged.
+    /// selector matrix generated with the seed fold and scheme a declared selector dimension
+    /// would use, so the standalone and engine formulations can never drift apart.
     /// </para>
     /// <para>
     /// <b>Serialization:</b> under <see cref="RiskSerializationMode.SelfContained"/> (the default,
@@ -185,13 +185,13 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
         /// <see cref="SetupSampler"/> in Mixture mode, null otherwise.
         /// </summary>
         /// <remarks>
-        /// Under the exposure-branch contract the selector is no longer an engine sampling dimension
+        /// Under the exposure-branch contract the selector is not an engine sampling dimension
         /// (<see cref="SamplingDimensions"/> is zero — the risk engine enumerates branches through
         /// <see cref="SampleExposureBranches()"/> instead of drawing one), but the standalone
         /// ensemble surface keeps its meaning: a sweep of <see cref="SampleFunction(int)"/> over a
-        /// set-up sampler still reproduces the exact mixture ensemble. The matrix is generated
-        /// with the same seed fold, scheme, and shape the superseded selector dimension used, so
-        /// pre-existing standalone and verification streams are bit-identical.
+        /// set-up sampler reproduces the exact mixture ensemble. The matrix is generated
+        /// with the seed fold, scheme, and shape a declared selector dimension would use, so the
+        /// standalone and verification streams stay content-seeded and deterministic.
         /// </remarks>
         private double[,]? _mixtureSelector;
 
@@ -303,8 +303,8 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
         /// docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §6.4.1): the mixture branch choice is
         /// aleatory exposure that the risk engine enumerates through
         /// <see cref="SampleExposureBranches()"/> rather than a knowledge-uncertainty dimension it
-        /// draws — so the selector dimension the superseded design declared in Mixture mode is
-        /// gone. Children own their dimensions and are set up recursively by
+        /// draws — Mixture mode declares no selector dimension.
+        /// Children own their dimensions and are set up recursively by
         /// <see cref="SetupSampler"/> (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §5.8.5);
         /// the standalone per-realization mixture surface rides an
         /// internal selector matrix instead (see <see cref="_mixtureSelector"/>).
@@ -318,8 +318,8 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
         /// <inheritdoc/>
         /// <remarks>
         /// Sets up the internal mixture-selector matrix (Mixture mode only — generated with the
-        /// exact seed fold, scheme, and N×1 shape the superseded selector dimension used, so
-        /// standalone streams are unchanged), then recurses into every child with a
+        /// exact seed fold, scheme, and N×1 shape a declared selector dimension would use, so
+        /// standalone streams stay content-seeded), then recurses into every child with a
         /// content-derived seed: <c>SeedHelpers.HashCombine(seed, child.CanonicalHash(), ordinal)</c>.
         /// The ordinal gives identical-content siblings independent draws; the child hash is
         /// metadata-inert, so renaming a child can never change results. Nested composites recurse

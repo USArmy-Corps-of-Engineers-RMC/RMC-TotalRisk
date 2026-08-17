@@ -264,7 +264,7 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
         public override ConsequenceFunctionType FunctionType => ConsequenceFunctionType.Bivariate;
 
         /// <inheritdoc/>
-        /// <remarks>Always true — the surface carries no knowledge uncertainty in this phase.</remarks>
+        /// <remarks>Always true — the surface carries no knowledge uncertainty.</remarks>
         public override bool IsDeterministic => true;
 
         /// <inheritdoc/>

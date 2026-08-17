@@ -27,7 +27,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
     /// topological sort doubles as cycle detection, deserialization is construct-then-resolve
     /// (dual Id + Name references through <see cref="RiskElementResolver"/>), and cloning
     /// re-links an isolated copy through an original→clone map. The model library has no
-    /// dependency on the UI's DAG.dll — the future UI binds its <c>RiskDiagram</c> controls to
+    /// dependency on the UI's DAG.dll — the consuming UI binds its <c>RiskDiagram</c> controls to
     /// this model type.
     /// </para>
     /// <para>
@@ -1229,7 +1229,7 @@ namespace RMC.TotalRisk.Systems.Components.Graph
         /// response element whose Fail port has no downstream consumer routes its failure-branch
         /// mass to the background remainder — warned, because it is almost always a modeling
         /// surprise (the unwired Non-Fail port is the v1.0 default and stays silent). Components
-        /// with no cascade machinery in use — every pre-cascade shape — produce no messages here.
+        /// with no cascade machinery in use produce no messages here.
         /// </summary>
         /// <param name="signatures">Each failure terminal's leaf signature: the ordered (response ordinal, exit port) pairs along its path.</param>
         /// <param name="messages">The message sink.</param>

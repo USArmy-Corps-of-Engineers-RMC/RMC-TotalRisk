@@ -11,7 +11,7 @@ namespace RMC.TotalRisk.Tests.Systems.Components;
 /// <summary>
 /// Unit tests for <see cref="EndStateGroupLayout"/> — leaf-signature grouping, the
 /// duplicate/prefix standalone ejection, final-polarity classification, flipped-final-sibling
-/// pairing, and the trivial-layout detection every pre-cascade model relies on
+/// pairing, and the trivial-layout detection every non-cascading model relies on
 /// (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §7.9).
 /// </summary>
 [TestClass]
@@ -40,7 +40,7 @@ public class EndStateGroupLayoutTests
     /// <summary>
     /// Verifies chain-authored modes (no ordinals) and legacy same-branch fan-out (identical
     /// signatures) both produce the trivial layout — every state a standalone Fail-final unit,
-    /// so the engine takes the pre-cascade arithmetic.
+    /// so the engine takes the flat per-mode arithmetic.
     /// </summary>
     [TestMethod]
     public void Test_Build_TrivialLayouts()
@@ -131,7 +131,7 @@ public class EndStateGroupLayoutTests
         });
 
         // Assert — two standalone units; the flat combination applies, so the layout is
-        // trivial and the engine arithmetic is the pre-cascade path.
+        // trivial and the engine arithmetic is the flat per-mode path.
         Assert.AreEqual(2, layout.CombinationUnitCount);
         Assert.IsTrue(layout.IsTrivial);
     }

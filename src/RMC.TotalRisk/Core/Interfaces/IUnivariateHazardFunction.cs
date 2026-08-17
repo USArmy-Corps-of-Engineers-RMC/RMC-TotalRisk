@@ -3,7 +3,7 @@ namespace RMC.TotalRisk.Core.Interfaces
     /// <summary>
     /// Marker contract for univariate hazard functions — hazard functions whose sampled form is a
     /// single-variable distribution. The bivariate hazard contract (marginals + copula + conditional
-    /// discretization) arrives with the bivariate cluster in a later phase and extends
+    /// discretization) is <see cref="IBivariateHazardFunction"/>, which extends
     /// <see cref="IHazardFunction"/> separately.
     /// </summary>
     /// <remarks>

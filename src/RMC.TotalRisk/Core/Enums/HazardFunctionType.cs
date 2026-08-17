@@ -12,8 +12,8 @@ namespace RMC.TotalRisk.Core.Enums
     ///     Haden Smith, USACE Risk Management Center, cole.h.smith@usace.army.mil
     /// </para>
     /// <para>
-    /// This is a runtime discriminator only — it lets callers (results labeling, the future UI and
-    /// REST/MCP layers, and engine dispatch) branch on the function kind without type checks. It is
+    /// This is a runtime discriminator only — it lets callers (results labeling, the consuming UI
+    /// and REST/MCP layers, and engine dispatch) branch on the function kind without type checks. It is
     /// deliberately <b>never serialized</b>: the serialization and canonical-hash discriminator is
     /// the <c>ToXElement()</c> element name, so adding this enum moves no hash and perturbs no
     /// Monte Carlo seed.
