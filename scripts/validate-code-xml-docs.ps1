@@ -216,6 +216,38 @@ foreach ($file in $sourceFiles) {
     }
 }
 
+# The technical-reference and verification pages describe the software as it is. Dated
+# runs-of-record and planning-doc links stay legitimate there, so the page deny-list is the
+# narrower subset: phase numbers, ratification narration, decision numbers, and retired
+# history vocabulary.
+$docPagePatterns = @($processLanguagePatterns | Where-Object {
+    $_.Reason -notin @("landing narration", "a planning-doc reference")
+})
+$docPageFiles = @(foreach ($root in @("docs/technical-reference", "docs/verification")) {
+    $path = Join-Path $repoRoot $root
+    if (Test-Path $path) {
+        Get-ChildItem -Path $path -Recurse -Filter *.md -File
+    }
+})
+foreach ($extraDoc in @("docs/verification.md", "docs/index.md")) {
+    $path = Join-Path $repoRoot $extraDoc
+    if (Test-Path $path) {
+        $docPageFiles += Get-Item $path
+    }
+}
+foreach ($file in $docPageFiles) {
+    $lines = [System.IO.File]::ReadAllLines($file.FullName)
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        foreach ($entry in $docPagePatterns) {
+            if ($lines[$i] -match $entry.Pattern) {
+                $relative = Get-RelativePath $file.FullName
+                Add-Failure "${relative}:$($i + 1) contains $($entry.Reason); these pages describe the software as it is."
+                break
+            }
+        }
+    }
+}
+
 $traceabilityValidator = Join-Path $PSScriptRoot "validate-verification-traceability.ps1"
 try {
     & $traceabilityValidator

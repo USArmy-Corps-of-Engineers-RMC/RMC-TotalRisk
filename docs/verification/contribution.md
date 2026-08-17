@@ -59,7 +59,8 @@ and common-cause kernels (exact literals), the zero-consequence equal-split fall
 reliability-mode guarantee), Σ identities across all four methods at engine level, the
 joint-Additive ≡ marginal-Fail-mean identity, the D = 3 brute-force Shapley match, ensemble
 summaries carrying per-realization contributions with band trees carrying none, and the
-pre-6.6 JSON forward-load (missing members → null → "not computed").
+forward-load of stored JSON that predates the contribution members (missing members → null →
+"not computed").
 
 ## Tolerance derivations
 

@@ -18,9 +18,9 @@ Consolidated bibliography, IEEE-numbered, grouped by topic. Numbers are stable o
 
 [6] U.S. Army Corps of Engineers, Risk Management Center, *RMC-TotalRisk User's Guide*, v1.0.
 
-[7] U.S. Army Corps of Engineers, Risk Management Center, *RMC-TotalRisk Technical Reference Manual* (draft).
+[7] U.S. Army Corps of Engineers, Risk Management Center, *RMC-TotalRisk Technical Reference Manual* (draft). (In-repo: [docs/reports/RMC-TR-2022-XX](reports/) — the 2022 technical report draft; equation and appendix citations in the technical reference refer to this document.)
 
-[8] U.S. Army Corps of Engineers, Risk Management Center, *RMC-TotalRisk Verification Report* (draft).
+[8] U.S. Army Corps of Engineers, Risk Management Center, *RMC-TotalRisk Verification Report* (draft). (In-repo: [docs/reports/Verification of the RMC-TotalRisk Software - 2024](reports/) — the source of the pinned report tables 38, 44–104 the verification suite anchors to.)
 
 ## Depth-damage and consequence functions
 
@@ -55,3 +55,17 @@ Consolidated bibliography, IEEE-numbered, grouped by topic. Numbers are stable o
 [21] International Electrotechnical Commission, *Fault Tree Analysis (FTA)*, IEC 61025:2006, Geneva, Switzerland, 2006. Available: https://webstore.iec.ch/en/publication/4311
 
 [22] International Electrotechnical Commission, *Analysis Techniques for Dependability — Event Tree Analysis (ETA)*, IEC 62502:2010, Geneva, Switzerland, 2010.
+
+## RMC-TotalRisk technical notes
+
+[23] C. H. Smith, *Risk Definitions, Measures, and Plots in RMC-TotalRisk*, technical note, U.S. Army Corps of Engineers, Risk Management Center, Lakewood, CO, Mar. 2026. (In-repo: [docs/reports/Risk_Technical_Note_Smith_2026.pdf](reports/).)
+
+[24] C. H. Smith, *Failure Mode Combination Methods in RMC-TotalRisk*, technical note, U.S. Army Corps of Engineers, Risk Management Center, Lakewood, CO, Mar. 2026. (In-repo: [docs/reports/Failure_Mode_Combination_Methods_in_RMC_TotalRisk_Smith_2026.pdf](reports/).)
+
+[25] C. H. Smith, *System Risk Analysis in RMC-TotalRisk*, technical note, U.S. Army Corps of Engineers, Risk Management Center, Lakewood, CO, Mar. 2026. (In-repo: [docs/reports/System_Risk_Analysis_in_RMC_TotalRisk_Smith_2026.pdf](reports/).)
+
+[26] C. H. Smith, *Uncertainty Analysis in RMC-TotalRisk*, technical note, U.S. Army Corps of Engineers, Risk Management Center, Lakewood, CO, Mar. 2026. (In-repo: [docs/reports/Uncertainty_Analysis_in_RMC_TotalRisk_Smith_2026.pdf](reports/).)
+
+[27] U.S. Army Corps of Engineers, Risk Management Center, *Mixture Distribution Overview*, technical overview. (In-repo: [docs/reports/Mixture Distribution Overview.docx](reports/).)
+
+[28] U.S. Army Corps of Engineers, Risk Management Center, *Competing Risks Overview*, technical overview. (In-repo: [docs/reports/Competing Risks Overview.docx](reports/).)

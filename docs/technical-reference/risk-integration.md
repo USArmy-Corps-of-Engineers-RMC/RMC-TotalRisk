@@ -35,7 +35,7 @@ per-branch consequences — and the LEC is assembled from that point cloud
 
 v1.0 used `Numerics.Mathematics.Integration.AdaptiveSimpsonsRule`. v1.1 uses
 `AdaptiveGaussKronrod` (G10K21 — 10-point Gauss with a 21-point Kronrod extension, 21st-order accurate
-for smooth integrands, QUADPACK-style). The Numerics type exposes the **same surface** the engine
+for smooth integrands, QUADPACK-style [15]). The Numerics type exposes the **same surface** the engine
 drove Simpson through, so the swap changed no call-site shape. The engine configures it as
 (defaults shown; the tolerance/depth knobs live on `RiskAnalysisOptions`):
 
@@ -190,17 +190,17 @@ each bin independently, so the discontinuity never lands inside a Kronrod panel.
 ### Why the tail members exist
 
 Value-at-Risk marks the boundary of the α-tail but says nothing about the losses beyond it;
-conditional VaR / expected shortfall is the coherent tail measure that averages them, and is now the
-regulatory standard (Basel III FRTB replaced 99% VaR with 97.5% expected shortfall). For life-safety
-consequence LECs the tail *is* the decision-relevant region, so the engine needs an integrand that
-refines it directly rather than hoping the mean-total objective happens to place points there. See
-[../references.md](../references.md).
+conditional VaR / expected shortfall is the coherent tail measure that averages them [17], and is the
+regulatory standard (Basel III FRTB replaced 99% VaR with 97.5% expected shortfall [18]). For
+life-safety consequence LECs the tail *is* the decision-relevant region, so the engine needs an
+integrand that refines it directly rather than hoping the mean-total objective happens to place
+points there.
 
 ## Multi-dimensional integration: VEGAS with power-transform tail focus
 
 For the joint system-risk method (D > 1 components with `SystemRiskMethod = Joint`), the engine
 integrates over the D-dimensional unit hypercube `(1e-16, 1−1e-16)^D` of correlated hazard
-probabilities using `Numerics.Mathematics.Integration.Vegas` (legacy `RiskAnalysis.vb:2984-3177`).
+probabilities using `Numerics.Mathematics.Integration.Vegas` [16] (legacy `RiskAnalysis.vb:2984-3177`).
 Correlation enters through the multivariate-normal inverse CDF `_eMVN.InverseCDF(p)`. As in the 1D
 path, the VEGAS **weight `wgt` is the LEC probability mass** for each recorded point — this is why the
 joint path (unlike the 1D path) needs no mass re-derivation.

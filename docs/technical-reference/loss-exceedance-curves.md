@@ -133,7 +133,7 @@ Every measure is a functional of the finished LEC. Definitions and the v1.0 fixe
 | `ConsequenceThresholdProbability` | `LEC.GetYFromX(ConsequenceThreshold, Log, Log)` | assurance: P(consequence > threshold) |
 | `HazardThresholdProbability` | from the `HazardFrequency` profile at `HazardThreshold` | |
 | `ValueAtRisk` | consequence quantile at level α = `Options.Alpha` | returns **0** (not the minimum consequence) when `α > TotalProbability` — no loss is exceeded at that level; v1.0 returned the curve's smallest consequence (`Curve.vb:544`) |
-| `ConditionalValueAtRisk` | `(1/α)·∫ VaR(p) dp` over the α-tail, computed as the **exact segment-by-segment closed form** of the piecewise log-log LEC quantile | expected shortfall — the coherent tail measure ([references](../references.md)); v1.0 ran adaptive quadrature at library defaults on its steepest integrand |
+| `ConditionalValueAtRisk` | `(1/α)·∫ VaR(p) dp` over the α-tail, computed as the **exact segment-by-segment closed form** of the piecewise log-log LEC quantile | expected shortfall — the coherent tail measure [17], [18]; v1.0 ran adaptive quadrature at library defaults on its steepest integrand |
 | `LEC` | the curve itself (X = consequence, Y = exceedance prob) | the F-N curve |
 | `HazardFrequency` | hazard level vs cumulative exceedance probability | risk profile (1D path only — needs `HazardLevel` on the points) |
 | `HazardvsCEN` | hazard level vs conditional expected consequence | risk profile |

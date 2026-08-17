@@ -7,6 +7,7 @@
 > Normative design:
 > [../requirements/EVENT_AND_FAULT_TREE_RESPONSE_DESIGN.md](../requirements/EVENT_AND_FAULT_TREE_RESPONSE_DESIGN.md).
 > Executable evidence: [../verification/event-tree.md](../verification/event-tree.md).
+> References: [22] (IEC 62502, event-tree analysis) in [../references.md](../references.md).
 
 An `EventTreeResponse` is a **response function**: it produces conditional fragility `P(F|h)` under
 the exact `IResponseFunction` contract, and nothing else — hazard probability, annualization,

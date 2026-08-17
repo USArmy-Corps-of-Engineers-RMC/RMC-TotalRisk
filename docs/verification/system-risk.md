@@ -102,4 +102,4 @@ canonical-hash order), with component results following content identity through
 renaming is bit-inert on the joint path. Joint component *reordering* is statistically
 equivalent but not bit-identical by construction — the VEGAS variates couple the hypercube
 dimensions, so reordering permutes which coordinate stream drives which component (documented
-in the architecture doc §7.8 amendment, v0.15).
+in the architecture doc §7.8).

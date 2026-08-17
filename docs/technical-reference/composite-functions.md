@@ -156,8 +156,9 @@ averaging — the weighted average is the correct and intended tool.
 
 ## References
 
-- 2024 verification report, *Verification of Input Functions* → *Composite Hazard and Response
+- [8] 2024 verification report, *Verification of Input Functions* → *Composite Hazard and Response
   Functions* (Equation 49, Tables 44–46) and *Composite Consequence Function* (Tables 47–51).
 - [`MODEL_LIBRARY_ARCHITECTURE.md`](../requirements/MODEL_LIBRARY_ARCHITECTURE.md) §5.5.3 (canonical
   content), §5.8.5 (composite recursion), §6.4.1 (exposure branches).
-- *Mixture Distribution Overview* and *Competing Risks Overview* (RMC technical notes, 2026).
+- [27] *Mixture Distribution Overview* and [28] *Competing Risks Overview* (RMC technical
+  overviews); numbering per [../references.md](../references.md).

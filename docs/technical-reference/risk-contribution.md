@@ -6,7 +6,7 @@
 > aggregation methods, with exact sum identities. Companion pages:
 > [risk-integration.md](risk-integration.md) (where the recorded evaluations come from) and the
 > executable evidence in [../verification/contribution.md](../verification/contribution.md).
-> Grounding: *Failure Mode Combination Methods in RMC-TotalRisk* (Smith, 2026) — its Eqs. 8–19
+> Grounding: *Failure Mode Combination Methods in RMC-TotalRisk* [24] — its Eqs. 8–19
 > define the exclusive decompositions this page attributes.
 
 ## 1. The problem

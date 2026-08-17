@@ -79,4 +79,4 @@ This is why the collapse mode is preserved rather than deprecated: for a compoun
 
 ## Scope guards
 
-Ratified deferrals, each enforced loudly rather than approximated: nested copulas (a bivariate marginal is a validation error — univariateness of marginals is the rule), copula-parameter uncertainty (parameters are fixed; the sampler reserves the ordinal a future θ posterior will claim), and 2-D surface uncertainty (every bivariate surface is deterministic). Composite functions reject bivariate children in both validation and sampling; tree probability sources reject bivariate referenced responses in validation.
+Deliberate scope limits, each enforced loudly rather than approximated: nested copulas (a bivariate marginal is a validation error — univariateness of marginals is the rule), copula-parameter uncertainty (parameters are fixed; the sampler reserves ordinal 2 for a θ posterior), and 2-D surface uncertainty (every bivariate surface is deterministic). Composite functions reject bivariate children in both validation and sampling; tree probability sources reject bivariate referenced responses in validation.

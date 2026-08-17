@@ -158,9 +158,9 @@ child's derived seed.
 | `Test_Reproducibility_RoundTripAndMetadataPins` | Round-trip and metadata bit-identity; compute edit moves |
 | `Test_UpstreamEstimation_IsBitReproducible` | The repaired upstream estimation reproducibility, pinned |
 
-## Deferred
+## Engine-level coverage
 
 The engine-level composite oracles — legacy `Test_Composite_Hazard` (two-branch `LnNormal` mixture
 behind a fragility, w = 0.45, `MersenneTwister(12345)`) and the `Test_Composite`
-mixture-consistency identity — convert in a follow-on session. This family verifies the function
-itself; those verify it behind the risk engine.
+mixture-consistency identity — are converted in the [composite-engine family](composite-engine.md).
+This family verifies the function itself; that family verifies it behind the risk engine.

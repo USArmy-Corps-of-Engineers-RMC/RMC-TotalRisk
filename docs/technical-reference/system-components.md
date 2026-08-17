@@ -118,13 +118,13 @@ stages feed is owned by [cascading-end-states.md](cascading-end-states.md).
 (ordered response occurrence-ordinal/polarity pairs) partition shared-first-response terminals
 into exclusive state groups, duplicate and prefix-nested signatures eject to standalone units,
 and classification is by final-stage polarity. Chain-authored modes carry no ordinals and behave
-as standalone Fail-final units, so every pre-cascade model produces the trivial layout
-(`IsTrivial` true, kernels byte-identical to the pre-layout forms).
+as standalone Fail-final units, so every non-cascading model produces the trivial layout
+(`IsTrivial` true, kernels byte-identical to the plain per-mode forms).
 
 | Member | Meaning |
 |---|---|
 | `StateCount` / `IsFailureState` | terminal end states and their final-polarity classification |
-| `CombinationUnitCount` | **the dimension** of the combination caches, the multivariate normal, and the correlation matrix; equals the failure-path count for every pre-cascade layout |
+| `CombinationUnitCount` | **the dimension** of the combination caches, the multivariate normal, and the correlation matrix; equals the failure-path count under a trivial layout |
 | `StateToCombinationUnit` / `CombinationUnitStates` | the state ↔ unit maps |
 | `PairingPartnerState` | the flipped-final sibling used by excess pairing; −1 means the background fallback |
 | `ClaimedStateUnit` / `ClaimedStateCount` / `ClaimingCascadeCount` | the claimed non-failure state bookkeeping |

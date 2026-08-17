@@ -3,7 +3,7 @@
 **Test class:** `SingleComponentUncertaintyVerification` · **Tests:** 4 · **Run of record:** 2026-07-23, isolated run, ✅ all passed
 
 A NEW family with no legacy counterpart: the full-uncertainty **two-loop** simulation (outer
-knowledge realizations, inner risk integral — the Uncertainty Analysis technical note's
+knowledge realizations, inner risk integral — the Uncertainty Analysis technical note's [26]
 framework) verified against an independent two-loop oracle whose **inner integral is exact**.
 The legacy Bucket-1 suite never covered knowledge uncertainty at the analysis level; this
 family anchors the tabular co-monotonic percentile contract, the fail/non-fail consequence
@@ -78,8 +78,8 @@ realization mean against a dense-trapezoid integral of the same parameter set at
 | Mean-only (the posterior MEAN CURVE, v1.0 semantics) | — | 55.543279 |
 
 All 500 realization-for-realization pins passed. The recorded **Jensen gap** — mean-only
-55.543 versus ensemble grand 56.331 (≈ 1.4%) — is the Uncertainty Analysis technical note's
-"pitfall 5" made quantitative: the v1.0 mean-only pass reads the posterior mean curve (a
+55.543 versus ensemble grand 56.331 (≈ 1.4%) — is "pitfall 5" of the Uncertainty Analysis
+technical note [26] made quantitative: the v1.0 mean-only pass reads the posterior mean curve (a
 quantile-space mean), which legitimately differs from the mean of the per-set risk integrals.
 This family is the `ParametricResponse` verification anchor in the Ported Types Matrix.
 

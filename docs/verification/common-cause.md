@@ -70,7 +70,7 @@ Independent and PerfectlyNegative) passed.
   seeds, APF 0.0678455 in both).
 - The failure unions match the joint family per dependency (same marginals, same copula), while
   the **allocation** differs — the CCA's implicit-ordering redistribution versus the joint
-  model's pathway enumeration (the technical note's §3.4/§6.1 observation).
+  model's pathway enumeration (the combination technical note's [24] §3.4/§6.1 observation).
 
 ## Reproducibility pins
 

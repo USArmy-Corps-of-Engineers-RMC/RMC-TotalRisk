@@ -21,8 +21,8 @@ w_s(h) = ∏ᵢ ( πᵢ = Fail ? pᵢ(sᵢ(h)) : 1 − pᵢ(sᵢ(h)) ),
 ```
 
 with each stage's `BranchPolarity` read from the exit port the path uses (serialized
-resolved-on-write; a single-stage Fail mode reproduces the pre-cascade arithmetic bit-identically —
-the product's lone factor multiplies 1.0 exactly).
+resolved-on-write; a single-stage Fail mode reproduces the plain single-CDF arithmetic
+bit-identically — the product's lone factor multiplies 1.0 exactly).
 
 The **leaf signature** is the ordered (response occurrence ordinal, polarity) pair sequence.
 Terminals sharing their first response element with *distinct* signatures diverge at a shared
@@ -31,9 +31,9 @@ chance node via opposite ports, so their events are disjoint by construction: th
 Duplicate and prefix-nested signatures leave the partition and combine as standalone units under
 the ambient method (deliberately preserving the legacy fan-out semantics, with an advisory
 warning and the mass-balance witness reporting any double count honestly). The structural
-derivation lives in `EndStateGroupLayout`; every pre-cascade model produces the trivial layout,
-whose kernels are byte-for-byte the pre-cascade paths (proven by the bit-identical results byte
-gates).
+derivation lives in `EndStateGroupLayout`; every non-cascading model produces the trivial layout,
+whose kernels reduce byte-for-byte to the plain per-mode paths (proven by the bit-identical
+results byte gates).
 
 ## 2. Classification — final polarity
 
@@ -77,8 +77,8 @@ mode excess.
 
 The `FailureModeMethod` operates on the combination-unit failure-mass vector `{P_g}` — exclusive
 groups plus standalone failure states; the combination caches, the multivariate normal, and the
-correlation matrix take the **unit count** as their dimension (the failure-path count for every
-pre-6.7 layout):
+correlation matrix take the **unit count** as their dimension (the failure-path count under a
+trivial layout):
 
 - **Joint failures:** the pathway decomposition (independent / perfectly-positive /
   `ExclusivePCM` under the Gaussian copula) runs over the unit masses; within a pathway each

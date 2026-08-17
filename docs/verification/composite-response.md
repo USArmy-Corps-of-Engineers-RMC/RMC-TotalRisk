@@ -100,7 +100,8 @@ agree with the true combined curve only *at* the knots under the weakest-link ru
 combination is nonlinear in the children — that would create a second, subtly wrong response
 surface. The plotting need is served by `ComputeUncertaintyResults()`.
 
-## Deferred
+## Engine-level coverage
 
 The engine-level oracle — legacy `Test_Composite_Response` (two `Normal` fragilities behind a
-mixture, w = 0.45, `MersenneTwister(12345)`) — converts in a follow-on session.
+mixture, w = 0.45, `MersenneTwister(12345)`) — is converted in the
+[composite-engine family](composite-engine.md).

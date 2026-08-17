@@ -8,7 +8,7 @@ Lower, Upper, Median, Mean — whose every scalar (the ten-measure catalog at sy
 failure-mode, and consequence-type scope, the three contribution values, and the integrator
 diagnostics) is the ensemble percentile or sequential mean of that measure, plus the
 aggregated `ConvergenceDiagnostics` (integrator effort/error summaries and the
-realization-adequacy indicators of the uncertainty technical note §8.2: SD/√N and confidence
+realization-adequacy indicators of the uncertainty technical note [26] §8.2: SD/√N and confidence
 half-widths for the headline scalars). Each measure reduces independently —
 percentile-consistent per measure, deliberately **not** one coherent realization (the 95th
 percentile of the value-at-risk is not the value-at-risk of the 95th-percentile curve; that
