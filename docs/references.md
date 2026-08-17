@@ -8,6 +8,28 @@ Consolidated bibliography, IEEE-numbered, grouped by topic. Numbers are stable o
 
 [2] U.S. Army Corps of Engineers and U.S. Bureau of Reclamation, *Best Practices in Dam and Levee Safety Risk Analysis*, 2019.
 
+[29] S. Kaplan and B. J. Garrick, "On the quantitative definition of risk," *Risk Analysis*, vol. 1, no. 1, pp. 11–27, 1981. (The risk-triplet definition.)
+
+[30] J. T. Christian and G. B. Baecher, "Unresolved problems in dam risk analysis," *Georisk*, vol. 5, no. 1, pp. 5–16, 2011.
+
+[31] S. G. Vick, *Degrees of Belief: Subjective Probability and Engineering Judgment*, ASCE Press, 2002.
+
+[32] P. A. Zielinski, "Event trees in the assessment of dam safety risks," in *Proc. CDA 2019 Annual Conf.*, 2019. (Common-cause loading can coexist with negative inter-mode dependence, reversing the unimodal bounds.)
+
+[33] P. I. Hill, D. S. Bowles, R. J. Nathan, and R. Herweynen, "On the art of event tree modeling for portfolio risk analyses," in *Proc. NZSOLD/ANCOLD Conf. on Dams*, 2001.
+
+[34] P. I. Hill, D. S. Bowles, P. Jordan, and R. J. Nathan, "Estimating overall risk of dam failure: Practical considerations in combining failure probabilities," in *Proc. ANCOLD 2003 Risk Workshop*, 2003. (The common cause adjustment and its freezing/dominance work-arounds.)
+
+[35] D. A. Margo and C. H. Smith, "Combining risk estimates over multiple failure modes," in *Proc. ANCOLD 2024 Conf.*, 2024. (The CCA's implicit-ordering inconsistency.)
+
+[36] D. N. D. Hartford and G. B. Baecher, *Risk and Uncertainty in Dam Safety*, Thomas Telford, 2004.
+
+[37] M. G. Morgan and M. Henrion, *Uncertainty: A Guide to Dealing with Uncertainty in Quantitative Risk and Policy Analysis*, Cambridge University Press, 1990.
+
+[38] D. Vose, *Risk Analysis: A Quantitative Guide*, 3rd ed., Wiley, 2008.
+
+[46] Y. Y. Haimes, *Risk Modeling, Assessment, and Management*, Wiley, 2004.
+
 ## RMC-TotalRisk software
 
 [3] C. H. Smith, "A New Suite of Risk Analysis Software for Dam and Levee Safety," *Journal of Dam Safety*, vol. 18, no. 3, 2021.
@@ -55,6 +77,22 @@ Consolidated bibliography, IEEE-numbered, grouped by topic. Numbers are stable o
 [21] International Electrotechnical Commission, *Fault Tree Analysis (FTA)*, IEC 61025:2006, Geneva, Switzerland, 2006. Available: https://webstore.iec.ch/en/publication/4311
 
 [22] International Electrotechnical Commission, *Analysis Techniques for Dependability — Event Tree Analysis (ETA)*, IEC 62502:2010, Geneva, Switzerland, 2010.
+
+## Probability bounds, dependence, and competing risks
+
+[39] G. Boole, *An Investigation of the Laws of Thought*, Walton and Maberly, 1854.
+
+[40] M. Fréchet, "Généralisations du théorème des probabilités totales," *Fundamenta Mathematicae*, vol. 25, pp. 379–387, 1935. (The unimodal probability bounds.)
+
+[41] D. Bernoulli, "Essai d'une nouvelle analyse de la mortalité causée par la petite vérole," *Mém. Math. Phys. Acad. Roy. Sci. Paris*, 1760. (The origin of competing-risks analysis.)
+
+[42] Z. W. Birnbaum, "On the mathematics of competing risks," DHEW Publication No. (PHS) 79-1351, U.S. Government Printing Office, 1978.
+
+[43] M. J. Crowder, *Classical Competing Risks*, Chapman & Hall/CRC, 2001.
+
+[44] X.-X. Yuan and M. D. Pandey, "Analysis of approximations for multinormal integration in system reliability computation," *Structural Safety*, vol. 28, no. 4, pp. 361–377, 2006. (The product-of-conditional-marginals approximation.)
+
+[45] A. Der Kiureghian, *Structural and System Reliability*, Cambridge University Press, 2022.
 
 ## RMC-TotalRisk technical notes
 
