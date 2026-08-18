@@ -153,6 +153,7 @@ RMC-TotalRisk/                      ← repo root (github.com/USACE-RMC/RMC-Tota
 │   ├── ROADMAP.md                  ← the phased roadmap (single source of truth for phases)
 │   ├── PROGRESS.md                 ← session progress log — update every session
 │   ├── verification.md             ← oracle-conversion strategy + tolerance policy
+│   ├── REMAINING-WORK.md           ← the live map of remaining v1.1 work + recorded scope rulings
 │   ├── requirements/               ← normative specs (architecture + shared-functions strategy)
 │   ├── technical-reference/        ← per-family math docs (grows per phase)
 │   └── verification-requests/      ← user-executed reference-run specs (as needed)
@@ -241,7 +242,7 @@ Status legend: — planned · P ported · T unit-tested · V verification covera
 
 Zero tolerance: **no compiler errors, no compiler warnings, no empty catch blocks, proper exception propagation** (never silently swallow).
 
-**XML documentation is MANDATORY on ALL types and methods — public AND private.** Required tags as applicable: `<summary>`, `<param>`, `<returns>`, `<exception>`, `<remarks>`. Do not suppress the CS1570–CS1591 doc warnings to pass a build; fix the docs. Every class carries the Authors block in `<remarks>`:
+**XML documentation is MANDATORY on ALL types and methods — public AND private.** Required tags as applicable: `<summary>`, `<param>`, `<returns>`, `<exception>`, `<remarks>`. Do not suppress the CS1570–CS1591 doc warnings to pass a build; fix the docs. Every class in the **library and Verification projects** carries the Authors block in `<remarks>` (test classes are exempt by policy, ruled 2026-08-17; `validate-code-xml-docs.ps1` enforces the block and the phase/process-language ban in both source and the technical-reference/verification doc trees):
 
 ```csharp
 /// <remarks>
