@@ -2,7 +2,7 @@
 
 > Technical reference for `RMC.TotalRisk.RiskFunctions.Transforms` — `TabularTransform`, the closed-form `LinearTransform` and `PowerTransform`, and `CompositeTransform`. Source of the methodology: RMC-TR-2022-XX, [*Quantitative Risk Analysis with RMC-TotalRisk*](https://usace-rmc.github.io/RMC-Software-Documentation/source-documents/desktop-applications/rmc-totalrisk/technical-reference-manual/RMC-TotalRisk-Technical-Reference-Manual.pdf), Transform Functions chapter.
 
-A **transform function** converts hazard levels from one domain to another — mathematically, function composition (report Eq. 16): given *g* (a frequency function of *x*) and a transform *t*, the composed frequency function of the transformed hazard is *g ∘ t⁻¹*. The canonical example: a peak-flow frequency function becomes a stage frequency function through a flow-to-stage rating curve. Transforms can feed hazard functions, other transform functions (chained), and system response functions.
+A **transform function** converts hazard levels from one domain to another — mathematically, function composition ([7], Transform Functions chapter): given *g* (a frequency function of *x*) and a transform *t*, the composed frequency function of the transformed hazard is *g ∘ t⁻¹*. The canonical example: a peak-flow frequency function becomes a stage frequency function through a flow-to-stage rating curve. Transforms can feed hazard functions, other transform functions (chained), and system response functions.
 
 ## Contract
 
@@ -26,7 +26,13 @@ Sampled transforms are Numerics `IUnivariateFunction`s: `Function(x)` maps hazar
 
 ## TabularTransform
 
-A tabular (nonparametric) relationship of hazard levels *x₁ < x₂ < … < xₙ* (strictly ascending) and transformed hazard values *yᵢ*, evaluated by linear interpolation (report Eq. 26) with **flat (clamped) extrapolation** beyond the table. The transformed values need not be monotonic (`OrderY = None`).
+A tabular (nonparametric) relationship of hazard levels *x₁ < x₂ < … < xₙ* (strictly ascending) and transformed hazard values *yᵢ*, evaluated by linear interpolation,
+
+```
+t(x) = yᵢ + (yᵢ₊₁ − yᵢ) · (x − xᵢ)/(xᵢ₊₁ − xᵢ),        xᵢ ≤ x ≤ xᵢ₊₁,
+```
+
+with **flat (clamped) extrapolation** beyond the table. The transformed values need not be monotonic (`OrderY = None`). A rating curve is typically derived by a hydraulic model (e.g., HEC-RAS) and entered as this tabular data [7].
 
 - `HazardTransform` — optional logarithmic transform on the input axis (requires non-negative hazards; validated).
 - `TransformTransform` — optional logarithmic transform on the output axis (requires a non-negative transformed range across every ordinate's lower/mean/upper values; unbounded distributions are probed at the ±10⁻⁵ percentiles).
@@ -70,10 +76,31 @@ UncertaintyAnalysisResults? summary = rating.ComputeUncertaintyResults(0.90);
 
 ## LinearTransform and PowerTransform
 
-Thin wrappers over the Numerics `LinearFunction`/`PowerFunction` — the wrappers add domain labels, validation, serialization, and hash identity; zero math lives in the classes. Parameters are user-supplied (fitted externally; the report describes ordinary-least-squares estimation).
+Thin wrappers over the Numerics `LinearFunction`/`PowerFunction` — the wrappers add domain labels, validation, serialization, and hash identity; zero math lives in the classes. Parameters are user-supplied, fitted externally by ordinary least squares [7]:
 
-- **Linear** (report Eq. 17–20): *y = α + βx + ε*, with additive residual ε ~ N(0, σₑ). Knowledge uncertainty is co-monotonic: one percentile sets `LinearFunction.ConfidenceLevel`, shifting every hazard level by the same `Normal(0, σ).InverseCDF(p)` offset (the exact v1.0 behavior). Defaults: α = 0, β = 1, σ = 10, uncertain, input range [0, 100].
-- **Power** (report Eq. 21–25): *y = α(x − ξ)^β · ε*, with multiplicative log-normal residual (σ is a log-space standard error — the percentile multiplies the curve by `exp(z_p·σ)`); an inverse-form option (`IsInverse`) supports rating curves fitted with stage as the independent variable. Defaults: α = 1, β = 1.5, ξ = 0, σ = 0.1, not inverted, input range [0, 100]. **`Minimum` is wrapper API/hash state only:** Numerics `PowerFunction.Minimum` has always derived from ξ (the v1.0 assignment to it never took effect), so evaluation clamps at ξ — v1.1 preserves that exact behavior and warns in validation when `Minimum` < `Xi`.
+**Linear.** The transform and its OLS estimators are
+
+```
+y = α + βx + ε,                 ε ~ N(0, σₑ)  (normal, independently distributed),
+β̂ = Σ(xᵢ − x̄)(yᵢ − ȳ) / Σ(xᵢ − x̄)²,          α̂ = ȳ − β̂·x̄,
+σ̂ₑ = √[ Σ(yᵢ − α̂ − β̂·xᵢ)² / (n − 2) ].
+```
+
+Knowledge uncertainty is co-monotonic: one percentile sets `LinearFunction.ConfidenceLevel`, shifting every hazard level by the same `Normal(0, σₑ).InverseCDF(p)` offset (the exact v1.0 behavior). Defaults: α = 0, β = 1, σ = 10, uncertain, input range [0, 100].
+
+**Power.** The transform carries a multiplicative log-normal residual,
+
+```
+y = α · (x − ξ)^β · ε,          log ε ~ N(0, σ),  α > 0,  β > 0,  x > ξ.
+```
+
+Taking logs linearizes it — `log y = log α + β·log(x − ξ) + log ε` — so the same OLS machinery estimates α and β in log space, and σ is the **log-space** standard error. A percentile-p sample multiplies the whole curve by `exp(σ·Φ⁻¹(p))` (e.g., the 0.9-percentile curve is `α(x − ξ)^β · exp(σ·z₀.₉)`). The inverse-form option (`IsInverse`) supports rating curves fitted with stage as the independent variable:
+
+```
+y = (x/α · ε)^(1/β) + ξ.
+```
+
+Defaults: α = 1, β = 1.5, ξ = 0, σ = 0.1, not inverted, input range [0, 100]. **`Minimum` is wrapper API/hash state only:** Numerics `PowerFunction.Minimum` has always derived from ξ (the v1.0 assignment to it never took effect), so evaluation clamps at ξ — v1.1 preserves that exact behavior and warns in validation when `Minimum` < `Xi`.
 
 Both declare `SamplingDimensions = 1` while `IsUncertain` (else 0), serialize σ only while uncertain (the hash-recipe conditional), and surface `ComputeUncertaintyResults` percentile summaries. Verification: [closed-form-functions](../verification/closed-form-functions.md) — closed-form anchors plus engine-chain ensembles against a flat Monte Carlo oracle.
 

@@ -38,7 +38,13 @@ branch-explosion guardrails (warn above 64 combined branches per failure mode, e
 
 ## TabularConsequence
 
-A tabular relationship of strictly ascending hazard levels and consequence values, evaluated by linear interpolation (report Eq. 45) with flat extrapolation beyond the table. Consequence values need not be ordered. Optional logarithmic transforms on either axis (`HazardTransform`, `ConsequenceTransform`) improve interpolation accuracy; a logarithmic consequence axis requires a non-negative consequence range.
+A tabular relationship of strictly ascending hazard levels and consequence values, evaluated by linear interpolation,
+
+```
+C(x) = cᵢ + (cᵢ₊₁ − cᵢ)·(x − xᵢ)/(xᵢ₊₁ − xᵢ),        xᵢ ≤ x ≤ xᵢ₊₁,
+```
+
+with flat extrapolation beyond the table [7]. Consequence values need not be ordered. Optional logarithmic transforms on either axis (`HazardTransform`, `ConsequenceTransform`) improve interpolation accuracy; a logarithmic consequence axis requires a non-negative consequence range.
 
 ### Uncertainty
 
@@ -103,13 +109,13 @@ Combines a weighted list of child consequence functions (`WeightedConsequenceFun
 |---|---|---|---|
 | **Additive** | Σ Cᵢ (weights ignored) | Σ fᵢ | Sector damages (properties, industry, agriculture) aggregated to a total (report Eq. 47) |
 | **Average** | Σ wᵢ·Cᵢ, Σw = 1, children drawn independently | Σ wᵢ·fᵢ | Historic day/night exposure practice |
-| **Mixture** | One child per realization with probability wᵢ | Σ wᵢ·fᵢ (a mixture's mean is the weighted average of component means) | **Day/night exposure** — two children with weight = P(day) (0.42/0.58 typical); fully captures scenario uncertainty |
+| **Mixture** | Weighted branch enumeration in the engine (`SampleExposureBranches` at every hazard point); one child per realization on the standalone surface | Σ wᵢ·fᵢ (a mixture's mean is the weighted average of component means) | **Day/night exposure** — two children with weight = P(day) (0.42/0.58 typical); fully captures scenario uncertainty |
 
 Average and Mixture share the same mean but not the same variance: Σw²σ² (Average) vs Σw(σ² + μ²) − (Σwμ)² (Mixture, always at least as large). For the verification scenario the mixture σ is nearly 17× the average σ — treating day/night as a weighted average understates consequence uncertainty. There is no dedicated day/night type; a two-child Mixture composite is the model.
 
 ### Sampling
 
-Each child owns its sampler, seeded content-derived per [`MODEL_LIBRARY_ARCHITECTURE.md`](../requirements/MODEL_LIBRARY_ARCHITECTURE.md) §5.8.5 — `HashCombine(seed, child.CanonicalHash(), ordinal)` — so identical-content siblings draw independently and child renames can never move results. In Mixture mode the composite owns one selector dimension (`SamplingDimensions = 1`; otherwise 0). `SampleFunction(double p)` is RNG-free: Additive/Average sample every child co-monotonically at p; Mixture uses single-uniform composition sampling — p selects the cumulative-weight bucket and the child is sampled at the rescaled remainder (p − C_{k−1})/w_k, reproducing the exact mixture ensemble deterministically. Combined consequences clamp at zero. Nested composites are allowed (e.g., Mixture(day, night) over Additive sector sums); circular references are validation errors.
+Each child owns its sampler, seeded content-derived per [`MODEL_LIBRARY_ARCHITECTURE.md`](../requirements/MODEL_LIBRARY_ARCHITECTURE.md) §5.8.5 — `HashCombine(seed, child.CanonicalHash(), ordinal)` — so identical-content siblings draw independently and child renames can never move results. `SamplingDimensions` is always zero: the mixture branch choice is aleatory exposure the risk engine enumerates through `SampleExposureBranches()` at every hazard point rather than a knowledge dimension it draws, and the standalone per-realization surface rides an internal selector matrix generated with the seed fold and scheme a declared selector dimension would use. `SampleFunction(double p)` is RNG-free: Additive/Average sample every child co-monotonically at p; Mixture uses single-uniform composition sampling — p selects the cumulative-weight bucket and the child is sampled at the rescaled remainder (p − C_{k−1})/w_k, reproducing the exact mixture ensemble deterministically. Combined consequences clamp at zero. Nested composites are allowed (e.g., Mixture(day, night) over Additive sector sums); circular references are validation errors.
 
 ### Serialization and hashing
 

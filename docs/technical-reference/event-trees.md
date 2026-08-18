@@ -135,8 +135,12 @@ compiled-plan discipline) while adding Boolean gate evaluation through an exact 
 diagram. `TreeLinkMode.SharedLogicalEvent` — the same-Boolean-event link meaning — is implemented
 there; event trees continue to admit only `IndependentClone` links.
 
-## Node importance
+## Node importance and diagnostics
 
 `TreeNodeImportance.Compute` serves both tree kinds; the two-pass Monte Carlo sweep, its
 statistics, and its seeding are documented with the other sensitivity tooling in
-[sensitivity-analysis.md](sensitivity-analysis.md#tree-node-importance).
+[sensitivity-analysis.md](sensitivity-analysis.md#tree-node-importance). It is the library-side
+member of the report's three event-tree diagnostics [7] — node variance contribution (the
+sensitivity index), node likelihood distributions, and node correlation — the latter two being
+consuming-layer presentations over the same sampled node streams (chance nodes correlate
+positively with the response probability, remainder nodes negatively).

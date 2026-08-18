@@ -77,6 +77,33 @@ The legacy seismic scenario measures this directly ([bivariate-risk](../verifica
 
 This is why the collapse mode is preserved rather than deprecated: for a compound hazard whose secondary variable is mass-concentrated and mildly influential, collapsing it against its own frequency curve is not an approximation of the joint path — it is the better-conditioned arrangement of the same double integral. Reach for a bivariate hazard with conditional bins when the dependence is genuine (a non-independence copula), when both axes vary materially, or when the secondary axis feeds transforms or consequences that the collapse cannot express.
 
+## Copula families
+
+The dependence structure is any Numerics bivariate copula (`CopulaType`, serialized by enum name —
+an append-only contract). Orientation is fixed by the (u, v) **non-exceedance** convention:
+upper-tail dependence in (u, v) is joint extreme-hazard dependence.
+
+| Family | Tail behavior | Conditional machinery |
+|---|---|---|
+| `Normal` (Gaussian) | symmetric, no tail dependence | analytic h-function `h(v|u) = Φ((Φ⁻¹(v) − ρΦ⁻¹(u))/√(1−ρ²))` and inverse |
+| `StudentT` | symmetric, dependence in **both** tails | analytic (t-based) h-function and inverse |
+| `Clayton` | **lower**-tail dependence | analytic h-function `u^(−θ−1)·(u^(−θ) + v^(−θ) − 1)^(−(θ+1)/θ)` and inverse |
+| `Gumbel` | **upper**-tail dependence | conditional inverse solved numerically (Brent), saturating at the boundary |
+| `Joe` | **upper**-tail dependence | numeric inverse with the same boundary saturation |
+| `Frank` | symmetric, no tail dependence | analytic inverse over the full θ range |
+| `AliMikhailHaq` | weak-dependence range only | analytic |
+| `Independence` | product copula C(u,v) = u·v | h(v|u) = v; zero parameters (the default when no copula is stored) |
+
+Selection guidance: joint extreme-hazard scenarios (the flood-plus-surge class) want an
+upper-tail-dependent family (Gumbel, Joe, or Student-t) — a Gaussian copula with matched rank
+correlation understates joint extremes because its tail dependence is zero. Two implementation
+facts matter to consumers: only Gumbel and Joe invert their conditional numerically, and both
+saturate at conditional levels within rounding of one rather than failing the bracket; and the
+Archimedean families' forward `ConditionalCDF` is the generator-ratio form, which degrades at
+v → 1 for large θ — never round-trip the inverse against it at the exact boundary. Family-by-family
+anchors (analytic h-functions, exact E[UV] targets, the orientation pin) are in
+[../verification/copula-dependence.md](../verification/copula-dependence.md).
+
 ## Scope guards
 
 Deliberate scope limits, each enforced loudly rather than approximated: nested copulas (a bivariate marginal is a validation error — univariateness of marginals is the rule), copula-parameter uncertainty (parameters are fixed; the sampler reserves ordinal 2 for a θ posterior), and 2-D surface uncertainty (every bivariate surface is deterministic). Composite functions reject bivariate children in both validation and sampling; tree probability sources reject bivariate referenced responses in validation.

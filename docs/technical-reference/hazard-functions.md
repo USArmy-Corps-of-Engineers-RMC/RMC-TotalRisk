@@ -1,6 +1,6 @@
 # Hazard Functions
 
-> Technical reference for `RMC.TotalRisk.RiskFunctions.Hazards` — `TabularHazard` and `ParametricUnivariateHazard` in detail, plus the composite family. The namespace also carries `NonparametricHazard`, the graphical hazard function whose per-ordinate uncertainty is derived by the HEC-FDA "less simple method" order-statistic quantile variance (documented in its XML remarks; verified in [closed-form-functions](../verification/closed-form-functions.md)). Source of the methodology: RMC-TR-2022-XX, [*Quantitative Risk Analysis with RMC-TotalRisk*](https://usace-rmc.github.io/RMC-Software-Documentation/source-documents/desktop-applications/rmc-totalrisk/technical-reference-manual/RMC-TotalRisk-Technical-Reference-Manual.pdf), Hazard Functions chapter. The v1.1 API preserves the v1.0 domain surface; deltas are listed at the end.
+> Technical reference for `RMC.TotalRisk.RiskFunctions.Hazards` — `TabularHazard`, `ParametricUnivariateHazard`, and `NonparametricHazard` in detail, plus the composite family. Source of the methodology: RMC-TR-2022-XX [7], [*Quantitative Risk Analysis with RMC-TotalRisk*](https://usace-rmc.github.io/RMC-Software-Documentation/source-documents/desktop-applications/rmc-totalrisk/technical-reference-manual/RMC-TotalRisk-Technical-Reference-Manual.pdf), Hazard Functions chapter. The v1.1 API preserves the v1.0 domain surface; deltas are listed at the end.
 
 A **hazard function** is defined by the exceedance probabilities of hazard levels — annual maximum peak flow, stage, or peak ground acceleration. Hazard functions are commonly called frequency curves; in dam and levee risk assessment they typically describe the annual exceedance probability (AEP) of the governing hazard parameter.
 
@@ -38,10 +38,21 @@ A tabular (nonparametric) relationship of hazard levels and exceedance probabili
 
 The nonparametric survival function and its inverse are computed by linear interpolation over the table (report Eq. 5–6). Values outside the user-defined hazard range are **flat-lined** (clamped to the end ordinates) — no extrapolation. Because integration spans essentially (0, 1), enter tables with sufficient probability coverage to avoid significant flat-lining.
 
-Interpolation accuracy can be improved with axis transforms (report Eq. 7–8):
+Interpolation accuracy can be improved with axis transforms [7]:
 
 - `HazardTransform` — logarithmic (hazards that grow exponentially in real space interpolate linearly in log space). Requires a non-negative hazard range.
 - `ProbabilityTransform` — logarithmic or **Normal-Z** (default): p is mapped through Φ⁻¹, the standard-normal inverse CDF, so frequency-curve tails interpolate accurately.
+
+With hazards x₁ < … < xₙ at descending exceedance probabilities p₁ > … > pₙ, the interpolated
+inverse survival function and its transformed variants are
+
+```
+S⁻¹(p) = xᵢ + (xᵢ₊₁ − xᵢ)·(p − pᵢ)/(pᵢ₊₁ − pᵢ)                              (real space)
+S⁻¹(p) = exp[ ln xᵢ + (ln xᵢ₊₁ − ln xᵢ)·(p − pᵢ)/(pᵢ₊₁ − pᵢ) ]              (log hazard)
+S⁻¹(p) = xᵢ + (xᵢ₊₁ − xᵢ)·(Φ⁻¹(p) − Φ⁻¹(pᵢ))/(Φ⁻¹(pᵢ₊₁) − Φ⁻¹(pᵢ))          (normal-Z probability)
+```
+
+— the transform pair applying to whichever axes carry it.
 
 ### Uncertainty analysis (co-monotonic sampling)
 
@@ -143,6 +154,56 @@ UncertaintyAnalysisResults? summary = hazard.ComputeUncertaintyResults(0.90);
 - **Bounds fixes**: the hazard-bounds cache is keyed by the `meanOnly` flag, and the full-posterior bounds scan is race-free (both latent v1.0 defects).
 - **Uncertainty summaries** (`ComputeUncertaintyResults`) moved from app-layer plotting code into the model library; tabular summaries are exact percentile evaluations.
 
+## NonparametricHazard (the HEC-FDA graphical method)
+
+`NonparametricHazard` is the HEC-FDA "less simple method" [14] preserved for backwards
+compatibility with existing flood risk management studies: the user enters only the graphical
+AEP-vs-hazard curve plus an `EffectiveRecordLength`, and the per-ordinate knowledge uncertainty is
+**derived**, not entered.
+
+The derivation (`UpdateHazardFunction()` — a pure deterministic function of the serialized inputs,
+recomputed on load):
+
+1. **Extend** the curve by linear extrapolation on the configured interpolation transforms — to
+   `ExtrapolationEP` at the rare end (skipped when the data already reaches it) and to AEP 0.999
+   at the frequent end (the HEC-FDA convention).
+2. **Quantile standard error** per ordinate from the asymptotic order-statistic variance [7]:
+
+   ```
+   Var[x_p] = p·(1 − p) / ( N · f(x_p)² ),
+   ```
+
+   with N the effective record length and f the empirical density of the (log-)mean curve by
+   central-difference differentiation. SEs are pinned beyond p ∈ [0.01, 0.99] and smoothed
+   monotone toward both tails — the guard against unreasonable density estimates in the extremes.
+3. **Ordinate distributions**: each ordinate becomes an `LnNormal` with real-space mean x and the
+   derived σ (through the base-e log-normal moment mapping under a logarithmic
+   `HazardTransform`), with σ repaired so the 1% confidence bound never inverts between adjacent
+   ordinates.
+
+Sampling is the standard co-monotonic percentile walk over the derived table, and it gates on
+**input** validity: a legitimately derived ladder can cross deep in the tails, and sampled curves
+repair minimally through `ForceMonotonic` (matching v1.0). The derived table never serializes —
+the identity surface is exactly the user content plus `ExtrapolationEP` and `IsUncertain` — so a
+change to the derivation moves loaded results without moving hashes (a documented re-pin event).
+
+The report's restrictiveness caveat carries over: perfect rank correlation with Ln-Normal
+ordinates limits the shapes a random realization can take, which can slightly over- or under-state
+the variance of risk results — the price of a nonparametric method with derived uncertainty.
+`TabularHazard` offers full per-ordinate control when more flexibility is needed [7].
+
+**Improved over v1.0** (results-preserving; the Table 38 pins are the arbiter): the per-ordinate
+Brent root find in the 1%-bound repair is replaced by its exact closed-form solution (the legacy
+Brent call remains as a guarded fallback); the log-normal moment mappings are inlined closed
+forms; and the frequent-end extrapolation is evaluated *before* the ordinate lists are mutated —
+v1.0 corrupted its own interpolator there and silently produced a flat extension (inert for inputs
+already anchored at AEP 0.999, this type's default).
+
+Verification: the 2024 report's SF-8 scenario against HEC-FDA — all 20 published log₁₀ quantile
+pins (Table 38 [8]) — plus an independent re-derivation oracle and the reliability-mode
+annualized-failure-probability pins
+([closed-form-functions](../verification/closed-form-functions.md)).
+
 ## Composite hazard functions
 
 `CompositeHazard` combines a weighted list of child hazard functions under one of two rules:
@@ -151,6 +212,14 @@ UncertaintyAnalysisResults? summary = hazard.ComputeUncertaintyResults(0.90);
 |---|---|---|
 | **Mixture** (default, the v1.0 `IsMixture = true`) | `F(x) = Σ ωᵢ·Fᵢ(x)` — a `Numerics.Mixture` | Alternative descriptions of the loading; exactly one applies to any event. Report Equation 49. |
 | **CompetingRisks** | the **maximum** rule under the configured `Dependency` | All loading mechanisms occur; the most severe controls. Weights are inert. |
+
+The two rules are the two directions of one extreme-value algebra [27], [28]: a **mixture** is the
+weighted average of mutually exclusive alternative descriptions of the same annual maximum,
+`F(x) = Σ ωᵢFᵢ(x)` — elicited debris-blockage or gate-availability scenarios, exactly one true per
+event. The **maximum of independent drivers** (rainfall- and snowmelt-driven annual maxima, say)
+multiplies the CDFs, `F(x) = ∏ Fᵢ(x)` — equivalently, in USACE survival form, the probability of
+union of the exceedances, `S(x) = 1 − ∏(1 − Sᵢ(x))` — so the combined curve is always at least as
+severe as its most severe member, where a mixture is the weighted average of its members [7].
 
 The mixture is **aleatory** by design: the combination is a single distribution carried through
 every realization, `SamplingDimensions` is 0, and no branch is drawn — so a mixture of deterministic

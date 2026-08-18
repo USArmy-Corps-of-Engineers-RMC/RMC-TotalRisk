@@ -14,6 +14,13 @@ run already persisted are correlated against the per-function knowledge percenti
 bit-exactly from the content seeds — no re-simulation, no integration, and no serialized state of
 its own (`SensitivityResults` is runtime-only, never persisted).
 
+Appendix G of the report [7] develops four sensitivity formulations — the derivative index
+`(μ_θ/μ_f)·(∂f/∂θ)`, the first-order variance-propagation share, the regression variance share
+`SIᵢ = (σ²_θᵢ/σ²_y)·βᵢ²`, and the correlation coefficient. The engine's Monte Carlo measures are
+the sample-based members of that family: the Pearson and rank correlations, and the squared
+correlation as the sensitivity index — for a single regressor exactly the regression variance
+share. The tornado plot is the consuming layer's presentation of the ranked indices.
+
 ## The three entry points
 
 | Method | Output being explained | Where the outputs come from |

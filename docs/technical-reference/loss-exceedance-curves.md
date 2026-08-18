@@ -92,6 +92,13 @@ The result is stored as a Numerics `OrderedPairedData` (X = consequence descendi
 probability ascending), preserving the v1.0 curve orientation so downstream `GetXFromY` / `GetYFromX`
 interpolation is unchanged.
 
+Two identities anchor interpretation [23]: the curve's **maximum exceedance probability** equals α
+(the APF on the failure and excess streams; 1 on the exhaustive streams), and the **area under the
+curve on a linear scale equals the mean**, E[C] = ∫₀^∞ S(c) dc — a steep curve is
+frequent-but-modest risk, a fat-tailed curve rare-but-catastrophic risk. The USACE tolerable risk
+limit is defined directly on this curve, which is why it is the primary basis for guideline
+comparison.
+
 ## Moments (weighted, numerically stable)
 
 v1.0 computed the mean, standard deviation, skewness, and kurtosis from **raw power sums**
@@ -142,6 +149,24 @@ One more v1.0 inconsistency, corrected in the uncertainty post-processing: v1.0'
 `PostProcessUncertainty` reconstructed the **Total** percentile curve as `fAEP + nfAEP`
 (`RiskAnalysis.vb:3369`) rather than reading the Total LEC. The v1.1 percentile assembler reads the
 Total LEC directly — the Total curve is already built exactly.
+
+### The conditional mean loss summary point
+
+The Conditional Mean Loss Plot (the α–η plot) condenses a stream to the single point
+(`ConditionalMean`, `TotalProbability`) — how likely the conditioning event is against how severe
+it is when it occurs, with diagonals as lines of constant mean risk (E[C] = α·E[C|F]) [23].
+Because the conditional mean is the center of mass of the conditional loss distribution, the TRL
+screening logic is one-directional: a point **below** the tolerable risk limit guarantees the
+entire LEC is below it, but a point **above** proves nothing — two structures can share the point
+and differ entirely in curve shape, so the LEC remains the primary basis for guideline
+comparison.
+
+### Cross-software EAD comparison
+
+The 2024 verification report's HEC-FDA comparison (Beargrass Creek EAD, [8] §12) traces the
+residual differences between the two programs to three named sources — nonparametric-hazard
+uncertainty treatment, damage-curve aggregation, and interpolation-transform choices — all three
+of which are configuration semantics documented on these pages rather than integration error.
 
 ## System aggregation
 

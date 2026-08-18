@@ -12,13 +12,27 @@
 > [../verification/cascade-end-states.md](../verification/cascade-end-states.md).
 
 A `SystemComponent` is one hazard driving potential failure modes and their consequences, plus
-the options that govern how those modes combine. The graph is the model: the component persists
-its `ComponentGraph` — a typed, validated DAG of risk elements — and `FailureModes` is a fresh
-deterministic **projection** of that graph on every access, never independent state. Each
-projected mode is a root-first chain of the grammar `T* (R T*)* C`: zero or more transforms,
-response stages each optionally followed by transforms, and one terminal consequence element.
+the options that govern how those modes combine — a component is *identified by its hazard
+function* [25], so one dam with flood and seismic hazards is a two-component system. The graph is
+the model: the component persists its `ComponentGraph` — a typed, validated DAG of risk elements —
+and `FailureModes` is a fresh deterministic **projection** of that graph on every access, never
+independent state. Each projected mode is a root-first chain of the grammar `T* (R T*)* C`: zero
+or more transforms, response stages each optionally followed by transforms, and one terminal
+consequence element; a non-failure mode connects the hazard directly to non-failure consequences
+with no response.
+
+At the system level components connect in **series** — any component's failure contributes to
+system risk; parallel redundancy (both gates must fail) is modeled *inside* a component's response
+through event trees [25]. Failure-mode capacities are statistically independent across components
+(local materials, geometry, construction); the physical linkage between components is the shared
+hazard environment, carried entirely by the joint hazard probability. Capacity dependence *within*
+a component is the failure-mode dependency option — a different control from cross-component
+hazard dependency ([risk-analysis-engine.md](risk-analysis-engine.md) §7).
+
 The mathematics that flows through this surface lives in
-[risk-integration.md](risk-integration.md), [loss-exceedance-curves.md](loss-exceedance-curves.md),
+[risk-analysis-engine.md](risk-analysis-engine.md), [risk-integration.md](risk-integration.md),
+[loss-exceedance-curves.md](loss-exceedance-curves.md),
+[failure-mode-combination.md](failure-mode-combination.md),
 [risk-contribution.md](risk-contribution.md), and [cascading-end-states.md](cascading-end-states.md);
 this page documents the structure, authoring, validation, identity, and serialization contracts.
 

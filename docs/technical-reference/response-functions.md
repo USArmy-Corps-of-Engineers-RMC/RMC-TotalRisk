@@ -46,7 +46,13 @@ responses report true.
 
 ## TabularResponse
 
-A tabular relationship of strictly ascending hazard levels and conditional failure probabilities (report Eq. 30), evaluated by linear interpolation with flat extrapolation beyond the table. Probabilities must lie in [0, 1] (validated per ordinate across each distribution's full range), but need not be ordered or exhaustive.
+A tabular relationship of strictly ascending hazard levels and conditional failure probabilities, evaluated by linear interpolation,
+
+```
+P(F|x) = pᵢ + (pᵢ₊₁ − pᵢ)·(x − xᵢ)/(xᵢ₊₁ − xᵢ),        xᵢ ≤ x ≤ xᵢ₊₁,
+```
+
+with flat extrapolation beyond the table [7]. Probabilities must lie in [0, 1] (validated per ordinate across each distribution's full range), but need not be ordered or exhaustive.
 
 - `HazardTransform` — optional logarithmic input-axis transform (non-negative hazards).
 - `ProbabilityTransform` — optional logarithmic or Normal-Z output-axis transform. **Default `None`** (the hazard cluster defaults Normal-Z; the response cluster deliberately does not).
@@ -144,6 +150,15 @@ Monotonicity is advisory on this type: `IsMonotonic()` reports the collapsed cur
 The weakest-link rule is the substantive divergence from `CompositeHazard`, which takes the maximum
 because the most severe *loading* controls: for a response, any mechanism failing is enough, so the
 combination is the union of the child failure events, `1 − ∏(1 − pᵢ(h))` under independence.
+
+The mixture's classic use cases are the composite-response precursor of the combination note [24]:
+a response conditional on an uncertain secondary variable (condition on the variable that does
+**not** drive consequences, so the consequence function stays one-dimensional) and mutually
+exclusive geologic interpretations weighted by elicited likelihood. Sub-scenarios that can be
+active simultaneously — multiple erosion initiation points — are *not* exclusive, and the union
+(`CompetingRisks`) is then the right combine; sub-scenarios with different consequences are
+separate failure modes, never composite children
+([failure-mode-combination.md](failure-mode-combination.md) §2).
 
 The mixture is **aleatory** by design, exactly as for the hazard composite — see
 [composite-functions.md](composite-functions.md); verification is in

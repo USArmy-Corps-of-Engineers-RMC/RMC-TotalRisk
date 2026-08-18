@@ -28,17 +28,31 @@ Mixture weights must lie in [0, 1] and sum to one. **Under CompetingRisks the we
 the combination is governed by the rule and the configured dependence, not by weighting — and they
 are coerced out of the canonical hash so editing them cannot re-roll a Monte Carlo seed.
 
-The competing-risks rule differs by cluster, and the difference is physical:
+The competing-risks rule differs by cluster, and the difference is physical — the same
+competing-risks algebra run in its two directions [28]:
 
 - **Hazards use the maximum rule.** All the loading mechanisms occur; the most severe controls. The
   combined non-exceedance probability is the joint probability that *every* mechanism stayed below
-  the level — the product of the child CDFs under independence.
+  the level — the product of the child CDFs under independence, `F_c(x) = ∏ Fᵢ(x)`, equivalently
+  the USACE survival form `S_c(x) = 1 − ∏(1 − Sᵢ(x))` (the probability of union of exceedances).
 - **Responses use the minimum rule** (the weakest link). Any mechanism can fail the system, so the
   combined conditional failure probability is the union of the child failure events,
-  `1 − ∏(1 − pᵢ(h))` under independence.
+  `1 − ∏(1 − pᵢ(h))` under independence — the min-of-random-variables direction, whose density
+  decomposition (the sum of hazard rates times the joint survival, `f_c = [Σ fᵢ/Sᵢ]·∏Sᵢ`) is
+  exactly the cumulative-incidence machinery of the competing failure-mode method
+  ([failure-mode-combination.md](failure-mode-combination.md) §4.3).
 
 `CompositeTransform` and `CompositeConsequence` have no competing-risks mode: they combine *curves*
 pointwise rather than *distributions*, so there is no joint event to take.
+
+The mixture alternative carries three well-known statistical challenges worth naming before
+reaching for one [27]: **identifiability** (different weight/component configurations can produce
+nearly identical mixtures — fitting one from data is ill-posed without constraints),
+**label switching** (estimation methods can silently permute which component is "which"), and
+**right-tail underestimation** — a mixture smooths its members' tails together, while the
+competing-risks maximum envelops the most extreme member, so treating genuinely simultaneous
+flood-generating mechanisms as a weighted mixture understates rare-event hazard. The
+mixture-versus-union choice is a physical statement, not a stylistic one.
 
 ---
 

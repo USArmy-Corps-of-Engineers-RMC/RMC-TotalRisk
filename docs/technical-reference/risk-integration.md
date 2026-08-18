@@ -31,9 +31,26 @@ per-branch consequences — and the LEC is assembled from that point cloud
 2. The integrator's error estimate and evaluation count are genuine diagnostics worth surfacing on
    the results container.
 
+## The trapezoid foundation
+
+The conceptual foundation under every method here is fixed-bin trapezoid integration of an
+expectation, in any of four equivalent framings ([7] App. D): over the **PDF**
+(`E[X] ≈ Σ x̄ᵢ·f(x̄ᵢ)·Δxᵢ`), over the **CDF** (the Stieltjes form `E[X] ≈ Σ x̄ᵢ·ΔFᵢ` with bin mass
+`ΔFᵢ = F(x_bᵢ) − F(x_aᵢ)`), over the **inverse CDF** (`E[X] = ∫₀¹ F⁻¹(p) dp` on a probability
+grid — the framing the engine's probability-space integrand generalizes), or on a **normal-Z
+probability grid** (bins uniform in Φ⁻¹(p), concentrating resolution in the tails). All four add
+explicit tail atoms — `x_{a₁}·F(x_{a₁})` below and `x_{b_K}·(1 − F(x_{b_K}))` above — so the
+enumerated mass is exactly one. Risk integration replaces the bare x̄ᵢ with the full integrand
+`P(F|x̄ᵢ)·C(x̄ᵢ)`. Fixed bins waste evaluations where the integrand is flat, which is exactly what
+the adaptive methods below fix — v1.0 with Adaptive Simpson's recursion and adaptive importance
+sampling, v1.1 with the Gauss–Kronrod and VEGAS machinery — while the tail-atom discipline
+survives as the engine's endpoint rectangles (§Collectively exhaustive probability mass).
+
 ## 1D quadrature: Adaptive Gauss–Kronrod (replaces Adaptive Simpson)
 
-v1.0 used `Numerics.Mathematics.Integration.AdaptiveSimpsonsRule`. v1.1 uses
+v1.0 used `Numerics.Mathematics.Integration.AdaptiveSimpsonsRule` — Simpson's rule per subinterval
+with the recursive stopping criterion `(1/15)·|S(a,m) + S(m,b) − S(a,b)| ≤ ε + ε·|S(a,b)|`,
+defaults ε = 1e-8, depth 100, 10⁶ evaluations [25]. v1.1 uses
 `AdaptiveGaussKronrod` (G10K21 — 10-point Gauss with a 21-point Kronrod extension, 21st-order accurate
 for smooth integrands, QUADPACK-style [15]). The Numerics type exposes the **same surface** the engine
 drove Simpson through, so the swap changed no call-site shape. The engine configures it as
