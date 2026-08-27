@@ -27,7 +27,7 @@ below are the measurement history and pin provenance (superseded pins remain as 
 | F3 | `6469666ef207b436263434e793dc5bd8ec2990e2b26f9cf822de961019206281` |
 | F4 | `846234f17c71ffef1239e50caee0f897c7e7d95bcf85489917b8ef7bca92eb99` |
 | F5 | `2ae3925bfb7488cbfa4bd516cc2d4eb7d71c6f84bfff9f4891873a2bfd811349` |
-| F6 | `c183d28f83f41db40a4921542225382e30dc72cafc5df13ffc6ebe76be2d9132` |
+| F6 | `74af2e959503f4a96f36c78b1dfce96dab591016c46882c3db96d072bcb9525e` |
 | F7 | `f985ca0228952ac0ba66cc29b39cf9006247ea3965264b966ab785fa74317084` |
 | F8 | `5f4d4c397f43f76f551a6d29ea046bb351be4da6befbee2f8059b346c3e450b3` |
 
@@ -604,3 +604,20 @@ paid once per stream instead of once per bin). Recorded for a future dedicated p
 per the no-preoptimization rule; the close-out round this session ran all seven prior fixtures
 bit-exact alongside this baseline, F1 being the univariate zero-overhead proof for the
 `ComputeRisk` dispatch branch.
+
+## F6 re-pin — upstream accuracy corrections reached the bootstrap-MLE surface (2026-08-27)
+
+A close-out byte-gate round found F6 at `74af2e95…` against the recorded `c183d28f…`, with the
+other seven fixtures reproducing their pins bit-exactly. A detached-worktree bisect over fixed
+engine states isolated the movement to two numerics commits in the pre-session review batch —
+`4aab2e9` (product-moment power sums accumulated about a shifted origin) and `4f0d4f0` (relative
+accuracy held in the far normal and complement error function tails) — both ratified accuracy
+corrections on exactly the bootstrap maximum-likelihood surface F6 alone exercises (the only
+fixture that fits distributions; no other fixture crosses those paths). The same session's own
+commits were exonerated: the hash is identical immediately before and after them. Magnitude
+evidence: `CompositeEngineVerification` 5/5, `CompositeHazardVerification` 11/11 (including the
+bit-reproducibility pin), and `CompositeConsequenceVerification` 9/9 against the final DLL — the
+movement sits inside every statistical tolerance. The session baseline of 2026-08-27 (numerics
+`dc5b17c`, clean tree) reproduces the new hash bit-exactly. Re-pinned with approval 2026-08-27:
+
+- F6 `74af2e959503f4a96f36c78b1dfce96dab591016c46882c3db96d072bcb9525e` (3.12 GB)
