@@ -330,4 +330,68 @@ public class RiskAnalysisOptionsTests
         // Act / Assert
         Assert.ThrowsException<ArgumentNullException>(() => new RiskAnalysisOptions(null!));
     }
+
+    /// <summary>
+    /// Verifies the tolerable-risk criteria's conditional serialization: an empty collection
+    /// leaves the serialized form and canonical hash of the criteria-free configuration
+    /// unchanged, configured criteria round-trip with hash equality, and clearing them restores
+    /// the original form and hash exactly.
+    /// </summary>
+    [TestMethod]
+    public void Test_TolerableRiskCriteria_ConditionalPresenceAndHash()
+    {
+        // Arrange — the criteria-free baseline form and hash.
+        var options = new RiskAnalysisOptions();
+        byte[] baseline = options.CanonicalHash();
+        string baselineXml = options.ToXElement().ToString();
+        Assert.IsNull(options.ToXElement().Element(nameof(RiskAnalysisOptions.TolerableRiskCriteria)));
+
+        // Act — configure two criteria.
+        options.TolerableRiskCriteria.Add(new TolerableRiskCriterion());
+        options.TolerableRiskCriteria.Add(new TolerableRiskCriterion(RiskMeasure.TotalProbability, RiskType.Fail, 0, 1e-4));
+
+        // Assert — a deliberate hash event when present, with a lossless round trip.
+        CollectionAssert.AreNotEqual(baseline, options.CanonicalHash(), "Configured criteria are compute-relevant hashed content.");
+        var restored = new RiskAnalysisOptions(options.ToXElement());
+        Assert.AreEqual(2, restored.TolerableRiskCriteria.Count);
+        Assert.AreEqual(RiskMeasure.Mean, restored.TolerableRiskCriteria[0].Measure);
+        Assert.AreEqual(1e-3, restored.TolerableRiskCriteria[0].Threshold, 0d);
+        Assert.AreEqual(RiskMeasure.TotalProbability, restored.TolerableRiskCriteria[1].Measure);
+        Assert.AreEqual(RiskType.Fail, restored.TolerableRiskCriteria[1].RiskType);
+        CollectionAssert.AreEqual(options.CanonicalHash(), restored.CanonicalHash());
+
+        // Clearing restores the criteria-free form and hash byte-for-byte.
+        options.TolerableRiskCriteria.Clear();
+        CollectionAssert.AreEqual(baseline, options.CanonicalHash());
+        Assert.AreEqual(baselineXml, options.ToXElement().ToString());
+    }
+
+    /// <summary>
+    /// Verifies criteria validation aggregation and change notification: an invalid criterion
+    /// is an indexed Error on the options, and collection edits raise the property change the
+    /// owning analysis invalidates on.
+    /// </summary>
+    [TestMethod]
+    public void Test_TolerableRiskCriteria_ValidationAndNotification()
+    {
+        // Arrange
+        var options = new RiskAnalysisOptions();
+        var raised = new List<string?>();
+        options.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+        // Act — one valid, one invalid criterion.
+        options.TolerableRiskCriteria.Add(new TolerableRiskCriterion());
+        options.TolerableRiskCriteria.Add(new TolerableRiskCriterion(RiskMeasure.Mean, RiskType.Excess, 0, double.NaN));
+
+        // Assert — the indexed Error and the notifications.
+        var (isValid, messages) = options.Validate();
+        Assert.IsFalse(isValid);
+        Assert.IsTrue(messages.Exists(m => m.StartsWith("Error:") && m.Contains("finite") && m.Contains("[Criterion 2]")),
+            string.Join(Environment.NewLine, messages));
+        Assert.AreEqual(2, raised.FindAll(n => n == nameof(RiskAnalysisOptions.TolerableRiskCriteria)).Count);
+
+        // Removing the invalid entry restores validity.
+        options.TolerableRiskCriteria.RemoveAt(1);
+        Assert.IsTrue(options.Validate().IsValid);
+    }
 }

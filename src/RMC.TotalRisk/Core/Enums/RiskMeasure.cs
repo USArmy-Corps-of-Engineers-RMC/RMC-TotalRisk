@@ -11,8 +11,10 @@ namespace RMC.TotalRisk.Core.Enums
     ///     Haden Smith, USACE Risk Management Center, cole.h.smith@usace.army.mil
     /// </para>
     /// <para>
-    /// Runtime-only — never serialized (no hash surface). On the Fail stream
-    /// <see cref="TotalProbability"/> is the annualized failure probability.
+    /// Member names are append-only serialized contract: a tolerable-risk criterion persists
+    /// its measure by name (and echoes it in the results), so members are never renamed or
+    /// reordered. On the Fail stream <see cref="TotalProbability"/> is the annualized failure
+    /// probability.
     /// </para>
     /// </remarks>
     public enum RiskMeasure

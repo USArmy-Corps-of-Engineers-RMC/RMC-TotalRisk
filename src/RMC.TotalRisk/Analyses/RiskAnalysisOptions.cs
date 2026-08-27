@@ -1,5 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Xml.Linq;
 using RMC.TotalRisk.Core;
@@ -36,7 +38,9 @@ namespace RMC.TotalRisk.Analyses
     /// <see cref="ToXElement"/>; <see cref="UseDefaults"/> is stripped (it records who wrote the
     /// integration settings, not what they are), and the correlation matrix serializes (and
     /// therefore hashes) only under <see cref="DependencyType.CorrelationMatrix"/> — in the
-    /// automatic modes it is derived state. The options hash never feeds Monte Carlo seeds
+    /// automatic modes it is derived state. The tolerable-risk criteria serialize (and
+    /// therefore hash) only when configured, so every criteria-free options form and hash is
+    /// unchanged. The options hash never feeds Monte Carlo seeds
     /// (only <see cref="PRNGSeed"/> does).
     /// </para>
     /// </remarks>
@@ -49,6 +53,7 @@ namespace RMC.TotalRisk.Analyses
         /// </summary>
         public RiskAnalysisOptions()
         {
+            _tolerableRiskCriteria.CollectionChanged += TolerableRiskCriteriaChanged;
         }
 
         /// <summary>
@@ -91,6 +96,17 @@ namespace RMC.TotalRisk.Analyses
             _maxPathwayCombinations = SerializationUtilities.ReadInt32(xElement, nameof(MaxPathwayCombinations), 4_096);
             _riskMeasures = SerializationUtilities.ReadEnum(xElement, nameof(RiskMeasures), RiskMeasureOptions.All);
             _outputAdjustedFailureModeCurves = SerializationUtilities.ReadBoolean(xElement, nameof(OutputAdjustedFailureModeCurves), false);
+
+            // Conditional-presence child: absent on every criteria-free form.
+            var criteriaElement = xElement.Element(nameof(TolerableRiskCriteria));
+            if (criteriaElement != null)
+            {
+                foreach (var child in criteriaElement.Elements(nameof(TolerableRiskCriterion)))
+                {
+                    _tolerableRiskCriteria.Add(new TolerableRiskCriterion(child));
+                }
+            }
+            _tolerableRiskCriteria.CollectionChanged += TolerableRiskCriteriaChanged;
         }
 
         #endregion
@@ -176,6 +192,10 @@ namespace RMC.TotalRisk.Analyses
 
         /// <summary>Backing field for <see cref="SystemConvolutionPoints"/>.</summary>
         private int _systemConvolutionPoints = 4096;
+
+        /// <summary>Backing collection for <see cref="TolerableRiskCriteria"/>.</summary>
+        private readonly ObservableCollection<TolerableRiskCriterion> _tolerableRiskCriteria =
+            new ObservableCollection<TolerableRiskCriterion>();
 
         /// <summary>
         /// Backing field for <see cref="MaxSystemCombinations"/>.
@@ -556,6 +576,28 @@ namespace RMC.TotalRisk.Analyses
         }
 
         /// <summary>
+        /// The tolerable-risk criteria the full-uncertainty run evaluates over its ensemble —
+        /// one epistemic confidence statement P(measure &gt; threshold) per entry, at the
+        /// system scope, weighted by any realization weights. Empty by default (no criteria,
+        /// no output block). Entries are immutable — replace an entry to edit it. The criteria
+        /// serialize as a conditional child and are compute-relevant hashed content when
+        /// present; an empty collection leaves the serialized form and hash of every earlier
+        /// options configuration unchanged.
+        /// </summary>
+        public ObservableCollection<TolerableRiskCriterion> TolerableRiskCriteria => _tolerableRiskCriteria;
+
+        /// <summary>
+        /// Forwards criteria-collection changes to the property-change surface so the owning
+        /// analysis invalidates its results like any other option edit.
+        /// </summary>
+        /// <param name="sender">The collection.</param>
+        /// <param name="e">The change arguments.</param>
+        private void TolerableRiskCriteriaChanged(object? sender, NotifyCollectionChangedEventArgs e)
+        {
+            RaisePropertyChange(nameof(TolerableRiskCriteria));
+        }
+
+        /// <summary>
         /// Raised when an option changes. The owning analysis invalidates its results on any
         /// option change.
         /// </summary>
@@ -689,6 +731,19 @@ namespace RMC.TotalRisk.Analyses
                 messages.Add("Error: The ensemble integrator tolerance must be between 1e-15 and 0.01.");
             if (_ensembleMinDepth < 0 || _ensembleMinDepth > 10)
                 messages.Add("Error: The ensemble integrator minimum depth must be between 0 and 10.");
+            for (int i = 0; i < _tolerableRiskCriteria.Count; i++)
+            {
+                if (_tolerableRiskCriteria[i] == null)
+                {
+                    messages.Add($"Error: Tolerable-risk criterion {i + 1} is null.");
+                    continue;
+                }
+                var criterion = _tolerableRiskCriteria[i].Validate();
+                for (int m = 0; m < criterion.ValidationMessages.Count; m++)
+                {
+                    messages.Add($"{criterion.ValidationMessages[m]} [Criterion {i + 1}]");
+                }
+            }
 
             return (messages.FindIndex(m => m.StartsWith("Error:", StringComparison.Ordinal)) < 0, messages);
         }
@@ -749,6 +804,18 @@ namespace RMC.TotalRisk.Analyses
             element.SetAttributeValue(nameof(OutputAdjustedFailureModeCurves), _outputAdjustedFailureModeCurves);
             element.SetAttributeValue(nameof(EnsembleTolerance), SerializationUtilities.FormatDouble(_ensembleTolerance));
             element.SetAttributeValue(nameof(EnsembleMinDepth), _ensembleMinDepth);
+
+            // Conditional-presence child: written only when criteria are configured, so every
+            // criteria-free options form — and its canonical hash — is unchanged.
+            if (_tolerableRiskCriteria.Count > 0)
+            {
+                var criteria = new XElement(nameof(TolerableRiskCriteria));
+                for (int i = 0; i < _tolerableRiskCriteria.Count; i++)
+                {
+                    criteria.Add(_tolerableRiskCriteria[i].ToXElement());
+                }
+                element.Add(criteria);
+            }
             return element;
         }
 

@@ -1818,4 +1818,103 @@ public class RiskAnalysisTests
         var bare = new RiskAnalysis(new[] { Component(Consequence("Failure Loss", 300d)) }, element);
         Assert.IsFalse(bare.IsEstimated);
     }
+
+    /// <summary>
+    /// Verifies the tolerable-risk confidence end to end: criteria never move a sampled
+    /// realization, every published entry equals the exact count (or weight fraction) over the
+    /// stored per-realization measures, the block serializes append-only, the post-hoc
+    /// recomputation matches the published block and follows post-hoc weights, and the
+    /// validation surface gates the mean-only and out-of-range configurations.
+    /// </summary>
+    [TestMethod]
+    public async Task Test_TolerableRiskConfidence_EndToEnd()
+    {
+        // Arrange — a criteria-free reference run fixes the per-realization measures.
+        const int realizations = 100;
+        RiskAnalysis Create()
+        {
+            var analysis = new RiskAnalysis(new[] { Component(Consequence("Failure Loss", 300d), UncertainFragility()) });
+            analysis.Options.EstimateMeanRiskOnly = false;
+            analysis.Options.Realizations = realizations;
+            return analysis;
+        }
+        var reference = Create();
+        await reference.RunAsync();
+        var excessMeans = new double[realizations];
+        for (int i = 0; i < realizations; i++)
+        {
+            excessMeans[i] = reference.RiskResults![i]!.Excess.Mean;
+        }
+        // Any interior value splits the ensemble; the oracle recounts against it either way.
+        double midThreshold = excessMeans[realizations / 2];
+
+        // Act — the criteria'd run: an always-exceeded, a mid, and a never-exceeded threshold.
+        var analysisWithCriteria = Create();
+        analysisWithCriteria.Options.TolerableRiskCriteria.Add(new TolerableRiskCriterion(RiskMeasure.Mean, RiskType.Excess, 0, double.MinValue));
+        analysisWithCriteria.Options.TolerableRiskCriteria.Add(new TolerableRiskCriterion(RiskMeasure.Mean, RiskType.Excess, 0, midThreshold));
+        analysisWithCriteria.Options.TolerableRiskCriteria.Add(new TolerableRiskCriterion(RiskMeasure.Mean, RiskType.Excess, 0, double.MaxValue));
+        await analysisWithCriteria.RunAsync();
+
+        // Assert — criteria are seed-inert: every per-realization measure is bit-identical.
+        int exceedingCount = 0;
+        for (int i = 0; i < realizations; i++)
+        {
+            double value = analysisWithCriteria.RiskResults![i]!.Excess.Mean;
+            Assert.AreEqual(BitConverter.DoubleToInt64Bits(excessMeans[i]), BitConverter.DoubleToInt64Bits(value),
+                $"Realization {i} moved under configured criteria.");
+            if (value > midThreshold) exceedingCount++;
+        }
+
+        // The published block: exact counts over the stored measures.
+        var block = analysisWithCriteria.RiskResults!.Summary!.TolerableRiskConfidence!;
+        Assert.AreEqual(3, block.Count);
+        Assert.AreEqual(1d, block[0].ExceedanceProbability, 0d);
+        Assert.AreEqual(exceedingCount / (double)realizations, block[1].ExceedanceProbability, 0d);
+        Assert.AreEqual(0d, block[2].ExceedanceProbability, 0d);
+        Assert.AreEqual("Mean", block[1].Measure);
+        Assert.AreEqual("Excess", block[1].RiskType);
+        Assert.AreEqual(BitConverter.DoubleToInt64Bits(midThreshold), BitConverter.DoubleToInt64Bits(block[1].Threshold));
+
+        // Serialization: the block round-trips; the criteria-free run's payload omits it.
+        var restored = EnsembleResults.FromJson(analysisWithCriteria.RiskResults.ToJson());
+        Assert.AreEqual(BitConverter.DoubleToInt64Bits(block[1].ExceedanceProbability),
+            BitConverter.DoubleToInt64Bits(restored.Summary!.TolerableRiskConfidence![1].ExceedanceProbability));
+        StringAssert.DoesNotMatch(reference.RiskResults!.ToJson(), new System.Text.RegularExpressions.Regex("TolerableRiskConfidence"));
+
+        // Post-hoc recomputation matches the published block, and follows post-hoc weights.
+        var recomputed = analysisWithCriteria.ComputeTolerableRiskConfidence()!;
+        Assert.AreEqual(BitConverter.DoubleToInt64Bits(block[1].ExceedanceProbability),
+            BitConverter.DoubleToInt64Bits(recomputed[1].ExceedanceProbability));
+        var weights = CreateIndexWeights(realizations);
+        analysisWithCriteria.RiskResults.SetRealizationWeights(weights);
+        var weighted = analysisWithCriteria.ComputeTolerableRiskConfidence()!;
+        double exceedingWeight = 0d, totalWeight = 0d;
+        for (int i = 0; i < realizations; i++)
+        {
+            totalWeight += weights[i];
+            if (analysisWithCriteria.RiskResults[i]!.Excess.Mean > midThreshold) exceedingWeight += weights[i];
+        }
+        Assert.AreEqual(BitConverter.DoubleToInt64Bits(exceedingWeight / totalWeight),
+            BitConverter.DoubleToInt64Bits(weighted[1].ExceedanceProbability));
+
+        // A criteria-free analysis recomputes to null; so does an unestimated one.
+        Assert.IsNull(reference.ComputeTolerableRiskConfidence());
+
+        // Validation: mean-only is a Warning (legal, no output); an out-of-range type position
+        // is an Error the run gate enforces.
+        var meanOnly = new RiskAnalysis(new[] { Component(Consequence("Failure Loss", 300d)) });
+        meanOnly.Options.TolerableRiskCriteria.Add(new TolerableRiskCriterion());
+        var (meanOnlyValid, meanOnlyMessages) = meanOnly.Validate();
+        Assert.IsTrue(meanOnlyValid);
+        Assert.IsTrue(meanOnlyMessages.Exists(m => m.StartsWith("Warning:") && m.Contains("mean-only")));
+        await meanOnly.RunAsync();
+        Assert.IsNull(meanOnly.RiskResults!.Summary, "A mean-only run publishes no summary and therefore no confidence block.");
+
+        var outOfRange = Create();
+        outOfRange.Options.TolerableRiskCriteria.Add(new TolerableRiskCriterion(RiskMeasure.Mean, RiskType.Excess, 3, 1e-3));
+        var (rangeValid, rangeMessages) = outOfRange.Validate();
+        Assert.IsFalse(rangeValid);
+        Assert.IsTrue(rangeMessages.Exists(m => m.StartsWith("Error:") && m.Contains("position 3")));
+        await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => outOfRange.RunAsync());
+    }
 }

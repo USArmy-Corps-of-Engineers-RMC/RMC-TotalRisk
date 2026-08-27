@@ -6,6 +6,7 @@ using Numerics.Data;
 using Numerics.Distributions;
 using Numerics.Sampling;
 using RMC.TotalRisk.Analyses;
+using RMC.TotalRisk.Core.Enums;
 using RMC.TotalRisk.Results;
 using RMC.TotalRisk.RiskFunctions.Consequences;
 using RMC.TotalRisk.RiskFunctions.Hazards;
@@ -20,7 +21,8 @@ namespace RMC.TotalRisk.Verification.Analyses;
 /// weighted percentile and the weighted moment formulas, the integer-weight replication
 /// identity, the full-engine weighted run (weights never move a sampled realization; the
 /// published band scalars and summary equal the independent reduction of the stored
-/// per-realization values), and the weighted results round trip.
+/// per-realization values), the weighted results round trip, and the weighted tolerable-risk
+/// confidence against independent exact weight-fraction counts.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -547,5 +549,68 @@ public class WeightedEnsembleVerification
         string unweightedJson = unweighted.RiskResults!.ToJson();
         StringAssert.DoesNotMatch(unweightedJson, new System.Text.RegularExpressions.Regex("RealizationWeights"));
         StringAssert.DoesNotMatch(unweightedJson, new System.Text.RegularExpressions.Regex("EffectiveRealizationCount"));
+    }
+
+    /// <summary>
+    /// Verifies the weighted tolerable-risk confidence behind the full engine: configured
+    /// criteria move the analysis content identity (they are hashed options content) while
+    /// every sampled realization stays bit-identical, and each published exceedance
+    /// probability equals the independent weight-fraction count Σw·1[x &gt; c]/Σw over the
+    /// stored per-realization measures — exact, no tolerance.
+    /// </summary>
+    [TestMethod]
+    public async Task Test_WeightedTolerableRiskConfidence_MatchesIndependentCounts()
+    {
+        // Arrange — a criteria-free weighted reference run fixes the per-realization measures.
+        var weights = EngineWeights(EngineRealizations);
+        var reference = EngineScenario();
+        reference.RealizationWeights = weights;
+        await reference.RunAsync();
+        var excessMeans = new double[EngineRealizations];
+        var failureProbabilities = new double[EngineRealizations];
+        for (int i = 0; i < EngineRealizations; i++)
+        {
+            excessMeans[i] = reference.RiskResults![i]!.Excess.Mean;
+            failureProbabilities[i] = reference.RiskResults[i]!.Fail.TotalProbability;
+        }
+        double excessThreshold = excessMeans[EngineRealizations / 2];
+        double failureThreshold = failureProbabilities[EngineRealizations / 3];
+
+        // Act — the criteria'd weighted run of the identical model and seed.
+        var analysis = EngineScenario();
+        analysis.RealizationWeights = weights;
+        analysis.Options.TolerableRiskCriteria.Add(
+            new TolerableRiskCriterion(RiskMeasure.Mean, RiskType.Excess, 0, excessThreshold));
+        analysis.Options.TolerableRiskCriteria.Add(
+            new TolerableRiskCriterion(RiskMeasure.TotalProbability, RiskType.Fail, 0, failureThreshold));
+        await analysis.RunAsync();
+
+        // Assert — criteria move the analysis identity but never a sampled realization.
+        Assert.AreNotEqual(reference.RiskResults!.Manifest!.AnalysisContentHash,
+            analysis.RiskResults!.Manifest!.AnalysisContentHash,
+            "Configured criteria are hashed options content — the analysis identity must move.");
+        for (int i = 0; i < EngineRealizations; i++)
+        {
+            Assert.AreEqual(BitConverter.DoubleToInt64Bits(excessMeans[i]),
+                BitConverter.DoubleToInt64Bits(analysis.RiskResults[i]!.Excess.Mean),
+                $"Realization {i} moved under configured criteria.");
+        }
+
+        // The independent weight-fraction counts, exact against the published block.
+        var block = analysis.RiskResults.Summary!.TolerableRiskConfidence!;
+        Assert.AreEqual(2, block.Count);
+        double exceedingExcess = 0d, exceedingFailure = 0d, totalWeight = 0d;
+        for (int i = 0; i < EngineRealizations; i++)
+        {
+            totalWeight += weights[i];
+            if (excessMeans[i] > excessThreshold) exceedingExcess += weights[i];
+            if (failureProbabilities[i] > failureThreshold) exceedingFailure += weights[i];
+        }
+        Assert.AreEqual(BitConverter.DoubleToInt64Bits(exceedingExcess / totalWeight),
+            BitConverter.DoubleToInt64Bits(block[0].ExceedanceProbability));
+        Assert.AreEqual(BitConverter.DoubleToInt64Bits(exceedingFailure / totalWeight),
+            BitConverter.DoubleToInt64Bits(block[1].ExceedanceProbability));
+        Assert.AreEqual("Mean", block[0].Measure);
+        Assert.AreEqual("TotalProbability", block[1].Measure);
     }
 }

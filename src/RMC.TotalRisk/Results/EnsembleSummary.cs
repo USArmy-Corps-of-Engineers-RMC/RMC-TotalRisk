@@ -115,6 +115,18 @@ namespace RMC.TotalRisk.Results
         [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
         public double? EffectiveRealizationCount { get; set; }
 
+        /// <summary>
+        /// The evaluated tolerable-risk confidence statements, one per configured criterion in
+        /// declared order — P(measure &gt; threshold) as the realization-weight fraction
+        /// strictly exceeding each threshold. Null when the analysis configures no criteria —
+        /// the field is absent from such payloads (append-only results JSON). Populated by the
+        /// engine's full-uncertainty run; criteria live on the analysis options, so a bare
+        /// <see cref="Compute"/> over a loaded ensemble produces a summary without the block —
+        /// the analysis-level recomputation supplies it.
+        /// </summary>
+        [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+        public List<TolerableRiskConfidence>? TolerableRiskConfidence { get; set; }
+
         #endregion
 
         #region Computation

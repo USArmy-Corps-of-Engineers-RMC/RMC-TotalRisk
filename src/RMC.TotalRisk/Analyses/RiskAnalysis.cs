@@ -737,6 +737,19 @@ namespace RMC.TotalRisk.Analyses
                 }
             }
 
+            for (int i = 0; i < _options.TolerableRiskCriteria.Count; i++)
+            {
+                var criterion = _options.TolerableRiskCriteria[i];
+                if (criterion != null && criterion.ConsequenceTypeIndex > _additionalConsequenceTypes.Count)
+                {
+                    messages.Add($"Error: Tolerable-risk criterion {i + 1} reads consequence-type position {criterion.ConsequenceTypeIndex}, but the analysis declares positions 0 through {_additionalConsequenceTypes.Count}.");
+                }
+            }
+            if (_options.TolerableRiskCriteria.Count > 0 && _options.EstimateMeanRiskOnly)
+            {
+                messages.Add("Warning: Tolerable-risk criteria evaluate on the full-uncertainty ensemble; a mean-only run does not produce them.");
+            }
+
             if (_components.Count == 0)
             {
                 messages.Add("Error: The analysis has no system components.");
@@ -1635,6 +1648,11 @@ namespace RMC.TotalRisk.Analyses
             // curves carry bands through the percentile realizations; the scalar catalog gets
             // its intervals here, reduced from the stored per-realization summaries.
             ensemble.Summary = ensemble.ComputeSummary(_options.ConfidenceIntervalWidth);
+            if (ensemble.Summary != null && _options.TolerableRiskCriteria.Count > 0)
+            {
+                ensemble.Summary.TolerableRiskConfidence =
+                    EvaluateTolerableRiskCriteria(_options.TolerableRiskCriteria, summaries, realizationWeights);
+            }
             var publication = new AnalysisRunPublication
             {
                 Results = ensemble,
@@ -2010,6 +2028,76 @@ namespace RMC.TotalRisk.Analyses
                 _components[i].CollectSensitivityInputs(inputs);
             }
             return inputs;
+        }
+
+        /// <summary>
+        /// Re-evaluates the configured tolerable-risk criteria over the stored result ensemble —
+        /// including any realization weights assigned after the run — without re-simulation.
+        /// The returned entries are freshly computed; the stored summary block is not modified.
+        /// </summary>
+        /// <returns>
+        /// The confidence entries in criteria order, or null when the analysis configures no
+        /// criteria or carries no stored ensemble.
+        /// </returns>
+        /// <exception cref="InvalidOperationException">Thrown when the stored ensemble carries an invalid realization weight vector.</exception>
+        public IReadOnlyList<TolerableRiskConfidence>? ComputeTolerableRiskConfidence()
+        {
+            var results = _riskResults;
+            if (results == null || results.Count == 0 || _authorOptions.TolerableRiskCriteria.Count == 0) return null;
+            var weights = results.RealizationWeights;
+            if (weights != null)
+            {
+                string? reason = EnsembleResults.DescribeInvalidWeights(weights, results.Count, out _);
+                if (reason != null)
+                {
+                    throw new InvalidOperationException($"The stored realization weights are invalid. {reason}");
+                }
+            }
+            return EvaluateTolerableRiskCriteria(_authorOptions.TolerableRiskCriteria, results.Realizations, weights).AsReadOnly();
+        }
+
+        /// <summary>
+        /// Evaluates tolerable-risk criteria over a realization-summary ensemble: each entry's
+        /// exceedance probability is the realization-weight fraction whose selected system-scope
+        /// measure is strictly greater than the criterion threshold. NaN measures are filtered
+        /// pairwise with their weights, null realization slots are skipped with theirs, and a
+        /// zero surviving weight reports NaN — the all-NaN convention.
+        /// </summary>
+        /// <param name="criteria">The configured criteria, in declared order.</param>
+        /// <param name="summaries">The per-realization summaries, by realization slot.</param>
+        /// <param name="weights">The realization weights parallel to the slots, or null for equal weights.</param>
+        /// <returns>One confidence entry per criterion.</returns>
+        private static List<TolerableRiskConfidence> EvaluateTolerableRiskCriteria(
+            IReadOnlyList<TolerableRiskCriterion> criteria, IReadOnlyList<SystemRiskResults?> summaries,
+            double[]? weights)
+        {
+            var entries = new List<TolerableRiskConfidence>(criteria.Count);
+            for (int c = 0; c < criteria.Count; c++)
+            {
+                var criterion = criteria[c];
+                double exceedingWeight = 0d;
+                double totalWeight = 0d;
+                for (int i = 0; i < summaries.Count; i++)
+                {
+                    var summary = summaries[i];
+                    if (summary == null) continue;
+                    var stream = SelectScope(summary, -1, -1, criterion.RiskType, criterion.ConsequenceTypeIndex);
+                    double value = stream != null ? ExtractMeasure(stream, criterion.Measure) : double.NaN;
+                    if (double.IsNaN(value)) continue;
+                    double weight = weights == null ? 1d : weights[i];
+                    totalWeight += weight;
+                    if (value > criterion.Threshold) exceedingWeight += weight;
+                }
+                entries.Add(new TolerableRiskConfidence
+                {
+                    Measure = criterion.Measure.ToString(),
+                    RiskType = criterion.RiskType.ToString(),
+                    ConsequenceTypeIndex = criterion.ConsequenceTypeIndex,
+                    Threshold = criterion.Threshold,
+                    ExceedanceProbability = totalWeight > 0d ? exceedingWeight / totalWeight : double.NaN,
+                });
+            }
+            return entries;
         }
 
         /// <summary>

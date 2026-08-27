@@ -130,6 +130,7 @@ public class EnsembleResultsTests
         StringAssert.DoesNotMatch(json, new System.Text.RegularExpressions.Regex("EffectiveRealizationCount"));
         StringAssert.DoesNotMatch(json, new System.Text.RegularExpressions.Regex("RealizationWeightsHash"));
         StringAssert.DoesNotMatch(json, new System.Text.RegularExpressions.Regex("LoadDiagnostics"));
+        StringAssert.DoesNotMatch(json, new System.Text.RegularExpressions.Regex("TolerableRiskConfidence"));
     }
 
     /// <summary>
