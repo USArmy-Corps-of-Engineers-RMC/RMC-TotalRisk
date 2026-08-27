@@ -68,7 +68,46 @@ and the integrator diagnostics) is the ensemble percentile or sequential mean of
 The aggregated `ConvergenceDiagnostics` carry the integrator effort/error summaries
 (function-evaluation and standard-error statistics) and the realization-adequacy indicators
 (SD/√N and confidence half-widths for the headline scalars). Reductions are sequential and
-deterministic — repeated runs and JSON round-trips reproduce every slot bit-for-bit.
+deterministic — repeated runs and JSON round-trips reproduce every slot bit-for-bit. When the
+ensemble carries realization weights (below), every measure reduction is weighted and the
+summary records the effective sample size; a null weight vector reduces exactly as before.
+
+## Epistemic realization weights
+
+`EnsembleResults.RealizationWeights` is the optional per-realization epistemic weight vector —
+the single authoritative copy, parallel to the realization slots. A weight states the relative
+credibility of one realization's knowledge state (reliability semantics: only relative values
+carry meaning; weights are stored raw and normalized inside the reductions, never in storage).
+Null means every realization carries equal weight, and every reduction then follows the
+unweighted path unchanged.
+
+Two write paths exist. `RiskAnalysis.RealizationWeights` supplies weights as a **run input**
+(runtime-only state — never serialized with the analysis, never hashed, never an influence on
+sampling seeds): the run validates the vector (full-uncertainty mode only; length equal to the
+realization count; finite, non-negative, not all zero), weights the percentile band assembly
+and the summary reduction, stamps the vector into the stored ensemble, and records its SHA-256
+fingerprint as `AnalysisRunManifest.RealizationWeightsHash`.
+`EnsembleResults.SetRealizationWeights` annotates a **finished** result set (the write path for
+likelihood re-weighting and scenario credibility): the scalar summary is then recomputable through
+`ComputeSummary`, while the persisted band curves keep their run-time weighting — the full
+per-realization curves they reduce are not retained, so re-banding requires a rerun with the
+weights as input. Post-run annotation never touches the manifest: it records run provenance,
+and that run was truthfully unweighted.
+
+What reduces weighted: the four summary trees' entire measure catalog (weighted mean; symmetric
+weighted percentiles — zero-weight realizations carry no mass), the contribution values, the
+percentile band curves and profile bands of a weighted run, and the convergence indicators
+(weighted mean with standard error √(V/N_eff), the Kish effective size N_eff = (Σw)²/Σw²
+reported as `EnsembleSummary.EffectiveRealizationCount`). The integrator effort/error
+aggregates stay unweighted — they describe computational effort actually spent. Weights never
+move a sampled realization: a weighted run draws bit-identically the realizations the
+unweighted run draws, and only the reductions over them change.
+
+A stored payload whose weight vector fails the integrity checks loads **without throwing**:
+the results are cleared (realizations, summary, and weights; the manifest is kept for
+identification), the failure is recorded in the runtime-only `EnsembleResults.LoadDiagnostics`,
+and an analysis restored over the cleared container reports unestimated — the analysis must be
+rerun and its results saved again.
 
 ## The multi-consequence axis
 
@@ -111,6 +150,10 @@ Conventions:
   for unpopulated measures — round-trip as quoted literals.
 - Serialized members are **append-only**: newer readers load older payloads with the missing
   blocks null ("not computed"), and nothing is ever renamed.
+- The weight family (`RealizationWeights`, `EffectiveRealizationCount`,
+  `RealizationWeightsHash`) is additionally **null-suppressed**: absent from unweighted
+  payloads, so an unweighted result set serializes byte-identically to a pre-weight payload
+  (pinned by test against the captured pre-weight digest).
 - Compressed payloads are compared on the **decompressed** bytes — the GZip header embeds
   non-content fields.
 - `EnsembleResults.Manifest` (`AnalysisRunManifest`) records deterministic run provenance;
@@ -124,4 +167,6 @@ in the fast suite; [engine-reproducibility](../verification/engine-reproducibili
 (bit-identity of full results JSON); [multi-consequence](../verification/multi-consequence.md)
 (the declared-type axis); [risk-profiles](../verification/risk-profiles.md) (the profile
 catalog); [scalar-uncertainty](../verification/scalar-uncertainty.md) (`EnsembleSummary` against
-closed-form quantiles); [contribution](../verification/contribution.md) (the Σ identities).
+closed-form quantiles); [weighted-ensemble](../verification/weighted-ensemble.md) (the weighted
+reductions against an independent re-implementation); [contribution](../verification/contribution.md)
+(the Σ identities).

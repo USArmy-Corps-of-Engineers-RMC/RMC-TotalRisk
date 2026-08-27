@@ -164,6 +164,38 @@ deliberately not one coherent realization, because the 95th percentile of the va
 the value-at-risk of the 95th-percentile curve (the two orderings genuinely differ; see
 [../verification/scalar-uncertainty.md](../verification/scalar-uncertainty.md)).
 
+### 6.1 Weighted epistemic ensembles
+
+The outer loop ordinarily treats its R realizations as equally credible: every band and summary
+statistic gives each knowledge state weight 1/R. An optional per-realization weight vector
+generalizes that — weight wᵢ states the **relative epistemic credibility** of realization i, and
+every ensemble reduction becomes its weighted form:
+
+- the mean of a measure is Σwᵢxᵢ/Σwᵢ;
+- the percentile bands and summary percentiles use the symmetric weighted percentile — each
+  positive-weight realization sits at plotting position p(i) = A(i)/(A(i) + B(i)) with A the
+  weight strictly below and B strictly above, interpolating linearly between positions.
+  Zero-weight realizations carry no mass (a refuted knowledge state drops out); equal weights
+  reproduce the unweighted reduction;
+- the convergence indicators report the weighted mean with standard error √(V/N_eff), where V is
+  the reliability-weighted unbiased variance and N_eff = (Σw)²/Σw² is the Kish effective sample
+  size — recorded on the summary as `EffectiveRealizationCount`, the honest statement of how many
+  equally-weighted realizations the weighted ensemble is worth. A sharply concentrated weight
+  vector means the ensemble carries less information than its raw count suggests, and the
+  convergence check should be read against N_eff, not R.
+
+Weights are **reliability (importance) weights**: only relative values carry meaning, they are
+stored raw, and the reductions normalize internally. They are results-side state — never part of
+a model's canonical hash and never an influence on sampling seeds, so a weighted run draws
+bit-identically the realizations the unweighted run draws and only the reductions over them
+change. Supplied as a run input (`RiskAnalysis.RealizationWeights`), weights shape the published
+percentile bands and summary, are stamped into the stored ensemble, and are fingerprinted in the
+run manifest; assigned to a finished result set (`EnsembleResults.SetRealizationWeights`), they
+re-weight the scalar summary through `ComputeSummary` without re-simulation — the natural write
+path for Bayesian likelihood re-weighting of an existing ensemble and for scenario or logic-tree
+branch credibilities. The integrator effort diagnostics stay unweighted (they measure compute
+actually spent), and a mean-only run refuses weights — there is no ensemble to weight.
+
 ## 7. Diagnostics
 
 The library computes and serializes the diagnostic substance; plotting (kernel densities, tornado
@@ -214,6 +246,7 @@ inputs deserving the most careful elicitation or additional data.
 |---|---|
 | Two-loop grand means, percentile bands, coupling pin, posterior-injection parity | [single-component-uncertainty.md](../verification/single-component-uncertainty.md) |
 | Closed-form ensemble-quantile targets; per-measure independent reductions | [scalar-uncertainty.md](../verification/scalar-uncertainty.md) |
+| Weighted reductions vs an independent re-implementation; integer-weight replication; weight-inert sampling | [weighted-ensemble.md](../verification/weighted-ensemble.md) |
 | LHS-versus-MC replicate variance ratio; unbiasedness | [lhs-variance-reduction.md](../verification/lhs-variance-reduction.md) |
 | Correlation/rank sensitivity pins; inert-input null band | [sensitivity.md](../verification/sensitivity.md) |
 | Bit-identical reproducibility at any thread count; metadata inertness | [engine-reproducibility.md](../verification/engine-reproducibility.md) |
