@@ -109,6 +109,19 @@ identification), the failure is recorded in the runtime-only `EnsembleResults.Lo
 and an analysis restored over the cleared container reports unestimated — the analysis must be
 rerun and its results saved again.
 
+## Tolerable-risk confidence
+
+`EnsembleSummary.TolerableRiskConfidence` carries the evaluated epistemic guideline statements —
+one `TolerableRiskConfidence` entry per `TolerableRiskCriterion` configured on the analysis
+options, in declared order: the criterion echo (measure and stream by enum name, the
+consequence-type position, the threshold) and P(measure > threshold), the realization-weight
+fraction strictly exceeding the threshold ([uncertainty-analysis.md
+§6.2](uncertainty-analysis.md)). The block is null-suppressed — absent when no criteria are
+configured — and populated by the full-uncertainty run; a bare `ComputeSummary` over a loaded
+ensemble produces a summary without it, while
+`RiskAnalysis.ComputeTolerableRiskConfidence()` re-evaluates the configured criteria over the
+stored ensemble (including post-run weights) without re-simulation.
+
 ## The multi-consequence axis
 
 An analysis declares its consequence types once (`ConsequenceTypeDescriptor` — label, unit, and

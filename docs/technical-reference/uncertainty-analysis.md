@@ -196,6 +196,30 @@ path for Bayesian likelihood re-weighting of an existing ensemble and for scenar
 branch credibilities. The integrator effort diagnostics stay unweighted (they measure compute
 actually spent), and a mean-only run refuses weights — there is no ensemble to weight.
 
+### 6.2 Tolerable-risk confidence
+
+The aleatory `ConsequenceThresholdProbability` measure asks about the loss distribution *within*
+one realization; the guideline question is epistemic — **how confident are we that the risk
+exceeds the tolerable threshold?** A `TolerableRiskCriterion` on the analysis options names a
+scalar measure, a system stream, a consequence type, and a threshold (the default construction
+is the annualized incremental-risk guideline shape: mean Excess risk of the primary type against
+1e-3), and the full-uncertainty run reports
+
+P(measure > threshold) = Σ wᵢ·1[xᵢ > c] / Σ wᵢ,
+
+the realization-weight fraction whose measure strictly exceeds the threshold — weighted-aware
+from birth, with the unweighted case the plain count fraction. Entries ride the ensemble summary
+(`EnsembleSummary.TolerableRiskConfidence`, absent when no criteria are configured), echoing
+each criterion so the statement is self-describing: "the probability that mean incremental life
+loss exceeds 1e-3 is 0.12" is a direct confidence statement against the guideline, where the
+percentile bands answer the inverse question (what risk a stated confidence level supports).
+Criteria are compute-relevant analysis configuration — serialized and hashed only when
+configured, never an influence on sampling seeds — and
+`RiskAnalysis.ComputeTolerableRiskConfidence()` re-evaluates them over the stored ensemble
+(including weights assigned after the run) without re-simulation. A mean-only run publishes no
+ensemble summary and therefore no confidence block; validation warns when criteria are
+configured on one.
+
 ## 7. Diagnostics
 
 The library computes and serializes the diagnostic substance; plotting (kernel densities, tornado
@@ -246,7 +270,7 @@ inputs deserving the most careful elicitation or additional data.
 |---|---|
 | Two-loop grand means, percentile bands, coupling pin, posterior-injection parity | [single-component-uncertainty.md](../verification/single-component-uncertainty.md) |
 | Closed-form ensemble-quantile targets; per-measure independent reductions | [scalar-uncertainty.md](../verification/scalar-uncertainty.md) |
-| Weighted reductions vs an independent re-implementation; integer-weight replication; weight-inert sampling | [weighted-ensemble.md](../verification/weighted-ensemble.md) |
+| Weighted reductions vs an independent re-implementation; integer-weight replication; weight-inert sampling; tolerable-risk confidence exact counts | [weighted-ensemble.md](../verification/weighted-ensemble.md) |
 | LHS-versus-MC replicate variance ratio; unbiasedness | [lhs-variance-reduction.md](../verification/lhs-variance-reduction.md) |
 | Correlation/rank sensitivity pins; inert-input null band | [sensitivity.md](../verification/sensitivity.md) |
 | Bit-identical reproducibility at any thread count; metadata inertness | [engine-reproducibility.md](../verification/engine-reproducibility.md) |

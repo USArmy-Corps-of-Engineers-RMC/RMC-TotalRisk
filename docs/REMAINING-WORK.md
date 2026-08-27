@@ -10,10 +10,11 @@
 > superseded) — and the program closes with a dedicated session that publishes the NuGet package
 > and makes the code public. The v1.1 sequence below still runs first and is unchanged except as
 > noted. Program progress: session 1 (the Numerics 2.2.0 tier A/B slate) and session 2 (**A4 —
-> the weighted epistemic ensemble**, the foundation primitive for B2/B1/B3/C1/C3) are complete;
-> **A7 tolerable-risk confidence** was not attempted in session 2 and remains queued with its
-> design questions (criteria placement and the summary output surface, honoring the recorded
-> `RiskMeasures` `"All"`-serialization trap).
+> the weighted epistemic ensemble**, the foundation primitive for B2/B1/B3/C1/C3, plus the
+> **A7 tolerable-risk confidence** stretch — serialized `TolerableRiskCriteria` on the options
+> per the 2026-08-27 ruling, the conditional-presence hash identity pinned, and no
+> `RiskMeasureOptions` flag so the recorded `"All"`-serialization trap never engages) are
+> complete.
 
 ## The sequence to `v1.1.0-alpha`
 

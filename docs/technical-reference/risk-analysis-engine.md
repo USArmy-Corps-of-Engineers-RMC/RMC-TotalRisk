@@ -231,11 +231,14 @@ self-contained analysis shape. A run proceeds:
 | Ensemble | `Realizations` (default 1,000), `SamplingScheme` (`LatinHypercube` default / `MonteCarlo`), `PRNGSeed`, `ConfidenceIntervalWidth` |
 | 1D integration | `Tolerance` (default 1e-8), `MaxDepth`, `MaxEvaluations`, `RiskIntegrand` (the adaptive-refinement objective), `EnsembleTolerance` (default 1e-4), `EnsembleMinDepth` |
 | Joint system | `SystemRiskMethod`, `ComponentHazardDependency` (+ the hazard correlation matrix), `JointConsequences`, `WarmupCycles`, `WarmupEvaluations`, `FinalEvaluations`, `VegasTailFocusMode`, `VegasTailFocusParameter`, `MaxSystemCombinations`, `MaxPathwayCombinations` |
-| Outputs | `LECOutputLength`, `SystemConvolutionPoints`, `RiskMeasures` (`RiskMeasureOptions`), `ConsequenceThreshold`, `Alpha` (the VaR/CVaR tail level), `OutputAdjustedFailureModeCurves` |
+| Outputs | `LECOutputLength`, `SystemConvolutionPoints`, `RiskMeasures` (`RiskMeasureOptions`), `ConsequenceThreshold`, `Alpha` (the VaR/CVaR tail level), `OutputAdjustedFailureModeCurves`, `TolerableRiskCriteria` (`TolerableRiskCriterion` entries — the epistemic P(measure > threshold) statements the full-uncertainty summary reports; see [uncertainty-analysis.md](uncertainty-analysis.md)) |
 
 All options are serialized, canonical-hash content (they are compute-relevant), except where the
 architecture spec's strip rules say otherwise; `RiskIntegrand` and the VEGAS tail-focus fields are
-hashed like every other option.
+hashed like every other option. The tolerable-risk criteria serialize as a conditional child —
+written (and therefore hashed) only when configured, so every criteria-free options form and hash
+is unchanged; criteria never influence sampling seeds, which derive from `PRNGSeed` and the
+component identities alone.
 
 ## 10. The declared consequence-type axis
 

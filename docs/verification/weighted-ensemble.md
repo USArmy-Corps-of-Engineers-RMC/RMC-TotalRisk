@@ -1,6 +1,6 @@
 # Weighted Ensemble Verification
 
-**Test class:** `WeightedEnsembleVerification` · **Tests:** 4 · **Run of record:** 2026-08-27, isolated run, ✅ all passed
+**Test class:** `WeightedEnsembleVerification` · **Tests:** 5 · **Run of record:** 2026-08-27, isolated run, ✅ all passed
 
 The optional epistemic realization weights generalize every ensemble reduction: the mean of a
 measure becomes Σw·x/Σw, the percentile bands and summary percentiles use the symmetric weighted
@@ -38,6 +38,7 @@ w(i) = 0.25 + ((37·i) mod 11), run weighted and unweighted from identical conte
 | 2 | `Test_IntegerWeights_MatchReplicatedEnsemble` | Integer weights 1–4 vs the literally replicated ensemble: the mean slots agree to summation rounding, and the percentile slots sit within the replicated sample's largest adjacent-value gap — exact at the weighted plotting positions per the upstream contract, which also documents why no estimator can be replication-exact everywhere while reproducing the unweighted method at equal weights | means 1e-13 relative (Σw·x vs the replicated sequential sum associate differently); percentiles within the max adjacent sorted-value gap of the replicated sample | ✅ |
 | 3 | `Test_WeightedEngineRun_MatchesIndependentReduction` | The full weighted run: every per-realization summary **bit-identical** to the unweighted run of the identical model (weights never move a sampled realization), the stored ensemble carrying the weight vector, the manifest carrying `RealizationWeightsHash` with the analysis content hash unmoved, and the published band-tree scalars (median/lower/upper/mean of the curve scalar catalog) plus the stored summary equal to the independent oracle reduction of the stored per-realization values | per-realization invariance and identity comparisons at 0 (bit); oracle comparisons at 1e-12 relative as in check 1 | ✅ |
 | 4 | `Test_WeightedResults_RoundTripAtScale` | The weighted engine result through JSON and the GZip-compressed bytes: weights, the manifest fingerprint, and the weighted summary bit-faithful on both paths with clean load diagnostics; the unweighted payload of the same scenario carrying no weight fields at all | 0 (bit) and exact string absence | ✅ |
+| 5 | `Test_WeightedTolerableRiskConfidence_MatchesIndependentCounts` | The weighted tolerable-risk confidence behind the full engine: configured criteria move the manifest's analysis content hash (they are hashed options content) while every sampled realization stays bit-identical, and each published P(measure > threshold) equals the independent weight-fraction count Σw·1[x > c]/Σw over the stored per-realization measures | 0 (bit) — the oracle sums the identical weights in slot order over the identical stored values with the identical strict comparison | ✅ |
 
 Coverage note: the per-ordinate weighted band assembly and the scalar band assembly share the
 identical upstream weighted-percentile call, and the interpolated per-realization curves the
@@ -50,8 +51,11 @@ plotting positions (and the documented rounding envelope where they are not — 
 the validating setter and the lenient serialization property, the run-input validation matrix
 (mean-only refusal, length mismatch) with `Validate()` Errors and the run-start throw, the
 pre-weight payload byte-identity pin (SHA-256 of the captured fixture digest), the corrupt-weight
-load ruling (results cleared, `LoadDiagnostics` populated, restored analysis unestimated), and
-the manifest fingerprint append-only round trip.
+load ruling (results cleared, `LoadDiagnostics` populated, restored analysis unestimated), the
+manifest fingerprint append-only round trip, and the tolerable-risk surface (criterion
+validation and round trip, the options conditional-presence hash identity, the exact-count
+engine oracle with post-hoc and post-hoc-weighted recomputation, the mean-only warning, and the
+out-of-range type-position gate).
 
-Run of record 2026-08-27: `WeightedEnsembleVerification` 4/4 passed (2.5 s wall — two N = 100
-engine-run pairs plus the synthetic reductions); fast suite 1,127/1,127 at the same date.
+Run of record 2026-08-27: `WeightedEnsembleVerification` 5/5 passed (3.6 s wall — three N = 100
+engine-run pairs plus the synthetic reductions); fast suite 1,135/1,135 at the same date.
