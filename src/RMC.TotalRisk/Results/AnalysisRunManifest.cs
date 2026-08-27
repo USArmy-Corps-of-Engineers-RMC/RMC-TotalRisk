@@ -52,13 +52,14 @@ namespace RMC.TotalRisk.Results
         /// <param name="componentOccurrenceIndices">Occurrence indices parallel to the component hashes.</param>
         /// <param name="prngSeed">The analysis PRNG seed.</param>
         /// <param name="samplerSeedMapHash">The captured sampler-seed-map SHA-256 hash.</param>
+        /// <param name="realizationWeightsHash">The SHA-256 hash of the run-input realization weights, or null for an unweighted run (the field is then absent from the serialized manifest — append-only results JSON).</param>
         /// <exception cref="ArgumentNullException">Thrown when a required string or component array is null.</exception>
         /// <exception cref="ArgumentException">Thrown when the component arrays have different lengths.</exception>
         [JsonConstructor]
         public AnalysisRunManifest(int resultsSchemaVersion, string totalRiskAssemblyVersion,
             string numericsAssemblyVersion, string analysisContentHash, string effectiveOptionsHash,
             string[] componentContentHashes, int[] componentOccurrenceIndices, int prngSeed,
-            string samplerSeedMapHash)
+            string samplerSeedMapHash, string? realizationWeightsHash = null)
         {
             if (totalRiskAssemblyVersion == null) throw new ArgumentNullException(nameof(totalRiskAssemblyVersion));
             if (numericsAssemblyVersion == null) throw new ArgumentNullException(nameof(numericsAssemblyVersion));
@@ -82,6 +83,7 @@ namespace RMC.TotalRisk.Results
             _componentOccurrenceIndices = (int[])componentOccurrenceIndices.Clone();
             PRNGSeed = prngSeed;
             SamplerSeedMapHash = samplerSeedMapHash;
+            RealizationWeightsHash = realizationWeightsHash;
         }
 
         /// <summary>The result-manifest schema version.</summary>
@@ -114,6 +116,15 @@ namespace RMC.TotalRisk.Results
         /// <summary>The SHA-256 fingerprint of the captured sampler seed map.</summary>
         public string SamplerSeedMapHash { get; }
 
+        /// <summary>
+        /// The SHA-256 fingerprint of the epistemic realization weights the run consumed, or
+        /// null for an unweighted run. The manifest records run provenance only — weights
+        /// assigned to a result set after its run never appear here, because that run was
+        /// truthfully unweighted. Absent from unweighted payloads (append-only results JSON).
+        /// </summary>
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? RealizationWeightsHash { get; }
+
         /// <summary>Gets whether this manifest uses the schema understood by this library.</summary>
         [JsonIgnore]
         public bool IsCurrentSchema => ResultsSchemaVersion == CurrentSchemaVersion;
@@ -129,11 +140,13 @@ namespace RMC.TotalRisk.Results
         /// <param name="primaryUnit">The primary consequence unit.</param>
         /// <param name="additionalConsequences">The additional consequence declarations.</param>
         /// <param name="seedMap">The captured effective sampler seeds.</param>
+        /// <param name="realizationWeights">The run-input epistemic realization weights, or null for an unweighted run.</param>
         /// <returns>The immutable run manifest.</returns>
         internal static AnalysisRunManifest Create(RiskAnalysisOptions options,
             IReadOnlyList<SystemComponent> components, IReadOnlyList<byte[]> componentHashes,
             IReadOnlyList<int> canonicalOrder, string primaryConsequence, string primaryUnit,
-            IReadOnlyList<ConsequenceTypeDescriptor> additionalConsequences, SamplerSeedMap seedMap)
+            IReadOnlyList<ConsequenceTypeDescriptor> additionalConsequences, SamplerSeedMap seedMap,
+            double[]? realizationWeights = null)
         {
             if (options == null) throw new ArgumentNullException(nameof(options));
             if (components == null) throw new ArgumentNullException(nameof(components));
@@ -158,7 +171,8 @@ namespace RMC.TotalRisk.Results
                 typeof(AnalysisRunManifest).Assembly.GetName().Version?.ToString() ?? string.Empty,
                 typeof(IUnivariateDistribution).Assembly.GetName().Version?.ToString() ?? string.Empty,
                 analysisHash, optionsHash, hashes, occurrences, options.PRNGSeed,
-                ComputeSeedMapHash(seedMap));
+                ComputeSeedMapHash(seedMap),
+                realizationWeights == null ? null : ComputeRealizationWeightsHash(realizationWeights));
         }
 
         /// <summary>Rejects a manifest schema that this library cannot interpret.</summary>
@@ -227,6 +241,25 @@ namespace RMC.TotalRisk.Results
                 for (int j = 0; j < seeds.Length; j++) AppendInt32(hash, seeds[j]);
             }
             AppendInt32(hash, seedMap.JointSeedBase);
+            return Convert.ToHexString(hash.GetHashAndReset());
+        }
+
+        /// <summary>
+        /// Hashes a run-input realization weight vector without culture-sensitive text: the
+        /// count followed by each weight's fixed-endian bit pattern.
+        /// </summary>
+        /// <param name="weights">The realization weights.</param>
+        /// <returns>The uppercase hexadecimal SHA-256 digest.</returns>
+        private static string ComputeRealizationWeightsHash(double[] weights)
+        {
+            using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+            AppendInt32(hash, weights.Length);
+            Span<byte> bytes = stackalloc byte[sizeof(double)];
+            for (int i = 0; i < weights.Length; i++)
+            {
+                BinaryPrimitives.WriteDoubleLittleEndian(bytes, weights[i]);
+                hash.AppendData(bytes);
+            }
             return Convert.ToHexString(hash.GetHashAndReset());
         }
 

@@ -1620,4 +1620,202 @@ public class RiskAnalysisTests
             "The mode's cumulative terminal carries its raw marginal mass (documented semantics).");
     }
 
+    /// <summary>
+    /// Verifies the realization-weights input property: assignment stores a defensive copy,
+    /// invalidates the estimated state, raises change notification, and null clears.
+    /// </summary>
+    [TestMethod]
+    public async Task Test_RealizationWeights_PropertySemantics()
+    {
+        // Arrange — an estimated analysis so invalidation is observable.
+        var analysis = new RiskAnalysis(new[] { Component(Consequence("Failure Loss", 300d)) });
+        await analysis.RunAsync();
+        Assert.IsTrue(analysis.IsEstimated);
+        var raised = new List<string?>();
+        analysis.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+        // Act — assign, mutate the source, then clear.
+        var source = new List<double> { 1d, 2d, 3d };
+        analysis.RealizationWeights = source;
+        source[0] = 99d;
+
+        // Assert — copy semantics, invalidation, and notification.
+        Assert.AreEqual(1d, analysis.RealizationWeights![0], 0d, "The stored weights must be a copy.");
+        Assert.IsFalse(analysis.IsEstimated, "Assigning weights must invalidate the estimated state.");
+        CollectionAssert.Contains(raised, nameof(RiskAnalysis.RealizationWeights));
+        analysis.RealizationWeights = null;
+        Assert.IsNull(analysis.RealizationWeights);
+    }
+
+    /// <summary>
+    /// Verifies the weight validation surface: a weight vector on a mean-only run and an
+    /// invalid vector on a full run are Errors reported by <see cref="RiskAnalysis.Validate"/>
+    /// and enforced by <see cref="RiskAnalysis.RunAsync"/>.
+    /// </summary>
+    [TestMethod]
+    public async Task Test_RealizationWeights_ValidationMatrix()
+    {
+        // Mean-only + weights is an Error.
+        var meanOnly = new RiskAnalysis(new[] { Component(Consequence("Failure Loss", 300d)) });
+        meanOnly.RealizationWeights = new[] { 1d };
+        var (meanOnlyValid, meanOnlyMessages) = meanOnly.Validate();
+        Assert.IsFalse(meanOnlyValid);
+        Assert.IsTrue(meanOnlyMessages.Exists(m => m.StartsWith("Error:") && m.Contains("mean-only")),
+            "The mean-only weight refusal must be a validation Error.");
+        await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => meanOnly.RunAsync());
+
+        // A length mismatch on a full run is an Error naming both counts (100 is the options
+        // floor on the realization count).
+        var full = new RiskAnalysis(new[] { Component(Consequence("Failure Loss", 300d)) });
+        full.Options.EstimateMeanRiskOnly = false;
+        full.Options.Realizations = 100;
+        full.RealizationWeights = new[] { 1d, 2d, 3d };
+        var (fullValid, fullMessages) = full.Validate();
+        Assert.IsFalse(fullValid);
+        Assert.IsTrue(fullMessages.Exists(m => m.StartsWith("Error:") && m.Contains("(3)") && m.Contains("(100)")),
+            "The length mismatch must name both counts.");
+        await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => full.RunAsync());
+
+        // A valid vector reports no weight message and the run proceeds.
+        full.RealizationWeights = CreateIndexWeights(100);
+        var (valid, messages) = full.Validate();
+        Assert.IsTrue(valid, string.Join(Environment.NewLine, messages));
+        await full.RunAsync();
+        Assert.IsTrue(full.IsEstimated);
+    }
+
+    /// <summary>Builds the deterministic index-varying weight fixture w(i) = 1 + i mod 5.</summary>
+    private static double[] CreateIndexWeights(int count)
+    {
+        var weights = new double[count];
+        for (int i = 0; i < count; i++)
+        {
+            weights[i] = 1d + (i % 5);
+        }
+        return weights;
+    }
+
+    /// <summary>
+    /// Verifies the weighted full-uncertainty run end to end against the unweighted run of the
+    /// identical model and seed: weights never move a sampled realization (per-index ensemble
+    /// entries bit-identical), the stored ensemble carries the weights and the manifest their
+    /// fingerprint, the published summary equals the post-hoc weighted re-reduction of the
+    /// unweighted ensemble bit-for-bit, the band trees' curve scalars equal direct upstream
+    /// weighted calls over the stored per-realization values, and unit weights publish band
+    /// curves bit-identical to the unweighted run.
+    /// </summary>
+    [TestMethod]
+    public async Task Test_WeightedRun_EndToEnd()
+    {
+        // Arrange — three runs of the identical model and seed: unweighted, weighted, unit
+        // (100 is the options floor on the realization count).
+        const int realizations = 100;
+        var weights = CreateIndexWeights(realizations);
+        RiskAnalysis Create()
+        {
+            var analysis = new RiskAnalysis(new[] { Component(Consequence("Failure Loss", 300d), UncertainFragility()) });
+            analysis.Options.EstimateMeanRiskOnly = false;
+            analysis.Options.Realizations = realizations;
+            return analysis;
+        }
+        var unweighted = Create();
+        var weighted = Create();
+        weighted.RealizationWeights = weights;
+        var unit = Create();
+        unit.RealizationWeights = new double[realizations].Select(_ => 1d).ToArray();
+
+        // Act
+        await unweighted.RunAsync();
+        await weighted.RunAsync();
+        await unit.RunAsync();
+
+        // Assert — weights never touch a seed: every per-realization summary is bit-identical.
+        var failureProbabilities = new double[realizations];
+        for (int i = 0; i < realizations; i++)
+        {
+            var baseline = unweighted.RiskResults![i]!;
+            var candidate = weighted.RiskResults![i]!;
+            Assert.AreEqual(BitConverter.DoubleToInt64Bits(baseline.Fail.TotalProbability),
+                BitConverter.DoubleToInt64Bits(candidate.Fail.TotalProbability), $"Realization {i} failure probability moved.");
+            Assert.AreEqual(BitConverter.DoubleToInt64Bits(baseline.Total.Mean),
+                BitConverter.DoubleToInt64Bits(candidate.Total.Mean), $"Realization {i} total mean moved.");
+            failureProbabilities[i] = baseline.Fail.TotalProbability;
+        }
+
+        // The stored ensemble carries the weights; the manifest carries their fingerprint.
+        CollectionAssert.AreEqual(weights, weighted.RiskResults!.RealizationWeights);
+        Assert.IsNull(unweighted.RiskResults!.RealizationWeights);
+        Assert.IsNotNull(weighted.RiskResults.Manifest!.RealizationWeightsHash);
+        Assert.IsNull(unweighted.RiskResults.Manifest!.RealizationWeightsHash);
+        Assert.AreEqual(unweighted.RiskResults.Manifest.AnalysisContentHash,
+            weighted.RiskResults.Manifest.AnalysisContentHash,
+            "Weights are results-side: the analysis content identity must not move.");
+
+        // The published summary equals the post-hoc weighted re-reduction of the unweighted
+        // ensemble — the run-time and post-hoc paths are the same reduction.
+        unweighted.RiskResults.SetRealizationWeights(weights);
+        var postHoc = unweighted.RiskResults.ComputeSummary(unweighted.Options.ConfidenceIntervalWidth)!;
+        var published = weighted.RiskResults.Summary!;
+        Assert.AreEqual(BitConverter.DoubleToInt64Bits(postHoc.Mean.Total.Mean), BitConverter.DoubleToInt64Bits(published.Mean.Total.Mean));
+        Assert.AreEqual(BitConverter.DoubleToInt64Bits(postHoc.Lower.Fail.TotalProbability), BitConverter.DoubleToInt64Bits(published.Lower.Fail.TotalProbability));
+        Assert.AreEqual(BitConverter.DoubleToInt64Bits(postHoc.EffectiveRealizationCount!.Value), BitConverter.DoubleToInt64Bits(published.EffectiveRealizationCount!.Value));
+        double totalWeight = 0d, sumOfSquares = 0d;
+        for (int i = 0; i < realizations; i++) { totalWeight += weights[i]; sumOfSquares += weights[i] * weights[i]; }
+        Assert.AreEqual(totalWeight * totalWeight / sumOfSquares, published.EffectiveRealizationCount!.Value, 1e-12);
+
+        // The band trees' curve scalars equal direct upstream weighted calls over the stored
+        // per-realization values (the weighted percentile-assembly proof).
+        Assert.AreEqual(Numerics.Data.Statistics.Statistics.Percentile(failureProbabilities, 0.5d, weights),
+            weighted.MedianRiskResults!.Curves.Fail.TotalProbability, 0d);
+        Assert.AreEqual(Numerics.Data.Statistics.Statistics.Mean(failureProbabilities, weights),
+            weighted.MeanRiskResults!.Curves.Fail.TotalProbability, 0d);
+
+        // Unit weights publish band curves equal to the unweighted run to floating-point
+        // rounding: at n = 100 the equal-weight plotting positions i/99 are not exactly
+        // representable, so the weighted percentile interpolation lands a few units of
+        // precision away (each rounded position feeds the interpolation quotient), and the
+        // scalar mean slot composes Σw·x/Σw rather than the compensated sequential sum (both
+        // documented). The 1e-15 relative tolerance is that rounding envelope.
+        var baselineMedian = unweighted.MedianRiskResults!.Curves.Total;
+        var unitMedian = unit.MedianRiskResults!.Curves.Total;
+        Assert.AreEqual(baselineMedian.LECProbabilities.Length, unitMedian.LECProbabilities.Length);
+        for (int i = 0; i < baselineMedian.LECProbabilities.Length; i++)
+        {
+            double expected = baselineMedian.LECProbabilities[i];
+            Assert.AreEqual(expected, unitMedian.LECProbabilities[i], Math.Abs(expected) * 1e-15,
+                $"Unit-weight median LEC ordinate {i} moved beyond rounding.");
+        }
+        double baselineFailureProbability = unweighted.MeanRiskResults!.Curves.Fail.TotalProbability;
+        Assert.AreEqual(baselineFailureProbability, unit.MeanRiskResults!.Curves.Fail.TotalProbability,
+            Math.Abs(baselineFailureProbability) * 1e-15);
+    }
+
+    /// <summary>
+    /// Verifies the estimated-state restoration rule on the results-injection constructor: a
+    /// populated ensemble restores the serialized estimated flag, while an empty or
+    /// integrity-cleared container forces an unestimated analysis that must be rerun.
+    /// </summary>
+    [TestMethod]
+    public async Task Test_ResultsConstructor_EmptyEnsembleIsUnestimated()
+    {
+        // Arrange — an estimated analysis provides the serialized configuration.
+        var analysis = new RiskAnalysis(new[] { Component(Consequence("Failure Loss", 300d)) });
+        await analysis.RunAsync();
+        var element = analysis.ToXElement();
+
+        // Act / Assert — a populated ensemble restores as estimated.
+        var restored = new RiskAnalysis(new[] { Component(Consequence("Failure Loss", 300d)) }, element,
+            analysis.RiskResults, analysis.MeanRiskResults);
+        Assert.IsTrue(restored.IsEstimated);
+
+        // An empty container (the shape a failed load integrity check produces) restores
+        // unestimated — the analysis must be rerun.
+        var cleared = new RiskAnalysis(new[] { Component(Consequence("Failure Loss", 300d)) }, element,
+            new EnsembleResults(0), analysis.MeanRiskResults);
+        Assert.IsFalse(cleared.IsEstimated);
+
+        // No results at all stays unestimated (the existing rule).
+        var bare = new RiskAnalysis(new[] { Component(Consequence("Failure Loss", 300d)) }, element);
+        Assert.IsFalse(bare.IsEstimated);
+    }
 }

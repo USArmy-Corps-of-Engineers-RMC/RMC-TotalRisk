@@ -90,4 +90,35 @@ public class AnalysisRunManifestTests
         Assert.ThrowsException<JsonException>(() => EnsembleResults.FromJson(ensemble.ToJson()));
         Assert.ThrowsException<JsonException>(() => SystemRealization.FromJson(realization.ToJson()));
     }
+
+    /// <summary>
+    /// Verifies the realization-weights fingerprint contract: absent by default and from the
+    /// serialized payload of an unweighted manifest (append-only results JSON), present and
+    /// round-tripping when supplied, and readable from a payload written before the field
+    /// existed.
+    /// </summary>
+    [TestMethod]
+    public void Test_RealizationWeightsHash_AppendOnly()
+    {
+        // The 9-argument construction (the pre-weight shape) leaves the fingerprint null and
+        // the serialized manifest without the member.
+        var unweighted = Manifest();
+        Assert.IsNull(unweighted.RealizationWeightsHash);
+        var ensemble = new EnsembleResults { Manifest = unweighted };
+        StringAssert.DoesNotMatch(ensemble.ToJson(), new System.Text.RegularExpressions.Regex("RealizationWeightsHash"));
+
+        // A supplied fingerprint round-trips through the ensemble payload.
+        var weighted = new AnalysisRunManifest(AnalysisRunManifest.CurrentSchemaVersion, "1.1.0.0", "2.2.0.0",
+            new string('A', 64), new string('B', 64), new[] { new string('C', 64) }, new[] { 0 },
+            12345, new string('E', 64), new string('F', 64));
+        var weightedEnsemble = new EnsembleResults { Manifest = weighted };
+        var restored = EnsembleResults.FromJson(weightedEnsemble.ToJson());
+        Assert.AreEqual(new string('F', 64), restored.Manifest!.RealizationWeightsHash);
+        Assert.AreEqual(AnalysisRunManifest.CurrentSchemaVersion, restored.Manifest.ResultsSchemaVersion,
+            "The weighted manifest stays on the current schema — the field is append-only.");
+
+        // A pre-weight payload (member absent) restores with a null fingerprint.
+        var legacy = EnsembleResults.FromJson(ensemble.ToJson());
+        Assert.IsNull(legacy.Manifest!.RealizationWeightsHash);
+    }
 }

@@ -181,7 +181,12 @@ namespace RMC.TotalRisk.Analyses
             _medianRiskResults = medianResults;
             _lowerRiskResults = lowerResults;
             _upperRiskResults = upperResults;
-            _isEstimated = SerializationUtilities.ReadBoolean(xElement, nameof(IsEstimated)) && riskResults != null;
+
+            // An estimated analysis must actually carry realizations: a results container whose
+            // payload failed a load integrity check arrives cleared (empty, with load
+            // diagnostics), and the analysis then reports unestimated — a rerun is required.
+            _isEstimated = SerializationUtilities.ReadBoolean(xElement, nameof(IsEstimated))
+                && riskResults != null && riskResults.Count > 0;
         }
 
         #endregion
@@ -423,6 +428,12 @@ namespace RMC.TotalRisk.Analyses
         /// <summary>Backing field for <see cref="UpperRiskResults"/>.</summary>
         private SystemRealization? _upperRiskResults;
 
+        /// <summary>Backing field for <see cref="RealizationWeights"/>.</summary>
+        private double[]? _realizationWeights;
+
+        /// <summary>The immutable public view over <see cref="_realizationWeights"/>.</summary>
+        private ReadOnlyCollection<double>? _realizationWeightsView;
+
         /// <summary>Backing field for <see cref="ComputationWarnings"/>.</summary>
         private readonly List<string> _computationWarnings = new List<string>();
 
@@ -604,6 +615,44 @@ namespace RMC.TotalRisk.Analyses
         }
 
         /// <summary>
+        /// The optional epistemic realization weights for the next full-uncertainty run — one
+        /// weight per realization index. Runtime-only input state: never serialized here, never
+        /// part of a canonical hash, and never an influence on sampling seeds — a weighted run
+        /// draws exactly the realizations the unweighted run draws, and the weights enter only
+        /// the ensemble reductions (the percentile band assembly and the summary catalog). The
+        /// run stamps the vector into <see cref="EnsembleResults.RealizationWeights"/> — the
+        /// stored authoritative copy — and records its fingerprint in the run manifest. Weights
+        /// are raw reliability (importance) weights; only relative values carry meaning.
+        /// Assigning invalidates <see cref="AnalysisBase.IsEstimated"/> because published
+        /// results depend on the weights; the vector is validated by <see cref="Validate"/> and
+        /// enforced at run start (a mean-only run refuses weights). Null runs unweighted.
+        /// </summary>
+        public IReadOnlyList<double>? RealizationWeights
+        {
+            get { return _realizationWeightsView; }
+            set
+            {
+                if (value == null)
+                {
+                    _realizationWeights = null;
+                    _realizationWeightsView = null;
+                }
+                else
+                {
+                    var copy = new double[value.Count];
+                    for (int i = 0; i < value.Count; i++)
+                    {
+                        copy[i] = value[i];
+                    }
+                    _realizationWeights = copy;
+                    _realizationWeightsView = new ReadOnlyCollection<double>(copy);
+                }
+                IsEstimated = false;
+                RaisePropertyChange(nameof(RealizationWeights));
+            }
+        }
+
+        /// <summary>
         /// The computational warnings raised by the last run (negative consequences clamped,
         /// mutually-exclusive probabilities normalized, exhaustive mass-balance drift) — the
         /// headless replacement for the v1.0 messenger surface.
@@ -658,7 +707,9 @@ namespace RMC.TotalRisk.Analyses
         /// correlation-matrix dependency, or with a combination cross product beyond the
         /// guardrail; any failure or non-failure path that does not carry the declared
         /// consequence-type axis (count and order always; labels and units when both sides are
-        /// non-blank — risk mode only); invalid options; and every component's own errors,
+        /// non-blank — risk mode only); invalid options; realization weights on a mean-only run,
+        /// or a weight vector that fails the shared weight rule (length equal to the realization
+        /// count; finite, non-negative, not all zero); and every component's own errors,
         /// aggregated with the component name. Component validation runs mode-aware: reliability
         /// relaxes exactly the consequence-content requirements. Advisory: components
         /// whose driving hazards disagree on non-blank axis labels warn — one analysis models one
@@ -669,6 +720,22 @@ namespace RMC.TotalRisk.Analyses
             var messages = new List<string>();
 
             messages.AddRange(_options.Validate().ValidationMessages);
+
+            if (_realizationWeights != null)
+            {
+                if (_options.EstimateMeanRiskOnly)
+                {
+                    messages.Add("Error: Realization weights apply to the full-uncertainty ensemble; clear RealizationWeights or disable the mean-only run option.");
+                }
+                else
+                {
+                    string? weightReason = EnsembleResults.DescribeInvalidWeights(_realizationWeights, _options.Realizations, out _);
+                    if (weightReason != null)
+                    {
+                        messages.Add($"Error: The realization weights are invalid. {weightReason}");
+                    }
+                }
+            }
 
             if (_components.Count == 0)
             {
@@ -1244,6 +1311,12 @@ namespace RMC.TotalRisk.Analyses
                 var token = ResetCancellationToken(cancellationToken);
                 AnalysisRunPublication? publication = null;
 
+                // Snapshot the run-input epistemic weights with the rest of the author state:
+                // the running computation must not observe a mid-run reassignment.
+                double[]? runRealizationWeights = _realizationWeights == null
+                    ? null
+                    : (double[])_realizationWeights.Clone();
+
                 await Task.Run(() =>
                 {
                     RunWorkerObserver?.Invoke();
@@ -1299,13 +1372,31 @@ namespace RMC.TotalRisk.Analyses
 
                     PrepareJointSystem(token);
 
+                    // The race-safe weight guard: Validate() already gated these rules on the
+                    // author state, but the property can move between that gate and this
+                    // snapshot's use, so the captured run state re-verifies loudly.
+                    if (runRealizationWeights != null)
+                    {
+                        if (_options.EstimateMeanRiskOnly)
+                        {
+                            throw new InvalidOperationException(
+                                "Realization weights apply to the full-uncertainty ensemble; clear RealizationWeights or disable the mean-only run option.");
+                        }
+                        string? weightReason = EnsembleResults.DescribeInvalidWeights(
+                            runRealizationWeights, _options.Realizations, out _);
+                        if (weightReason != null)
+                        {
+                            throw new InvalidOperationException($"The realization weights are invalid. {weightReason}");
+                        }
+                    }
+
                     publication = _options.EstimateMeanRiskOnly
                         ? RunMeanOnly(progressReporter, token)
-                        : RunFullUncertainty(progressReporter, token);
+                        : RunFullUncertainty(progressReporter, token, runRealizationWeights);
                     publication.CapturedSeeds = captured;
                     var manifest = AnalysisRunManifest.Create(_options, _components, contentHashes, order,
                         RunSpecifiedConsequence, RunConsequenceUnit, RunAdditionalConsequenceTypes,
-                        captured);
+                        captured, runRealizationWeights);
                     AttachManifest(publication, manifest);
                 }, token).ConfigureAwait(false);
 
@@ -1482,14 +1573,24 @@ namespace RMC.TotalRisk.Analyses
         /// <summary>
         /// The full-uncertainty pass: the parallel realization ensemble with index-owned writes,
         /// sequential post-pass reductions (bit-identical at any thread count), percentile
-        /// post-processing, and the compact summary ensemble.
+        /// post-processing, and the compact summary ensemble. Optional run-input realization
+        /// weights make the percentile assembly and the summary reduction weighted; the sampled
+        /// realizations themselves are identical either way — weights never touch a seed.
         /// </summary>
         /// <param name="progressReporter">The optional progress sink.</param>
         /// <param name="token">The run cancellation token.</param>
+        /// <param name="realizationWeights">The validated run-input epistemic realization weights, or null for an unweighted run.</param>
         /// <returns>The complete staged run output.</returns>
-        private AnalysisRunPublication RunFullUncertainty(SafeProgressReporter? progressReporter, CancellationToken token)
+        /// <exception cref="InvalidOperationException">Thrown when a supplied weight vector no longer matches the run's realization count.</exception>
+        private AnalysisRunPublication RunFullUncertainty(SafeProgressReporter? progressReporter, CancellationToken token,
+            double[]? realizationWeights)
         {
             int realizationCount = _options.Realizations;
+            if (realizationWeights != null && realizationWeights.Length != realizationCount)
+            {
+                throw new InvalidOperationException(
+                    $"The realization weight count ({realizationWeights.Length}) must equal the realization count ({realizationCount}).");
+            }
             var realizations = new SystemRealization[realizationCount];
             var summaries = new SystemRiskResults[realizationCount];
             var flagsPerRealization = new RiskComputeFlags[realizationCount];
@@ -1518,13 +1619,17 @@ namespace RMC.TotalRisk.Analyses
                 mergedFlags.MergeWith(flagsPerRealization[i]);
             }
 
-            var percentiles = PostProcessUncertainty(realizations, token);
+            var percentiles = PostProcessUncertainty(realizations, realizationWeights, token);
 
             var ensemble = new EnsembleResults(realizationCount);
             for (int i = 0; i < realizationCount; i++)
             {
                 ensemble[i] = summaries[i];
             }
+
+            // The run-input weights become the ensemble's stored weights — the single
+            // authoritative copy the summary reduction below and every later re-reduction read.
+            ensemble.RealizationWeights = realizationWeights;
 
             // The scalar-measure percentile summary and convergence diagnostics:
             // curves carry bands through the percentile realizations; the scalar catalog gets
@@ -3492,12 +3597,13 @@ namespace RMC.TotalRisk.Analyses
         /// with index-owned writes; means are summed sequentially per ordinate.
         /// </summary>
         /// <param name="realizations">The realization ensemble.</param>
+        /// <param name="realizationWeights">The run-input epistemic realization weights, or null for the unweighted assembly.</param>
         /// <param name="token">The run cancellation token.</param>
         /// <returns>
         /// The staged lower, upper, median, and mean realizations; null entries when no valid
         /// percentile grid can be formed.
         /// </returns>
-        private (SystemRealization? Lower, SystemRealization? Upper, SystemRealization? Median, SystemRealization? Mean) PostProcessUncertainty(SystemRealization[] realizations, CancellationToken token)
+        private (SystemRealization? Lower, SystemRealization? Upper, SystemRealization? Median, SystemRealization? Mean) PostProcessUncertainty(SystemRealization[] realizations, double[]? realizationWeights, CancellationToken token)
         {
             int realizationCount = realizations.Length;
             if (realizationCount == 0) return (null, null, null, null);
@@ -3553,14 +3659,14 @@ namespace RMC.TotalRisk.Analyses
                 : new[] { maxN };
 
             // System and component LEC percentile curves for the five risk types, primary type.
-            RiskPercentileAssembler.AssembleLecPercentiles(realizations, r => r.Curves, c => targets[c].Curves, consequenceGrid, tail, token);
+            RiskPercentileAssembler.AssembleLecPercentiles(realizations, r => r.Curves, c => targets[c].Curves, consequenceGrid, tail, realizationWeights, token);
             for (int d = 0; d < componentCount; d++)
             {
                 int componentIndex = d;
                 RiskPercentileAssembler.AssembleLecPercentiles(realizations,
                     r => r.Components[componentIndex].Curves,
                     c => targets[c].Components[componentIndex].Curves,
-                    consequenceGrid, tail, token);
+                    consequenceGrid, tail, realizationWeights, token);
 
                 int modeCount = realizations[0].Components[componentIndex].FailureModes.Count;
                 for (int m = 0; m < modeCount; m++)
@@ -3569,7 +3675,7 @@ namespace RMC.TotalRisk.Analyses
                     RiskPercentileAssembler.AssembleLecPercentiles(realizations,
                         r => r.Components[componentIndex].FailureModes[modeIndex].Curves,
                         c => targets[c].Components[componentIndex].FailureModes[modeIndex].Curves,
-                        consequenceGrid, tail, token);
+                        consequenceGrid, tail, realizationWeights, token);
                 }
 
                 // Hazard-profile percentiles on the component's hazard grid, per consequence
@@ -3577,12 +3683,12 @@ namespace RMC.TotalRisk.Analyses
                 if (maxH[d] > minH[d])
                 {
                     var hazardGrid = RiskPercentileAssembler.BuildDescendingGrid(minH[d], maxH[d], _options.LECOutputLength);
-                    RiskPercentileAssembler.AssembleProfilePercentiles(realizations, componentIndex, c => c.Curves, hazardGrid, tail, targets,
+                    RiskPercentileAssembler.AssembleProfilePercentiles(realizations, componentIndex, c => c.Curves, hazardGrid, tail, realizationWeights, targets,
                         primaryType: true, _options.LECOutputLength, token);
                     for (int k = 0; k < additionalTypes; k++)
                     {
                         int typeIndex = k;
-                        RiskPercentileAssembler.AssembleProfilePercentiles(realizations, componentIndex, c => c.AdditionalCurves[typeIndex], hazardGrid, tail, targets,
+                        RiskPercentileAssembler.AssembleProfilePercentiles(realizations, componentIndex, c => c.AdditionalCurves[typeIndex], hazardGrid, tail, realizationWeights, targets,
                             primaryType: false, _options.LECOutputLength, token);
                     }
                 }
@@ -3600,14 +3706,14 @@ namespace RMC.TotalRisk.Analyses
                 var typeGrid = additionalMaxN[k] > typeGridMin ? RiskPercentileAssembler.BuildDescendingGrid(typeGridMin, additionalMaxN[k], _options.LECOutputLength)
                     : new[] { additionalMaxN[k] };
 
-                RiskPercentileAssembler.AssembleLecPercentiles(realizations, r => r.AdditionalCurves[typeIndex], c => targets[c].AdditionalCurves[typeIndex], typeGrid, tail, token);
+                RiskPercentileAssembler.AssembleLecPercentiles(realizations, r => r.AdditionalCurves[typeIndex], c => targets[c].AdditionalCurves[typeIndex], typeGrid, tail, realizationWeights, token);
                 for (int d = 0; d < componentCount; d++)
                 {
                     int componentIndex = d;
                     RiskPercentileAssembler.AssembleLecPercentiles(realizations,
                         r => r.Components[componentIndex].AdditionalCurves[typeIndex],
                         c => targets[c].Components[componentIndex].AdditionalCurves[typeIndex],
-                        typeGrid, tail, token);
+                        typeGrid, tail, realizationWeights, token);
 
                     int modeCount = realizations[0].Components[componentIndex].FailureModes.Count;
                     for (int m = 0; m < modeCount; m++)
@@ -3616,7 +3722,7 @@ namespace RMC.TotalRisk.Analyses
                         RiskPercentileAssembler.AssembleLecPercentiles(realizations,
                             r => r.Components[componentIndex].FailureModes[modeIndex].AdditionalCurves[typeIndex],
                             c => targets[c].Components[componentIndex].FailureModes[modeIndex].AdditionalCurves[typeIndex],
-                            typeGrid, tail, token);
+                            typeGrid, tail, realizationWeights, token);
                     }
                 }
             }
