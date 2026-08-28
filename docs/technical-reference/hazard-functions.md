@@ -36,7 +36,7 @@ A tabular (nonparametric) relationship of hazard levels and exceedance probabili
 
 ### Interpolation and transforms
 
-The nonparametric survival function and its inverse are computed by linear interpolation over the table (report Eq. 5–6). Values outside the user-defined hazard range are **flat-lined** (clamped to the end ordinates) — no extrapolation. Because integration spans essentially (0, 1), enter tables with sufficient probability coverage to avoid significant flat-lining.
+The nonparametric survival function and its inverse are computed by linear interpolation over the table (report Eq. 5–6). Values outside the user-defined hazard range follow the function's `Extrapolation` policy; the default holds the end ordinates (the v1.0 behavior, bit-identical) — see [Extrapolation policy](#extrapolation-policy) below. Because integration spans essentially (0, 1), enter tables with sufficient probability coverage rather than relying on either the hold or an extension to carry the tails.
 
 Interpolation accuracy can be improved with axis transforms [7]:
 
@@ -53,6 +53,41 @@ S⁻¹(p) = xᵢ + (xᵢ₊₁ − xᵢ)·(Φ⁻¹(p) − Φ⁻¹(pᵢ))/(Φ⁻�
 ```
 
 — the transform pair applying to whichever axes carry it.
+
+### Extrapolation policy
+
+Every tabular and nonparametric function carries an `Extrapolation` policy — `None` (default),
+`Below`, `Above`, `Both`, or `Error` — serialized by enum name only when non-default, so every
+pre-existing model's form, canonical hash, and seeds are unchanged, while a configured policy is
+compute-relevant hashed content that deliberately re-rolls the function's sampling streams.
+
+An extending policy extends the boundary segments linearly **in the configured transform
+spaces** — linearly in Φ⁻¹(p) on a normal-Z probability axis (the hydrologically meaningful
+extension), log-linearly on a logarithmic axis. On a hazard function the extension is a
+tail-extension doctrine decision: the sampled curve's inverse survival function extends its
+tails, so the engine's integration domain — probed at the 10⁻¹⁶ non-exceedance floors — widens
+from the table span toward the full probability axis, the endpoint mass rectangles shrink as the
+adaptively integrated interior grows, and **results move deliberately**. Each sampled curve
+extends its own (monotonicity-repaired) boundary segments per realization; the mean curve's
+construction grid still derives from the declared table bounds while its values follow the
+extended percentile curves; and `MinHazard`/`MaxHazard` keep reporting the declared data bounds —
+an extension is unbounded and never widens the reported bounds. Extension is a modeling
+statement, not a conservatism knob: extending a curve can lower computed risk as easily as raise
+it, so justify the extended segments the way the tabulated ones are justified.
+
+`Error` is the review posture: forward (hazard-axis) evaluation outside a sampled curve's span
+stops the analysis loudly with the function name, axis, offending value, and table range — for
+life-safety review where a silent evaluation far beyond the data is worse than a stopped run.
+Probability-axis inverse lookups deliberately retain the endpoint hold (the engine probes them to
+locate the sampled curve's own span), so an Error-mode hazard integrates over its table span
+exactly as under the default; the mode bites on hazard-axis queries and, on the chain functions,
+wherever a silent extension would have occurred. Inside the adaptive integrators the refusal
+surfaces through the integration-failure guards with the recorded diagnostic appended.
+
+The policy lives on `TabularHazard`, `NonparametricHazard`, `TabularTransform`,
+`TabularResponse`, and `TabularConsequence`. Bivariate surface tables keep their pinned
+corner/edge policy, the `BivariateResponse` collapse curve keeps its v1.0 endpoint semantics,
+and composites carry no policy of their own — their children govern themselves.
 
 ### Uncertainty analysis (co-monotonic sampling)
 
@@ -166,7 +201,11 @@ recomputed on load):
 
 1. **Extend** the curve by linear extrapolation on the configured interpolation transforms — to
    `ExtrapolationEP` at the rare end (skipped when the data already reaches it) and to AEP 0.999
-   at the frequent end (the HEC-FDA convention).
+   at the frequent end (the HEC-FDA convention). This derivation-time extension is a separate
+   mechanism from the sampling-time `Extrapolation` policy above: `ExtrapolationEP` shapes the
+   derived table every model already has, while the policy governs how the sampled curves
+   respond when evaluated beyond that derived table — which is why the policy setter, unlike
+   every other compute-relevant scalar on this type, does not re-derive.
 2. **Quantile standard error** per ordinate from the asymptotic order-statistic variance [7]:
 
    ```

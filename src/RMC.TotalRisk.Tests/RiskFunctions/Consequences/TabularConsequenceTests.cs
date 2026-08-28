@@ -3,6 +3,9 @@ using System.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Numerics.Data;
 using Numerics.Distributions;
+using Numerics.Functions;
+using RMC.TotalRisk.Core;
+using RMC.TotalRisk.Core.Enums;
 using RMC.TotalRisk.RiskFunctions.Consequences;
 using RMC.TotalRisk.Tests.Core;
 
@@ -175,5 +178,67 @@ public class TabularConsequenceTests
         HashInvariance.AssertMetadataInvariant(c);
         HashInvariance.AssertStrippedAttributesInert(c.ToXElement());
         HashInvariance.AssertComputeSensitive(c.CanonicalHash, () => c.HazardTransform = Transform.Logarithmic);
+        HashInvariance.AssertComputeSensitive(c.CanonicalHash, () => c.Extrapolation = ExtrapolationPolicy.Both);
+    }
+
+    /// <summary>
+    /// Verifies the extrapolation policy's serialization contract — ABSENT when default, with the
+    /// explicit-None assignment byte-identical (the hash-preservation pin), present by name and
+    /// hash-moving when configured, round-tripping faithfully — and its wiring: the sampled
+    /// wrappers carry the mapped sides, extend with the zero clamp still binding, and the Error
+    /// mode guards forward evaluation with the full diagnostic.
+    /// </summary>
+    [TestMethod]
+    public void Test_Extrapolation_ConditionalPresence_Wiring_AndErrorGuard()
+    {
+        // Arrange — the deterministic (0→0), (100→1000) table; slope 10 on both boundary segments.
+        var c = DeterministicConsequence();
+        var baselineXml = c.ToXElement().ToString();
+        byte[] baselineHash = c.CanonicalHash();
+        Assert.IsNull(c.ToXElement().Attribute(nameof(TabularConsequence.Extrapolation)));
+
+        // The explicit-None assignment is byte-inert.
+        c.Extrapolation = ExtrapolationPolicy.Both;
+        c.Extrapolation = ExtrapolationPolicy.None;
+        Assert.AreEqual(baselineXml, c.ToXElement().ToString());
+        CollectionAssert.AreEqual(baselineHash, c.CanonicalHash());
+
+        // Default sampling holds the endpoints (the raw wrapper, no guard).
+        var held = c.SampleFunction();
+        Assert.IsInstanceOfType(held, typeof(TabularFunction));
+        Assert.AreEqual(1000d, held.Function(200d));
+
+        // A configured policy serializes by name, moves the hash, and round-trips faithfully.
+        c.Extrapolation = ExtrapolationPolicy.Both;
+        var xml = c.ToXElement();
+        Assert.AreEqual(nameof(ExtrapolationPolicy.Both), xml.Attribute(nameof(TabularConsequence.Extrapolation))?.Value);
+        Assert.IsFalse(c.CanonicalHash().SequenceEqual(baselineHash),
+            "The extrapolation policy is compute content and must move the canonical hash.");
+        var restored = new TabularConsequence(xml);
+        Assert.AreEqual(ExtrapolationPolicy.Both, restored.Extrapolation);
+        CollectionAssert.AreEqual(c.CanonicalHash(), restored.CanonicalHash());
+        Assert.AreEqual(xml.ToString(), restored.ToXElement().ToString());
+
+        // Wiring: mean and percentile products carry the mapped sides, extend above, and the
+        // negative-consequence zero clamp still binds on the extended lower tail.
+        var mean = (TabularFunction)c.SampleFunction();
+        var percentile = (TabularFunction)c.SampleFunction(0.5d);
+        Assert.AreEqual(ExtrapolationSides.Both, mean.Extrapolation);
+        Assert.AreEqual(ExtrapolationSides.Both, percentile.Extrapolation);
+        Assert.AreEqual(2000d, mean.Function(200d), 1E-12);
+        Assert.AreEqual(0d, mean.Function(-50d));
+
+        // Error mode: the guarded product refuses out-of-range forward evaluation loudly and
+        // keeps in-range evaluation.
+        c.Extrapolation = ExtrapolationPolicy.Error;
+        var guarded = c.SampleFunction();
+        Assert.IsInstanceOfType(guarded, typeof(RangeGuardedUnivariateFunction));
+        Assert.AreEqual(500d, guarded.Function(50d), 1E-12);
+        var fault = Assert.ThrowsException<ExtrapolationRangeException>(() => guarded.Function(150d));
+        StringAssert.Contains(fault.Message, "Damages");
+        StringAssert.Contains(fault.Message, "Stage (ft)");
+        Assert.AreEqual(0d, fault.RangeMinimum, 0d);
+        Assert.AreEqual(100d, fault.RangeMaximum, 0d);
+        Assert.IsNotNull(EvaluationFaultScope.Consume());
     }
 }

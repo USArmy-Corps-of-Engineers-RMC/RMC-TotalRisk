@@ -33,7 +33,12 @@ display token.
 Because `ToXElement()` is the identity surface, serialized attribute names and owned-child order
 are **append-only contract**: every new model property is classified compute-relevant (hashed) or
 metadata (added to the strip rules), and existing serialized attributes are never renamed or
-reordered.
+reordered. Compute-relevant additions whose default reproduces the prior behavior use
+**conditional presence** — the attribute or child is written only when non-default — so every
+pre-existing serialized form, hash, and seed stays byte-identical while a configured value is
+hashed content (the failure-mode secondary chain, the tolerable-risk criteria, and the
+per-function [extrapolation policy](hazard-functions.md#extrapolation-policy) all follow this
+pattern).
 
 ## `CanonicalizationRules`
 

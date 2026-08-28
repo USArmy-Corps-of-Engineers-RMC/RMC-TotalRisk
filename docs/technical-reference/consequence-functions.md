@@ -44,13 +44,24 @@ A tabular relationship of strictly ascending hazard levels and consequence value
 C(x) = cᵢ + (cᵢ₊₁ − cᵢ)·(x − xᵢ)/(xᵢ₊₁ − xᵢ),        xᵢ ≤ x ≤ xᵢ₊₁,
 ```
 
-with flat extrapolation beyond the table [7]. Consequence values need not be ordered. Optional logarithmic transforms on either axis (`HazardTransform`, `ConsequenceTransform`) improve interpolation accuracy; a logarithmic consequence axis requires a non-negative consequence range.
+Beyond the table the function's `Extrapolation` policy governs; the default holds the end ordinates (the v1.0 behavior [7], bit-identical). Consequence values need not be ordered. Optional logarithmic transforms on either axis (`HazardTransform`, `ConsequenceTransform`) improve interpolation accuracy; a logarithmic consequence axis requires a non-negative consequence range.
 
 ### Uncertainty
 
 Each ordinate's consequence can carry a distribution (the tabular catalog; PERT-Percentile ordinates are coerced to a minimum allowable value of zero during validation). Sampling is co-monotonic (report Algorithm 3): one percentile per realization drives every ordinate; `SamplingDimensions = 1`.
 
-**Negative-consequence clamp:** sampled consequence functions never return negative values — the sampled `TabularFunction` sets `AllowNegativeYValues = false`, so any negative sampled consequence evaluates to zero. Validation warns when any ordinate's sampled range can drop below −10⁻⁵ ("negative consequence values will be set to zero"), and warns when the first ordinate's mean consequence is non-zero (flat extrapolation makes every hazard below the table carry it).
+**Negative-consequence clamp:** sampled consequence functions never return negative values — the sampled `TabularFunction` sets `AllowNegativeYValues = false`, so any negative sampled consequence evaluates to zero, including on extended tails. Validation warns when any ordinate's sampled range can drop below −10⁻⁵ ("negative consequence values will be set to zero"), and warns when the first ordinate's mean consequence is non-zero, worded for the configured policy (held, extended, or refused below the table).
+
+### Extrapolation policy
+
+`Extrapolation` — `None` (default), `Below`, `Above`, `Both`, or `Error` — extends the boundary
+segments linearly in the configured transform spaces, with the negative-consequence zero clamp
+still binding on extended evaluations; `Error` refuses out-of-range forward evaluation loudly.
+Serialized by enum name only when non-default (every existing form, hash, and seed unchanged); a
+configured policy is hashed compute content. The full doctrine lives in the
+[hazard-functions chapter](hazard-functions.md#extrapolation-policy). Contrast: the
+`BivariateConsequence` surface keeps its pinned corner/edge policy, and composite consequences
+carry no policy of their own — their children govern themselves.
 
 ### Incremental consequences and fail/non-fail coupling
 

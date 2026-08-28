@@ -3,6 +3,7 @@ using System.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Numerics.Data;
 using Numerics.Distributions;
+using RMC.TotalRisk.Core;
 using RMC.TotalRisk.Core.Enums;
 using RMC.TotalRisk.RiskFunctions.Hazards;
 using RMC.TotalRisk.Tests.Core;
@@ -274,5 +275,74 @@ public class TabularHazardTests
         HashInvariance.AssertMetadataInvariant(h);
         HashInvariance.AssertStrippedAttributesInert(h.ToXElement());
         HashInvariance.AssertComputeSensitive(h.CanonicalHash, () => h.UncertaintyValue = FunctionUncertainty.Hazard);
+        HashInvariance.AssertComputeSensitive(h.CanonicalHash, () => h.Extrapolation = ExtrapolationPolicy.Both);
+    }
+
+    /// <summary>
+    /// Verifies the extrapolation policy's serialization contract — ABSENT when default, with the
+    /// explicit-None assignment byte-identical (the hash-preservation pin), present by name and
+    /// hash-moving when configured, round-tripping faithfully — and its wiring: an extending
+    /// policy widens the sampled curve's inverse tails (the engine's integration domain), while
+    /// the Error mode guards hazard-axis queries and deliberately retains the inverse hold so an
+    /// Error-mode hazard integrates over its table span exactly as under the default.
+    /// </summary>
+    [TestMethod]
+    public void Test_Extrapolation_ConditionalPresence_Wiring_AndErrorGuard()
+    {
+        // Arrange — the v1.0 default deterministic table: hazard [1, 100].
+        var h = LabeledHazard();
+        var baselineXml = h.ToXElement().ToString();
+        byte[] baselineHash = h.CanonicalHash();
+        Assert.IsNull(h.ToXElement().Attribute(nameof(TabularHazard.Extrapolation)));
+
+        // The explicit-None assignment is byte-inert.
+        h.Extrapolation = ExtrapolationPolicy.Both;
+        h.Extrapolation = ExtrapolationPolicy.None;
+        Assert.AreEqual(baselineXml, h.ToXElement().ToString());
+        CollectionAssert.AreEqual(baselineHash, h.CanonicalHash());
+
+        // Default sampling holds the far-tail inverse at the table span.
+        var held = (EmpiricalDistribution)h.SampleFunction();
+        Assert.AreEqual(ExtrapolationSides.None, held.Extrapolation);
+        Assert.AreEqual(1d, held.InverseCDF(1E-16));
+        Assert.AreEqual(100d, held.InverseCDF(1d - 1E-16));
+
+        // A configured policy serializes by name, moves the hash, and round-trips faithfully.
+        h.Extrapolation = ExtrapolationPolicy.Both;
+        var xml = h.ToXElement();
+        Assert.AreEqual(nameof(ExtrapolationPolicy.Both), xml.Attribute(nameof(TabularHazard.Extrapolation))?.Value);
+        Assert.IsFalse(h.CanonicalHash().SequenceEqual(baselineHash),
+            "The extrapolation policy is compute content and must move the canonical hash.");
+        var restored = new TabularHazard(xml);
+        Assert.AreEqual(ExtrapolationPolicy.Both, restored.Extrapolation);
+        CollectionAssert.AreEqual(h.CanonicalHash(), restored.CanonicalHash());
+        Assert.AreEqual(xml.ToString(), restored.ToXElement().ToString());
+
+        // Wiring: the sampled curve carries the mapped sides and widens its inverse tails — the
+        // engine's integration-domain probes see the extension.
+        var extended = (EmpiricalDistribution)h.SampleFunction();
+        Assert.AreEqual(ExtrapolationSides.Both, extended.Extrapolation);
+        double low = extended.InverseCDF(1E-16);
+        double high = extended.InverseCDF(1d - 1E-16);
+        Assert.IsFalse(double.IsNaN(low) || double.IsInfinity(low));
+        Assert.IsFalse(double.IsNaN(high) || double.IsInfinity(high));
+        Assert.IsTrue(low < 1d, "The extended lower tail must fall below the table span.");
+        Assert.IsTrue(high > 100d, "The extended upper tail must rise above the table span.");
+
+        // Error mode: hazard-axis queries beyond the sampled span throw loudly; the inverse
+        // retains the hold, so the integration domain stays the table span.
+        h.Extrapolation = ExtrapolationPolicy.Error;
+        var guarded = h.SampleFunction();
+        Assert.IsInstanceOfType(guarded, typeof(RangeGuardedUnivariateDistribution));
+        Assert.AreEqual(1d, guarded.InverseCDF(1E-16));
+        Assert.AreEqual(100d, guarded.InverseCDF(1d - 1E-16));
+        double inRange = guarded.CDF(50d);
+        Assert.IsFalse(double.IsNaN(inRange));
+        var fault = Assert.ThrowsException<ExtrapolationRangeException>(() => guarded.CDF(200d));
+        StringAssert.Contains(fault.Message, "Stage Frequency");
+        StringAssert.Contains(fault.Message, "Stage (ft)");
+        Assert.AreEqual(1d, fault.RangeMinimum, 0d);
+        Assert.AreEqual(100d, fault.RangeMaximum, 0d);
+        Assert.IsNotNull(EvaluationFaultScope.Consume());
     }
 }

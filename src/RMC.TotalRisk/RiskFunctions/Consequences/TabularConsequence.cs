@@ -62,6 +62,7 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
             ConsequenceUnit = SerializationUtilities.ReadString(xElement, nameof(ConsequenceUnit));
             _hazardTransform = SerializationUtilities.ReadEnum(xElement, nameof(HazardTransform), Transform.None);
             _consequenceTransform = SerializationUtilities.ReadEnum(xElement, nameof(ConsequenceTransform), Transform.None);
+            _extrapolation = SerializationUtilities.ReadEnum(xElement, nameof(Extrapolation), ExtrapolationPolicy.None);
 
             var tableElement = xElement.Element("UncertainOrderedPairedData");
             if (tableElement != null)
@@ -93,6 +94,11 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
         /// Backing field for <see cref="ConsequenceTransform"/>.
         /// </summary>
         private Transform _consequenceTransform = Transform.None;
+
+        /// <summary>
+        /// Backing field for <see cref="Extrapolation"/>.
+        /// </summary>
+        private ExtrapolationPolicy _extrapolation = ExtrapolationPolicy.None;
 
         /// <summary>
         /// Backing field for <see cref="UncertainOrderedPairedData"/> — the v1.0 default table.
@@ -134,6 +140,25 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
         }
 
         /// <summary>
+        /// The extrapolation policy applied when the consequence function is evaluated outside
+        /// its table range. Default = <see cref="ExtrapolationPolicy.None"/> (the v1.0 endpoint
+        /// hold, bit-identical); a non-default policy is compute-relevant hashed content. The
+        /// negative-consequence zero clamp still binds on extended evaluations.
+        /// </summary>
+        public ExtrapolationPolicy Extrapolation
+        {
+            get { return _extrapolation; }
+            set
+            {
+                if (_extrapolation != value)
+                {
+                    _extrapolation = value;
+                    RaisePropertyChange(nameof(Extrapolation));
+                }
+            }
+        }
+
+        /// <summary>
         /// The consequence table: strictly ascending hazard X with a consequence distribution per
         /// ordinate.
         /// </summary>
@@ -167,11 +192,11 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
         /// <remarks>
         /// Errors (invalidating): fewer than two ordinates; invalid ordinates; missing axis labels;
         /// a logarithmic hazard axis over negative hazards; a logarithmic consequence axis over any
-        /// negative consequence range. Warnings (advisory, exact v1.0 conditions): a first-ordinate
-        /// mean consequence above zero (hazards below the table produce non-zero consequences via
-        /// flat extrapolation), and consequence values below −0.00001 anywhere in the sampled range
-        /// (they clamp to zero during simulation). As in v1.0, validation coerces PertPercentile
-        /// ordinates to a minimum allowable value of zero.
+        /// negative consequence range. Warnings (advisory): a first-ordinate mean consequence above
+        /// zero — worded for the configured <see cref="Extrapolation"/> policy (held, extended, or
+        /// refused below the table) — and consequence values below −0.00001 anywhere in the sampled
+        /// range (they clamp to zero during simulation). As in v1.0, validation coerces
+        /// PertPercentile ordinates to a minimum allowable value of zero.
         /// </remarks>
         public override (bool IsValid, List<string> ValidationMessages) Validate()
         {
@@ -212,14 +237,30 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
                         ((PertPercentile)UncertainOrderedPairedData[i].Y!).MinAllowableValue = 0d;
                 }
 
-                // Non-zero consequences below the first hazard level (flat extrapolation).
+                // Non-zero consequences below the first hazard level; the wording follows the
+                // configured extrapolation policy (held, extended, or refused below the table).
                 double firstHazard = UncertainOrderedPairedData[0].X;
                 double firstMean = Math.Round(UncertainOrderedPairedData[0].GetOrdinate().Y, 4);
                 if (firstMean > 0.0000000000000001d)
                 {
-                    messages.Add("Warning: Any hazard level evaluated below " + firstHazard.ToString("N2", CultureInfo.InvariantCulture)
-                        + " will result in consequences greater than zero (" + firstMean.ToString("N2", CultureInfo.InvariantCulture)
-                        + ") on average. This can result in inaccurate risk estimates for lower hazard levels.");
+                    if (_extrapolation == ExtrapolationPolicy.Below || _extrapolation == ExtrapolationPolicy.Both)
+                    {
+                        messages.Add("Warning: Any hazard level evaluated below " + firstHazard.ToString("N2", CultureInfo.InvariantCulture)
+                            + " will follow the extended lower boundary segment from a mean consequence of " + firstMean.ToString("N2", CultureInfo.InvariantCulture)
+                            + ". Confirm the extension is appropriate for lower hazard levels.");
+                    }
+                    else if (_extrapolation == ExtrapolationPolicy.Error)
+                    {
+                        messages.Add("Warning: Any hazard level evaluated below " + firstHazard.ToString("N2", CultureInfo.InvariantCulture)
+                            + " will stop the analysis (the extrapolation policy is Error) even though the mean consequence there is greater than zero ("
+                            + firstMean.ToString("N2", CultureInfo.InvariantCulture) + ").");
+                    }
+                    else
+                    {
+                        messages.Add("Warning: Any hazard level evaluated below " + firstHazard.ToString("N2", CultureInfo.InvariantCulture)
+                            + " will result in consequences greater than zero (" + firstMean.ToString("N2", CultureInfo.InvariantCulture)
+                            + ") on average. This can result in inaccurate risk estimates for lower hazard levels.");
+                    }
                 }
 
                 // Negative-consequence scan across each ordinate's upper, mean, and lower range.
@@ -248,13 +289,14 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
         {
             if (!TableIsUsable())
                 throw new InvalidOperationException("The tabular consequence table is invalid. Call Validate() and correct the reported errors before sampling.");
-            return new TabularFunction(UncertainOrderedPairedData)
+            return GuardSample(new TabularFunction(UncertainOrderedPairedData)
             {
                 ConfidenceLevel = -1,
                 XTransform = HazardTransform,
                 YTransform = ConsequenceTransform,
                 AllowNegativeYValues = false,
-            };
+                Extrapolation = ExtrapolationSupport.Map(_extrapolation),
+            });
         }
 
         /// <inheritdoc/>
@@ -263,13 +305,14 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
         {
             if (!TableIsUsable())
                 throw new InvalidOperationException("The tabular consequence table is invalid. Call Validate() and correct the reported errors before sampling.");
-            return new TabularFunction(UncertainOrderedPairedData)
+            return GuardSample(new TabularFunction(UncertainOrderedPairedData)
             {
                 ConfidenceLevel = percentile,
                 XTransform = HazardTransform,
                 YTransform = ConsequenceTransform,
                 AllowNegativeYValues = false,
-            };
+                Extrapolation = ExtrapolationSupport.Map(_extrapolation),
+            });
         }
 
         /// <inheritdoc/>
@@ -315,6 +358,12 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
             element.SetAttributeValue(nameof(ConsequenceUnit), ConsequenceUnit);
             element.SetAttributeValue(nameof(HazardTransform), HazardTransform.ToString());
             element.SetAttributeValue(nameof(ConsequenceTransform), ConsequenceTransform.ToString());
+            // Conditional presence: the attribute is written only when non-default, so every
+            // pre-existing serialized form — and its canonical hash and seeds — is unchanged.
+            if (_extrapolation != ExtrapolationPolicy.None)
+            {
+                element.SetAttributeValue(nameof(Extrapolation), _extrapolation.ToString());
+            }
             element.Add(UncertainOrderedPairedData.SaveToXElement());
             return element;
         }
@@ -322,6 +371,19 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
         #endregion
 
         #region Private Helpers
+
+        /// <summary>
+        /// Wraps a sampled product in the Error-mode range guard when configured; every other
+        /// policy returns the raw wrapper (the unchanged code path).
+        /// </summary>
+        /// <param name="sampled">The sampled function product.</param>
+        /// <returns>The product, guarded when the policy is Error.</returns>
+        private IUnivariateFunction GuardSample(TabularFunction sampled)
+        {
+            if (_extrapolation != ExtrapolationPolicy.Error) return sampled;
+            return new RangeGuardedUnivariateFunction(
+                sampled, Name, $"{SpecifiedHazard} ({HazardUnit})", MinHazard(), MaxHazard());
+        }
 
         /// <summary>
         /// Determines whether the table can be sampled (v1.0's function-valid gate).

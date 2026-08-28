@@ -74,6 +74,7 @@ namespace RMC.TotalRisk.RiskFunctions.Hazards
             _hazardTransform = SerializationUtilities.ReadEnum(xElement, nameof(HazardTransform), Transform.None);
             _probabilityTransform = SerializationUtilities.ReadEnum(xElement, nameof(ProbabilityTransform), Transform.NormalZ);
             _uncertaintyValue = SerializationUtilities.ReadEnum(xElement, nameof(UncertaintyValue), FunctionUncertainty.None);
+            _extrapolation = SerializationUtilities.ReadEnum(xElement, nameof(Extrapolation), ExtrapolationPolicy.None);
 
             var noUncertainty = ReadTable(xElement, nameof(NoUncertaintyFunction), SortOrder.Descending, SortOrder.Ascending);
             if (noUncertainty is not null) _noUncertaintyFunction = noUncertainty;
@@ -101,6 +102,11 @@ namespace RMC.TotalRisk.RiskFunctions.Hazards
         /// Backing field for <see cref="UncertaintyValue"/>.
         /// </summary>
         private FunctionUncertainty _uncertaintyValue = FunctionUncertainty.None;
+
+        /// <summary>
+        /// Backing field for <see cref="Extrapolation"/>.
+        /// </summary>
+        private ExtrapolationPolicy _extrapolation = ExtrapolationPolicy.None;
 
         /// <summary>
         /// The minimum percentile probed for full-uncertainty hazard bounds (v1.0 constant).
@@ -159,6 +165,38 @@ namespace RMC.TotalRisk.RiskFunctions.Hazards
                 {
                     _probabilityTransform = value;
                     RaisePropertyChange(nameof(ProbabilityTransform));
+                }
+            }
+        }
+
+        /// <summary>
+        /// The extrapolation policy applied when the sampled hazard curves are evaluated outside
+        /// their table range. Default = <see cref="ExtrapolationPolicy.None"/> (the v1.0 endpoint
+        /// hold, bit-identical); a non-default policy is compute-relevant hashed content.
+        /// </summary>
+        /// <remarks>
+        /// An extending policy widens the sampled curves' evaluated domain: the inverse
+        /// hazard-frequency lookups extend their tails, so the engine's integration domain and
+        /// endpoint treatment widen deliberately, and each sampled curve extends its own
+        /// (monotonicity-repaired) boundary segments. The mean curve's construction grid still
+        /// derives from the declared table bounds while its values follow the extended percentile
+        /// curves, and <see cref="MinHazard(bool)"/>/<see cref="MaxHazard(bool)"/> keep reporting
+        /// the declared data bounds — an extension is unbounded and never widens the reported
+        /// bounds. Under <see cref="ExtrapolationPolicy.Error"/>, forward (hazard-axis) queries
+        /// outside a sampled curve's span throw loudly, while probability-axis inverse lookups
+        /// retain the endpoint hold — the engine probes them to locate the sampled curve's own
+        /// span, so an Error-mode hazard integrates over its table span exactly as under the
+        /// default.
+        /// </remarks>
+        public ExtrapolationPolicy Extrapolation
+        {
+            get { return _extrapolation; }
+            set
+            {
+                if (_extrapolation != value)
+                {
+                    _extrapolation = value;
+                    RaisePropertyChange(nameof(Extrapolation));
                 }
             }
         }
@@ -365,7 +403,7 @@ namespace RMC.TotalRisk.RiskFunctions.Hazards
                         const int realizations = 10000;
                         var curves = new EmpiricalDistribution[realizations];
                         double[] pp = PlottingPositions.Weibull(realizations);
-                        Parallel.For(0, realizations, idx => curves[idx] = (EmpiricalDistribution)SampleFunction(pp[idx]));
+                        Parallel.For(0, realizations, idx => curves[idx] = SampleCore(pp[idx]));
 
                         var boot = new BootstrapAnalysis(new EmpiricalDistribution(), ParameterEstimationMethod.MethodOfMoments, 100, realizations);
                         double[] meanProbabilities = boot.ExpectedProbabilities(quantiles, curves);
@@ -385,12 +423,12 @@ namespace RMC.TotalRisk.RiskFunctions.Hazards
                         var opd = meanFunction.CurveSample().Invert();
                         if (!opd.IsValid)
                             FunctionHelpers.ForceMonotonic(opd);
-                        return new EmpiricalDistribution(opd) { XTransform = HazardTransform, ProbabilityTransform = ProbabilityTransform };
+                        return GuardSample(new EmpiricalDistribution(opd) { XTransform = HazardTransform, ProbabilityTransform = ProbabilityTransform, Extrapolation = ExtrapolationSupport.Map(_extrapolation) });
                     }
 
                 case FunctionUncertainty.Probability:
                     {
-                        var meanCurve = new EmpiricalDistribution(ProbabilityUncertainFunction.CurveSample()) { XTransform = HazardTransform, ProbabilityTransform = ProbabilityTransform };
+                        var meanCurve = new EmpiricalDistribution(ProbabilityUncertainFunction.CurveSample()) { XTransform = HazardTransform, ProbabilityTransform = ProbabilityTransform, Extrapolation = ExtrapolationSupport.Map(_extrapolation) };
                         if (ProbabilityUncertainFunction.Distribution == UnivariateDistributionType.PertPercentileZ)
                         {
                             // The PERT-percentile-Z ordinate mean is not analytic: rebuild the
@@ -404,7 +442,7 @@ namespace RMC.TotalRisk.RiskFunctions.Hazards
 
                             Parallel.For(0, realizations, idx =>
                             {
-                                curves[idx] = (EmpiricalDistribution)SampleFunction(pp[idx]);
+                                curves[idx] = SampleCore(pp[idx]);
                                 for (int i = 0; i < count; i++)
                                     probabilities[i, idx] = curves[idx].ProbabilityValues[i];
                             });
@@ -423,14 +461,14 @@ namespace RMC.TotalRisk.RiskFunctions.Hazards
                             var opd = new OrderedPairedData(meanCurve.XValues, expected, true, SortOrder.Ascending, true, SortOrder.Descending);
                             if (!opd.IsValid)
                                 FunctionHelpers.ForceMonotonic(opd);
-                            meanCurve = new EmpiricalDistribution(opd) { XTransform = HazardTransform, ProbabilityTransform = ProbabilityTransform };
+                            meanCurve = new EmpiricalDistribution(opd) { XTransform = HazardTransform, ProbabilityTransform = ProbabilityTransform, Extrapolation = ExtrapolationSupport.Map(_extrapolation) };
                         }
-                        return meanCurve;
+                        return GuardSample(meanCurve);
                     }
 
                 default:
                     {
-                        return new EmpiricalDistribution(NoUncertaintyFunction.CurveSample().Invert()) { XTransform = HazardTransform, ProbabilityTransform = ProbabilityTransform };
+                        return GuardSample(new EmpiricalDistribution(NoUncertaintyFunction.CurveSample().Invert()) { XTransform = HazardTransform, ProbabilityTransform = ProbabilityTransform, Extrapolation = ExtrapolationSupport.Map(_extrapolation) });
                     }
             }
         }
@@ -440,7 +478,20 @@ namespace RMC.TotalRisk.RiskFunctions.Hazards
         public override IUnivariateDistribution SampleFunction(double percentile)
         {
             ThrowIfNotUsable();
+            return GuardSample(SampleCore(percentile));
+        }
 
+        /// <summary>
+        /// The percentile-curve construction shared by the public sampling members and the
+        /// internal mean-curve builders. The builders consume the raw product directly: the mean
+        /// derivation probes percentile curves across the declared span, which is internal
+        /// construction rather than chain evaluation, so the Error-mode guard applies only to the
+        /// published products.
+        /// </summary>
+        /// <param name="percentile">The knowledge-uncertainty percentile.</param>
+        /// <returns>The sampled (monotonicity-repaired) hazard curve.</returns>
+        private EmpiricalDistribution SampleCore(double percentile)
+        {
             OrderedPairedData opd = _uncertaintyValue switch
             {
                 FunctionUncertainty.Hazard => HazardUncertainFunction.CurveSample(percentile).Invert(),
@@ -451,7 +502,19 @@ namespace RMC.TotalRisk.RiskFunctions.Hazards
             if (!opd.IsValid)
                 FunctionHelpers.ForceMonotonic(opd);
 
-            return new EmpiricalDistribution(opd) { XTransform = HazardTransform, ProbabilityTransform = ProbabilityTransform };
+            return new EmpiricalDistribution(opd) { XTransform = HazardTransform, ProbabilityTransform = ProbabilityTransform, Extrapolation = ExtrapolationSupport.Map(_extrapolation) };
+        }
+
+        /// <summary>
+        /// Wraps a sampled product in the Error-mode range guard when configured; every other
+        /// policy returns the raw wrapper (the unchanged code path).
+        /// </summary>
+        /// <param name="sampled">The sampled distribution product.</param>
+        /// <returns>The product, guarded when the policy is Error.</returns>
+        private IUnivariateDistribution GuardSample(EmpiricalDistribution sampled)
+        {
+            if (_extrapolation != ExtrapolationPolicy.Error) return sampled;
+            return new RangeGuardedUnivariateDistribution(sampled, Name, $"{SpecifiedHazard} ({HazardUnit})");
         }
 
         /// <inheritdoc/>
@@ -537,6 +600,12 @@ namespace RMC.TotalRisk.RiskFunctions.Hazards
             element.SetAttributeValue(nameof(HazardTransform), HazardTransform.ToString());
             element.SetAttributeValue(nameof(ProbabilityTransform), ProbabilityTransform.ToString());
             element.SetAttributeValue(nameof(UncertaintyValue), UncertaintyValue.ToString());
+            // Conditional presence: the attribute is written only when non-default, so every
+            // pre-existing serialized form — and its canonical hash and seeds — is unchanged.
+            if (_extrapolation != ExtrapolationPolicy.None)
+            {
+                element.SetAttributeValue(nameof(Extrapolation), _extrapolation.ToString());
+            }
             element.Add(new XElement(nameof(NoUncertaintyFunction), NoUncertaintyFunction.SaveToXElement()));
             element.Add(new XElement(nameof(HazardUncertainFunction), HazardUncertainFunction.SaveToXElement()));
             element.Add(new XElement(nameof(ProbabilityUncertainFunction), ProbabilityUncertainFunction.SaveToXElement()));

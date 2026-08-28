@@ -3064,6 +3064,20 @@ namespace RMC.TotalRisk.Analyses
         }
 
         /// <summary>
+        /// Appends the per-thread first-fault evaluation diagnostic — when one was recorded — to
+        /// an integration-failure message, so a deliberate evaluation refusal (the Error
+        /// extrapolation policy) survives the integrators' exception absorption with its full
+        /// function/axis/value/range diagnostic instead of the generic failure text.
+        /// </summary>
+        /// <param name="message">The integration-failure message.</param>
+        /// <returns>The message, with the recorded fault appended when present.</returns>
+        private static string AppendEvaluationFault(string message)
+        {
+            string? fault = EvaluationFaultScope.Consume();
+            return fault == null ? message : message + " First recorded evaluation fault: " + fault;
+        }
+
+        /// <summary>
         /// Runs the adaptive Gauss–Kronrod pass for one component: the integrator is an
         /// importance sampler whose recorded evaluations populate the risk points; its returned
         /// value is discarded and its evaluation count and true error estimate are kept as
@@ -3119,7 +3133,7 @@ namespace RMC.TotalRisk.Analyses
                 if (integrator.Status == IntegrationStatus.Failure)
                 {
 
-                    throw new InvalidOperationException($"The risk integration failed for system component '{sampled.Name}': an integrand evaluation threw and the recorded curves are incomplete. The analysis cannot publish results for this run.");
+                    throw new InvalidOperationException(AppendEvaluationFault($"The risk integration failed for system component '{sampled.Name}': an integrand evaluation threw and the recorded curves are incomplete. The analysis cannot publish results for this run."));
                 }
                 interiorEvaluations = integrator.FunctionEvaluations;
                 standardError = integrator.StandardError;
@@ -3488,7 +3502,7 @@ namespace RMC.TotalRisk.Analyses
                 integrator.Integrate(bins);
                 if (integrator.Status == IntegrationStatus.Failure)
                 {
-                    throw new InvalidOperationException($"The failure-probability probe failed for system component '{sampled.Name}': an integrand evaluation threw, so the tail-focus target cannot be derived.");
+                    throw new InvalidOperationException(AppendEvaluationFault($"The failure-probability probe failed for system component '{sampled.Name}': an integrand evaluation threw, so the tail-focus target cannot be derived."));
                 }
                 result = integrator.Result;
             }
@@ -3823,7 +3837,7 @@ namespace RMC.TotalRisk.Analyses
             token.ThrowIfCancellationRequested();
             if (integrator.Status == IntegrationStatus.Failure)
             {
-                throw new InvalidOperationException("The VEGAS warm-up failed; the joint system risk integration cannot proceed.");
+                throw new InvalidOperationException(AppendEvaluationFault("The VEGAS warm-up failed; the joint system risk integration cannot proceed."));
             }
 
             // The recording passes inherit the grid but not its answers; masses self-normalize.
@@ -3835,7 +3849,7 @@ namespace RMC.TotalRisk.Analyses
             token.ThrowIfCancellationRequested();
             if (integrator.Status == IntegrationStatus.Failure)
             {
-                throw new InvalidOperationException("The VEGAS recording pass failed; the joint system risk integration cannot proceed.");
+                throw new InvalidOperationException(AppendEvaluationFault("The VEGAS recording pass failed; the joint system risk integration cannot proceed."));
             }
             realization.FunctionEvaluations += integrator.FunctionEvaluations;
             realization.StandardError = integrator.StandardError;

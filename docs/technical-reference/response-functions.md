@@ -52,7 +52,7 @@ A tabular relationship of strictly ascending hazard levels and conditional failu
 P(F|x) = pᵢ + (pᵢ₊₁ − pᵢ)·(x − xᵢ)/(xᵢ₊₁ − xᵢ),        xᵢ ≤ x ≤ xᵢ₊₁,
 ```
 
-with flat extrapolation beyond the table [7]. Probabilities must lie in [0, 1] (validated per ordinate across each distribution's full range), but need not be ordered or exhaustive.
+Beyond the table the function's `Extrapolation` policy governs; the default holds the end ordinates (the v1.0 behavior [7], bit-identical). Probabilities must lie in [0, 1] (validated per ordinate across each distribution's full range), but need not be ordered or exhaustive.
 
 - `HazardTransform` — optional logarithmic input-axis transform (non-negative hazards).
 - `ProbabilityTransform` — optional logarithmic or Normal-Z output-axis transform. **Default `None`** (the hazard cluster defaults Normal-Z; the response cluster deliberately does not).
@@ -61,7 +61,21 @@ with flat extrapolation beyond the table [7]. Probabilities must lie in [0, 1] (
 
 Per-ordinate failure-probability distributions, sampled co-monotonically (report Algorithm 3, one percentile per realization across all ordinates — `UncertainOrderedPairedData.CurveSample(p)`). PERT-Percentile ordinates are coerced to the [0, 1] allowable range during validation. `IsMonotonic()` tests the 10⁻⁵-percentile curve and, when uncertain, also the median and 1 − 10⁻⁵ curves for any decreasing step.
 
-Validation warns when the first ordinate's mean failure probability exceeds 10⁻⁸: flat extrapolation makes every hazard below the table carry that probability, which can bias risk at low hazard levels.
+Validation warns when the first ordinate's mean failure probability exceeds 10⁻⁸, worded for the configured policy: under the default hold every hazard below the table carries that probability (which can bias risk at low hazard levels); under a Below-extending policy evaluation follows the extended lower segment; under `Error` it stops the analysis.
+
+### Extrapolation policy
+
+`Extrapolation` — `None` (default), `Below`, `Above`, `Both`, or `Error` — extends the boundary
+segments linearly in the configured transform spaces, with the sampled distribution clamping
+extended probabilities to [0, 1]; `Error` refuses out-of-range forward (hazard-axis) evaluation
+loudly while probability-axis inverse lookups retain the endpoint hold. Serialized by enum name
+only when non-default (every existing form, hash, and seed unchanged); a configured policy is
+hashed compute content. The raw-curve `SampleResponseFunction()` members are policy-free by
+design. The full doctrine lives in the
+[hazard-functions chapter](hazard-functions.md#extrapolation-policy). Contrast: the
+`BivariateResponse` collapse curve keeps its v1.0 first/last-ordinate `Min/MaxProbability`
+semantics, and the joint surface keeps its pinned corner/edge policy — both are excluded from
+this per-function policy by design.
 
 ### API
 

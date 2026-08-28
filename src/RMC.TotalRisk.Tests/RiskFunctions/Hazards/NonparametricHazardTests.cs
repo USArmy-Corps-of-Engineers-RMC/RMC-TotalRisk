@@ -5,6 +5,7 @@ using Numerics;
 using Numerics.Data;
 using Numerics.Distributions;
 using Numerics.Mathematics.SpecialFunctions;
+using RMC.TotalRisk.Core;
 using RMC.TotalRisk.Core.Enums;
 using RMC.TotalRisk.RiskFunctions.Hazards;
 using RMC.TotalRisk.Tests.Core;
@@ -405,6 +406,7 @@ public class NonparametricHazardTests
         HashInvariance.AssertStrippedAttributesInert(h.ToXElement());
         HashInvariance.AssertComputeSensitive(h.CanonicalHash, () => h.EffectiveRecordLength = 250);
         HashInvariance.AssertComputeSensitive(h.CanonicalHash, () => h.ExtrapolationEP = 0.001d);
+        HashInvariance.AssertComputeSensitive(h.CanonicalHash, () => h.Extrapolation = ExtrapolationPolicy.Both);
         HashInvariance.AssertComputeSensitive(h.CanonicalHash, () => h.IsUncertain = false);
         HashInvariance.AssertComputeSensitive(h.CanonicalHash, () => h.HazardTransform = Transform.None);
     }
@@ -427,5 +429,65 @@ public class NonparametricHazardTests
                 ordinates.Select(o => new UncertainOrdinate(o.P, new Deterministic(o.X))).ToArray(),
                 true, SortOrder.Descending, true, SortOrder.Ascending, UnivariateDistributionType.Deterministic),
         };
+    }
+
+    /// <summary>
+    /// Verifies the extrapolation policy's serialization contract — ABSENT when default, with the
+    /// explicit-None assignment byte-identical (the hash-preservation pin), present by name and
+    /// hash-moving when configured, round-tripping faithfully — its sampling-only asymmetry (the
+    /// setter never re-derives the table, unlike the serialized derivation-time
+    /// <c>ExtrapolationEP</c> extension), and its wiring incl. the Error guard on the sampled
+    /// products.
+    /// </summary>
+    [TestMethod]
+    public void Test_Extrapolation_ConditionalPresence_Wiring_AndErrorGuard()
+    {
+        // Arrange
+        var h = AnchorHazard();
+        var baselineXml = h.ToXElement().ToString();
+        byte[] baselineHash = h.CanonicalHash();
+        Assert.IsNull(h.ToXElement().Attribute(nameof(NonparametricHazard.Extrapolation)));
+
+        // The explicit-None assignment is byte-inert, and the setter is sampling-only: the
+        // derived table instance is untouched (a re-derivation would replace it).
+        var derived = h.TrueUncertainFunction;
+        h.Extrapolation = ExtrapolationPolicy.Both;
+        h.Extrapolation = ExtrapolationPolicy.None;
+        Assert.AreSame(derived, h.TrueUncertainFunction);
+        Assert.AreEqual(baselineXml, h.ToXElement().ToString());
+        CollectionAssert.AreEqual(baselineHash, h.CanonicalHash());
+
+        // A configured policy serializes by name, moves the hash, and round-trips faithfully.
+        h.Extrapolation = ExtrapolationPolicy.Both;
+        Assert.AreSame(derived, h.TrueUncertainFunction);
+        var xml = h.ToXElement();
+        Assert.AreEqual(nameof(ExtrapolationPolicy.Both), xml.Attribute(nameof(NonparametricHazard.Extrapolation))?.Value);
+        Assert.IsFalse(h.CanonicalHash().SequenceEqual(baselineHash),
+            "The extrapolation policy is compute content and must move the canonical hash.");
+        var restored = new NonparametricHazard(xml);
+        Assert.AreEqual(ExtrapolationPolicy.Both, restored.Extrapolation);
+        CollectionAssert.AreEqual(h.CanonicalHash(), restored.CanonicalHash());
+        Assert.AreEqual(xml.ToString(), restored.ToXElement().ToString());
+
+        // Wiring: the sampled curve carries the mapped sides and widens its inverse tails.
+        var extended = (EmpiricalDistribution)h.SampleFunction(0.5d);
+        Assert.AreEqual(ExtrapolationSides.Both, extended.Extrapolation);
+        double low = extended.InverseCDF(1E-16);
+        double high = extended.InverseCDF(1d - 1E-16);
+        Assert.IsFalse(double.IsNaN(low) || double.IsInfinity(low));
+        Assert.IsFalse(double.IsNaN(high) || double.IsInfinity(high));
+        Assert.IsTrue(low < extended.Minimum, "The extended lower tail must fall below the table span.");
+        Assert.IsTrue(high > extended.Maximum, "The extended upper tail must rise above the table span.");
+
+        // Error mode: hazard-axis queries beyond the sampled span throw loudly; the inverse
+        // retains the hold.
+        h.Extrapolation = ExtrapolationPolicy.Error;
+        var guarded = h.SampleFunction(0.5d);
+        Assert.IsInstanceOfType(guarded, typeof(RangeGuardedUnivariateDistribution));
+        Assert.AreEqual(guarded.Maximum, guarded.InverseCDF(1d - 1E-16), 0d);
+        var fault = Assert.ThrowsException<ExtrapolationRangeException>(() => guarded.CDF(guarded.Maximum + 1d));
+        StringAssert.Contains(fault.Message, "Graphical");
+        StringAssert.Contains(fault.Message, "Flow (cfs)");
+        Assert.IsNotNull(EvaluationFaultScope.Consume());
     }
 }

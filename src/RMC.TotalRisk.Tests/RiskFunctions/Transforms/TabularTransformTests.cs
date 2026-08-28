@@ -3,6 +3,8 @@ using System.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Numerics.Data;
 using Numerics.Distributions;
+using Numerics.Functions;
+using RMC.TotalRisk.Core;
 using RMC.TotalRisk.Core.Enums;
 using RMC.TotalRisk.RiskFunctions.Transforms;
 using RMC.TotalRisk.Tests.Core;
@@ -225,5 +227,71 @@ public class TabularTransformTests
         HashInvariance.AssertMetadataInvariant(t);
         HashInvariance.AssertStrippedAttributesInert(t.ToXElement());
         HashInvariance.AssertComputeSensitive(t.CanonicalHash, () => t.HazardTransform = Transform.Logarithmic);
+        HashInvariance.AssertComputeSensitive(t.CanonicalHash, () => t.Extrapolation = ExtrapolationPolicy.Both);
+    }
+
+    /// <summary>
+    /// Verifies the extrapolation policy's serialization contract — ABSENT when default, with the
+    /// explicit-None assignment byte-identical (the hash-preservation pin), present by name and
+    /// hash-moving when configured, round-tripping faithfully — and its wiring: the sampled
+    /// wrappers carry the mapped sides and actually extend, and the Error mode guards forward
+    /// evaluation with the full diagnostic while the inverse retains the hold.
+    /// </summary>
+    [TestMethod]
+    public void Test_Extrapolation_ConditionalPresence_Wiring_AndErrorGuard()
+    {
+        // Arrange — the deterministic (0→0), (100→50) table; slope 0.5 on both boundary segments.
+        var t = DeterministicTransform();
+        var baselineXml = t.ToXElement().ToString();
+        byte[] baselineHash = t.CanonicalHash();
+        Assert.IsNull(t.ToXElement().Attribute(nameof(TabularTransform.Extrapolation)));
+
+        // The explicit-None assignment is byte-inert.
+        t.Extrapolation = ExtrapolationPolicy.Both;
+        t.Extrapolation = ExtrapolationPolicy.None;
+        Assert.AreEqual(baselineXml, t.ToXElement().ToString());
+        CollectionAssert.AreEqual(baselineHash, t.CanonicalHash());
+
+        // Default sampling holds the endpoints (the raw wrapper, no guard).
+        var held = t.SampleFunction();
+        Assert.IsInstanceOfType(held, typeof(TabularFunction));
+        Assert.AreEqual(50d, held.Function(200d));
+
+        // A configured policy serializes by name, moves the hash, and round-trips faithfully.
+        t.Extrapolation = ExtrapolationPolicy.Both;
+        var xml = t.ToXElement();
+        Assert.AreEqual(nameof(ExtrapolationPolicy.Both), xml.Attribute(nameof(TabularTransform.Extrapolation))?.Value);
+        Assert.IsFalse(t.CanonicalHash().SequenceEqual(baselineHash),
+            "The extrapolation policy is compute content and must move the canonical hash.");
+        var restored = new TabularTransform(xml);
+        Assert.AreEqual(ExtrapolationPolicy.Both, restored.Extrapolation);
+        CollectionAssert.AreEqual(t.CanonicalHash(), restored.CanonicalHash());
+        Assert.AreEqual(xml.ToString(), restored.ToXElement().ToString());
+
+        // Wiring: mean and percentile products carry the mapped sides and extend.
+        var mean = (TabularFunction)t.SampleFunction();
+        var percentile = (TabularFunction)t.SampleFunction(0.5d);
+        Assert.AreEqual(ExtrapolationSides.Both, mean.Extrapolation);
+        Assert.AreEqual(ExtrapolationSides.Both, percentile.Extrapolation);
+        Assert.AreEqual(100d, mean.Function(200d), 1E-12);
+        Assert.AreEqual(-50d, mean.Function(-100d), 1E-12);
+
+        // Error mode: the guarded product refuses out-of-range forward evaluation loudly, keeps
+        // in-range evaluation and the inverse hold, and maps the inner wrapper to None.
+        t.Extrapolation = ExtrapolationPolicy.Error;
+        var guarded = t.SampleFunction();
+        Assert.IsInstanceOfType(guarded, typeof(RangeGuardedUnivariateFunction));
+        Assert.AreEqual(25d, guarded.Function(50d), 1E-12);
+        // The inverse is deliberately unguarded (forward-only rule); the transform table's Y
+        // order is None, so inverse lookups on this fixture are unsupported upstream either way —
+        // the probability-axis inverse hold is pinned on the response and hazard guards.
+        var fault = Assert.ThrowsException<ExtrapolationRangeException>(() => guarded.Function(150d));
+        StringAssert.Contains(fault.Message, "Rating");
+        StringAssert.Contains(fault.Message, "Flow (cfs)");
+        StringAssert.Contains(fault.Message, "150");
+        Assert.AreEqual(0d, fault.RangeMinimum, 0d);
+        Assert.AreEqual(100d, fault.RangeMaximum, 0d);
+        Assert.IsNotNull(EvaluationFaultScope.Consume());
+        Assert.IsNull(EvaluationFaultScope.Consume());
     }
 }

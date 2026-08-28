@@ -112,6 +112,11 @@ form** ([loss-exceedance-curves.md](loss-exceedance-curves.md)).
 The sampled hazard defines its natural finite probability support `[p_min, p_max]`. Adaptive
 Gauss-Kronrod integrates only that support. Its acceptance-aware recorder publishes the unchanged
 Kronrod-node weights for intervals that survive refinement; rejected-node data is never retained.
+Under the default extrapolation policy the support is the table span; a hazard with an extending
+[extrapolation policy](hazard-functions.md#extrapolation-policy) widens its inverse tails, so the
+support probed at the 10⁻¹⁶ non-exceedance floors approaches the full axis, the endpoint
+rectangles below shrink toward zero mass, and the adaptively integrated interior deliberately
+carries what the rectangles carried — the mass budget stays exhaustive by the same construction.
 
 Appendix D's collectively exhaustive construction adds two explicit endpoint rectangles:
 

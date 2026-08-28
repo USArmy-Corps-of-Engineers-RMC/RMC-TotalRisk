@@ -3,6 +3,8 @@ using System.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Numerics.Data;
 using Numerics.Distributions;
+using RMC.TotalRisk.Core;
+using RMC.TotalRisk.Core.Enums;
 using RMC.TotalRisk.RiskFunctions.Hazards;
 using RMC.TotalRisk.RiskFunctions.Responses;
 using RMC.TotalRisk.Tests.Core;
@@ -208,5 +210,76 @@ public class TabularResponseTests
         HashInvariance.AssertMetadataInvariant(r);
         HashInvariance.AssertStrippedAttributesInert(r.ToXElement());
         HashInvariance.AssertComputeSensitive(r.CanonicalHash, () => r.ProbabilityTransform = Transform.NormalZ);
+        HashInvariance.AssertComputeSensitive(r.CanonicalHash, () => r.Extrapolation = ExtrapolationPolicy.Both);
+    }
+
+    /// <summary>
+    /// Verifies the extrapolation policy's serialization contract — ABSENT when default, with the
+    /// explicit-None assignment byte-identical (the hash-preservation pin), present by name and
+    /// hash-moving when configured, round-tripping faithfully — and its wiring: the sampled
+    /// distribution carries the mapped sides, extends with the [0, 1] probability clamp binding
+    /// (computed against the policy-free raw curve), and the Error mode guards forward
+    /// evaluation while the probability-axis inverse retains the hold.
+    /// </summary>
+    [TestMethod]
+    public void Test_Extrapolation_ConditionalPresence_Wiring_AndErrorGuard()
+    {
+        // Arrange — the triangular-uncertain fragility at the median percentile.
+        var r = UncertainResponse();
+        var baselineXml = r.ToXElement().ToString();
+        byte[] baselineHash = r.CanonicalHash();
+        Assert.IsNull(r.ToXElement().Attribute(nameof(TabularResponse.Extrapolation)));
+
+        // The explicit-None assignment is byte-inert.
+        r.Extrapolation = ExtrapolationPolicy.Both;
+        r.Extrapolation = ExtrapolationPolicy.None;
+        Assert.AreEqual(baselineXml, r.ToXElement().ToString());
+        CollectionAssert.AreEqual(baselineHash, r.CanonicalHash());
+
+        // The policy-free raw curve provides the hand expectations (linear probability axis).
+        var curve = r.SampleResponseFunction(0.5d);
+        double p0 = curve[0].Y;
+        double p1 = curve[1].Y;
+        double p2 = curve[2].Y;
+        double extendedAbove = Math.Min(1d, p2 + (p2 - p1) / 5d * 5d);
+        double extendedBelow = Math.Max(0d, p0 + (p1 - p0) / 5d * (5d - 10d));
+
+        // Default sampling holds the endpoints.
+        var held = (EmpiricalDistribution)r.SampleFunction(0.5d);
+        Assert.AreEqual(ExtrapolationSides.None, held.Extrapolation);
+        Assert.AreEqual(p2, held.CDF(25d), 1E-12);
+        Assert.AreEqual(p0, held.CDF(5d), 1E-12);
+
+        // A configured policy serializes by name, moves the hash, and round-trips faithfully.
+        r.Extrapolation = ExtrapolationPolicy.Both;
+        var xml = r.ToXElement();
+        Assert.AreEqual(nameof(ExtrapolationPolicy.Both), xml.Attribute(nameof(TabularResponse.Extrapolation))?.Value);
+        Assert.IsFalse(r.CanonicalHash().SequenceEqual(baselineHash),
+            "The extrapolation policy is compute content and must move the canonical hash.");
+        var restored = new TabularResponse(xml);
+        Assert.AreEqual(ExtrapolationPolicy.Both, restored.Extrapolation);
+        CollectionAssert.AreEqual(r.CanonicalHash(), restored.CanonicalHash());
+        Assert.AreEqual(xml.ToString(), restored.ToXElement().ToString());
+
+        // Wiring: the sampled distribution carries the mapped sides and extends, with the
+        // probability clamp binding on both tails.
+        var extended = (EmpiricalDistribution)r.SampleFunction(0.5d);
+        Assert.AreEqual(ExtrapolationSides.Both, extended.Extrapolation);
+        Assert.AreEqual(extendedAbove, extended.CDF(25d), 1E-12);
+        Assert.AreEqual(extendedBelow, extended.CDF(5d), 1E-12);
+
+        // Error mode: the guarded product refuses out-of-range forward evaluation loudly, keeps
+        // in-range evaluation, and the probability-axis inverse retains the hold.
+        r.Extrapolation = ExtrapolationPolicy.Error;
+        var guarded = r.SampleFunction(0.5d);
+        Assert.IsInstanceOfType(guarded, typeof(RangeGuardedUnivariateDistribution));
+        Assert.AreEqual(p1, guarded.CDF(15d), 1E-12);
+        Assert.AreEqual(20d, guarded.InverseCDF(1d));
+        var fault = Assert.ThrowsException<ExtrapolationRangeException>(() => guarded.CDF(25d));
+        StringAssert.Contains(fault.Message, "Fragility");
+        StringAssert.Contains(fault.Message, "Stage (ft)");
+        Assert.AreEqual(10d, fault.RangeMinimum, 0d);
+        Assert.AreEqual(20d, fault.RangeMaximum, 0d);
+        Assert.IsNotNull(EvaluationFaultScope.Consume());
     }
 }

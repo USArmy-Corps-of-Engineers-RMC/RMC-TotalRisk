@@ -26,8 +26,10 @@ namespace RMC.TotalRisk.RiskFunctions.Transforms
     /// (input hazard) and unconstrained Y ordinate distributions (transformed hazard). Knowledge
     /// uncertainty is sampled co-monotonically: one percentile drives every ordinate
     /// (<c>TabularFunction.ConfidenceLevel</c>), preserving perfect rank correlation across hazard
-    /// levels. Interpolation is linear on the transformed axes with flat (clamped) extrapolation
-    /// beyond the table — the Numerics <see cref="TabularFunction"/> behavior.
+    /// levels. Interpolation is linear on the transformed axes. Beyond the table,
+    /// <see cref="Extrapolation"/> governs: the default holds the endpoint ordinates (the v1.0
+    /// behavior, bit-identical), the extending policies extend the boundary segments linearly in
+    /// the transform spaces, and Error refuses out-of-range forward evaluation loudly.
     /// </para>
     /// <para>
     /// Sampling dimension D = 1 (one uncertain-ordinate percentile per realization).
@@ -61,6 +63,7 @@ namespace RMC.TotalRisk.RiskFunctions.Transforms
             TransformedHazardUnit = SerializationUtilities.ReadString(xElement, nameof(TransformedHazardUnit));
             _hazardTransform = SerializationUtilities.ReadEnum(xElement, nameof(HazardTransform), Transform.None);
             _transformTransform = SerializationUtilities.ReadEnum(xElement, nameof(TransformTransform), Transform.None);
+            _extrapolation = SerializationUtilities.ReadEnum(xElement, nameof(Extrapolation), ExtrapolationPolicy.None);
 
             var tableElement = xElement.Element("UncertainOrderedPairedData");
             if (tableElement != null)
@@ -92,6 +95,11 @@ namespace RMC.TotalRisk.RiskFunctions.Transforms
         /// Backing field for <see cref="TransformTransform"/>.
         /// </summary>
         private Transform _transformTransform = Transform.None;
+
+        /// <summary>
+        /// Backing field for <see cref="Extrapolation"/>.
+        /// </summary>
+        private ExtrapolationPolicy _extrapolation = ExtrapolationPolicy.None;
 
         /// <summary>
         /// Backing field for <see cref="UncertainOrderedPairedData"/> — the v1.0 default table.
@@ -128,6 +136,24 @@ namespace RMC.TotalRisk.RiskFunctions.Transforms
                 {
                     _transformTransform = value;
                     RaisePropertyChange(nameof(TransformTransform));
+                }
+            }
+        }
+
+        /// <summary>
+        /// The extrapolation policy applied when the transform is evaluated outside its table
+        /// range. Default = <see cref="ExtrapolationPolicy.None"/> (the v1.0 endpoint hold,
+        /// bit-identical); a non-default policy is compute-relevant hashed content.
+        /// </summary>
+        public ExtrapolationPolicy Extrapolation
+        {
+            get { return _extrapolation; }
+            set
+            {
+                if (_extrapolation != value)
+                {
+                    _extrapolation = value;
+                    RaisePropertyChange(nameof(Extrapolation));
                 }
             }
         }
@@ -199,7 +225,7 @@ namespace RMC.TotalRisk.RiskFunctions.Transforms
         {
             if (!TableIsUsable())
                 throw new InvalidOperationException("The tabular transform table is invalid. Call Validate() and correct the reported errors before sampling.");
-            return new TabularFunction(UncertainOrderedPairedData) { ConfidenceLevel = -1, XTransform = HazardTransform, YTransform = TransformTransform };
+            return GuardSample(new TabularFunction(UncertainOrderedPairedData) { ConfidenceLevel = -1, XTransform = HazardTransform, YTransform = TransformTransform, Extrapolation = ExtrapolationSupport.Map(_extrapolation) });
         }
 
         /// <inheritdoc/>
@@ -208,7 +234,7 @@ namespace RMC.TotalRisk.RiskFunctions.Transforms
         {
             if (!TableIsUsable())
                 throw new InvalidOperationException("The tabular transform table is invalid. Call Validate() and correct the reported errors before sampling.");
-            return new TabularFunction(UncertainOrderedPairedData) { ConfidenceLevel = percentile, XTransform = HazardTransform, YTransform = TransformTransform };
+            return GuardSample(new TabularFunction(UncertainOrderedPairedData) { ConfidenceLevel = percentile, XTransform = HazardTransform, YTransform = TransformTransform, Extrapolation = ExtrapolationSupport.Map(_extrapolation) });
         }
 
         /// <inheritdoc/>
@@ -270,6 +296,12 @@ namespace RMC.TotalRisk.RiskFunctions.Transforms
             element.SetAttributeValue(nameof(TransformedHazardUnit), TransformedHazardUnit);
             element.SetAttributeValue(nameof(HazardTransform), HazardTransform.ToString());
             element.SetAttributeValue(nameof(TransformTransform), TransformTransform.ToString());
+            // Conditional presence: the attribute is written only when non-default, so every
+            // pre-existing serialized form — and its canonical hash and seeds — is unchanged.
+            if (_extrapolation != ExtrapolationPolicy.None)
+            {
+                element.SetAttributeValue(nameof(Extrapolation), _extrapolation.ToString());
+            }
             element.Add(UncertainOrderedPairedData.SaveToXElement());
             return element;
         }
@@ -277,6 +309,19 @@ namespace RMC.TotalRisk.RiskFunctions.Transforms
         #endregion
 
         #region Private Helpers
+
+        /// <summary>
+        /// Wraps a sampled product in the Error-mode range guard when configured; every other
+        /// policy returns the raw wrapper (the unchanged code path).
+        /// </summary>
+        /// <param name="sampled">The sampled function product.</param>
+        /// <returns>The product, guarded when the policy is Error.</returns>
+        private IUnivariateFunction GuardSample(TabularFunction sampled)
+        {
+            if (_extrapolation != ExtrapolationPolicy.Error) return sampled;
+            return new RangeGuardedUnivariateFunction(
+                sampled, Name, $"{SpecifiedHazard} ({HazardUnit})", MinHazard(), MaxHazard());
+        }
 
         /// <summary>
         /// Determines whether the table can be sampled (v1.0's function-valid gate).

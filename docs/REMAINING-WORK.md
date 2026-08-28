@@ -64,26 +64,18 @@ approved and executed (`74af2e95…`, its own commit).
 
 ## Unscheduled items needing future ratification (not blocking alpha)
 
-- **A10-TotalRisk — extrapolation policy on tabular and nonparametric functions (prepared
-  design recorded 2026-08-28; blocked on an upstream gap).** The ratified design: a new
-  `Core.Enums.ExtrapolationPolicy { None = 0, Below, Above, Both, Error }` (the Hydrologics
-  mirror plus the ruled TotalRisk-side Error mode — out-of-range compute throws loudly with
-  function/axis/value/range), one serialized property per function on `TabularHazard`,
-  `TabularTransform`, `TabularResponse`, `TabularConsequence`, and `NonparametricHazard`
-  (bivariate surfaces, the collapse curve, and composites excluded — their policies are pinned
-  semantics); serialized by enum name **only when non-default** (conditional presence — every
-  existing form, hash, and seed byte-identical), non-default values compute-relevant hashed
-  content; extension linear in the configured transform space, probability axes bounded,
-  consequences clamped at zero, uncertain tables extrapolating per sampled curve; full landing
-  checklist per new model property. **The blocking discovery:** the 2.2.0 upstream policy
-  lands on `OrderedPairedData.GetYFromX`/`GetXFromY` only, while the model library's sampled
-  compute paths evaluate through `Numerics.Functions.TabularFunction` (transform, response,
-  and consequence realizations) and `EmpiricalDistribution` (hazard realizations) — neither
-  carries the policy, so connecting the TotalRisk half requires an upstream item
-  (extrapolation policy on `TabularFunction` and `EmpiricalDistribution`, or a policy-aware
-  lookup route for the sampled wrappers) rather than the pure wiring the tier-A sizing
-  assumed. Candidate for the next numerics batch; the TotalRisk half lands in one session once
-  the upstream surface exists.
+- **KernelDensity extrapolation surface (observation recorded 2026-08-28, from the A10 close;
+  not scheduled).** A10 landed end to end on 2026-08-28 — the upstream `Extrapolation` property
+  on the two evaluation wrappers (`TabularFunction`/`EmpiricalDistribution`, numerics
+  `bug-fixes-and-enhancements`, riding the 2.2.0 release) and the TotalRisk
+  `ExtrapolationPolicy` on the five tabular/nonparametric function types with the Error guards
+  (`ExtrapolationVerification`). One adjacent surface was deliberately left outside the ruled
+  two-type upstream scope: `KernelDensity` does **not** compose `EmpiricalDistribution` — it
+  duplicates the lookup pattern (its own `OrderedPairedData`, transforms, and hard CDF support
+  gates) — so it carries no extrapolation surface today. If KDE-backed curves ever need the
+  policy (the post-v1.1 KDE-smoothed assurance banding is the plausible consumer), that is a
+  new upstream item, not a TotalRisk wiring gap; a no-regression pin
+  (`Test_KernelDensity_EmpiricalUnderTheHood_NoRegression`) documents the relationship.
 
 - `CompositeTransform` **Mixture** mode and the explicit epistemic mixture mode — both wait on an
   engine transform-branch analog of the consequence exposure branches (arch Q-Y).

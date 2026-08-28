@@ -60,6 +60,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
             HazardUnit = SerializationUtilities.ReadString(xElement, nameof(HazardUnit));
             _hazardTransform = SerializationUtilities.ReadEnum(xElement, nameof(HazardTransform), Transform.None);
             _probabilityTransform = SerializationUtilities.ReadEnum(xElement, nameof(ProbabilityTransform), Transform.None);
+            _extrapolation = SerializationUtilities.ReadEnum(xElement, nameof(Extrapolation), ExtrapolationPolicy.None);
 
             var tableElement = xElement.Element("UncertainOrderedPairedData");
             if (tableElement != null)
@@ -92,6 +93,11 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
         /// cluster defaults Normal-Z, the response cluster does not).
         /// </summary>
         private Transform _probabilityTransform = Transform.None;
+
+        /// <summary>
+        /// Backing field for <see cref="Extrapolation"/>.
+        /// </summary>
+        private ExtrapolationPolicy _extrapolation = ExtrapolationPolicy.None;
 
         /// <summary>
         /// Backing field for <see cref="UncertainOrderedPairedData"/> — the v1.0 default table.
@@ -133,6 +139,27 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
         }
 
         /// <summary>
+        /// The extrapolation policy applied when the response function is evaluated outside its
+        /// table range. Default = <see cref="ExtrapolationPolicy.None"/> (the v1.0 endpoint hold,
+        /// bit-identical); a non-default policy is compute-relevant hashed content. Extended
+        /// probabilities stay clamped to [0, 1] by the sampled distribution. The policy governs
+        /// the sampled distribution products; the raw-curve
+        /// <see cref="SampleResponseFunction()"/> members are policy-free by design.
+        /// </summary>
+        public ExtrapolationPolicy Extrapolation
+        {
+            get { return _extrapolation; }
+            set
+            {
+                if (_extrapolation != value)
+                {
+                    _extrapolation = value;
+                    RaisePropertyChange(nameof(Extrapolation));
+                }
+            }
+        }
+
+        /// <summary>
         /// The response table: strictly ascending hazard X with a failure-probability distribution
         /// per ordinate.
         /// </summary>
@@ -166,9 +193,9 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
         /// <remarks>
         /// Errors (invalidating): fewer than two ordinates; invalid ordinates; probability values
         /// outside [0, 1]; missing axis labels; a logarithmic hazard axis over negative hazards; a
-        /// logarithmic probability axis over a negative sampled range. Warnings (advisory, exact
-        /// v1.0 conditions): a first-ordinate mean failure probability above 1e-8 (hazards below
-        /// the table produce non-zero failure probability via flat extrapolation), and a
+        /// logarithmic probability axis over a negative sampled range. Warnings (advisory): a
+        /// first-ordinate mean failure probability above 1e-8 — worded for the configured
+        /// <see cref="Extrapolation"/> policy (held, extended, or refused below the table) — and a
         /// non-monotonic response. As in v1.0, validation coerces PertPercentile ordinates to the
         /// allowable [0, 1] range.
         /// </remarks>
@@ -232,13 +259,30 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
                     messages.Add("Error: The hazard interpolation transform cannot be logarithmic. There are hazard values less than zero.");
                 }
 
+                // The wording follows the configured extrapolation policy (held, extended, or
+                // refused below the table).
                 double firstHazard = UncertainOrderedPairedData![0].X;
                 double firstMeanProbability = UncertainOrderedPairedData[0].GetOrdinate().Y;
                 if (firstMeanProbability > 0.00000001d)
                 {
-                    messages.Add("Warning: Any hazard level evaluated below " + firstHazard.ToString("N2", CultureInfo.InvariantCulture)
-                        + " will result in a probability of failure greater than zero (" + firstMeanProbability.ToString("E4", CultureInfo.InvariantCulture)
-                        + ") on average. This can result in inaccurate risk estimates for lower hazard levels.");
+                    if (_extrapolation == ExtrapolationPolicy.Below || _extrapolation == ExtrapolationPolicy.Both)
+                    {
+                        messages.Add("Warning: Any hazard level evaluated below " + firstHazard.ToString("N2", CultureInfo.InvariantCulture)
+                            + " will follow the extended lower boundary segment from a mean failure probability of " + firstMeanProbability.ToString("E4", CultureInfo.InvariantCulture)
+                            + ". Confirm the extension is appropriate for lower hazard levels.");
+                    }
+                    else if (_extrapolation == ExtrapolationPolicy.Error)
+                    {
+                        messages.Add("Warning: Any hazard level evaluated below " + firstHazard.ToString("N2", CultureInfo.InvariantCulture)
+                            + " will stop the analysis (the extrapolation policy is Error) even though the mean failure probability there is greater than zero ("
+                            + firstMeanProbability.ToString("E4", CultureInfo.InvariantCulture) + ").");
+                    }
+                    else
+                    {
+                        messages.Add("Warning: Any hazard level evaluated below " + firstHazard.ToString("N2", CultureInfo.InvariantCulture)
+                            + " will result in a probability of failure greater than zero (" + firstMeanProbability.ToString("E4", CultureInfo.InvariantCulture)
+                            + ") on average. This can result in inaccurate risk estimates for lower hazard levels.");
+                    }
                 }
 
                 if (!IsMonotonic())
@@ -277,7 +321,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
         {
             if (!TableIsUsable())
                 throw new InvalidOperationException("The tabular response table is invalid. Call Validate() and correct the reported errors before sampling.");
-            return new EmpiricalDistribution(UncertainOrderedPairedData.CurveSample()) { XTransform = HazardTransform, ProbabilityTransform = ProbabilityTransform };
+            return GuardSample(new EmpiricalDistribution(UncertainOrderedPairedData.CurveSample()) { XTransform = HazardTransform, ProbabilityTransform = ProbabilityTransform, Extrapolation = ExtrapolationSupport.Map(_extrapolation) });
         }
 
         /// <inheritdoc/>
@@ -286,7 +330,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
         {
             if (!TableIsUsable())
                 throw new InvalidOperationException("The tabular response table is invalid. Call Validate() and correct the reported errors before sampling.");
-            return new EmpiricalDistribution(UncertainOrderedPairedData.CurveSample(percentile)) { XTransform = HazardTransform, ProbabilityTransform = ProbabilityTransform };
+            return GuardSample(new EmpiricalDistribution(UncertainOrderedPairedData.CurveSample(percentile)) { XTransform = HazardTransform, ProbabilityTransform = ProbabilityTransform, Extrapolation = ExtrapolationSupport.Map(_extrapolation) });
         }
 
         /// <inheritdoc/>
@@ -379,6 +423,12 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
             element.SetAttributeValue(nameof(HazardUnit), HazardUnit);
             element.SetAttributeValue(nameof(HazardTransform), HazardTransform.ToString());
             element.SetAttributeValue(nameof(ProbabilityTransform), ProbabilityTransform.ToString());
+            // Conditional presence: the attribute is written only when non-default, so every
+            // pre-existing serialized form — and its canonical hash and seeds — is unchanged.
+            if (_extrapolation != ExtrapolationPolicy.None)
+            {
+                element.SetAttributeValue(nameof(Extrapolation), _extrapolation.ToString());
+            }
             element.Add(UncertainOrderedPairedData.SaveToXElement());
             return element;
         }
@@ -386,6 +436,18 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
         #endregion
 
         #region Private Helpers
+
+        /// <summary>
+        /// Wraps a sampled product in the Error-mode range guard when configured; every other
+        /// policy returns the raw wrapper (the unchanged code path).
+        /// </summary>
+        /// <param name="sampled">The sampled distribution product.</param>
+        /// <returns>The product, guarded when the policy is Error.</returns>
+        private IUnivariateDistribution GuardSample(EmpiricalDistribution sampled)
+        {
+            if (_extrapolation != ExtrapolationPolicy.Error) return sampled;
+            return new RangeGuardedUnivariateDistribution(sampled, Name, $"{SpecifiedHazard} ({HazardUnit})");
+        }
 
         /// <summary>
         /// Determines whether the table can be sampled (v1.0's function-valid gate: shape, ordinate

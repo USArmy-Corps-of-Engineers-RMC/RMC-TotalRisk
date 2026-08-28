@@ -32,7 +32,7 @@ A tabular (nonparametric) relationship of hazard levels *x₁ < x₂ < … < x�
 t(x) = yᵢ + (yᵢ₊₁ − yᵢ) · (x − xᵢ)/(xᵢ₊₁ − xᵢ),        xᵢ ≤ x ≤ xᵢ₊₁,
 ```
 
-with **flat (clamped) extrapolation** beyond the table. The transformed values need not be monotonic (`OrderY = None`). A rating curve is typically derived by a hydraulic model (e.g., HEC-RAS) and entered as this tabular data [7].
+Beyond the table the function's `Extrapolation` policy governs; the default holds the end ordinates (the v1.0 behavior, bit-identical). The transformed values need not be monotonic (`OrderY = None`). A rating curve is typically derived by a hydraulic model (e.g., HEC-RAS) and entered as this tabular data [7].
 
 - `HazardTransform` — optional logarithmic transform on the input axis (requires non-negative hazards; validated).
 - `TransformTransform` — optional logarithmic transform on the output axis (requires a non-negative transformed range across every ordinate's lower/mean/upper values; unbounded distributions are probed at the ±10⁻⁵ percentiles).
@@ -46,6 +46,18 @@ Each ordinate's transformed value can carry a distribution (the tabular distribu
 - `SampleFunction(idx)` → the pre-allocated percentile row for realization *idx* (`SamplingDimensions = 1`).
 
 Uncertainty must be entered so the confidence intervals increase monotonically with hazard level.
+
+### Extrapolation policy
+
+`Extrapolation` — `None` (default), `Below`, `Above`, `Both`, or `Error` — extends the boundary
+segments linearly in the configured transform spaces, or refuses out-of-range forward evaluation
+loudly under `Error`; the inverse direction retains the endpoint hold. Serialized by enum name
+only when non-default (every existing form, hash, and seed unchanged); a configured policy is
+hashed compute content. Transformed outputs are physical values and extend unbounded. The full
+doctrine, incl. the Error semantics, lives in the
+[hazard-functions chapter](hazard-functions.md#extrapolation-policy). Contrast: the
+`BivariateTransform` surface keeps its pinned corner/edge extrapolation policy — the two-way
+table is excluded from this per-function policy by design.
 
 ### Bounds
 
