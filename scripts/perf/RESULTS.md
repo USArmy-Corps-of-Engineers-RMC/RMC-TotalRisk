@@ -22,14 +22,14 @@ below are the measurement history and pin provenance (superseded pins remain as 
 
 | Fixture | Current pin (SHA-256) |
 |---|---|
-| F1 | `4c1472d2a3c1c1abdb5b01f05db91bba00b5867b23776fee170ac8372d100d00` |
-| F2 | `876ce063bc6777d54154728e747d279058611e1a1521e3f0d2cd4b6aa6155c73` |
-| F3 | `6469666ef207b436263434e793dc5bd8ec2990e2b26f9cf822de961019206281` |
-| F4 | `846234f17c71ffef1239e50caee0f897c7e7d95bcf85489917b8ef7bca92eb99` |
+| F1 | `b2e6ea8861b3306ff783ad4e9b096a789bbd1bc53941fa237ef84f552f1843af` |
+| F2 | `ac35a7fa8e93d542a876ca5b3b17ad673d7a102aeace8e2dba6e2f89d071763a` |
+| F3 | `e46763eff9139854b9ba30ecf219c35260da3feda6fa5276e5e30e5bc0560e33` |
+| F4 | `8a3a8b522b92aae893902ebc9aa785bbf02efa58de660b5a98219241dd8ea212` |
 | F5 | `2ae3925bfb7488cbfa4bd516cc2d4eb7d71c6f84bfff9f4891873a2bfd811349` |
-| F6 | `74af2e959503f4a96f36c78b1dfce96dab591016c46882c3db96d072bcb9525e` |
+| F6 | `53be64aac9a7b4f4ae3de042007e6b620818c84ea2157321d958472404fbbaf9` |
 | F7 | `f985ca0228952ac0ba66cc29b39cf9006247ea3965264b966ab785fa74317084` |
-| F8 | `5f4d4c397f43f76f551a6d29ea046bb351be4da6befbee2f8059b346c3e450b3` |
+| F8 | `7833ad5f9db34f57fbf71c1cd0d3b6adecb2391e903beda8101fd10ed3d01350` |
 
 Fixtures:
 
@@ -621,3 +621,27 @@ movement sits inside every statistical tolerance. The session baseline of 2026-0
 `dc5b17c`, clean tree) reproduces the new hash bit-exactly. Re-pinned with approval 2026-08-27:
 
 - F6 `74af2e959503f4a96f36c78b1dfce96dab591016c46882c3db96d072bcb9525e` (3.12 GB)
+
+## Six-gate re-pin — the 2.2.0 assembly-version stamp in the results manifest (2026-08-27)
+
+A session-start byte-gate round against numerics `8e4f08a` found the six analysis fixtures moved
+— F1–F4, F6, and F8 — while the two tree fixtures (F5, F7, which hash plan evaluations rather
+than results JSON) reproduced their pins bit-exactly. A detached-worktree bisect attributed the
+whole movement to the single release-preparation commit `8e4f08a` (the version metadata bump):
+rebuilt one commit earlier at `7d7d6aa`, **all six fixtures reproduce their prior pins
+bit-exactly**, exonerating the fourteen substantive upstream commits in between (including the
+percentile-cancellation guard, the ordered-paired-data hardening, and the deterministic mean
+reductions — all proven bit-inert on the engine surface). The mechanism is the results manifest
+telling the truth: an `--dump` payload diff between the two builds contains exactly one changed
+field — `NumericsAssemblyVersion` `"2.1.4.0"` → `"2.2.0.0"` in each of the five hashed result
+containers — with the analysis content hash and **every numeric byte proven equal**, so no
+verification families were run (byte-level identity is stronger evidence than statistical
+tolerance). This is the JSON-only re-pin shape: values did not move; the provenance stamp did.
+Re-pinned with approval 2026-08-27:
+
+- F1 `b2e6ea8861b3306ff783ad4e9b096a789bbd1bc53941fa237ef84f552f1843af` (3.10 GB)
+- F2 `ac35a7fa8e93d542a876ca5b3b17ad673d7a102aeace8e2dba6e2f89d071763a` (12.25 GB)
+- F3 `e46763eff9139854b9ba30ecf219c35260da3feda6fa5276e5e30e5bc0560e33` (6.03 GB)
+- F4 `8a3a8b522b92aae893902ebc9aa785bbf02efa58de660b5a98219241dd8ea212` (4.62 GB)
+- F6 `53be64aac9a7b4f4ae3de042007e6b620818c84ea2157321d958472404fbbaf9` (3.12 GB)
+- F8 `7833ad5f9db34f57fbf71c1cd0d3b6adecb2391e903beda8101fd10ed3d01350` (38.26 GB)
