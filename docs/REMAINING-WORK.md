@@ -77,6 +77,14 @@ approved and executed (`74af2e95…`, its own commit).
   new upstream item, not a TotalRisk wiring gap; a no-regression pin
   (`Test_KernelDensity_EmpiricalUnderTheHood_NoRegression`) documents the relationship.
 
+- **Consequence fractile pinning via the coupling columns (recorded 2026-08-28, from the A6
+  close; not scheduled).** The epistemic conditioning surface pins functions that own a
+  percentile matrix (hazard, transforms, responses, profile transforms); consequence functions
+  draw from each failure mode's coupling matrix instead, so a consequence pin is a validated
+  no-effect warning today. Extending pins to the coupling columns means overriding column k of
+  every consuming mode's matrix — which necessarily pins the paired failure/non-failure
+  consequences of that type together (the pairing is the column's purpose) — a small, separate
+  ratification when a consequence cross-tab is actually wanted.
 - `CompositeTransform` **Mixture** mode and the explicit epistemic mixture mode — both wait on an
   engine transform-branch analog of the consequence exposure branches (arch Q-Y).
 - S-4 — upstreaming `CanonicalContentHasher` to `Numerics.Utilities` (deferred; TotalRisk copies

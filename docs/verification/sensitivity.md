@@ -1,6 +1,6 @@
 # Sensitivity Verification
 
-**Test class:** `SensitivityVerification` · **Tests:** 4 · **Run of record:** 2026-08-27, isolated run, ✅ all passed
+**Test class:** `SensitivityVerification` · **Tests:** 5 · **Run of record:** 2026-08-28, isolated run, ✅ all passed
 
 v1.1 replaces the legacy tornado analysis with a **unified sensitivity engine**
 (an approved scope decision): one typed API whose **outputs** are either any stored scalar
@@ -46,6 +46,7 @@ percentile, computable independently.
 | 2 | `Test_MeasureSensitivity_InertInput_NullBand` | The fragility draw rank-perfect for the APF; the consequence draw inside the 4/√N null band; the sensitivity indices separating the two (> 0.9 vs < 0.02) | 1e-12; 4/√N | ✅ |
 | 3 | `Test_HazardLevelSensitivity_AnalyticOracle_AndReproducibility` | Repeated content-seeded queries bit-identical; the engine association ≡ the independent triangular-quantile response oracle (affine invariance of Pearson — deterministic hazard weight and consequence scale cannot move it) | 0 (bit); 1e-9 | ✅ |
 | 4 | `Test_GivenDataMeasures_LinearMap_SobolMatchesClosedBinnedForm` | The given-data first-order Sobol index on the exactly linear knowledge map ≡ the exact binned truncated-normal form Σ (1/B)·m_b² with m_b = B·(φ(z_(b−1)) − φ(z_b)); the moment-independent PAWN median and Borgonovo δ saturating on the deterministic map; repeated queries bit-identical | 2e-3 relative — the Latin-hypercube strata align each conditioning bin exactly with its probability slice, leaving within-stratum placement jitter and the shared stratified denominator; saturation floors 0.6/0.5 (behavior bounds — estimator evidence is the upstream Ishigami/Sobol-g battery and the fast suite's bit-parity against direct upstream calls); 0 (bit) | ✅ |
+| 5 | `Test_FractilePinning_RecoversUnconditionalEnsemble` | The epistemic conditioning oracle: under median Latin hypercube sampling the equal-weight average of the N = 100 conditioned (pinned) ensemble means recovers the unconditional ensemble mean exactly (the unconditional draws are the mid-bin grid the sweep visits); every conditioned run's realizations collapse onto one value; and the captured sampler seeds are identical pinned or unpinned | 1e-12 relative (an algebraic identity — both sides sum the same N conditional values in different orders); collapse and seed pins at 0 (bit) | ✅ |
 
 Unit-level companions (fast suite, 10 tests): enum member pins; the input-column walk (label
 catalog, coupling columns consumed only where an uncertain consequence reads them,
@@ -67,3 +68,8 @@ Run of record 2026-08-27: `SensitivityVerification` 4/4 passed (52 s wall) with 
 measure catalog (`FirstOrderSobol`, `PawnMedian`, `BorgonovoDelta` routed through the Numerics
 `GlobalSensitivity` estimators under the 20-bin convention); the fast suite at that date passed
 in full (1,166/1,166, Debug and Release).
+
+Run of record 2026-08-28: `SensitivityVerification` 5/5 passed (2 m 10 s wall — the fractile
+sweep runs 101 conditioned/unconditional ensembles at N = 100) with the epistemic conditioning
+(fractile pinning) oracle; the fast suite at that date passed in full (1,198/1,198, Debug and
+Release).

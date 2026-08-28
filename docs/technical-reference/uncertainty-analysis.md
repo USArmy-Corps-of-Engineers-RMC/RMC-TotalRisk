@@ -244,6 +244,37 @@ every recorded `(hazard level, non-exceedance, mass, per-entry response probabil
 per-entry consequences)` point on its component curves — the material to show how the integral
 was built. Risk points never serialize, so the selection cannot move a stored byte.
 
+### 6.4 Epistemic conditioning (fractile pinning)
+
+`RiskAnalysis.FractilePins` holds a list of `FractilePin(functionId, percentile)` entries —
+runtime-only, never serialized, never hashed — each holding one named function at a fixed
+knowledge percentile while the rest of the ensemble varies. The result is a **conditional risk
+statement**: "risk given the 95th-percentile hazard curve," the hazard-fractile ×
+risk cross-tabulation a seismic or SSHAC-style review expects, and clean one-at-a-time holds.
+A pin keys on `IRiskFunction.Id` — rename-proof and clone-stable — and is applied at sampler
+setup by overwriting the target function's own pre-allocated percentile matrix **after**
+seeding: every function's matrix is generated from its own dedicated stream, so no other
+function's draws can move, and the captured sampler seed map is bit-identical to the unpinned
+run (the seed-inertness contract, pinned at verification grade). Sweeping a pin over a fractile
+grid recovers the unconditional ensemble as the weighted average of the conditioned runs — an
+exact identity under median Latin hypercube sampling, where the unconditional draws are the
+mid-bin grid the sweep visits.
+
+Scope and reporting: pins reach the functions the component walk samples directly — the hazard,
+stage transforms and responses, trailing and secondary-chain transforms, and profile
+transforms. Validation errors on duplicate or unmatched ids and warns for pins with no effect —
+a deterministic function, a function with no percentile surface (a posterior-indexed
+parametric), or a consequence function, whose paired draws come from each mode's coupling
+matrix (extending pins to the coupling columns is recorded future work). A referenced response
+living only inside an event or fault tree's probability sources samples through the tree's own
+setup clones and is refused loudly rather than silently not conditioned. The mean pass samples
+the mean functions and is unaffected, so a mean-only run warns and ignores pins. A pinned
+function's knowledge column is constant, and the reporting surfaces treat it honestly as inert:
+the correlation sensitivity reports zero, the given-data measures report exactly zero for a
+constant column, and the value-of-information estimator resolves exactly zero variance for it
+(the constant-column convention — a bit-constant column short-circuits to zero rather than
+reporting its arbitrary tie-order partition as a bins/n-scale noise floor).
+
 ## 7. Diagnostics
 
 The library computes and serializes the diagnostic substance; plotting (kernel densities, tornado

@@ -178,6 +178,36 @@ namespace RMC.TotalRisk.Core
             };
         }
 
+        /// <summary>
+        /// Overwrites every entry of the pre-allocated percentile matrix with one fixed
+        /// percentile — the epistemic conditioning (fractile pinning) primitive. Overwriting the
+        /// matrix after seeding is what keeps a pin seed-inert: every function's matrix is
+        /// generated from its own dedicated stream, so replacing this function's draws cannot
+        /// move any other function's, and the captured seed map is untouched.
+        /// </summary>
+        /// <param name="percentile">The percentile to hold every realization and dimension at,
+        /// strictly inside (0, 1).</param>
+        /// <exception cref="InvalidOperationException">Thrown when <see cref="SetupSampler"/> has
+        /// not populated the matrix (call order, or a function with no sampling dimensions).</exception>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown when the percentile is not
+        /// strictly inside (0, 1).</exception>
+        internal void OverrideSampledPercentiles(double percentile)
+        {
+            if (_percentiles == null)
+                throw new InvalidOperationException("SetupSampler() must be called before pinning percentiles.");
+            if (!(percentile > 0d) || !(percentile < 1d))
+                throw new ArgumentOutOfRangeException(nameof(percentile), "The pinned percentile must lie strictly inside (0, 1).");
+            int rows = _percentiles.GetLength(0);
+            int columns = _percentiles.GetLength(1);
+            for (int i = 0; i < rows; i++)
+            {
+                for (int d = 0; d < columns; d++)
+                {
+                    _percentiles[i, d] = percentile;
+                }
+            }
+        }
+
         /// <inheritdoc/>
         public abstract UncertaintyAnalysisResults? ComputeUncertaintyResults(double confidenceIntervalWidth = 0.9);
 

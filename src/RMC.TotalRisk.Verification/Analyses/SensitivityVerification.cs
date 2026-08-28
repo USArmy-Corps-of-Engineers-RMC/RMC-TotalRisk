@@ -272,4 +272,69 @@ public class SensitivityVerification
         Assert.IsTrue(delta.Entries[0].Value > 0.5d, "A deterministic map concentrates the conditional classes.");
         Assert.AreEqual(sobol.Entries[0].Value, repeat.Entries[0].Value, 0d, "Repeated queries are bit-identical.");
     }
+
+    /// <summary>
+    /// Verifies the epistemic conditioning (fractile pinning) oracle: under median Latin
+    /// hypercube sampling the unconditional run's draws for the pinned function are exactly the
+    /// N mid-bin percentiles, so the equal-weight average of the N conditioned (pinned)
+    /// ensemble means recovers the unconditional ensemble mean exactly — the weighted-average
+    /// recovery identity — while every conditioned run's realizations collapse onto one value
+    /// (identical sampled curves integrate bit-identically) and the captured sampler seeds are
+    /// identical pinned or unpinned (the seed-inertness contract at verification grade).
+    /// </summary>
+    /// <remarks>
+    /// <b>Tolerance derivation:</b> the recovery identity is algebraic — both sides sum the same
+    /// N conditional values in different orders — so the assert is a rounding bound (1e-12
+    /// relative over N = 100 summands), not statistics. The within-run collapse and the seed
+    /// comparisons are exact (delta 0).
+    /// </remarks>
+    [TestMethod]
+    public void Test_FractilePinning_RecoversUnconditionalEnsemble()
+    {
+        const int N = 100;
+
+        // The unconditional ensemble under median LHS: the fragility's draws are the exact
+        // mid-bin grid (k + 0.5)/N in some order.
+        var unconditional = Build(uncertainFragility: true, uncertainConsequence: false, N);
+        unconditional.Options.SamplingScheme = SamplingScheme.LatinHypercubeMedian;
+        unconditional.RunAsync().GetAwaiter().GetResult();
+        double unconditionalMean = unconditional.RiskResults!.Summary!.Mean.Fail.TotalProbability;
+        var unconditionalSeeds = unconditional.CapturedSamplerSeeds!;
+
+        // The N conditioned runs, each pinned at one mid-bin percentile.
+        double conditionedSum = 0d;
+        for (int k = 0; k < N; k++)
+        {
+            var conditioned = Build(uncertainFragility: true, uncertainConsequence: false, N);
+            conditioned.Options.SamplingScheme = SamplingScheme.LatinHypercubeMedian;
+            var fragility = conditioned.Components[0].FailureModes[0].ResponseFunction;
+            conditioned.FractilePins = new[] { new FractilePin(fragility.Id, (k + 0.5d) / N) };
+            conditioned.RunAsync().GetAwaiter().GetResult();
+
+            // Every realization of a conditioned run integrates the identical sampled curves.
+            double first = conditioned.RiskResults![0]!.Fail.TotalProbability;
+            for (int i = 1; i < N; i++)
+            {
+                Assert.AreEqual(first, conditioned.RiskResults[i]!.Fail.TotalProbability, 0d,
+                    "A conditioned run's realizations must collapse onto one value.");
+            }
+            conditionedSum += conditioned.RiskResults.Summary!.Mean.Fail.TotalProbability;
+
+            // The seed-inertness contract: pinned seeds are the unpinned seeds, bit for bit.
+            if (k == 0)
+            {
+                var pinnedSeeds = conditioned.CapturedSamplerSeeds!;
+                Assert.AreEqual(unconditionalSeeds.ComponentCount, pinnedSeeds.ComponentCount);
+                for (int c = 0; c < unconditionalSeeds.ComponentSeeds.Count; c++)
+                {
+                    CollectionAssert.AreEqual(unconditionalSeeds.ComponentSeeds[c], pinnedSeeds.ComponentSeeds[c]);
+                }
+            }
+        }
+
+        // The weighted-average recovery identity.
+        double recovered = conditionedSum / N;
+        Assert.AreEqual(unconditionalMean, recovered, 1e-12 * Math.Abs(unconditionalMean),
+            "The unconditional ensemble mean must be recovered as the equal-weight average of the conditioned means.");
+    }
 }

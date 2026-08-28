@@ -872,12 +872,15 @@ namespace RMC.TotalRisk.Systems.Components
         /// independently.
         /// </param>
         /// <param name="scribe">The seed scribe (capture, and optionally apply), or null — the seed-stable perturbation mode (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §5.5.8).</param>
+        /// <param name="fractilePins">The epistemic conditioning pins by function id, or null — applied to walked functions after seeding.</param>
+        /// <param name="appliedPins">The sink recording every pin id the walk applied, or null.</param>
         /// <returns>The next unclaimed ordinal.</returns>
         /// <exception cref="ArgumentNullException">Thrown when the seeded-function set is null.</exception>
         /// <exception cref="ArgumentOutOfRangeException">Thrown when the sample size is not positive.</exception>
         /// <exception cref="NotSupportedException">Thrown when the sampling scheme is unrecognized.</exception>
         internal int SetupSamplers(int sampleSize, int componentSeed, int ordinal, SamplingScheme scheme,
-            ISet<IRiskFunction> seededFunctions, SeedScribe? scribe = null)
+            ISet<IRiskFunction> seededFunctions, SeedScribe? scribe = null,
+            IReadOnlyDictionary<Guid, double>? fractilePins = null, ISet<Guid>? appliedPins = null)
         {
             if (seededFunctions == null) throw new ArgumentNullException(nameof(seededFunctions));
             if (sampleSize <= 0) throw new ArgumentOutOfRangeException(nameof(sampleSize), "The sample size must be positive.");
@@ -904,17 +907,17 @@ namespace RMC.TotalRisk.Systems.Components
                 if (stage is null) continue;
                 for (int i = 0; i < stage.Transforms.Count; i++)
                 {
-                    ordinal = SetupFunction(stage.Transforms[i], sampleSize, componentSeed, ordinal, scheme, seededFunctions, scribe);
+                    ordinal = SetupFunction(stage.Transforms[i], sampleSize, componentSeed, ordinal, scheme, seededFunctions, scribe, fractilePins, appliedPins);
                 }
-                ordinal = SetupFunction(stage.Response, sampleSize, componentSeed, ordinal, scheme, seededFunctions, scribe);
+                ordinal = SetupFunction(stage.Response, sampleSize, componentSeed, ordinal, scheme, seededFunctions, scribe, fractilePins, appliedPins);
             }
             for (int i = 0; i < _responseToConsequence.Count; i++)
             {
-                ordinal = SetupFunction(_responseToConsequence[i], sampleSize, componentSeed, ordinal, scheme, seededFunctions, scribe);
+                ordinal = SetupFunction(_responseToConsequence[i], sampleSize, componentSeed, ordinal, scheme, seededFunctions, scribe, fractilePins, appliedPins);
             }
             for (int i = 0; i < _secondaryHazardToResponse.Count; i++)
             {
-                ordinal = SetupFunction(_secondaryHazardToResponse[i], sampleSize, componentSeed, ordinal, scheme, seededFunctions, scribe);
+                ordinal = SetupFunction(_secondaryHazardToResponse[i], sampleSize, componentSeed, ordinal, scheme, seededFunctions, scribe, fractilePins, appliedPins);
             }
             return ordinal;
         }
@@ -1059,9 +1062,12 @@ namespace RMC.TotalRisk.Systems.Components
         /// <param name="scheme">The knowledge-uncertainty sampling scheme.</param>
         /// <param name="seededFunctions">The functions already seeded (reference identity).</param>
         /// <param name="scribe">The seed scribe capturing (and, when pinned, overriding) the resolved seed at this ordinal, or null outside a scribed walk.</param>
+        /// <param name="fractilePins">The epistemic conditioning pins by function id, or null — applied after seeding, so the captured seed map is untouched.</param>
+        /// <param name="appliedPins">The sink recording every pin id the walk applied, or null.</param>
         /// <returns>The next unclaimed ordinal.</returns>
         private static int SetupFunction(IRiskFunction? function, int sampleSize, int componentSeed, int ordinal,
-            SamplingScheme scheme, ISet<IRiskFunction> seededFunctions, SeedScribe? scribe = null)
+            SamplingScheme scheme, ISet<IRiskFunction> seededFunctions, SeedScribe? scribe = null,
+            IReadOnlyDictionary<Guid, double>? fractilePins = null, ISet<Guid>? appliedPins = null)
         {
             if (function is null) return ordinal;
             if (seededFunctions.Add(function))
@@ -1070,7 +1076,29 @@ namespace RMC.TotalRisk.Systems.Components
                 if (scribe != null) seed = scribe.Resolve(ordinal, seed);
                 function.SetupSampler(sampleSize, seed, scheme);
             }
+            ApplyFractilePin(function, fractilePins, appliedPins);
             return ordinal + 1;
+        }
+
+        /// <summary>
+        /// Applies a matching epistemic conditioning pin to a walked function by overwriting its
+        /// pre-allocated percentile matrix (idempotent, so shared instances re-apply harmlessly
+        /// at every encounter). Only functions that own a matrix are pinnable — a function with
+        /// no sampling dimensions is a validated no-effect pin and is skipped here.
+        /// </summary>
+        /// <param name="function">The walked function.</param>
+        /// <param name="fractilePins">The pins by function id, or null.</param>
+        /// <param name="appliedPins">The sink recording applied pin ids, or null.</param>
+        internal static void ApplyFractilePin(IRiskFunction function,
+            IReadOnlyDictionary<Guid, double>? fractilePins, ISet<Guid>? appliedPins)
+        {
+            if (fractilePins == null || fractilePins.Count == 0) return;
+            if (function.SamplingDimensions <= 0) return;
+            if (function is RiskFunctionBase pinnable && fractilePins.TryGetValue(function.Id, out double percentile))
+            {
+                pinnable.OverrideSampledPercentiles(percentile);
+                appliedPins?.Add(function.Id);
+            }
         }
 
         /// <summary>

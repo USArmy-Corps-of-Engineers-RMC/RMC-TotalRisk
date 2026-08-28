@@ -110,6 +110,14 @@ namespace RMC.TotalRisk.Core
 
             if (pairs < bins) return new MainEffectResult(double.NaN, totalVariance, pairs);
 
+            // A bit-constant input column (a pinned function's draws, or a degenerate design)
+            // resolves nothing: binning its arbitrary tie order would otherwise report a
+            // spurious bins/n-scale noise floor as resolvable variance.
+            if (inputs[order[0]] == inputs[order[pairs - 1]])
+            {
+                return new MainEffectResult(0d, totalVariance, pairs);
+            }
+
             // Equal-weight bins over the sorted order; the between-bin variance of the
             // conditional means is the resolvable part.
             double betweenVariance = 0d;
@@ -175,6 +183,10 @@ namespace RMC.TotalRisk.Core
             }
             if (totalWeight <= 0d) return double.NaN;
             double baseline = exceedingWeight / totalWeight;
+
+            // A bit-constant input column resolves nothing (the pinned-function convention —
+            // see the main-effect guard).
+            if (inputs[order[0]] == inputs[order[pairs - 1]]) return 0d;
 
             double movement = 0d;
             int start = 0;

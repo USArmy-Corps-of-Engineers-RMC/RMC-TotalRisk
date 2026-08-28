@@ -160,14 +160,16 @@ public class ValueOfInformationEstimatorTests
     }
 
     /// <summary>
-    /// Verifies deterministic tie handling: an all-tied input column sorts by realization
-    /// index, and two calls produce identical results.
+    /// Verifies deterministic tie handling and the constant-column convention: a partially tied
+    /// input column sorts its ties by realization index (two calls produce identical results),
+    /// while a bit-constant column — a pinned function's draws — resolves exactly zero variance
+    /// rather than the arbitrary-partition noise floor its tie order would otherwise report.
     /// </summary>
     [TestMethod]
     public void Test_MainEffect_TiedInputs_Deterministic()
     {
-        // Arrange
-        var x = new[] { 0.5d, 0.5d, 0.5d, 0.5d };
+        // Arrange — three tied values whose order is the realization index, plus one above.
+        var x = new[] { 0.5d, 0.5d, 0.5d, 0.7d };
         var y = new[] { 1d, 3d, 5d, 7d };
 
         // Act
@@ -178,6 +180,12 @@ public class ValueOfInformationEstimatorTests
         Assert.AreEqual(4d, first.ResolvableVariance, 1e-15);
         Assert.AreEqual(first.ResolvableVariance, second.ResolvableVariance, 0d);
         Assert.AreEqual(first.TotalVariance, second.TotalVariance, 0d);
+
+        // A fully constant column resolves exactly zero, with the total variance intact.
+        var constant = ValueOfInformationEstimator.MainEffect(new[] { 0.5d, 0.5d, 0.5d, 0.5d }, y, null, 2);
+        Assert.AreEqual(0d, constant.ResolvableVariance, 0d);
+        Assert.AreEqual(first.TotalVariance, constant.TotalVariance, 0d);
+        Assert.AreEqual(0d, ValueOfInformationEstimator.ExceedanceMovement(new[] { 0.5d, 0.5d, 0.5d, 0.5d }, y, null, 2, 4d), 0d);
     }
 
     /// <summary>

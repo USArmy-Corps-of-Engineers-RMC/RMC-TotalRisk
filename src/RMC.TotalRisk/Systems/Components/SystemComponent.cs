@@ -1278,10 +1278,13 @@ namespace RMC.TotalRisk.Systems.Components
         /// <param name="componentSeed">The component's content-derived seed.</param>
         /// <param name="scheme">The knowledge-uncertainty sampling scheme.</param>
         /// <param name="scribe">The seed scribe (capture, and optionally apply), or null.</param>
+        /// <param name="fractilePins">The epistemic conditioning pins by function id, or null — applied to walked functions after seeding, so the captured seed map is untouched.</param>
+        /// <param name="appliedPins">The sink recording every pin id the walk applied, or null.</param>
         /// <returns>The captured effective seeds by walk ordinal (empty without a scribe).</returns>
         /// <exception cref="ArgumentOutOfRangeException">Thrown when the sample size is not positive.</exception>
         /// <exception cref="InvalidOperationException">Thrown when a pinned scribe does not match the walk shape.</exception>
-        internal int[] SetupSamplers(int sampleSize, int componentSeed, SamplingScheme scheme, SeedScribe? scribe)
+        internal int[] SetupSamplers(int sampleSize, int componentSeed, SamplingScheme scheme, SeedScribe? scribe,
+            IReadOnlyDictionary<Guid, double>? fractilePins = null, ISet<Guid>? appliedPins = null)
         {
             if (sampleSize <= 0) throw new ArgumentOutOfRangeException(nameof(sampleSize), "The sample size must be positive.");
 
@@ -1325,11 +1328,12 @@ namespace RMC.TotalRisk.Systems.Components
                     if (scribe != null) seed = scribe.Resolve(ordinal, seed);
                     hazard.SetupSampler(sampleSize, seed, scheme);
                 }
+                FailureMode.ApplyFractilePin(hazard, fractilePins, appliedPins);
                 ordinal++;
             }
             for (int i = 0; i < modes.Count; i++)
             {
-                ordinal = modes[i].SetupSamplers(sampleSize, componentSeed, ordinal, scheme, seededFunctions, scribe);
+                ordinal = modes[i].SetupSamplers(sampleSize, componentSeed, ordinal, scheme, seededFunctions, scribe, fractilePins, appliedPins);
             }
 
             // Resolve the profile transform chain at the same freeze point. The chain's
@@ -1349,6 +1353,7 @@ namespace RMC.TotalRisk.Systems.Components
                         if (scribe != null) seed = scribe.Resolve(ordinal, seed);
                         transform.SetupSampler(sampleSize, seed, scheme);
                     }
+                    FailureMode.ApplyFractilePin(transform, fractilePins, appliedPins);
                     ordinal++;
                 }
             }

@@ -441,6 +441,12 @@ namespace RMC.TotalRisk.Analyses
         /// <summary>The immutable public view over <see cref="_realizationWeights"/>.</summary>
         private ReadOnlyCollection<double>? _realizationWeightsView;
 
+        /// <summary>Backing field for <see cref="FractilePins"/> (a defensive copy).</summary>
+        private FractilePin[]? _fractilePins;
+
+        /// <summary>The immutable public view over <see cref="_fractilePins"/>.</summary>
+        private ReadOnlyCollection<FractilePin>? _fractilePinsView;
+
         /// <summary>Backing field for <see cref="RetainRealizations"/>.</summary>
         private bool _retainRealizations;
 
@@ -682,6 +688,50 @@ namespace RMC.TotalRisk.Analyses
         }
 
         /// <summary>
+        /// The optional epistemic conditioning pins for the next full-uncertainty run — each
+        /// holds one named function (<see cref="FractilePin.FunctionId"/>) at a fixed knowledge
+        /// percentile while the rest of the ensemble varies, producing conditional risk
+        /// statements ("risk given the 95th-percentile hazard curve"). Runtime-only input state:
+        /// never serialized, never part of a canonical hash, and never an influence on sampling
+        /// seeds — pins are applied by overwriting the target function's own pre-allocated
+        /// percentile matrix after seeding, so every other function's draws are bit-identical to
+        /// the unpinned run and the captured seed map is untouched. Pins reach the functions the
+        /// component walk samples directly (the hazard, stage transforms and responses, trailing
+        /// and secondary-chain transforms, and profile transforms); <see cref="Validate"/> flags
+        /// unmatched ids as errors and warns for pins with no effect (a deterministic function, a
+        /// function with no percentile surface such as a posterior-indexed parametric, or a
+        /// consequence function — consequence draws come from each mode's coupling matrix), while
+        /// a matched pin the walk cannot reach (a function sampled only inside a tree's own setup
+        /// clones) stops the run loudly rather than silently not conditioning. The mean pass
+        /// samples the mean functions and is unaffected. Assigning invalidates
+        /// <see cref="AnalysisBase.IsEstimated"/>; null runs unconditioned.
+        /// </summary>
+        public IReadOnlyList<FractilePin>? FractilePins
+        {
+            get { return _fractilePinsView; }
+            set
+            {
+                if (value == null)
+                {
+                    _fractilePins = null;
+                    _fractilePinsView = null;
+                }
+                else
+                {
+                    var copy = new FractilePin[value.Count];
+                    for (int i = 0; i < value.Count; i++)
+                    {
+                        copy[i] = value[i];
+                    }
+                    _fractilePins = copy;
+                    _fractilePinsView = new ReadOnlyCollection<FractilePin>(copy);
+                }
+                IsEstimated = false;
+                RaisePropertyChange(nameof(FractilePins));
+            }
+        }
+
+        /// <summary>
         /// Whether the next full-uncertainty run keeps its complete per-realization ensemble on
         /// <see cref="RetainedRealizations"/> instead of discarding it after the percentile
         /// assembly. Runtime-only diagnostic state: never serialized, never hashed, never an
@@ -800,6 +850,98 @@ namespace RMC.TotalRisk.Analyses
         /// whose driving hazards disagree on non-blank axis labels warn — one analysis models one
         /// hazard axis.
         /// </remarks>
+        /// <summary>
+        /// Classifies the configured fractile pins against the current component set: duplicate
+        /// or unmatched ids are errors; matched pins that cannot condition anything — a
+        /// consequence function (its draws come from each mode's coupling matrix), a function
+        /// with no percentile sampling surface, or a deterministic function — are warnings; the
+        /// remainder are expected to be applied by the sampler walk, which the run reconciles
+        /// loudly. A deterministic function's pin still enters the walk map (the overwrite is a
+        /// harmless no-op on unused draws) but is never expected-applied.
+        /// </summary>
+        /// <param name="pins">The configured pins.</param>
+        /// <param name="errors">The sink for error messages.</param>
+        /// <param name="warnings">The sink for warning messages.</param>
+        /// <param name="pinMap">The sink for the id → percentile map handed to the walk, or null when only messages are wanted.</param>
+        /// <param name="expectedApplied">The sink for ids the walk must apply, or null.</param>
+        private void ClassifyFractilePins(FractilePin[] pins, List<string> errors, List<string> warnings,
+            Dictionary<Guid, double>? pinMap, HashSet<Guid>? expectedApplied)
+        {
+            var referenced = new Dictionary<Guid, IRiskFunction>();
+            var consequenceIds = new HashSet<Guid>();
+            for (int c = 0; c < _components.Count; c++)
+            {
+                foreach (var function in _components[c].GetReferencedFunctions())
+                {
+                    if (function != null && !referenced.ContainsKey(function.Id))
+                    {
+                        referenced.Add(function.Id, function);
+                    }
+                }
+                var modes = _components[c].FailureModes;
+                for (int m = 0; m < modes.Count; m++)
+                {
+                    var consequences = modes[m].ConsequenceFunctions;
+                    for (int k = 0; k < consequences.Count; k++)
+                    {
+                        if (consequences[k] != null) consequenceIds.Add(consequences[k].Id);
+                    }
+                }
+            }
+
+            var seen = new HashSet<Guid>();
+            for (int i = 0; i < pins.Length; i++)
+            {
+                var pin = pins[i];
+                if (!seen.Add(pin.FunctionId))
+                {
+                    errors.Add($"Error: Fractile pin {i + 1} repeats function id {pin.FunctionId:D}; configure one pin per function.");
+                    continue;
+                }
+                if (!referenced.TryGetValue(pin.FunctionId, out var function))
+                {
+                    errors.Add($"Error: Fractile pin {i + 1} targets function id {pin.FunctionId:D}, which no component references.");
+                    continue;
+                }
+                if (consequenceIds.Contains(pin.FunctionId))
+                {
+                    warnings.Add($"Warning: Fractile pin {i + 1} targets consequence function '{function.Name}'; consequence draws come from each mode's coupling matrix, so the pin has no effect.");
+                    continue;
+                }
+                if (function.SamplingDimensions <= 0)
+                {
+                    warnings.Add($"Warning: Fractile pin {i + 1} targets function '{function.Name}', which has no percentile sampling surface, so the pin has no effect.");
+                    continue;
+                }
+                if (function.IsDeterministic)
+                {
+                    warnings.Add($"Warning: Fractile pin {i + 1} targets deterministic function '{function.Name}'; its draws are unused, so the pin has no effect.");
+                    pinMap?.Add(pin.FunctionId, pin.Percentile);
+                    continue;
+                }
+                pinMap?.Add(pin.FunctionId, pin.Percentile);
+                expectedApplied?.Add(pin.FunctionId);
+            }
+        }
+
+        /// <summary>
+        /// Builds the id → percentile map of the currently configured fractile pins for the
+        /// internal diagnostic re-seeds, so post-hoc sensitivity and conditioning queries see
+        /// the same conditioned design the run used; null when no pins are configured.
+        /// </summary>
+        /// <returns>The pin map, or null.</returns>
+        private Dictionary<Guid, double>? BuildCurrentFractilePinMap()
+        {
+            var pins = _fractilePins;
+            if (pins == null || pins.Length == 0) return null;
+            var map = new Dictionary<Guid, double>();
+            for (int i = 0; i < pins.Length; i++)
+            {
+                map[pins[i].FunctionId] = pins[i].Percentile;
+            }
+            return map;
+        }
+
         private (bool IsValid, List<string> ValidationMessages) ValidateMessages()
         {
             var messages = new List<string>();
@@ -819,6 +961,22 @@ namespace RMC.TotalRisk.Analyses
                     {
                         messages.Add($"Error: The realization weights are invalid. {weightReason}");
                     }
+                }
+            }
+
+            if (_fractilePins != null && _fractilePins.Length > 0)
+            {
+                if (_options.EstimateMeanRiskOnly)
+                {
+                    messages.Add("Warning: Fractile pins condition the full-uncertainty ensemble; a mean-only run samples the mean functions and ignores them.");
+                }
+                else
+                {
+                    var pinErrors = new List<string>();
+                    var pinWarnings = new List<string>();
+                    ClassifyFractilePins(_fractilePins, pinErrors, pinWarnings, null, null);
+                    messages.AddRange(pinErrors);
+                    messages.AddRange(pinWarnings);
                 }
             }
 
@@ -1433,10 +1591,13 @@ namespace RMC.TotalRisk.Analyses
 
                 // Snapshot the run-input epistemic weights with the rest of the author state:
                 // the running computation must not observe a mid-run reassignment. The
-                // retention selectors snapshot the same way.
+                // retention selectors and the fractile pins snapshot the same way.
                 double[]? runRealizationWeights = _realizationWeights == null
                     ? null
                     : (double[])_realizationWeights.Clone();
+                FractilePin[]? runFractilePins = _fractilePins == null
+                    ? null
+                    : (FractilePin[])_fractilePins.Clone();
                 _runRetainRealizations = _retainRealizations;
                 _runRetainedDetailIndex = _retainedIntegrationDetailIndex;
 
@@ -1448,6 +1609,29 @@ namespace RMC.TotalRisk.Analyses
                     // disambiguate identical-content components, and each component's functions
                     // are seeded from (analysis seed, component hash, occurrence index).
                     SystemComponent.AssignOccurrenceIndices(_components);
+
+                    // The race-safe fractile-pin classification over the run clones: Validate()
+                    // gated the author state, but the property can move between that gate and
+                    // this snapshot's use. Applied AFTER seeding at each walk position, pins can
+                    // never move a captured seed; the reconciliation below refuses to run when a
+                    // conditioning pin could not reach its function.
+                    Dictionary<Guid, double>? fractilePinMap = null;
+                    HashSet<Guid>? expectedPinIds = null;
+                    HashSet<Guid>? appliedPinIds = null;
+                    if (runFractilePins != null && runFractilePins.Length > 0 && !_options.EstimateMeanRiskOnly)
+                    {
+                        var pinErrors = new List<string>();
+                        var pinWarnings = new List<string>();
+                        fractilePinMap = new Dictionary<Guid, double>();
+                        expectedPinIds = new HashSet<Guid>();
+                        ClassifyFractilePins(runFractilePins, pinErrors, pinWarnings, fractilePinMap, expectedPinIds);
+                        if (pinErrors.Count > 0)
+                        {
+                            throw new InvalidOperationException("The fractile pins are invalid. " + string.Join(" ", pinErrors));
+                        }
+                        appliedPinIds = new HashSet<Guid>();
+                    }
+
                     var capturedSeeds = new List<int[]>(_components.Count);
                     var contentHashes = new byte[_components.Count][];
                     for (int i = 0; i < _components.Count; i++)
@@ -1455,7 +1639,17 @@ namespace RMC.TotalRisk.Analyses
                         contentHashes[i] = _components[i].CanonicalHash();
                         int componentSeed = SeedHelpers.HashCombine(_options.PRNGSeed, contentHashes[i], _components[i].OccurrenceIndex);
                         var scribe = new SeedScribe(pinned?.ComponentSeeds[i]);
-                        capturedSeeds.Add(_components[i].SetupSamplers(_options.Realizations, componentSeed, _options.SamplingScheme, scribe));
+                        capturedSeeds.Add(_components[i].SetupSamplers(_options.Realizations, componentSeed, _options.SamplingScheme, scribe, fractilePinMap, appliedPinIds));
+                    }
+
+                    if (expectedPinIds != null)
+                    {
+                        foreach (var pinId in expectedPinIds)
+                        {
+                            if (appliedPinIds!.Contains(pinId)) continue;
+                            throw new InvalidOperationException(
+                                $"Fractile pin {pinId:D} could not be applied: the component walk does not sample that function directly (a function referenced only inside a tree's own sampling clones cannot be conditioned), so the run would silently not condition on it.");
+                        }
                     }
 
                     // The canonical component order (hashes sorted): the additive convolution
@@ -1629,7 +1823,7 @@ namespace RMC.TotalRisk.Analyses
 
             SystemComponent.AssignOccurrenceIndices(_components);
             int seed = SeedHelpers.HashCombine(_options.PRNGSeed, component.CanonicalHash(), component.OccurrenceIndex);
-            component.SetupSamplers(_options.Realizations, seed, _options.SamplingScheme);
+            component.SetupSamplers(_options.Realizations, seed, _options.SamplingScheme, null, BuildCurrentFractilePinMap(), null);
 
             var additionalThresholds = new double[RunAdditionalConsequenceTypes.Count];
             for (int k = 0; k < additionalThresholds.Length; k++)
@@ -2174,7 +2368,7 @@ namespace RMC.TotalRisk.Analyses
 
             SystemComponent.AssignOccurrenceIndices(_components);
             int seed = SeedHelpers.HashCombine(_options.PRNGSeed, component.CanonicalHash(), component.OccurrenceIndex);
-            component.SetupSamplers(realizations, seed, _options.SamplingScheme);
+            component.SetupSamplers(realizations, seed, _options.SamplingScheme, null, BuildCurrentFractilePinMap(), null);
             var inputs = new List<SensitivityInput>();
             component.CollectSensitivityInputs(inputs);
             if (inputs.Count == 0) return null;
@@ -2273,11 +2467,12 @@ namespace RMC.TotalRisk.Analyses
         {
             SystemComponent.AssignOccurrenceIndices(_components);
             var inputs = new List<SensitivityInput>();
+            var fractilePinMap = BuildCurrentFractilePinMap();
             for (int i = 0; i < _components.Count; i++)
             {
                 if (componentIndex >= 0 && i != componentIndex) continue;
                 int seed = SeedHelpers.HashCombine(_options.PRNGSeed, _components[i].CanonicalHash(), _components[i].OccurrenceIndex);
-                _components[i].SetupSamplers(sampleSize, seed, _options.SamplingScheme);
+                _components[i].SetupSamplers(sampleSize, seed, _options.SamplingScheme, null, fractilePinMap, null);
                 _components[i].CollectSensitivityInputs(inputs);
             }
             return inputs;
@@ -2730,6 +2925,14 @@ namespace RMC.TotalRisk.Analyses
             {
                 if (!Tools.IsFinite(inputs[i]) || !Tools.IsFinite(outputs[i])) return double.NaN;
             }
+            // A bit-constant input column (a pinned function's draws) carries no association by
+            // definition; report exactly zero rather than an estimator noise floor.
+            bool constant = true;
+            for (int i = 1; i < inputs.Length; i++)
+            {
+                if (inputs[i] != inputs[0]) { constant = false; break; }
+            }
+            if (constant) return 0d;
             return measure switch
             {
                 SensitivityMeasure.FirstOrderSobol => GlobalSensitivity.FirstOrderSobol(inputs, outputs, GivenDataBins),
