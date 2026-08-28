@@ -1411,7 +1411,7 @@ namespace RMC.TotalRisk.Systems.Components
                 {
                     int dimension = d;
                     string columnLabel = dimensions > 1 ? $"{label} [{dimension + 1}]" : label;
-                    sink.Add(new SensitivityInput(columnLabel, index => readable.SampledPercentile(index, dimension)));
+                    sink.Add(new SensitivityInput(columnLabel, index => readable.SampledPercentile(index, dimension), label));
                 }
             }
 

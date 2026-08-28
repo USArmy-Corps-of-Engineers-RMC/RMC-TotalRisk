@@ -2057,6 +2057,200 @@ namespace RMC.TotalRisk.Analyses
         }
 
         /// <summary>
+        /// The equal-weight bin count behind the given-data value-of-information estimates —
+        /// the documented convention shared with the upstream given-data sensitivity measures.
+        /// </summary>
+        private const int ValueOfInformationBins = 20;
+
+        /// <summary>
+        /// Computes the value of information for one stored scalar risk measure: for every
+        /// knowledge input, the epistemic variance of the measure a study resolving that input
+        /// could remove — estimated by weighted equal-frequency conditioning of the stored
+        /// per-realization measures on the input's percentile column, with no re-simulation —
+        /// reported per input, rolled up per function (the candidate study a decision maker
+        /// would commission), with the perfect-information total and, at the system scope, the
+        /// expected movement of every configured tolerable-risk confidence statement.
+        /// </summary>
+        /// <param name="outputMeasure">The scalar measure to explain.</param>
+        /// <param name="riskType">The risk-type stream the measure is read from.</param>
+        /// <param name="componentIndex">
+        /// The output scope: −1 for the overall system (inputs = every component's knowledge
+        /// columns), or a component position (that component's columns only).
+        /// </param>
+        /// <param name="failureModeIndex">
+        /// Narrows the output to one failure mode's summaries (Excess and Fail streams only);
+        /// −1 for the component or system scope. Requires a component scope.
+        /// </param>
+        /// <param name="consequenceType">The consequence-type position (0 is the primary).</param>
+        /// <returns>
+        /// The ranked-table result, or null when no full-uncertainty results are stored, fewer
+        /// than two valid realizations remain, the scope has no knowledge inputs, or the total
+        /// epistemic variance is inestimable.
+        /// </returns>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown for an out-of-range scope argument.</exception>
+        /// <exception cref="ArgumentException">Thrown for a failure-mode scope with a stream other than Excess or Fail.</exception>
+        /// <exception cref="InvalidOperationException">Thrown when the stored ensemble carries an invalid realization weight vector.</exception>
+        /// <remarks>
+        /// <para>
+        /// The quantities are measure-based — no remediation action model is assumed: an
+        /// entry's resolvable variance is Var(E[measure | input]) across the input's
+        /// equal-weight bins, whose square root is the epistemic uncertainty, in the measure's
+        /// own units, the study could remove; the total variance is the perfect-information
+        /// ceiling, exact because a realization's measure is deterministic given its knowledge
+        /// draws. Function rollups sum their member columns' main effects — exact when the
+        /// members enter additively, conservative otherwise. Estimates carry the given-data
+        /// binning biases (order 1/bins² from discretization, order bins/n from bin-mean
+        /// noise); realization weights assigned after the run are honored in every conditional
+        /// reduction. Tolerable-risk movement blocks are computed only at the system scope,
+        /// where the criteria are defined.
+        /// </para>
+        /// <para>
+        /// The inputs pair with the stored outputs through the content seeds, so the model must
+        /// be unchanged since the run. The call re-runs the component sampler setup at the
+        /// ensemble size; a subsequent <see cref="RunAsync"/> re-seeds itself at run start.
+        /// </para>
+        /// </remarks>
+        public ValueOfInformationResults? MeasureValueOfInformation(RiskMeasure outputMeasure, RiskType riskType,
+            int componentIndex = -1, int failureModeIndex = -1, int consequenceType = 0)
+        {
+            ValidateSensitivityScope(componentIndex, failureModeIndex, riskType, consequenceType);
+            var results = RiskResults;
+            if (!IsEstimated || results == null || results.Count < 2) return null;
+            var weights = results.RealizationWeights;
+            if (weights != null)
+            {
+                string? reason = EnsembleResults.DescribeInvalidWeights(weights, results.Count, out _);
+                if (reason != null)
+                {
+                    throw new InvalidOperationException($"The stored realization weights are invalid. {reason}");
+                }
+            }
+
+            int count = results.Count;
+            var outputs = new double[count];
+            for (int i = 0; i < count; i++)
+            {
+                var summary = results[i];
+                var scope = summary == null ? null : SelectScope(summary, componentIndex, failureModeIndex, riskType, consequenceType);
+                outputs[i] = scope == null ? double.NaN : ExtractMeasure(scope, outputMeasure);
+            }
+
+            var inputs = BuildSensitivityInputs(componentIndex, count);
+            if (inputs.Count == 0) return null;
+
+            // Materialize the percentile columns once; every conditional estimate reuses them.
+            var columns = new double[inputs.Count][];
+            for (int c = 0; c < inputs.Count; c++)
+            {
+                var column = new double[count];
+                var read = inputs[c].Read;
+                for (int i = 0; i < count; i++) column[i] = read(i);
+                columns[c] = column;
+            }
+
+            // The total epistemic variance of the measure (weighted population form, NaN
+            // outputs skipped with their weights).
+            double totalWeight = 0d;
+            double mean = 0d;
+            int valid = 0;
+            for (int i = 0; i < count; i++)
+            {
+                if (double.IsNaN(outputs[i])) continue;
+                double w = weights == null ? 1d : weights[i];
+                totalWeight += w;
+                mean += w * outputs[i];
+                valid++;
+            }
+            if (valid < 2 || totalWeight <= 0d) return null;
+            mean /= totalWeight;
+            double totalVariance = 0d;
+            for (int i = 0; i < count; i++)
+            {
+                if (double.IsNaN(outputs[i])) continue;
+                double w = weights == null ? 1d : weights[i];
+                double deviation = outputs[i] - mean;
+                totalVariance += w * deviation * deviation;
+            }
+            totalVariance /= totalWeight;
+
+            var entries = new List<ValueOfInformationEntry>(inputs.Count);
+            for (int c = 0; c < inputs.Count; c++)
+            {
+                var effect = ValueOfInformationEstimator.MainEffect(columns[c], outputs, weights, ValueOfInformationBins);
+                double share = totalVariance > 0d ? effect.ResolvableVariance / totalVariance : double.NaN;
+                entries.Add(new ValueOfInformationEntry(inputs[c].Label, inputs[c].GroupLabel,
+                    effect.ResolvableVariance, share, effect.Pairs));
+            }
+
+            // The candidate-study rollups, in first-appearance order.
+            var groupOrder = new List<string>();
+            var groupMembers = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+            var groupVariances = new Dictionary<string, double>(StringComparer.Ordinal);
+            for (int c = 0; c < entries.Count; c++)
+            {
+                var entry = entries[c];
+                if (!groupMembers.TryGetValue(entry.GroupLabel, out var members))
+                {
+                    members = new List<string>();
+                    groupMembers.Add(entry.GroupLabel, members);
+                    groupVariances.Add(entry.GroupLabel, 0d);
+                    groupOrder.Add(entry.GroupLabel);
+                }
+                members.Add(entry.Label);
+                groupVariances[entry.GroupLabel] += entry.ResolvableVariance;
+            }
+            var groups = new List<ValueOfInformationGroup>(groupOrder.Count);
+            for (int g = 0; g < groupOrder.Count; g++)
+            {
+                string key = groupOrder[g];
+                double variance = groupVariances[key];
+                double share = totalVariance > 0d ? variance / totalVariance : double.NaN;
+                groups.Add(new ValueOfInformationGroup(key, groupMembers[key], variance, share));
+            }
+
+            // The tolerable-risk movement blocks — system scope only, where the criteria live.
+            var movements = new List<TolerableRiskConfidenceMovement>();
+            if (componentIndex < 0)
+            {
+                var criteria = _authorOptions.TolerableRiskCriteria;
+                for (int k = 0; k < criteria.Count; k++)
+                {
+                    var criterion = criteria[k];
+                    var criterionOutputs = new double[count];
+                    double exceedingWeight = 0d;
+                    double criterionWeight = 0d;
+                    for (int i = 0; i < count; i++)
+                    {
+                        var summary = results[i];
+                        var stream = summary == null ? null : SelectScope(summary, -1, -1, criterion.RiskType, criterion.ConsequenceTypeIndex);
+                        double value = stream != null ? ExtractMeasure(stream, criterion.Measure) : double.NaN;
+                        criterionOutputs[i] = value;
+                        if (double.IsNaN(value)) continue;
+                        double w = weights == null ? 1d : weights[i];
+                        criterionWeight += w;
+                        if (value > criterion.Threshold) exceedingWeight += w;
+                    }
+                    double baseline = criterionWeight > 0d ? exceedingWeight / criterionWeight : double.NaN;
+                    var entryMovements = new double[inputs.Count];
+                    for (int c = 0; c < inputs.Count; c++)
+                    {
+                        entryMovements[c] = ValueOfInformationEstimator.ExceedanceMovement(columns[c], criterionOutputs,
+                            weights, ValueOfInformationBins, criterion.Threshold);
+                    }
+                    movements.Add(new TolerableRiskConfidenceMovement(criterion.Measure.ToString(),
+                        criterion.RiskType.ToString(), criterion.ConsequenceTypeIndex, criterion.Threshold, baseline,
+                        double.IsNaN(baseline) ? double.NaN : 2d * baseline * (1d - baseline), entryMovements));
+                }
+            }
+
+            string scopeLabel = componentIndex < 0
+                ? "System"
+                : failureModeIndex < 0 ? _components[componentIndex].Name : $"{_components[componentIndex].Name} mode {failureModeIndex + 1}";
+            return new ValueOfInformationResults($"{outputMeasure} — {riskType} — {scopeLabel}", riskType, outputMeasure,
+                consequenceType, ValueOfInformationBins, valid, totalVariance, entries, groups, movements);
+        }
+
+        /// <summary>
         /// Evaluates tolerable-risk criteria over a realization-summary ensemble: each entry's
         /// exceedance probability is the realization-weight fraction whose selected system-scope
         /// measure is strictly greater than the criterion threshold. NaN measures are filtered
