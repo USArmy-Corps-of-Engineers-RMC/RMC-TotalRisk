@@ -1,6 +1,6 @@
 # Fault-tree response
 
-**Test classes:** `FaultTreeVerification` (10) · `FaultTreeMonteCarloVerification` (7) · **Tests:** 17 · **Run of record:** 2026-07-31, isolated run, ✅ all passed
+**Test classes:** `FaultTreeVerification` (11) · `FaultTreeMonteCarloVerification` (7) · **Tests:** 18 · **Run of record:** 2026-08-28 (`FaultTreeVerification`, incl. the exact importance measures) and 2026-07-31 (`FaultTreeMonteCarloVerification`), isolated runs, ✅ all passed
 
 ## Scope and status
 
@@ -117,6 +117,21 @@ order-statistic quartiles, and Pearson correlation by hand. Both implementations
 same population statistics and agree within replicate sampling error; the production analysis is
 additionally pinned bit-deterministic across repeated calls, and the configured live sampler and
 canonical hash survive the analysis untouched.
+
+## Exact importance measures
+
+`Test_ExactImportance_MatchesExhaustiveEnumeration` verifies `FaultTreeImportance.Compute` — the
+exact Birnbaum, criticality, Fussell-Vesely, risk achievement worth, and risk reduction worth
+from two frozen-diagram conditional evaluations per unified variable — against the exhaustive
+enumeration oracle extended with per-variable forced conditionals (`EnumerateWithOverride`
+forces one unified variable's probability before the 2^V probability-weighted truth sum, exact
+for forced values of zero and one). The fixture is a shared-transfer tree with a 2-of-3 vote —
+Or(And(A, C), 2-of-3(B, D, shared C)) — mixing deterministic scalars with an uncertain tabular
+source, evaluated at the source means and at a co-monotonic 0.75 percentile. Every measure of
+every unified variable, the unified baseline probabilities, and the baseline top event agree at
+1e-13 (1e-12 relative on the compounded ratios) — floating-point roundoff scale, since both
+sides are exact algebra over the same double-precision source probabilities. Run of record
+2026-08-28: `FaultTreeVerification` 11/11 passed (6.6 s wall), isolated invocation.
 
 ## Limitations
 

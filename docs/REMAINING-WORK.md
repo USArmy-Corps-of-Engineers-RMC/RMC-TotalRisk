@@ -91,7 +91,6 @@ approved and executed (`74af2e95…`, its own commit).
   the pattern).
 - Arch §7.9.9 cascade deferrals: multi-group claimed non-failure states, competing over else-chain
   failure states, cross-group `ExclusivePCM` coupling, numeric `InverseSRP` for cascades.
-- Exact BDD-based Birnbaum/criticality importance measures for fault trees.
 - The Archimedean `ConditionalCDF` boundary accuracy limitation (documented, deliberately
   untouched under the algorithm-change rule).
 - Joint-path independence-only polynomial shortcuts (a performance idea; not to be attempted

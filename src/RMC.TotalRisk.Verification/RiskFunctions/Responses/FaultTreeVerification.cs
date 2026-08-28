@@ -87,6 +87,63 @@ public class FaultTreeVerification
         return sum;
     }
 
+    /// <summary>
+    /// Sums probability-weighted top-gate truth with one unified variable forced to a fixed
+    /// probability — the conditional-evaluation oracle behind the exact importance measures
+    /// (exact for forced values of zero and one). The variable is addressed by its authored
+    /// node id, which the caller keeps unique per unified variable.
+    /// </summary>
+    /// <param name="response">The authored response.</param>
+    /// <param name="hazard">The evaluated hazard level.</param>
+    /// <param name="percentile">The co-monotonic source percentile, or -1 for source means.</param>
+    /// <param name="nodeId">The forced variable's authored basic-event node id.</param>
+    /// <param name="forced">The forced probability (zero or one for the exact conditionals).</param>
+    /// <param name="baselineProbability">The variable's unforced probability at the percentile.</param>
+    /// <returns>The exhaustive conditional top-event probability.</returns>
+    private static double EnumerateWithOverride(FaultTreeResponse response, double hazard,
+        double percentile, Guid nodeId, double forced, out double baselineProbability)
+    {
+        var variables = new List<(FaultTreeResponse Function, FaultTreeBasicEventNode Node)>();
+        var index = new Dictionary<(FaultTreeBasicEventNode, object), int>();
+        OracleNode root = ExpandOracle(response, response.FaultTree.Root, new object(), variables, index);
+        Assert.IsTrue(variables.Count <= 20, "The enumeration fixture must stay exhaustively small.");
+
+        int overrideIndex = -1;
+        var probabilities = new double[variables.Count];
+        for (int i = 0; i < variables.Count; i++)
+        {
+            probabilities[i] = EvaluateOracleSource(variables[i].Function, variables[i].Node,
+                hazard, percentile);
+            if (variables[i].Node.Id == nodeId)
+            {
+                Assert.AreEqual(-1, overrideIndex, "The forced node id must map onto exactly one unified variable.");
+                overrideIndex = i;
+            }
+        }
+        Assert.IsTrue(overrideIndex >= 0, "The forced node id must exist in the oracle expansion.");
+        baselineProbability = probabilities[overrideIndex];
+        probabilities[overrideIndex] = forced;
+
+        double sum = 0d;
+        double compensation = 0d;
+        for (ulong mask = 0; mask < 1UL << variables.Count; mask++)
+        {
+            double weight = 1d;
+            for (int i = 0; i < variables.Count; i++)
+            {
+                weight *= (mask & (1UL << i)) != 0 ? probabilities[i] : 1d - probabilities[i];
+            }
+            if (EvaluateOracleTruth(root, mask))
+            {
+                double adjusted = weight - compensation;
+                double next = sum + adjusted;
+                compensation = (next - sum) - adjusted;
+                sum = next;
+            }
+        }
+        return sum;
+    }
+
     /// <summary>Expands one authored node into the oracle structure with independent contexts.</summary>
     /// <param name="function">The owning function.</param>
     /// <param name="node">The authored node.</param>
@@ -872,5 +929,80 @@ public class FaultTreeVerification
         Assert.IsTrue(response.Validate().IsValid);
         Assert.AreEqual(expected, response.SampleResponseFunction()[0].Y, 1e-13d,
             "Raising the budget must restore exact-enumeration parity.");
+    }
+
+    /// <summary>
+    /// Verifies the exact importance measures against the exhaustive enumeration oracle on a
+    /// shared-transfer tree with a k-of-n vote: every measure of every unified variable —
+    /// Birnbaum, criticality, Fussell-Vesely, risk achievement worth, and risk reduction worth
+    /// — is reproduced from the oracle's own conditional enumerations with the variable forced
+    /// certain and impossible, at the source means and at a co-monotonic percentile.
+    /// </summary>
+    /// <remarks>
+    /// <b>Tolerance derivation:</b> both sides are exact algebra over the same double-precision
+    /// source probabilities — the production side through the frozen decision diagram, the
+    /// oracle through the 2^V probability-weighted truth sum — so agreement at 1e-13 is
+    /// floating-point roundoff scale for these expression sizes; the criticality and worth
+    /// ratios compound two such values and carry the same bound relative to their magnitude.
+    /// </remarks>
+    [TestMethod]
+    public void Test_ExactImportance_MatchesExhaustiveEnumeration()
+    {
+        // Arrange — Or(And(A, C), 2-of-3(B, D, shared C)): C is one unified variable under
+        // both gates; sources mix deterministic scalars and an uncertain tabular.
+        var table = new UncertainOrderedPairedData(
+            new[]
+            {
+                new UncertainOrdinate(0d, new Uniform(0.1d, 0.3d)),
+                new UncertainOrdinate(1d, new Uniform(0.2d, 0.4d)),
+            }, true, SortOrder.Ascending, false, SortOrder.None, UnivariateDistributionType.Uniform);
+        var tree = new FaultTree();
+        var top = new FaultTreeGateNode("Top", FaultTreeGateType.Or);
+        tree.Add(tree.Root.Id, top);
+        var left = new FaultTreeGateNode("Left", FaultTreeGateType.And);
+        tree.Add(top.Id, left);
+        tree.Add(left.Id, new FaultTreeBasicEventNode("A", new ProbabilitySource(0.05d)));
+        var sharedC = new FaultTreeBasicEventNode("C", new ProbabilitySource(table));
+        tree.Add(left.Id, sharedC);
+        var vote = new FaultTreeGateNode("Vote", FaultTreeGateType.KOfN) { K = 2 };
+        tree.Add(top.Id, vote);
+        tree.Add(vote.Id, new FaultTreeBasicEventNode("B", new ProbabilitySource(0.15d)));
+        tree.Add(vote.Id, new FaultTreeBasicEventNode("D", new ProbabilitySource(0.25d)));
+        tree.LinkShared(vote.Id, sharedC.Id, "Shared C");
+        var response = new FaultTreeResponse(new[] { 0d, 1d }, tree)
+        {
+            Name = "Importance oracle",
+            SpecifiedHazard = "Stage",
+            HazardUnit = "ft",
+        };
+        Assert.IsTrue(response.Validate().IsValid);
+
+        foreach (double percentile in new[] { -1d, 0.75d })
+        {
+            // Act
+            var options = new FaultTreeImportanceOptions(1d);
+            if (percentile >= 0d) options.Percentile = percentile;
+            var result = FaultTreeImportance.Compute(response, options);
+
+            // Assert — the baseline against the plain enumeration, then every measure from the
+            // oracle's own conditionals.
+            double oracleTop = Enumerate(response, 1d, percentile);
+            Assert.AreEqual(oracleTop, result.TopEventProbability, 1e-13,
+                "The baseline top-event probability must match the exhaustive enumeration.");
+            Assert.AreEqual(4, result.Entries.Count, "A, unified C, B, and D.");
+
+            for (int j = 0; j < result.Entries.Count; j++)
+            {
+                var entry = result.Entries[j];
+                double atOne = EnumerateWithOverride(response, 1d, percentile, entry.NodeId, 1d, out double q);
+                double atZero = EnumerateWithOverride(response, 1d, percentile, entry.NodeId, 0d, out _);
+                Assert.AreEqual(q, entry.BaselineProbability, 1e-13, $"{entry.Name}: baseline probability.");
+                Assert.AreEqual(atOne - atZero, entry.Birnbaum, 1e-13, $"{entry.Name}: Birnbaum.");
+                Assert.AreEqual((atOne - atZero) * q / oracleTop, entry.Criticality, 1e-12, $"{entry.Name}: criticality.");
+                Assert.AreEqual(1d - atZero / oracleTop, entry.FussellVesely, 1e-12, $"{entry.Name}: Fussell-Vesely.");
+                Assert.AreEqual(atOne / oracleTop, entry.RiskAchievementWorth, 1e-12 * (atOne / oracleTop), $"{entry.Name}: risk achievement worth.");
+                Assert.AreEqual(oracleTop / atZero, entry.RiskReductionWorth, 1e-12 * (oracleTop / atZero), $"{entry.Name}: risk reduction worth.");
+            }
+        }
     }
 }

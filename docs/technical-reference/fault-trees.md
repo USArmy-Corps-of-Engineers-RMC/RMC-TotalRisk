@@ -148,3 +148,24 @@ diagram over 60 unified variables in
 `TreeNodeImportance.Compute` serves both tree kinds; the two-pass Monte Carlo sweep, its
 statistics, and its seeding are documented with the other sensitivity tooling in
 [sensitivity-analysis.md](sensitivity-analysis.md#tree-node-importance).
+
+## Exact importance measures
+
+`FaultTreeImportance.Compute(response, options)` produces the standard probabilistic-risk-
+assessment structural set — Birnbaum, criticality, Fussell-Vesely, risk achievement worth, and
+risk reduction worth — by exact algebra on the frozen decision diagram: one baseline evaluation
+at the analyzed hazard level (every source at its mean, or at a co-monotonic percentile via
+`FaultTreeImportanceOptions.Percentile`), then two allocation-free conditional evaluations per
+unified variable with its probability forced to one and zero. With P the top event and
+P(1)/P(0) the conditionals: B = P(1) − P(0) (the exact ∂P/∂q), criticality B·q/P,
+Fussell-Vesely 1 − P(0)/P, RAW P(1)/P, RRW P/P(0). No simulation and no seed — the measures are
+deterministic, and cost is two linear diagram passes per variable (negligible even at the F7
+fixture's 23,344-node diagram over 60 variables).
+
+Conventions: a variable sharing logic through transfers is one unified variable with one entry;
+a variable reduced out of the frozen diagram (a constant-collapsed branch) has B exactly zero;
+when P = 0 the ratio measures are NaN; when P(0) = 0 with P &gt; 0 the risk reduction worth is
+positive infinity. The measures are defined for coherent trees only — a non-coherent tree (an
+Xor gate) is refused loudly with the Monte Carlo redirect, exactly like the minimal cut-set
+surface. Verified against the exhaustive Boolean-enumeration oracle with per-variable forced
+conditionals ([../verification/fault-tree.md](../verification/fault-tree.md)).
