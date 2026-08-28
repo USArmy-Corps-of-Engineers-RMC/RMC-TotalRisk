@@ -450,6 +450,24 @@ namespace RMC.TotalRisk.Analyses
         /// <summary>Backing field for <see cref="RetainRealizations"/>.</summary>
         private bool _retainRealizations;
 
+        /// <summary>The per-realization recording-pass chi-squared captures for the joint certificate; null outside a joint ensemble run.</summary>
+        private double[]? _jointCertificateChiSquared;
+
+        /// <summary>The per-realization recording relative-standard-error captures for the joint certificate; null outside a joint ensemble run.</summary>
+        private double[]? _jointCertificateRelativeSe;
+
+        /// <summary>Whether the joint mean pass recorded its certificate capture this run.</summary>
+        private bool _jointCertificateMeanPassCaptured;
+
+        /// <summary>The mean pass's recording-pass chi-squared capture.</summary>
+        private double _jointCertificateMeanPassChiSquared = double.NaN;
+
+        /// <summary>The mean pass's recording relative-standard-error capture.</summary>
+        private double _jointCertificateMeanPassRelativeSe = double.NaN;
+
+        /// <summary>Backing field for <see cref="JointCertificate"/>.</summary>
+        private JointConvergenceCertificate? _jointCertificate;
+
         /// <summary>Backing field for <see cref="RetainedIntegrationDetailIndex"/>.</summary>
         private int? _retainedIntegrationDetailIndex;
 
@@ -786,6 +804,16 @@ namespace RMC.TotalRisk.Analyses
         /// built from.
         /// </summary>
         public SystemRealization? RetainedIntegrationDetail => _retainedIntegrationDetail;
+
+        /// <summary>
+        /// The joint integration's convergence certificate for the last run — the
+        /// recording-pass chi-squared consistency and relative standard error of the mean pass
+        /// and the ensemble — or null when the last run did not use the joint method. Runtime
+        /// only: never serialized, no influence on any computed or stored value; the persisted
+        /// per-realization chi-squared keeps its warm-up semantics (see
+        /// <see cref="JointConvergenceCertificate"/>).
+        /// </summary>
+        public JointConvergenceCertificate? JointCertificate => _jointCertificate;
 
         /// <summary>
         /// The computational warnings raised by the last run (negative consequences clamped,
@@ -1656,6 +1684,16 @@ namespace RMC.TotalRisk.Analyses
                     // associates in it, and the system seed base folds in it (§7.3 erratum) —
                     // so declaration order can never move the convolved curves or the VEGAS
                     // stream identity.
+                    // The joint certificate's index-owned capture arrays (recording-pass
+                    // values the integrator otherwise discards); null on every other method.
+                    if (_options.SystemRiskMethod == SystemRiskType.JointRiskMethod && !_options.EstimateMeanRiskOnly)
+                    {
+                        _jointCertificateChiSquared = new double[_options.Realizations];
+                        _jointCertificateRelativeSe = new double[_options.Realizations];
+                        Array.Fill(_jointCertificateChiSquared, double.NaN);
+                        Array.Fill(_jointCertificateRelativeSe, double.NaN);
+                    }
+
                     var order = new int[_components.Count];
                     for (int i = 0; i < order.Length; i++) order[i] = i;
                     Array.Sort(order, (a, b) =>
@@ -1918,6 +1956,12 @@ namespace RMC.TotalRisk.Analyses
             _upperRiskResults = null;
             _retainedRealizations = null;
             _retainedIntegrationDetail = null;
+            _jointCertificate = null;
+            _jointCertificateChiSquared = null;
+            _jointCertificateRelativeSe = null;
+            _jointCertificateMeanPassCaptured = false;
+            _jointCertificateMeanPassChiSquared = double.NaN;
+            _jointCertificateMeanPassRelativeSe = double.NaN;
             CapturedSamplerSeeds = null;
             _computationWarnings.Clear();
             _computationDiagnostics.Clear();
@@ -1929,6 +1973,7 @@ namespace RMC.TotalRisk.Analyses
             RaisePropertyChange(nameof(UpperRiskResults));
             RaisePropertyChange(nameof(RetainedRealizations));
             RaisePropertyChange(nameof(RetainedIntegrationDetail));
+            RaisePropertyChange(nameof(JointCertificate));
             RaisePropertyChange(nameof(ComputationWarnings));
             RaisePropertyChange(nameof(ComputationDiagnostics));
         }
@@ -1947,6 +1992,7 @@ namespace RMC.TotalRisk.Analyses
             _upperRiskResults = publication.Upper;
             _retainedRealizations = publication.RetainedRealizations;
             _retainedIntegrationDetail = publication.RetainedIntegrationDetail;
+            _jointCertificate = AssembleJointCertificate();
             CapturedSamplerSeeds = publication.CapturedSeeds;
             _computationWarnings.Clear();
             _computationDiagnostics.Clear();
@@ -1963,8 +2009,42 @@ namespace RMC.TotalRisk.Analyses
             RaisePropertyChange(nameof(UpperRiskResults));
             RaisePropertyChange(nameof(RetainedRealizations));
             RaisePropertyChange(nameof(RetainedIntegrationDetail));
+            RaisePropertyChange(nameof(JointCertificate));
             RaisePropertyChange(nameof(ComputationWarnings));
             RaisePropertyChange(nameof(ComputationDiagnostics));
+        }
+
+        /// <summary>
+        /// Assembles the joint convergence certificate from the run's recording-pass captures;
+        /// null when the run did not use the joint method.
+        /// </summary>
+        /// <returns>The certificate, or null.</returns>
+        private JointConvergenceCertificate? AssembleJointCertificate()
+        {
+            var chi = _jointCertificateChiSquared;
+            if (!_jointCertificateMeanPassCaptured && chi == null) return null;
+            int count = 0;
+            double chiSum = 0d;
+            double chiMax = double.NaN;
+            double seSum = 0d;
+            double seMax = double.NaN;
+            if (chi != null)
+            {
+                var se = _jointCertificateRelativeSe!;
+                for (int i = 0; i < chi.Length; i++)
+                {
+                    if (double.IsNaN(chi[i]) || double.IsNaN(se[i])) continue;
+                    count++;
+                    chiSum += chi[i];
+                    seSum += se[i];
+                    if (double.IsNaN(chiMax) || chi[i] > chiMax) chiMax = chi[i];
+                    if (double.IsNaN(seMax) || se[i] > seMax) seMax = se[i];
+                }
+            }
+            return new JointConvergenceCertificate(count,
+                _jointCertificateMeanPassChiSquared, _jointCertificateMeanPassRelativeSe,
+                count > 0 ? chiSum / count : double.NaN, chiMax,
+                count > 0 ? seSum / count : double.NaN, seMax);
         }
 
         /// <summary>Attaches one immutable manifest to every persisted root in a staged run.</summary>
@@ -4169,6 +4249,26 @@ namespace RMC.TotalRisk.Analyses
             }
             realization.FunctionEvaluations += integrator.FunctionEvaluations;
             realization.StandardError = integrator.StandardError;
+
+            // The certificate capture: the integrator recomputed its chi-squared for the
+            // recording passes after the stored warm-up value, and the engine previously
+            // discarded it; keep it with the recording relative standard error (index-owned
+            // writes — the parallel realizations never share a slot).
+            double recordingChiSquared = integrator.ChiSquared;
+            double recordingRelativeSe = integrator.Result != 0d
+                ? Math.Abs(integrator.StandardError / integrator.Result)
+                : double.NaN;
+            if (realizationIndex < 0)
+            {
+                _jointCertificateMeanPassCaptured = true;
+                _jointCertificateMeanPassChiSquared = recordingChiSquared;
+                _jointCertificateMeanPassRelativeSe = recordingRelativeSe;
+            }
+            else if (_jointCertificateChiSquared != null && realizationIndex < _jointCertificateChiSquared.Length)
+            {
+                _jointCertificateChiSquared[realizationIndex] = recordingChiSquared;
+                _jointCertificateRelativeSe![realizationIndex] = recordingRelativeSe;
+            }
 
             if (cappedEvaluations > 0)
             {

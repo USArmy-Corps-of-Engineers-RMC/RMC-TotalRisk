@@ -72,6 +72,17 @@ deterministic — repeated runs and JSON round-trips reproduce every slot bit-fo
 ensemble carries realization weights (below), every measure reduction is weighted and the
 summary records the effective sample size; a null weight vector reduces exactly as before.
 
+On the joint (VEGAS) method, one semantic deserves naming: the stored per-realization
+`ChiSquared` — and therefore the summary's chi-squared aggregates — describes the **warm-up**
+pass (the importance grid's adaptation consistency); the integrator recomputes its chi-squared
+for the recording passes that produce the published curves, and the engine historically
+discarded it. `RiskAnalysis.JointCertificate` (`JointConvergenceCertificate`, runtime-only —
+never serialized, absent on the additive and one-dimensional paths) now keeps those
+recording-pass values: the per-degree-of-freedom chi-squared consistency and the relative
+standard error, as ensemble mean/max aggregates plus the mean-pass slots on a mean-only run
+(the full-uncertainty pass assembles its published mean from percentiles and integrates no
+separate mean pass).
+
 ## Epistemic realization weights
 
 `EnsembleResults.RealizationWeights` is the optional per-realization epistemic weight vector —
