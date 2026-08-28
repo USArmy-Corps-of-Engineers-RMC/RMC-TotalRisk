@@ -6,6 +6,8 @@
 > containers. v1.1 replaces the v1.0 tornado analysis with this engine by approved scope decision.
 > Executable evidence: [../verification/sensitivity.md](../verification/sensitivity.md).
 > Methodology grounding: the RMC-TotalRisk Technical Reference Manual, Appendix G.
+> The value-of-information surface rides the same knowledge columns and ranks them in the
+> measure's own units: [value-of-information.md](value-of-information.md).
 
 ## The design in one sentence
 
