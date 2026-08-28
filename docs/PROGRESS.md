@@ -1,5 +1,142 @@
 # Progress Log
 
+## 2026-08-28 — v2.0 program session 4: A10 extrapolation policy (both repos) + A6/A5/A1 + the full A8 stretch
+
+**Goal:** execute session 4 of the capability program per Haden's redirect — **A10, the
+extrapolation policy, both halves** (the upstream connection surface on
+`TabularFunction`/`EmpiricalDistribution`, then the TotalRisk `ExtrapolationPolicy` whose design
+REMAINING-WORK recorded), followed by the quick-win batch **A6 → A5 → A1** and the A8 stretch —
+under the scoped numerics authorization (A10 surface only, extended by Haden's plan-review
+directive to the 6b Vegas Sobol enablement). Four rulings via AskUserQuestion: **A10 upstream
+rides INTO 2.2.0** (no tag existed; the release-notes draft updated twice, the packed nupkg
+recorded stale — Haden re-packs); **A5 uses the binomial P_T = 1 − (1−p)^T** primary convention;
+**the A8 certificate is runtime-only**; and **scrambled Sobol: ratify and attempt** (reached —
+everything above closed clean). Two plan-review directives executed: the
+KDE/Mixture/CompetingRisks empirical-under-the-hood no-regression coverage, and "make sure we
+are using Sobol in the right places, beyond KU sampling" (the audit + the seeded VEGAS driver +
+the KU scheme member).
+
+**Session-start baseline (the mandated protocol):** numerics HEAD `8e4f08a` "Prepare v2.2.0
+release", clean, 15 ahead, **no v2.2.x tag**; sibling Debug DLL rebuilt and frozen. TotalRisk
+`3cdce5e` clean; build 0 warnings; fast suite 1,181/1,181; all eight gates as separate
+invocations — **bit-exact to every pin**, no movement, no bisect.
+
+**Landed (eight commits across the two repos, every item closed with its full gate round):**
+- **A10 upstream** (numerics `91ccaf9`): `Extrapolation` (`ExtrapolationSides`, default None) on
+  `TabularFunction` (both lookup directions) and `EmpiricalDistribution` — X-space sides with the
+  survival-orientation mapping, the [0,1] CDF clamp kept, `InverseCDF` total and monotone over
+  extended tails (the 1e-16 floors evaluate the extended lookup on enabled sides; the endpoint
+  clamp side-aware), PDF deliberately table-span, `Clone` carries, conditional-presence
+  serialization. Haden's directive: Mixture (`CreateEmpiricalCDF`)/CompetingRisks (CIFs +
+  empirical CDF) pinned default-hold and attribute-free; KernelDensity **verified a sibling, not
+  a composer** (own opd + hard gates) — pinned unchanged, recorded in REMAINING-WORK. 12+3
+  upstream tests; 4-TFM suite green (2,394/2,394 per TFM at that point); the sanctioned DLL
+  refresh re-baselined TotalRisk bit-identically.
+- **A10 TotalRisk** (`c877d81`): `Core.Enums.ExtrapolationPolicy {None, Below, Above, Both,
+  Error}` + `ExtrapolationSupport.Map` (Error → upstream None); the serialized
+  conditional-presence property on the five types wired at all 13 verified evaluation-wrapper
+  sites (the two hazard types gained an internal `SampleCore` so their 10,000-curve mean
+  builders keep consuming raw products — the mean grid stays on declared bounds while values
+  follow extended percentile curves; `Min/MaxHazard` keep reporting data bounds); policy-aware
+  below-table warnings; **zero engine-math changes** — the domain widening flows through the
+  upstream inverse at `BuildHazardBins`, endpoint rectangles shrinking against the growing
+  interior. The Error mode: internal `RangeGuardedUnivariateFunction` /
+  `RangeGuardedUnivariateDistribution` (a `UnivariateDistributionBase` subclass so the derived
+  CDF family guards by virtual dispatch) created only when configured, forward-only (inverse
+  lookups keep the hold — an Error hazard integrates over its span), throwing public
+  `ExtrapolationRangeException` with function/axis/value/range after recording the diagnostic in
+  the thread-static `EvaluationFaultScope`, which the four integrator failure guards append —
+  surviving the `ReportFailure = false` absorption. New family **`ExtrapolationVerification`
+  5/5 isolated**: the extended chain vs an independent two-million-node transform-space oracle,
+  the clamp split, engine-scale byte identity incl. set-then-clear, the loud Error surfacing,
+  and the hash/seed/result movement — with the measured finding that extension REDUCED risk on
+  the anchor chain (the held fragility plateau sheds below-table mass): extension is a modeling
+  statement, not a conservatism knob, now doctrine in the hazard chapter. Docs: policy sections
+  in all four function chapters + risk-integration and hashing-and-seeding cross-refs.
+- **A6 — epistemic conditioning** (`f48c889`): runtime-only `RiskAnalysis.FractilePins`
+  (`FractilePin(functionId, percentile)`), applied at the sampler walk AFTER seeding by
+  overwriting the target's own percentile matrix (`RiskFunctionBase.OverrideSampledPercentiles`)
+  — captured seed maps bit-identical, every other function's draws bit-identical; the walk
+  records applied ids and the run refuses unapplied conditioning pins; Validate matrix
+  (duplicate/no-match Errors; deterministic/no-surface/consequence no-effect Warnings — the
+  coupling-column consequence extension recorded in REMAINING-WORK; mean-only Warning with a
+  byte-identical ignore); the three diagnostic re-seeds apply current pins; the ratified
+  constant-column convention (a bit-constant input reports exactly 0 in the given-data measures
+  and resolves 0 VoI variance/movement — the tied-inputs unit pin re-anchored to a partial tie).
+  `SensitivityVerification` +1 → **5/5 isolated**: the exact Median-LHS recovery identity (the
+  equal-weight average of 100 conditioned ensemble means equals the unconditional mean at 1e-12
+  — algebraic, both sides sum the same conditional values), conditioned-run collapse and seed
+  equality exact.
+- **A5 — exposure-period and life-cycle conversions** (`523aff0`):
+  `MeasureExposurePeriodRisk(periodYears, discountRate, riskType, scope…)` → unpersisted
+  `ExposurePeriodRiskResults`/`ExposurePeriodInterval` — the ruled binomial P_T on the Fail
+  stream evaluated as −expm1(T·log1p(−p)) (the Poisson rate form documented at ≈ p·(T−1)/2
+  relative), cumulative T·m, the log-space annuity present value (r = 0 ⇒ bit-equal to the
+  cumulative), and the equivalent annual as the annuity round trip (the stationary identity —
+  the base-vs-future `PlanRow.EquivalentAnnual` composition stays CBA-layer, cited); weighted
+  from birth over stored `RealizationWeights` incl. post-hoc; stationarity caveat loud. Ruled
+  fast-only (exact closed-form identities vs independent `Math.Pow` forms + upstream
+  weighted-reducer parity; the A9 precedent).
+- **A1 — exact fault-tree importance** (`cefac8d`): `FaultTreeImportance.Compute` +
+  Options/Result/Entry — Birnbaum/criticality/Fussell-Vesely/RAW/RRW via two allocation-free
+  frozen-diagram conditional evaluations per unified variable at the mean or a co-monotonic
+  percentile; coherent-only with the cut-set-style Xor refusal; reduced-out ⇒ Birnbaum exactly
+  0 (pinned via a false house event); P = 0 ⇒ ratio NaN; P(0) = 0 ⇒ RRW +∞.
+  `FaultTreeVerification` +1 → **11/11 isolated**: `EnumerateWithOverride` extends the
+  exhaustive Boolean oracle with per-variable forced conditionals — every measure on a
+  shared-transfer 2-of-3 tree at the means and a 0.75 percentile at 1e-13. Closes the
+  REMAINING-WORK future-work note.
+- **A8-certificate (6a, RULED runtime-only)** (`3f9dd40`): `RiskAnalysis.JointCertificate`
+  (`JointConvergenceCertificate`) — the RECORDING-pass per-dof χ² and relative SE the
+  integrator recomputes after `Initialize = 1` resets its accumulators and the engine
+  previously discarded (the stored per-realization `ChiSquared` is the WARM-UP pass's — now
+  documented in the results catalog), captured index-owned and aggregated at publication;
+  mean-pass slots populate on mean-only runs (a full run assembles its published mean from
+  percentiles and integrates no −1 pass — NaN by contract, pinned); null off the joint method;
+  cleared per run.
+- **A8-Sobol (6b, RULED attempt — reached)** (numerics `fa91884` + TotalRisk `1571777`): the
+  audit classified every stochastic-driver site (the joint VEGAS driver the v1.0-parity target;
+  the three KU matrix generators; tree/importance MC sweeps and the MVN lattice documented
+  out). Upstream `Vegas.SobolSeed` (nullable; null keeps the unrandomized sequence bit-exact;
+  a seed rebuilds the Matousek-scrambled driver) with default-inert/reproducibility/γ-Jacobian
+  pins, riding 2.2.0 (release notes updated; the second sanctioned DLL refresh re-baselined
+  TotalRisk bit-identically — absorbing **ten parallel commits Haden landed mid-session**, all
+  engine-inert). TotalRisk: `SamplingScheme.ScrambledSobol = 3` (`SeedHelpers.ScrambledSobol`,
+  one joint sequence per function from the same positive stream seed — scheme switches never
+  re-roll seeds, pinned) at all three matrix generators incl. the composite mixture selector;
+  the power-of-two advisory; and the conditional-presence
+  `RiskAnalysisOptions.UseSobolJointSampling` driving the joint path at `SobolSeed = vegasSeed`
+  (default false = the MT driver verbatim; enabling is a deliberate hashed movement).
+  `SystemRiskVerification` +1 → **6/6 isolated** (Sobol-driver brute-force-oracle parity, exact
+  budgets under manual γ = 4, two enabled runs byte-identical);
+  `LhsVarianceReductionVerification` +1 → **2/2 isolated** (≥ 10× replicate-variance floor vs
+  MC, pooled-mean and mean-only agreement, per-seed movement, bit reproducibility, rename
+  inertness; 13 m wall).
+
+**Verified (every item closed with the full round):** builds 0 warnings both repos throughout;
+fast suite **1,225/1,225** (1,181 + 3 + 6 + 30 + 9 + 10 + 1 + 9 across the slices); code/XML +
+traceability validators green at every close; families isolated — `ExtrapolationVerification`
+5/5, `SensitivityVerification` 5/5, `FaultTreeVerification` 11/11, `SystemRiskVerification`
+6/6, `LhsVarianceReductionVerification` 2/2; **all eight byte gates re-run as separate
+invocations after every landed item AND after both DLL refreshes — bit-identical to the pinned
+baseline every time** (F1 `b2e6ea88…` … F8 `7833ad5f…`; no re-pin this session). Numerics
+4-TFM gate: green per TFM; the only failures ever observed were the twelve `BOM_*` live-API
+tests during a remote outage (HTTP 500 "Error connecting to WDP"; they passed whenever the
+service responded, and all four TFMs are 2,396/2,396 excluding that group) — recorded, not
+touched, as is the pre-existing `Test_LogNormal` MSTEST0037 advisory the test runner surfaces.
+
+**Numerics at close:** `bug-fixes-and-enhancements` at `1571777`-adjacent HEAD `fa91884`, 27
+ahead of origin (my `91ccaf9` + `fa91884` interleaved with Haden's ten parallel commits, e.g.
+SmoothedSeries, correlated-search window scaling, sequential ParallelMean — all proven
+engine-inert by the re-baselines); still no v2.2.x tag; **the packed 2.2.0 nupkg is stale** —
+both A10-upstream and Vegas-SobolSeed ride the release per the ruling, and the release-notes
+draft carries both items with re-pack reminders.
+
+**Next:** session 5 = **B3 (epistemic branch mode + shared epistemic variables)** per the saved
+prompt; B1 waits on Haden's design session over the draft; B10 follows A2's measurements; C3
+opens after B3; N4/T8 whenever Haden re-packs, tags, and pushes 2.2.0 (both upstream halves
+aboard).
+
 ## 2026-08-28 — v2.0 program session 3: B2 value of information + the tier-A quick-win batch
 
 **Goal:** execute session 3 of the capability program — **B2, value of information** (the
