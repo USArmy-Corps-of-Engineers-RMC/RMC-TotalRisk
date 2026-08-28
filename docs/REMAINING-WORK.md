@@ -2,18 +2,24 @@
 
 > The authoritative map of what stands between the current state and full v1.1, maintained
 > alongside [ROADMAP.md](ROADMAP.md) (phases and exit gates) and [PROGRESS.md](PROGRESS.md)
-> (session log). Updated 2026-08-27 after v2.0-program session 1; update whenever an item lands or
+> (session log). Updated 2026-08-28 after v2.0-program session 3; update whenever an item lands or
 > a ruling changes scope.
 
 > **Program decision (2026-08-27):** the capability roadmap beyond v1.1 is approved; the final
 > TotalRisk release is **v2.0.0** — all tier A–C work ships in it (the old v1.2/v1.3 mapping is
 > superseded) — and the program closes with a dedicated session that publishes the NuGet package
 > and makes the code public. The v1.1 sequence below still runs first and is unchanged except as
-> noted. Program progress: session 1 (the Numerics 2.2.0 tier A/B slate) and session 2 (**A4 —
+> noted. Program progress: session 1 (the Numerics 2.2.0 tier A/B slate), session 2 (**A4 —
 > the weighted epistemic ensemble**, the foundation primitive for B2/B1/B3/C1/C3, plus the
 > **A7 tolerable-risk confidence** stretch — serialized `TolerableRiskCriteria` on the options
 > per the 2026-08-27 ruling, the conditional-presence hash identity pinned, and no
-> `RiskMeasureOptions` flag so the recorded `"All"`-serialization trap never engages) are
+> `RiskMeasureOptions` flag so the recorded `"All"`-serialization trap never engages), and
+> session 3 (**B2 — value of information**, output-first with the given-data weighted EVPPI
+> conditioning and the A7 guideline-movement framing; plus the quick wins **A3** given-data
+> sensitivity measures, **A9** retained realizations with byte-exact post-hoc weighted
+> re-banding, and **A2** the secondary-bin Richardson diagnostic; A10-TotalRisk skip-recorded
+> below on a discovered upstream gap; the B1 design draft written to
+> `~/.claude/plans/b1-bayesian-updating-design-draft.md` for Haden's design session) are
 > complete.
 
 ## The sequence to `v1.1.0-alpha`
@@ -57,6 +63,27 @@ weighted statistics landed for 2.2.0. Closed 2026-08-27 (session 2): the F6 re-p
 approved and executed (`74af2e95…`, its own commit).
 
 ## Unscheduled items needing future ratification (not blocking alpha)
+
+- **A10-TotalRisk — extrapolation policy on tabular and nonparametric functions (prepared
+  design recorded 2026-08-28; blocked on an upstream gap).** The ratified design: a new
+  `Core.Enums.ExtrapolationPolicy { None = 0, Below, Above, Both, Error }` (the Hydrologics
+  mirror plus the ruled TotalRisk-side Error mode — out-of-range compute throws loudly with
+  function/axis/value/range), one serialized property per function on `TabularHazard`,
+  `TabularTransform`, `TabularResponse`, `TabularConsequence`, and `NonparametricHazard`
+  (bivariate surfaces, the collapse curve, and composites excluded — their policies are pinned
+  semantics); serialized by enum name **only when non-default** (conditional presence — every
+  existing form, hash, and seed byte-identical), non-default values compute-relevant hashed
+  content; extension linear in the configured transform space, probability axes bounded,
+  consequences clamped at zero, uncertain tables extrapolating per sampled curve; full landing
+  checklist per new model property. **The blocking discovery:** the 2.2.0 upstream policy
+  lands on `OrderedPairedData.GetYFromX`/`GetXFromY` only, while the model library's sampled
+  compute paths evaluate through `Numerics.Functions.TabularFunction` (transform, response,
+  and consequence realizations) and `EmpiricalDistribution` (hazard realizations) — neither
+  carries the policy, so connecting the TotalRisk half requires an upstream item
+  (extrapolation policy on `TabularFunction` and `EmpiricalDistribution`, or a policy-aware
+  lookup route for the sampled wrappers) rather than the pure wiring the tier-A sizing
+  assumed. Candidate for the next numerics batch; the TotalRisk half lands in one session once
+  the upstream surface exists.
 
 - `CompositeTransform` **Mixture** mode and the explicit epistemic mixture mode — both wait on an
   engine transform-branch analog of the consequence exposure branches (arch Q-Y).

@@ -1,5 +1,105 @@
 # Progress Log
 
+## 2026-08-28 — v2.0 program session 3: B2 value of information + the tier-A quick-win batch
+
+**Goal:** execute session 3 of the capability program — **B2, value of information** (the
+owner-ranked top priority, designed output-first in decision-maker language) as the major, then
+the quick-win batch **A3-TotalRisk → A9 → A2 → A10-TotalRisk** (each whole or not at all, A10
+ratification-gated), with the **B1 Bayesian-updating design draft** as the document-only stretch
+— under the standing N4/T8 deferral. Four rulings via AskUserQuestion, all as recommended: the
+six-gate re-pin approved; T8 stays deferred (the 2.2.0 nupkg exists in the local feed and HEAD
+is the release-prep commit, but no tag exists and the branch is unpushed — flagged per the
+ask-first clause); the B2 design package (a)–(g); and the quick-win batch as designed.
+
+**Session-start baseline (the mandated protocol):** numerics HEAD `8e4f08a` "Prepare v2.2.0
+release", clean tree, 15 ahead of origin; sibling Debug DLL rebuilt from committed state and
+frozen. TotalRisk `e892cfc` clean; build 0 warnings; fast suite 1,135/1,135; eight gates as
+separate invocations — **F5/F7 bit-exact, F1–F4/F6/F8 moved.** Detached-worktree bisect: at
+`7d7d6aa` (every upstream commit except the version bump) **all six moved fixtures reproduce
+their pins bit-exactly**, and the harness `--dump` payload diff between the two builds contains
+exactly one changed field — `NumericsAssemblyVersion` `"2.1.4.0"` → `"2.2.0.0"` in the five
+hashed result containers, the analysis content hash unmoved. The whole movement is the manifest
+truthfully echoing the version stamp; every numeric byte proven equal; the fourteen substantive
+parallel commits (percentile-cancellation guard, paired-data hardening, deterministic mean
+reductions included) all bit-inert on the engine. No families needed — byte-level identity is
+stronger evidence. **Re-pin approved and executed as its own commit** (`b338135`, the
+F4/F6-precedent shape, attribution recorded in RESULTS.md).
+
+**Landed:**
+- **B2 — value of information** (`254e645` impl + tests + verification; `7fb57fe` docs):
+  `RiskAnalysis.MeasureValueOfInformation` — weighted given-data conditioning of the stored
+  per-realization measures on the recorded knowledge columns (the internal
+  `ValueOfInformationEstimator`: stable-sorted equal-weight bins, exact between+within
+  decomposition, documented 1/B² and B/n biases, the 20-bin convention); per-input
+  `ValueOfInformationEntry` + per-function `ValueOfInformationGroup` rollups (Σ main effects —
+  exact under additivity; `SensitivityInput` gained the `GroupLabel` study key); the
+  perfect-information total (exact — a realization's measure is deterministic given its
+  knowledge draws); per-criterion `TolerableRiskConfidenceMovement` blocks at the system scope
+  (baseline bit-equal to the published A7 confidence, the 2p(1−p) ceiling); all unpersisted,
+  nothing hashed, zero seed movement. Fast tests +29 → 1,164. New family
+  **`ValueOfInformationVerification` 4/4 isolated**: the linear-Gaussian closed binned form
+  (exact truncated-normal main effects under LHS-aligned bins, 5e-3 relative), the probit
+  Simpson movement quadrature (8e-3 absolute), and the independent re-implementation over the
+  public per-realization summaries, unweighted and weighted (1e-12 relative; baselines at 0).
+  New chapter `technical-reference/value-of-information.md` written output-first — the ranked
+  practitioner table leads.
+- **A3 — given-data sensitivity measures** (`26aa213`): `SensitivityMeasure` gains
+  `FirstOrderSobol`/`PawnMedian`/`BorgonovoDelta` (values 3–5, runtime-only), routed through
+  the upstream `GlobalSensitivity` estimators over the same columns under the shared
+  `GivenDataBins` convention (≥ bins valid pairs, null below; non-finite coercion per the v1.0
+  convention). Fast tests +2 → 1,166 incl. the bit-parity pin against direct upstream calls.
+  `SensitivityVerification` +1 → **4/4 isolated**: the linear-map given-data Sobol index against
+  the exact binned truncated-normal form at 2e-3 relative (LHS strata align the bins exactly).
+- **A9 — retained realizations + post-hoc re-banding** (`d9a0d33`): runtime-only
+  `RetainRealizations`/`RetainedRealizations` and `ReassemblePercentileBands(weights?)` — the
+  weight-aware assembly re-run over retained state; **the post-hoc weighted re-band is
+  byte-identical to a run carrying those weights as its input** (the A9+A4 synergy, pinned at
+  JSON byte level); `RetainedIntegrationDetailIndex`/`RetainedIntegrationDetail` skip the
+  selected realization's memory dump so the recorded risk-point ledger stays inspectable (on
+  the component curves — `Curve.Clone()` excludes points by design); run-start snapshots,
+  publish/clear lifecycle, Validate memory-cost and no-match Warnings. Fast tests +7 → 1,173;
+  default-off byte-inertness pinned at test and gate scale. No new family (ruled: fast pins +
+  gates are the acceptance).
+- **A2 — the secondary-axis Richardson diagnostic** (`004fc08`):
+  `EstimateSecondaryDiscretizationError(componentIndex)` — the mean pass integrated at the
+  configured/halved/quartered bin counts through diagnostic snapshots
+  (`BivariateHazard.SampleBivariateAt` over the shared grid derivation,
+  `SystemComponent.SampleWithConditionalBins`, the `SampledComponent` conditional-override ctor
+  slot — stored count, hash, and seeds untouched); `DiscretizationEstimate` (extrapolated
+  limit, estimated relative error, observed convergence ratio = the regime check) for the AFP
+  and the per-type Excess mean; `SecondaryDiscretizationDiagnostic` unpersisted; needs ≥ 12
+  bins. Fast tests +8 → **1,181** incl. the configured level bit-equal to a mean-only run.
+  `CopulaDependenceVerification` +1 → **7/7 isolated**: the reduced levels bit-equal to models
+  configured at those counts, the smooth-regime estimate within a factor of two of the study's
+  true error with the ratio at four, and the legacy tail-concentrated fixture flagged below
+  four — exactly the fixture the convergence study flagged.
+- **A10-TotalRisk — skipped per its ratified rule, design recorded** (REMAINING-WORK): the
+  landed upstream `ExtrapolationSides` policy sits on `OrderedPairedData.GetYFromX/GetXFromY`
+  only, while the model library's sampled compute paths evaluate through
+  `Numerics.Functions.TabularFunction` (transform/response/consequence realizations) and
+  `EmpiricalDistribution` (hazard realizations) — neither carries the policy, so the TotalRisk
+  half needs a new upstream item before it can land without hand-rolling distribution
+  numerics. The full prepared design (the `ExtrapolationPolicy` enum with the Error mode,
+  conditional-presence serialization, scope, exclusions) is recorded for the next numerics
+  batch.
+- **B1 design draft (the stretch)** written to `~/.claude/plans/b1-bayesian-updating-design-draft.md`
+  — the conjugate Beta-on-SRP shape (Neff + exposure period) beside A4 likelihood re-weighting,
+  the observation-model menu, the likelihood-evaluation placement (tied to A9), the
+  double-counting composition rule, the API sketch, the exact-posterior verification strategy,
+  and eight open questions for Haden's B1 design session. A document only — no B1 code.
+
+**Verified (every item closed with the full gate round):** `dotnet build` 0 warnings; fast
+suite `dotnet test -c Release` **1,181/1,181** (1,135 + 29 + 2 + 7 + 8); code/XML-doc validator
+and traceability validator green throughout; families isolated — `ValueOfInformationVerification`
+4/4, `SensitivityVerification` 4/4, `CopulaDependenceVerification` 7/7; **all eight byte gates
+re-run as separate invocations after every landed item — bit-identical to the session's
+re-pinned baseline every time** (F1 `b2e6ea88…`, F2 `ac35a7fa…`, F3 `e46763ef…`, F4
+`8a3a8b52…`, F5 `2ae3925b…`, F6 `53be64aa…`, F7 `f985ca02…`, F8 `7833ad5f…`).
+
+**Next:** B3 (epistemic branch mode + shared epistemic variables — the Q-Y closure, the next
+major) with A6/A5/A1 as the quick-win batch; B1 waits on Haden's design session over the draft;
+A10 waits on the upstream extrapolation surface; N4/T8 whenever Haden tags and pushes 2.2.0.
+
 ## 2026-08-27 — v2.0 program session 2: A4, the weighted epistemic ensemble (+ the A7 stretch)
 
 **Goal:** execute session 2 of the capability program — **A4, optional realization weights and weighted ensemble reductions**, the foundation primitive the B2 (value of information) → B1 (Bayesian updating) thread and B3/C1/C3 build on, with **A7 tolerable-risk confidence** taken as the stretch after A4 closed clean — under the standing N4/T8 deferral (sibling Debug `<HintPath>` kept; `C:\GIT\numerics` read-only, Haden working it in parallel). Six rulings via AskUserQuestion: the A4 design as recommended (the two-path weight API, one authoritative stored vector, raw storage with Reliability semantics, the reduction scope with effort aggregates/sensitivity/function-level bands deferred); the **F6 re-pin approved**; the manifest gets a nullable `RealizationWeightsHash` at schema 1; the load-integrity ruling in Haden's own shape — **an invalid stored weight vector never throws: the results are cleared, `IsEstimated` ends false, and the payload must be rerun and re-saved** (programmatic misuse on the setter/run paths still throws eagerly; the unsupported-schema throw stays); A7 attempted in-session; and the A7 criteria **serialized on `RiskAnalysisOptions`** — the deliberate hash-surface event, conditionally written so every criteria-free form and hash stays put.
