@@ -275,6 +275,17 @@ constant column, and the value-of-information estimator resolves exactly zero va
 (the constant-column convention — a bit-constant column short-circuits to zero rather than
 reporting its arbitrary tie-order partition as a bins/n-scale noise floor).
 
+### 6.5 Exposure-period and life-cycle conversions
+
+`MeasureExposurePeriodRisk(periodYears, discountRate, …)` answers the form dam-safety decisions
+are actually made in — "the probability of failure over the next 50 years" and "equivalent
+annual damages" — as a pure post-processing query over the stored ensemble: the exact binomial
+P_T = 1 − (1 − p)^T per realization (the Poisson rate form differs by ≈ p·(T − 1)/2 relative),
+with cumulative, discounted, and equivalent-annual expected consequences, reduced with the
+stored realization weights ([results-catalog.md](results-catalog.md)). Stationarity and
+inter-year independence are assumed — the caveat that motivates a genuine time axis rather than
+a conversion.
+
 ## 7. Diagnostics
 
 The library computes and serializes the diagnostic substance; plotting (kernel densities, tornado

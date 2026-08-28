@@ -2700,6 +2700,119 @@ namespace RMC.TotalRisk.Analyses
         }
 
         /// <summary>
+        /// Computes the exposure-period and life-cycle conversions over the stored ensemble: the
+        /// probability of at least one failure over the period and the cumulative, discounted,
+        /// and equivalent-annual expected consequences, each converted per realization from the
+        /// stored annual measures and reduced with the stored realization weights (post-run
+        /// weight assignments are honored, the post-hoc query convention). The period failure
+        /// probability reads the scope's Fail-stream annualized failure probability; the
+        /// consequence conversions read the requested stream's unconditional mean. Pure
+        /// post-processing: no re-simulation, nothing serialized, and the published results are
+        /// untouched. See <see cref="ExposurePeriodRiskResults"/> for the conventions and the
+        /// stationarity caveat.
+        /// </summary>
+        /// <param name="periodYears">The exposure period in years (at least one).</param>
+        /// <param name="discountRate">The annual discount rate (0 = undiscounted; finite and non-negative).</param>
+        /// <param name="riskType">The result stream the consequence conversions read.</param>
+        /// <param name="componentIndex">The component scope (−1 = the system).</param>
+        /// <param name="failureModeIndex">The failure-mode scope (−1 = the component).</param>
+        /// <param name="consequenceType">The consequence-type position (0 = primary).</param>
+        /// <returns>The conversions, or null when no full-uncertainty ensemble is stored.</returns>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown for a non-positive period, an invalid discount rate, or an out-of-range scope index.</exception>
+        /// <exception cref="ArgumentException">Thrown for a failure-mode scope on a stream without mode resolution.</exception>
+        /// <exception cref="InvalidOperationException">Thrown when the stored realization weights are invalid.</exception>
+        public ExposurePeriodRiskResults? MeasureExposurePeriodRisk(int periodYears, double discountRate = 0d,
+            RiskType riskType = RiskType.Total, int componentIndex = -1, int failureModeIndex = -1, int consequenceType = 0)
+        {
+            if (periodYears < 1)
+                throw new ArgumentOutOfRangeException(nameof(periodYears), "The exposure period must be at least one year.");
+            if (!Tools.IsFinite(discountRate) || discountRate < 0d)
+                throw new ArgumentOutOfRangeException(nameof(discountRate), "The discount rate must be finite and non-negative.");
+            ValidateSensitivityScope(componentIndex, failureModeIndex, riskType, consequenceType);
+            var results = RiskResults;
+            if (!IsEstimated || results == null || results.Count < 2) return null;
+            var weights = results.RealizationWeights;
+            if (weights != null)
+            {
+                string? reason = EnsembleResults.DescribeInvalidWeights(weights, results.Count, out _);
+                if (reason != null)
+                {
+                    throw new InvalidOperationException($"The stored realization weights are invalid. {reason}");
+                }
+            }
+
+            // The annuity present-value factor for one unit per year: (1 − (1 + r)^−T)/r, with
+            // the exact r → 0 limit T; evaluated in log space for precision.
+            double annuityFactor = discountRate > 0d
+                ? -Tools.Expm1(-periodYears * Tools.Log1p(discountRate)) / discountRate
+                : periodYears;
+
+            // The per-realization conversions, pairwise-filtered with their weights.
+            int count = results.Count;
+            var periodProbabilities = new List<double>(count);
+            var cumulatives = new List<double>(count);
+            var presentValues = new List<double>(count);
+            var equivalentAnnuals = new List<double>(count);
+            var validWeights = weights == null ? null : new List<double>(count);
+            for (int i = 0; i < count; i++)
+            {
+                var summary = results[i];
+                if (summary == null) continue;
+                var failScope = SelectScope(summary, componentIndex, failureModeIndex, RiskType.Fail, 0);
+                var consequenceScope = SelectScope(summary, componentIndex, failureModeIndex, riskType, consequenceType);
+                if (failScope == null || consequenceScope == null) continue;
+                double p = failScope.TotalProbability;
+                double m = consequenceScope.Mean;
+                if (double.IsNaN(p) || double.IsNaN(m)) continue;
+
+                // P_T = 1 − (1 − p)^T, evaluated as −expm1(T·log1p(−p)) so small annual
+                // probabilities keep full precision (the binomial convention; see the result's
+                // remarks for the Poisson rate-form equivalence).
+                periodProbabilities.Add(-Tools.Expm1(periodYears * Tools.Log1p(-p)));
+                cumulatives.Add(periodYears * m);
+                double presentValue = m * annuityFactor;
+                presentValues.Add(presentValue);
+                equivalentAnnuals.Add(presentValue / annuityFactor);
+                validWeights?.Add(weights![i]);
+            }
+
+            double width = _options.ConfidenceIntervalWidth;
+            string scopeLabel = componentIndex < 0
+                ? "System"
+                : failureModeIndex < 0 ? _components[componentIndex].Name : $"{_components[componentIndex].Name} mode {failureModeIndex + 1}";
+            return new ExposurePeriodRiskResults($"{riskType} — {scopeLabel}", periodYears, discountRate,
+                consequenceType, periodProbabilities.Count,
+                ReduceExposureInterval(periodProbabilities, validWeights, width),
+                ReduceExposureInterval(cumulatives, validWeights, width),
+                ReduceExposureInterval(presentValues, validWeights, width),
+                ReduceExposureInterval(equivalentAnnuals, validWeights, width));
+        }
+
+        /// <summary>
+        /// Reduces one exposure-period quantity over the valid realizations: the weighted (or
+        /// plain) mean and the symmetric lower/median/upper percentiles at the configured
+        /// confidence width; the all-NaN interval when nothing survives.
+        /// </summary>
+        /// <param name="values">The valid per-realization values.</param>
+        /// <param name="weights">The parallel weights, or null for equal weights.</param>
+        /// <param name="width">The confidence-interval width.</param>
+        /// <returns>The reduced interval.</returns>
+        private static ExposurePeriodInterval ReduceExposureInterval(List<double> values, List<double>? weights, double width)
+        {
+            if (values.Count == 0)
+            {
+                return new ExposurePeriodInterval(double.NaN, double.NaN, double.NaN, double.NaN);
+            }
+            double lowerLevel = (1d - width) / 2d;
+            var levels = new[] { lowerLevel, 0.5d, 1d - lowerLevel };
+            double[] percentiles = weights == null
+                ? Statistics.Percentile(values, levels)
+                : Statistics.Percentile(values, levels, weights);
+            double mean = weights == null ? Statistics.Mean(values) : Statistics.Mean(values, weights);
+            return new ExposurePeriodInterval(percentiles[0], percentiles[1], mean, percentiles[2]);
+        }
+
+        /// <summary>
         /// Evaluates tolerable-risk criteria over a realization-summary ensemble: each entry's
         /// exceedance probability is the realization-weight fraction whose selected system-scope
         /// measure is strictly greater than the criterion threshold. NaN measures are filtered

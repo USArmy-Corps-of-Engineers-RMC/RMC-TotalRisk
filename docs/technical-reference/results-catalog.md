@@ -134,6 +134,22 @@ ensemble produces a summary without it, while
 `RiskAnalysis.ComputeTolerableRiskConfidence()` re-evaluates the configured criteria over the
 stored ensemble (including post-run weights) without re-simulation.
 
+## Exposure-period and life-cycle conversions (runtime-only)
+
+`RiskAnalysis.MeasureExposurePeriodRisk(periodYears, discountRate, riskType, scope…)` converts
+the stored annual measures into the decision forms — the probability of at least one failure
+over the period (the exact binomial P_T = 1 − (1 − p)^T of the scope's Fail-stream annualized
+failure probability, evaluated in log space) and the cumulative (T·m), discounted
+(m·(1 − (1 + r)^−T)/r), and equivalent-annual expected consequences of the requested stream —
+each computed per realization and reduced with the stored realization weights into
+`ExposurePeriodRiskResults` (lower/median/mean/upper `ExposurePeriodInterval`s at the
+configured confidence width). A plain query result: never serialized, post-run weights honored,
+the published results untouched; null without a stored full-uncertainty ensemble. The
+equivalent annual reproduces the annual expected consequence for a stationary analysis (the
+identity is the point — the base-versus-future composition belongs to the future cost-benefit
+layer), and every conversion assumes stationarity and inter-year independence, the caveat that
+motivates a genuine time axis.
+
 ## The multi-consequence axis
 
 An analysis declares its consequence types once (`ConsequenceTypeDescriptor` — label, unit, and
