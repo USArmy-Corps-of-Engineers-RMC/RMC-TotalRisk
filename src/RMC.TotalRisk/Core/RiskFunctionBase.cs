@@ -174,6 +174,7 @@ namespace RMC.TotalRisk.Core
                 SamplingScheme.LatinHypercube => LatinHypercube.Random(sampleSize, dimensions, positiveSeed),
                 SamplingScheme.LatinHypercubeMedian => LatinHypercube.Median(sampleSize, dimensions, positiveSeed),
                 SamplingScheme.MonteCarlo => SeedHelpers.IndependentUniform(sampleSize, dimensions, positiveSeed),
+                SamplingScheme.ScrambledSobol => SeedHelpers.ScrambledSobol(sampleSize, dimensions, positiveSeed),
                 _ => throw new NotSupportedException($"The sampling scheme '{scheme}' is not supported."),
             };
         }

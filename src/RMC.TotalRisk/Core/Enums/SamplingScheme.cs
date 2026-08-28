@@ -36,5 +36,15 @@ namespace RMC.TotalRisk.Core.Enums
         /// very small realization counts.
         /// </summary>
         LatinHypercubeMedian,
+
+        /// <summary>
+        /// Matousek-scrambled Sobol quasi-random sampling, seeded from each function's
+        /// content-derived stream seed — the same seed plumbing as the other schemes, with only
+        /// the generator differing, so selecting the scheme never re-rolls a stream seed. A
+        /// function's dimensions share one sequence (joint equidistribution); low-discrepancy
+        /// stratification is strongest at power-of-two realization counts, which validation
+        /// advises on.
+        /// </summary>
+        ScrambledSobol,
     }
 }

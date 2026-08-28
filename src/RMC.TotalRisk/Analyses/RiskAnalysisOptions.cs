@@ -96,6 +96,7 @@ namespace RMC.TotalRisk.Analyses
             _maxPathwayCombinations = SerializationUtilities.ReadInt32(xElement, nameof(MaxPathwayCombinations), 4_096);
             _riskMeasures = SerializationUtilities.ReadEnum(xElement, nameof(RiskMeasures), RiskMeasureOptions.All);
             _outputAdjustedFailureModeCurves = SerializationUtilities.ReadBoolean(xElement, nameof(OutputAdjustedFailureModeCurves), false);
+            _useSobolJointSampling = SerializationUtilities.ReadBoolean(xElement, nameof(UseSobolJointSampling), false);
 
             // Conditional-presence child: absent on every criteria-free form.
             var criteriaElement = xElement.Element(nameof(TolerableRiskCriteria));
@@ -216,6 +217,9 @@ namespace RMC.TotalRisk.Analyses
         /// Backing field for <see cref="OutputAdjustedFailureModeCurves"/>.
         /// </summary>
         private bool _outputAdjustedFailureModeCurves;
+
+        /// <summary>Backing field for <see cref="UseSobolJointSampling"/>.</summary>
+        private bool _useSobolJointSampling;
 
         /// <summary>Backing field for <see cref="EnsembleTolerance"/>.</summary>
         private double _ensembleTolerance = 1e-4;
@@ -576,6 +580,24 @@ namespace RMC.TotalRisk.Analyses
         }
 
         /// <summary>
+        /// Whether the joint (VEGAS) integration drives its sampling with seeded scrambled
+        /// Sobol points instead of the seeded pseudo-random generator. Default false — the
+        /// existing driver, byte-for-byte. When enabled, the joint path seeds the scrambled
+        /// sequence from the same content-derived per-realization seed that drives the
+        /// pseudo-random generator, so the v1.0 quasi-random driver returns without giving up
+        /// the content-seed reproducibility contract (the unrandomized sequence v1.0 used is
+        /// seed-independent, which is why v1.1 originally switched it off). A deliberate,
+        /// hashed, value-moving selection: the attribute serializes only when enabled, so every
+        /// existing options form and hash is unchanged, while an enabled option is
+        /// compute-relevant hashed content.
+        /// </summary>
+        public bool UseSobolJointSampling
+        {
+            get { return _useSobolJointSampling; }
+            set { SetField(ref _useSobolJointSampling, value, nameof(UseSobolJointSampling)); }
+        }
+
+        /// <summary>
         /// The tolerable-risk criteria the full-uncertainty run evaluates over its ensemble —
         /// one epistemic confidence statement P(measure &gt; threshold) per entry, at the
         /// system scope, weighted by any realization weights. Empty by default (no criteria,
@@ -804,6 +826,12 @@ namespace RMC.TotalRisk.Analyses
             element.SetAttributeValue(nameof(OutputAdjustedFailureModeCurves), _outputAdjustedFailureModeCurves);
             element.SetAttributeValue(nameof(EnsembleTolerance), SerializationUtilities.FormatDouble(_ensembleTolerance));
             element.SetAttributeValue(nameof(EnsembleMinDepth), _ensembleMinDepth);
+            // Conditional presence: written only when enabled, so every pre-existing options
+            // form — and its canonical hash — is unchanged.
+            if (_useSobolJointSampling)
+            {
+                element.SetAttributeValue(nameof(UseSobolJointSampling), _useSobolJointSampling);
+            }
 
             // Conditional-presence child: written only when criteria are configured, so every
             // criteria-free options form — and its canonical hash — is unchanged.

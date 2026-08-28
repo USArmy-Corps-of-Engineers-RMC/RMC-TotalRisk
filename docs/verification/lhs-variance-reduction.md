@@ -1,6 +1,6 @@
 # LHS Variance Reduction
 
-**Test class:** `LhsVarianceReductionVerification` · **Tests:** 1 · **Run of record:** 2026-07-23, isolated run, ✅ all passed
+**Test class:** `LhsVarianceReductionVerification` · **Tests:** 2 · **Run of record:** 2026-08-28 (incl. the scrambled-Sobol scheme), isolated run, ✅ all passed
 
 The dedicated evidence for the v1.1 sampling upgrade: at N = 1,000 knowledge
 realizations over repeated runs, the Latin hypercube scheme must estimate the same ensemble
@@ -55,3 +55,19 @@ so for these smooth monotone quantile functions the grand mean's sampling varian
 by orders of magnitude relative to independent uniform sampling — the assert threshold of 10×
 is deliberately conservative so the pin stays robust across environments while still failing
 loudly if the scheme option ever stopped reaching the samplers.
+
+## The scrambled-Sobol scheme
+
+`Test_ScrambledSobolVsMonteCarlo_GrandMeanVarianceReduction` gates
+`SamplingScheme.ScrambledSobol` — Matousek-scrambled Sobol knowledge sampling seeded from each
+function's content-derived stream seed — on the same fixture and replicate framework: five
+replicate 1,000-realization runs must cut the grand-mean replicate variance against plain Monte
+Carlo by at least the family's 10× floor (conservative for a low-discrepancy scheme on this
+near-linear statistic, even at the fixture's non-power-of-two count, which validation advises
+on), the pooled scheme means must agree within their combined 4·SE replicate errors, the
+scrambled pooled mean must reproduce the deterministic mean-only answer, every replicate must
+differ (the seed moves the scramble), an identical seed must reproduce the grand mean
+bit-for-bit (the content-seed contract the unrandomized sequence cannot honor), and renaming
+the model must be bit-inert (the scramble seed derives from content, never names). Run of
+record 2026-08-28: `LhsVarianceReductionVerification` 2/2 passed (13 m 02 s wall), isolated
+invocation.

@@ -1,6 +1,6 @@
 # Multi-Component System Risk — Verification Results
 
-**Test class:** `SystemRiskVerification` · **Tests:** 5 · **Run of record:** 2026-07-23, isolated run, ✅ all passed
+**Test class:** `SystemRiskVerification` · **Tests:** 6 · **Run of record:** 2026-08-28 (incl. the joint Sobol driver), isolated run, ✅ all passed
 
 The system-aggregation family of the means-versus-tails policy: both multi-component methods are verified
 against NEW brute-force **event-level** Monte Carlo oracles that draw annual outcomes — hazards
@@ -103,3 +103,16 @@ renaming is bit-inert on the joint path. Joint component *reordering* is statist
 equivalent but not bit-identical by construction — the VEGAS variates couple the hypercube
 dimensions, so reordering permutes which coordinate stream drives which component (documented
 in the architecture doc §7.8).
+
+## The joint Sobol driver
+
+`Test_JointSystem_SobolDriver_OracleParityAndReproducibility` gates the opt-in
+`RiskAnalysisOptions.UseSobolJointSampling`, which drives the joint VEGAS integration with
+seeded Matousek-scrambled Sobol points at the same content-derived per-realization seed as the
+default pseudo-random driver. Under the option, the correlated two-component system reproduces
+the brute-force event oracle's mean and failure union within the same combined-error bounds as
+the pseudo-random test, the recorded budget self-normalizes exactly with a manual γ = 4
+tail focus (the power-transform Jacobian reaches the weights under the quasi-random driver
+too), and two enabled runs publish byte-identical results — the seeded scrambling restoring the
+content-seed reproducibility contract the v1.0 unrandomized sequence could not honor. Run of
+record 2026-08-28: `SystemRiskVerification` 6/6 passed (20.1 s wall), isolated invocation.

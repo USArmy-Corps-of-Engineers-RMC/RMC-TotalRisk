@@ -108,5 +108,45 @@ namespace RMC.TotalRisk.Core
             }
             return matrix;
         }
+
+        /// <summary>
+        /// Fills an N×D percentile matrix from one seeded Matousek-scrambled Sobol sequence —
+        /// the <see cref="SamplingScheme.ScrambledSobol"/> generator behind the same matrix
+        /// shape the other schemes use.
+        /// </summary>
+        /// <param name="sampleSize">The number of realizations N (rows). Must be positive.</param>
+        /// <param name="dimension">The sampling dimension D (columns). Must be positive.</param>
+        /// <param name="seed">
+        /// The scramble seed. Always pass an explicit positive seed — the seeded scrambling is
+        /// what makes the quasi-random matrix reproducible under the content-seed contract.
+        /// </param>
+        /// <returns>An N×D matrix of scrambled Sobol (0, 1) draws.</returns>
+        /// <exception cref="ArgumentOutOfRangeException">
+        /// Thrown when <paramref name="sampleSize"/> or <paramref name="dimension"/> is not positive.
+        /// </exception>
+        /// <remarks>
+        /// Row i is point i of one D-dimensional sequence, so a function's dimensions carry the
+        /// sequence's joint equidistribution; different functions scramble independently through
+        /// their independent content-derived seeds. Low-discrepancy stratification is strongest
+        /// at power-of-two sample sizes (the dyadic property), which the analysis validation
+        /// advises on.
+        /// </remarks>
+        public static double[,] ScrambledSobol(int sampleSize, int dimension, int seed)
+        {
+            if (sampleSize <= 0) throw new ArgumentOutOfRangeException(nameof(sampleSize), "The sample size must be positive.");
+            if (dimension <= 0) throw new ArgumentOutOfRangeException(nameof(dimension), "The dimension must be positive.");
+
+            var sequence = new SobolSequence(dimension, seed);
+            var matrix = new double[sampleSize, dimension];
+            for (int i = 0; i < sampleSize; i++)
+            {
+                double[] point = sequence.NextDouble();
+                for (int j = 0; j < dimension; j++)
+                {
+                    matrix[i, j] = point[j];
+                }
+            }
+            return matrix;
+        }
     }
 }

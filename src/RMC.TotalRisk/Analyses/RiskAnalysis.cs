@@ -1008,6 +1008,12 @@ namespace RMC.TotalRisk.Analyses
                 }
             }
 
+            if (_options.SamplingScheme == SamplingScheme.ScrambledSobol && !_options.EstimateMeanRiskOnly
+                && _options.Realizations > 0 && (_options.Realizations & (_options.Realizations - 1)) != 0)
+            {
+                messages.Add($"Warning: Scrambled-Sobol sampling stratifies most evenly at power-of-two realization counts; {_options.Realizations:N0} is not one.");
+            }
+
             for (int i = 0; i < _options.TolerableRiskCriteria.Count; i++)
             {
                 var criterion = _options.TolerableRiskCriteria[i];
@@ -4225,6 +4231,15 @@ namespace RMC.TotalRisk.Analyses
                 IndependentEvaluations = _options.WarmupCycles,
                 Initialize = 0,
             };
+            if (_options.UseSobolJointSampling)
+            {
+                // The opt-in v1.0-style quasi-random driver, made content-seed reproducible by
+                // the seeded scrambling: the same per-realization seed that drives the
+                // pseudo-random generator scrambles the Sobol sequence (the generator the
+                // integrator then ignores stays configured — harmless).
+                integrator.UseSobolSequence = true;
+                integrator.SobolSeed = vegasSeed;
+            }
             ConfigureTailFocus(integrator);
 
             // The warm-up builds the importance grid; nothing is recorded.

@@ -288,4 +288,78 @@ public class LhsVarianceReductionVerification
             $"LHS variance reduction: var(MC) = {mcVariance:G4}, var(LHS) = {lhsVariance:G4}, ratio = {ratio:G4}; " +
             $"pooled means MC {mcMean:G8} / LHS {lhsMean:G8} / mean-only {meanOnlyTotal:G8}");
     }
+
+    /// <summary>
+    /// The scrambled-Sobol scheme gate on the same fixture: five replicate runs must cut the
+    /// grand-mean replicate variance against Monte Carlo by at least the family floor while
+    /// agreeing on the pooled mean and the deterministic mean-only answer, distinct seeds must
+    /// move the scramble, an identical seed must reproduce bit-for-bit (the content-seed
+    /// contract the unrandomized sequence cannot honor), and renaming the model must be
+    /// bit-inert (the scramble seed derives from content, never names).
+    /// </summary>
+    /// <remarks>
+    /// <b>Tolerance derivation:</b> the same replicate-variance framework as the Latin
+    /// hypercube gate — the family floor of 10× is conservative for a low-discrepancy scheme on
+    /// this near-linear statistic (the fixture's 1,000-realization count is not a power of two,
+    /// which validation advises on; the stratification remains far better than plain Monte
+    /// Carlo). The unbiasedness and mean-only asserts reuse the 4·SE combined-replicate bounds;
+    /// the reproducibility and rename pins are exact (0, bit).
+    /// </remarks>
+    [TestMethod]
+    public void Test_ScrambledSobolVsMonteCarlo_GrandMeanVarianceReduction()
+    {
+        // Arrange / Act — the replicate grand means per scheme.
+        var sobolMeans = new double[Replicates];
+        var mcMeans = new double[Replicates];
+        for (int r = 0; r < Replicates; r++)
+        {
+            sobolMeans[r] = GrandMean(SamplingScheme.ScrambledSobol, SeedBase + r);
+            mcMeans[r] = GrandMean(SamplingScheme.MonteCarlo, SeedBase + r);
+        }
+        var (sobolMean, sobolVariance) = MeanAndVariance(sobolMeans);
+        var (mcMean, mcVariance) = MeanAndVariance(mcMeans);
+
+        // Assert — the variance-reduction ratio and unbiasedness.
+        Assert.IsTrue(sobolVariance > 0d, "The Sobol replicate variance must be positive (distinct seeds must move the scramble).");
+        double ratio = mcVariance / sobolVariance;
+        Assert.IsTrue(ratio >= MinimumVarianceRatio,
+            $"Scrambled Sobol must reduce the grand-mean replicate variance at least {MinimumVarianceRatio}× " +
+            $"(measured var(MC) = {mcVariance:G4}, var(Sobol) = {sobolVariance:G4}, ratio = {ratio:G4}).");
+        double combinedSe = Math.Sqrt(mcVariance / Replicates + sobolVariance / Replicates);
+        Assert.AreEqual(mcMean, sobolMean, 4d * combinedSe,
+            "The scrambled-Sobol and Monte Carlo pooled grand means must agree (both unbiased).");
+
+        var meanOnly = Build(SamplingScheme.ScrambledSobol, SeedBase, meanOnly: true);
+        Run(meanOnly, "Sobol mean-only");
+        double meanOnlyTotal = meanOnly.RiskResults![0]!.Total.Mean;
+        Assert.AreEqual(meanOnlyTotal, sobolMean, Math.Max(4d * Math.Sqrt(sobolVariance / Replicates), 1e-6 * meanOnlyTotal),
+            "The scrambled-Sobol pooled grand mean must reproduce the deterministic mean-only answer.");
+
+        // Distinct seeds move the scramble; an identical seed reproduces bit-for-bit.
+        for (int a = 0; a < Replicates; a++)
+        {
+            for (int b = a + 1; b < Replicates; b++)
+            {
+                Assert.AreNotEqual(sobolMeans[a], sobolMeans[b],
+                    $"Sobol replicates {a} and {b} must differ — the PRNG seed must move the scramble.");
+            }
+        }
+        Assert.AreEqual(sobolMeans[0], GrandMean(SamplingScheme.ScrambledSobol, SeedBase), 0d,
+            "An identical seed must reproduce the scrambled grand mean bit-for-bit.");
+
+        // Renaming is bit-inert: the scramble seed derives from content hashes, never names.
+        var renamed = Build(SamplingScheme.ScrambledSobol, SeedBase, meanOnly: false);
+        renamed.Components[0].Name = "Renamed component";
+        renamed.Components[0].HazardFunction!.Name = "Renamed hazard";
+        Run(renamed, "Sobol renamed");
+        double renamedGrand = 0d;
+        for (int i = 0; i < Realizations; i++) renamedGrand += renamed.RiskResults![i]!.Total.Mean;
+        renamedGrand /= Realizations;
+        Assert.AreEqual(sobolMeans[0], renamedGrand, 0d,
+            "Renaming must be bit-inert under the scrambled scheme (content-based seeding).");
+
+        Console.WriteLine(
+            $"Scrambled-Sobol variance reduction: var(MC) = {mcVariance:G4}, var(Sobol) = {sobolVariance:G4}, ratio = {ratio:G4}; " +
+            $"pooled means MC {mcMean:G8} / Sobol {sobolMean:G8} / mean-only {meanOnlyTotal:G8}");
+    }
 }

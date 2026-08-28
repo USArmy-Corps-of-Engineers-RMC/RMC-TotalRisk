@@ -270,12 +270,18 @@ itself then adapts under the active γ, strictly better than a post-warm-up harv
 
 ### Driving stream, recording passes, and mass normalization
 
-- **Seeded Mersenne Twister, not Sobol.** Numerics' VEGAS defaults to `UseSobolSequence = true`,
-  which would make the driving stream seed-independent and void the §5.5 content-seed contract. The
-  engine sets `UseSobolSequence = false` and `Random = new MersenneTwister(vegasSeed)` with
+- **Seeded Mersenne Twister by default; seeded scrambled Sobol on request.** Numerics' VEGAS
+  defaults to `UseSobolSequence = true` with the *unrandomized* sequence — v1.0 used it, but it is
+  seed-independent and would void the §5.5 content-seed contract, so the engine sets
+  `UseSobolSequence = false` and `Random = new MersenneTwister(vegasSeed)` with
   `vegasSeed = ToPositiveSeed(HashCombine(systemSeed, "VEGAS", realizationIndex))`, where
   `systemSeed` folds the analysis seed with every component's canonical hash and occurrence index in
-  canonical-hash order.
+  canonical-hash order. The opt-in `RiskAnalysisOptions.UseSobolJointSampling` restores the
+  quasi-random driver without giving up that contract: it re-enables the Sobol sequence with
+  `SobolSeed = vegasSeed`, the seeded Matousek scrambling, so the driver is reproducible,
+  content-seeded, and pinned unbiased with its tail-focus Jacobian intact against the brute-force
+  event oracle. A deliberate, hashed, value-moving selection — the attribute serializes only when
+  enabled, so every existing options form and hash is unchanged.
 - **Five recording passes, self-normalized.** v1.0 recorded a single pass of `FinalEvaluations`
   (default 10,000) — far too sparse for a tail ordinate in D dimensions. The engine records across
   five passes (`Initialize = 1`, `IndependentEvaluations = 5`) with `FinalEvaluations` scaled by D in

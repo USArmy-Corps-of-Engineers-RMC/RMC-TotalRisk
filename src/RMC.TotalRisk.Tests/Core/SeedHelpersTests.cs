@@ -125,4 +125,48 @@ public class SeedHelpersTests
         Assert.AreEqual(12346, SeedHelpers.ToPositiveSeed(12345), "A positive seed folds to seed + 1 under the modular map.");
         Assert.AreNotEqual(SeedHelpers.ToPositiveSeed(1), SeedHelpers.ToPositiveSeed(2));
     }
+
+    /// <summary>
+    /// Verifies the scrambled-Sobol matrix generator: shape and unit-interval range, bit
+    /// determinism per seed, divergence across seeds, joint columns from one sequence (two
+    /// dimensions requested together differ from two one-dimension calls), and the argument
+    /// guards.
+    /// </summary>
+    [TestMethod]
+    public void Test_ScrambledSobol_ShapeRangeDeterminism()
+    {
+        // Act
+        var matrix = SeedHelpers.ScrambledSobol(64, 3, 12345);
+        var repeat = SeedHelpers.ScrambledSobol(64, 3, 12345);
+        var other = SeedHelpers.ScrambledSobol(64, 3, 54321);
+
+        // Assert — shape, range, determinism, divergence.
+        Assert.AreEqual(64, matrix.GetLength(0));
+        Assert.AreEqual(3, matrix.GetLength(1));
+        bool anyDiffers = false;
+        for (int i = 0; i < 64; i++)
+        {
+            for (int d = 0; d < 3; d++)
+            {
+                Assert.IsTrue(matrix[i, d] >= 0d && matrix[i, d] < 1d, "Draws must lie in [0, 1).");
+                Assert.AreEqual(matrix[i, d], repeat[i, d], 0d, "Identical seeds must reproduce bit-for-bit.");
+                if (matrix[i, d] != other[i, d]) anyDiffers = true;
+            }
+        }
+        Assert.IsTrue(anyDiffers, "Distinct seeds must diverge.");
+
+        // Column 0 of a joint two-dimensional sequence differs from a one-dimensional
+        // sequence's draws — the dimensions are one sequence, not stacked scalars.
+        var joint = SeedHelpers.ScrambledSobol(16, 2, 777);
+        var single = SeedHelpers.ScrambledSobol(16, 1, 777);
+        bool jointDiffers = false;
+        for (int i = 0; i < 16; i++)
+        {
+            if (joint[i, 1] != single[i, 0]) jointDiffers = true;
+        }
+        Assert.IsTrue(jointDiffers, "A second dimension must come from the joint sequence, not a repeated scalar stream.");
+
+        Assert.ThrowsException<ArgumentOutOfRangeException>(() => SeedHelpers.ScrambledSobol(0, 1, 1));
+        Assert.ThrowsException<ArgumentOutOfRangeException>(() => SeedHelpers.ScrambledSobol(1, 0, 1));
+    }
 }

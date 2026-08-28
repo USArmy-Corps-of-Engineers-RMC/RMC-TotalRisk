@@ -89,6 +89,7 @@ changing the underlying math, so it is an explicit, hashed analysis option:
 | `MonteCarlo` | Independent uniform draws — the legacy v1.0 behavior; SE ∝ 1/√N |
 | `LatinHypercube` | Stratified with random placement within bins (unbiased) — the default; stratifying each marginal typically cuts variance 5–50× at the same realization count |
 | `LatinHypercubeMedian` | Median bin centers; deterministic per seed, useful at very small realization counts |
+| `ScrambledSobol` | Matousek-scrambled Sobol quasi-random draws, seeded from the same content-derived stream seed as the other schemes — only the generator differs, so selecting the scheme never re-rolls a stream seed; a function's dimensions share one sequence (joint equidistribution); stratifies most evenly at power-of-two realization counts (validation advises) |
 
 ## `SamplerSeedMap` — the seed-stable perturbation mode (§5.5.8)
 

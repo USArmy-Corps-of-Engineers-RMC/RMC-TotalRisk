@@ -367,6 +367,36 @@ public class RiskAnalysisOptionsTests
     }
 
     /// <summary>
+    /// Verifies the joint Sobol driver option's conditional serialization: the default writes
+    /// no attribute and a set-then-clear restores the original form and hash byte-for-byte,
+    /// while enabling it is a deliberate hash event that round-trips faithfully.
+    /// </summary>
+    [TestMethod]
+    public void Test_UseSobolJointSampling_ConditionalPresenceAndHash()
+    {
+        // Arrange — the default baseline form and hash.
+        var options = new RiskAnalysisOptions();
+        byte[] baseline = options.CanonicalHash();
+        string baselineXml = options.ToXElement().ToString();
+        Assert.IsNull(options.ToXElement().Attribute(nameof(RiskAnalysisOptions.UseSobolJointSampling)));
+
+        // The set-then-clear path is byte-inert.
+        options.UseSobolJointSampling = true;
+        options.UseSobolJointSampling = false;
+        CollectionAssert.AreEqual(baseline, options.CanonicalHash());
+        Assert.AreEqual(baselineXml, options.ToXElement().ToString());
+
+        // Enabling is a deliberate hash event with a lossless round trip.
+        options.UseSobolJointSampling = true;
+        Assert.IsNotNull(options.ToXElement().Attribute(nameof(RiskAnalysisOptions.UseSobolJointSampling)));
+        CollectionAssert.AreNotEqual(baseline, options.CanonicalHash(),
+            "The enabled Sobol joint driver is compute-relevant hashed content.");
+        var restored = new RiskAnalysisOptions(options.ToXElement());
+        Assert.IsTrue(restored.UseSobolJointSampling);
+        CollectionAssert.AreEqual(options.CanonicalHash(), restored.CanonicalHash());
+    }
+
+    /// <summary>
     /// Verifies criteria validation aggregation and change notification: an invalid criterion
     /// is an indexed Error on the options, and collection edits raise the property change the
     /// owning analysis invalidates on.

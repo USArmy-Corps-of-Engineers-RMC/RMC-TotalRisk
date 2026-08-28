@@ -576,6 +576,77 @@ public class SystemRiskVerification
     }
 
     /// <summary>
+    /// The opt-in joint Sobol driver gate: with <c>UseSobolJointSampling</c> enabled the
+    /// correlated joint system must still match the brute-force event oracle on the mean and
+    /// the failure union, the recorded budget must self-normalize exactly (the tail-focus
+    /// Jacobian reaches the weights under the quasi-random driver too, checked at a manual
+    /// γ = 4 against the driver's own γ = 1 run), and two enabled runs must publish
+    /// byte-identical results — the seeded scrambling restoring the content-seed contract the
+    /// v1.0 unrandomized sequence could not honor.
+    /// </summary>
+    /// <remarks>
+    /// <b>Tolerance derivation:</b> the oracle comparison reuses the correlated-oracle test's
+    /// combined-error bounds (the engine side quotes its recording-pass VEGAS standard error;
+    /// the union adds a conservative binomial error at the recorded evaluation count); the
+    /// γ agreement uses the combined reported errors with the same 5% union band as the
+    /// pseudo-random audit; the budget and reproducibility pins are exact (1e-9 mass; 0 byte).
+    /// </remarks>
+    [TestMethod]
+    public void Test_JointSystem_SobolDriver_OracleParityAndReproducibility()
+    {
+        // Arrange
+        RiskAnalysis Build(VegasTailFocusMode mode, double gamma)
+        {
+            var analysis = new RiskAnalysis(new[] { BuildComponent(ScenarioA()), BuildComponent(ScenarioB()) });
+            analysis.Options.SystemRiskMethod = SystemRiskType.JointRiskMethod;
+            analysis.Options.ComponentHazardDependency = DependencyType.CorrelationMatrix;
+            analysis.Options.HazardCorrelationMatrix = new[,] { { 1d, JointCorrelation }, { JointCorrelation, 1d } };
+            analysis.Options.VegasTailFocusMode = mode;
+            analysis.Options.VegasTailFocusParameter = gamma;
+            analysis.Options.UseSobolJointSampling = true;
+            return analysis;
+        }
+
+        // Act
+        var oracle = RunEventOracle(JointOracleSeed, JointCorrelation);
+        var driver = Build(VegasTailFocusMode.None, 1d);
+        driver.RunAsync().GetAwaiter().GetResult();
+        var repeat = Build(VegasTailFocusMode.None, 1d);
+        repeat.RunAsync().GetAwaiter().GetResult();
+        var focused = Build(VegasTailFocusMode.Manual, 4d);
+        focused.RunAsync().GetAwaiter().GetResult();
+
+        // Assert — oracle parity under the quasi-random driver.
+        var summary = driver.RiskResults![0]!;
+        double recordedEvaluations = 5d * driver.Options.FinalEvaluations;
+        double meanTolerance = K * Math.Sqrt(oracle.MeanSe * oracle.MeanSe + summary.StandardError * summary.StandardError);
+        Assert.AreEqual(oracle.Mean, summary.Total.Mean, meanTolerance,
+            "The Sobol-driven joint system mean must match the correlated event oracle.");
+        double unionEngineSe = Math.Sqrt(oracle.FailureUnion * (1d - oracle.FailureUnion) / recordedEvaluations);
+        Assert.AreEqual(oracle.FailureUnion, summary.Fail.TotalProbability,
+            K * Math.Sqrt(oracle.FailureUnionSe * oracle.FailureUnionSe + unionEngineSe * unionEngineSe),
+            "The Sobol-driven joint failure union must match the correlated event oracle.");
+        Assert.AreEqual(1d, driver.MeanRiskResults!.Curves.Total.MassBalance, 1e-9,
+            "The Sobol-driven recorded budget must self-normalize to one.");
+
+        // The tail-focus Jacobian under the quasi-random driver.
+        var focusedSummary = focused.RiskResults![0]!;
+        double focusTolerance = K * Math.Sqrt(summary.StandardError * summary.StandardError
+            + focusedSummary.StandardError * focusedSummary.StandardError);
+        Assert.AreEqual(summary.Total.Mean, focusedSummary.Total.Mean, focusTolerance,
+            "Manual γ = 4 under the Sobol driver must leave the system mean unbiased.");
+        Assert.AreEqual(summary.Fail.TotalProbability, focusedSummary.Fail.TotalProbability,
+            0.05d * summary.Fail.TotalProbability,
+            "Manual γ = 4 under the Sobol driver must leave the failure union unbiased.");
+        Assert.AreEqual(1d, focused.MeanRiskResults!.Curves.Total.MassBalance, 1e-9,
+            "The focused Sobol-driven budget must self-normalize to one (the Jacobian reaches the weights).");
+
+        // The restored reproducibility contract.
+        Assert.AreEqual(driver.RiskResults.ToJson(), repeat.RiskResults!.ToJson(),
+            "Two Sobol-driven runs must publish byte-identical results.");
+    }
+
+    /// <summary>
     /// The system-level reproducibility pins: reordering plus renaming is bit-inert on the
     /// additive path (content seeding plus the canonical-hash convolution order), and renaming
     /// is bit-inert on the joint path.
