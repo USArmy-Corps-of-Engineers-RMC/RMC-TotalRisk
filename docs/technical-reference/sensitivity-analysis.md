@@ -51,6 +51,18 @@ Runtime-only (never serialized, no hash surface); the v1.0 member names are pres
 | `PearsonCorrelation` | Pearson's linear correlation between input draws and output | linear association |
 | `SpearmanCorrelation` | Pearson over fractional ranks | exact under any monotone re-expression of the input; preferred for curvilinear monotone relations |
 | `SensitivityIndex` | squared Pearson correlation | the input's fractional contribution to output variance — because the inputs are independent per-function knowledge draws (near-orthogonal under Latin hypercube stratification), r² estimates the same main-effect variance share as the regression form of the Technical Reference Manual Appendix G (Eq. 249–250), and the indices sum to at most one across inputs |
+| `FirstOrderSobol` | given-data first-order Sobol index (Plischke): the variance of the conditional output mean across equal-frequency input bins over the output variance | the main-effect variance share without the linearity assumption of `SensitivityIndex` — sees nonlinear but not interaction effects |
+| `PawnMedian` | the PAWN median: the median across input bins of the Kolmogorov–Smirnov distance between conditional and unconditional output distributions | moment-independent — sensitive to tail and shape effects a variance share cannot see |
+| `BorgonovoDelta` | Borgonovo's δ via the double-histogram total-variation estimator over rank classes | moment-independent and exactly invariant under monotone re-expression of the input |
+
+The three given-data members route through the Numerics `GlobalSensitivity` estimators over the
+same stored realizations and columns, under the documented 20-bin equal-frequency convention
+(shared with the [value-of-information](value-of-information.md) conditioning). They need at
+least as many valid realization pairs as bins — a smaller sample returns null rather than a
+noise-dominated result — and they carry the given-data biases of order 1/bins² (discretization)
+and bins/n (bin noise). The estimators themselves are verified upstream against the analytic
+Ishigami and Sobol-g decompositions; the engine's plumbing is pinned bit-exactly against direct
+upstream calls and against the linear-map closed form below.
 
 ## The input-column contract
 

@@ -220,4 +220,56 @@ public class SensitivityVerification
         Assert.AreEqual(oracle, first.Entries[fragilityColumn].Value, 1e-9,
             "The engine's hazard-level association must match the analytic response oracle (affine invariance).");
     }
+
+    /// <summary>
+    /// Verifies the given-data measures on the exactly linear knowledge map: the first-order
+    /// Sobol index matches the exact binned truncated-normal form Σ (1/B)·m_b² — the map is a
+    /// deterministic affine function of the single draw's normal quantile, so each
+    /// equal-probability bin's conditional mean is the truncated standard-normal mean
+    /// m_b = B·(φ(z_(b−1)) − φ(z_b)) and the total variance is the full unit variance, both
+    /// scaled identically by the map — the moment-independent pair saturates on the
+    /// deterministic map, and repeated queries are bit-identical.
+    /// </summary>
+    /// <remarks>
+    /// Tolerance 2e-3 relative: the Latin-hypercube design makes each conditioning bin's
+    /// membership exactly the 250 consecutive strata of its probability slice, so the bin
+    /// means carry only within-stratum placement jitter (each draw uniform inside a 1/5,000
+    /// probability cell) and the shared-denominator variance estimate is stratified the same
+    /// way — orders below the plain Monte Carlo bin-mean error the tolerance would otherwise
+    /// need. The saturation floors on the moment-independent pair are behavior bounds only;
+    /// their estimator evidence is the upstream analytic Ishigami/Sobol-g battery plus the
+    /// fast suite's bit-parity against direct upstream calls.
+    /// </remarks>
+    [TestMethod]
+    public void Test_GivenDataMeasures_LinearMap_SobolMatchesClosedBinnedForm()
+    {
+        // Arrange / Act — Scenario L at N = 5,000 (250 realizations per conditioning bin).
+        var analysis = Build(uncertainFragility: false, uncertainConsequence: true, LinearRealizations);
+        analysis.RunAsync().GetAwaiter().GetResult();
+        var sobol = analysis.MeasureSensitivity(RiskMeasure.Mean, RiskType.Total, SensitivityMeasure.FirstOrderSobol, componentIndex: 0)!;
+        var pawn = analysis.MeasureSensitivity(RiskMeasure.Mean, RiskType.Total, SensitivityMeasure.PawnMedian, componentIndex: 0)!;
+        var delta = analysis.MeasureSensitivity(RiskMeasure.Mean, RiskType.Total, SensitivityMeasure.BorgonovoDelta, componentIndex: 0)!;
+        var repeat = analysis.MeasureSensitivity(RiskMeasure.Mean, RiskType.Total, SensitivityMeasure.FirstOrderSobol, componentIndex: 0)!;
+
+        // The exact binned form over B equal-probability slices of the standard normal.
+        const int bins = 20;
+        double exact = 0d;
+        for (int b = 0; b < bins; b++)
+        {
+            double zLow = b == 0 ? double.NegativeInfinity : Normal.StandardZ((double)b / bins);
+            double zHigh = b == bins - 1 ? double.PositiveInfinity : Normal.StandardZ((double)(b + 1) / bins);
+            double low = double.IsInfinity(zLow) ? 0d : Math.Exp(-0.5d * zLow * zLow) / Math.Sqrt(2d * Math.PI);
+            double high = double.IsInfinity(zHigh) ? 0d : Math.Exp(-0.5d * zHigh * zHigh) / Math.Sqrt(2d * Math.PI);
+            double mean = bins * (low - high);
+            exact += mean * mean / bins;
+        }
+
+        // Assert
+        Assert.AreEqual(1, sobol.Entries.Count, "The single coupling draw is the only knowledge input.");
+        Assert.AreEqual(exact, sobol.Entries[0].Value, 2e-3 * exact,
+            "The given-data Sobol index must match the exact binned truncated-normal form.");
+        Assert.IsTrue(pawn.Entries[0].Value > 0.6d, "A deterministic map separates the conditional distributions.");
+        Assert.IsTrue(delta.Entries[0].Value > 0.5d, "A deterministic map concentrates the conditional classes.");
+        Assert.AreEqual(sobol.Entries[0].Value, repeat.Entries[0].Value, 0d, "Repeated queries are bit-identical.");
+    }
 }

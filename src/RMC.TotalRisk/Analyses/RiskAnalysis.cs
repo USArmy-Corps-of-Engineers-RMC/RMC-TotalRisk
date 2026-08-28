@@ -2057,10 +2057,11 @@ namespace RMC.TotalRisk.Analyses
         }
 
         /// <summary>
-        /// The equal-weight bin count behind the given-data value-of-information estimates —
-        /// the documented convention shared with the upstream given-data sensitivity measures.
+        /// The bin count behind every given-data estimator: the value-of-information
+        /// conditioning and the given-data sensitivity measures share this documented
+        /// convention with the upstream global-sensitivity defaults.
         /// </summary>
-        private const int ValueOfInformationBins = 20;
+        private const int GivenDataBins = 20;
 
         /// <summary>
         /// Computes the value of information for one stored scalar risk measure: for every
@@ -2176,7 +2177,7 @@ namespace RMC.TotalRisk.Analyses
             var entries = new List<ValueOfInformationEntry>(inputs.Count);
             for (int c = 0; c < inputs.Count; c++)
             {
-                var effect = ValueOfInformationEstimator.MainEffect(columns[c], outputs, weights, ValueOfInformationBins);
+                var effect = ValueOfInformationEstimator.MainEffect(columns[c], outputs, weights, GivenDataBins);
                 double share = totalVariance > 0d ? effect.ResolvableVariance / totalVariance : double.NaN;
                 entries.Add(new ValueOfInformationEntry(inputs[c].Label, inputs[c].GroupLabel,
                     effect.ResolvableVariance, share, effect.Pairs));
@@ -2235,7 +2236,7 @@ namespace RMC.TotalRisk.Analyses
                     for (int c = 0; c < inputs.Count; c++)
                     {
                         entryMovements[c] = ValueOfInformationEstimator.ExceedanceMovement(columns[c], criterionOutputs,
-                            weights, ValueOfInformationBins, criterion.Threshold);
+                            weights, GivenDataBins, criterion.Threshold);
                     }
                     movements.Add(new TolerableRiskConfidenceMovement(criterion.Measure.ToString(),
                         criterion.RiskType.ToString(), criterion.ConsequenceTypeIndex, criterion.Threshold, baseline,
@@ -2247,7 +2248,7 @@ namespace RMC.TotalRisk.Analyses
                 ? "System"
                 : failureModeIndex < 0 ? _components[componentIndex].Name : $"{_components[componentIndex].Name} mode {failureModeIndex + 1}";
             return new ValueOfInformationResults($"{outputMeasure} — {riskType} — {scopeLabel}", riskType, outputMeasure,
-                consequenceType, ValueOfInformationBins, valid, totalVariance, entries, groups, movements);
+                consequenceType, GivenDataBins, valid, totalVariance, entries, groups, movements);
         }
 
         /// <summary>
@@ -2403,24 +2404,31 @@ namespace RMC.TotalRisk.Analyses
 
         /// <summary>
         /// Correlates every input column against an output vector: pairwise NaN filtering on
-        /// the output, the selected association per column (a non-finite correlation coerces to
-        /// zero — the v1.0 convention), entries in walk order.
+        /// the output, the selected association per column (a non-finite association coerces to
+        /// zero — the v1.0 convention), entries in walk order. The given-data measures route
+        /// through the upstream global-sensitivity estimators under the documented bin
+        /// convention and need at least as many valid pairs as bins.
         /// </summary>
         /// <param name="inputs">The labeled input columns.</param>
         /// <param name="outputs">The per-realization output values (NaN = unavailable).</param>
         /// <param name="measure">The association measure.</param>
         /// <param name="riskType">The output's stream (carried on the result).</param>
         /// <param name="outputLabel">The output's display label.</param>
-        /// <returns>The result, or null when fewer than three valid pairs remain.</returns>
+        /// <returns>
+        /// The result, or null when fewer than three valid pairs remain — fewer than the bin
+        /// convention for a given-data measure.
+        /// </returns>
         private static SensitivityResults? Correlate(List<SensitivityInput> inputs, double[] outputs,
             SensitivityMeasure measure, RiskType riskType, string outputLabel)
         {
+            bool givenData = measure is SensitivityMeasure.FirstOrderSobol
+                or SensitivityMeasure.PawnMedian or SensitivityMeasure.BorgonovoDelta;
             var validIndices = new List<int>(outputs.Length);
             for (int i = 0; i < outputs.Length; i++)
             {
                 if (!double.IsNaN(outputs[i])) validIndices.Add(i);
             }
-            if (validIndices.Count < 3) return null;
+            if (validIndices.Count < (givenData ? GivenDataBins : 3)) return null;
 
             int count = validIndices.Count;
             var outputVector = new double[count];
@@ -2442,12 +2450,39 @@ namespace RMC.TotalRisk.Analyses
                 {
                     SensitivityMeasure.PearsonCorrelation => Correlation.Pearson(inputVector, outputVector),
                     SensitivityMeasure.SpearmanCorrelation => Correlation.Spearman(inputVector, outputVector),
+                    SensitivityMeasure.FirstOrderSobol or SensitivityMeasure.PawnMedian or SensitivityMeasure.BorgonovoDelta
+                        => GivenDataAssociation(measure, inputVector, outputVector),
                     _ => Tools.Sqr(Correlation.Pearson(inputVector, outputVector)),
                 };
                 if (!Tools.IsFinite(value)) value = 0d;
                 entries.Add(new SensitivityEntry(inputs[c].Label, value));
             }
             return new SensitivityResults(outputLabel, riskType, measure, count, entries);
+        }
+
+        /// <summary>
+        /// Evaluates one given-data association through the upstream global-sensitivity
+        /// estimators: the first-order Sobol index, the PAWN median, or Borgonovo's delta,
+        /// each under the documented bin convention. A non-finite value anywhere in either
+        /// vector reports NaN (the caller's zero-coercion convention) rather than faulting the
+        /// whole query on one corrupt column.
+        /// </summary>
+        /// <param name="measure">The given-data measure.</param>
+        /// <param name="inputs">The column's valid-pair input values.</param>
+        /// <param name="outputs">The valid-pair output values.</param>
+        /// <returns>The association, or NaN for a non-finite sample.</returns>
+        private static double GivenDataAssociation(SensitivityMeasure measure, double[] inputs, double[] outputs)
+        {
+            for (int i = 0; i < inputs.Length; i++)
+            {
+                if (!Tools.IsFinite(inputs[i]) || !Tools.IsFinite(outputs[i])) return double.NaN;
+            }
+            return measure switch
+            {
+                SensitivityMeasure.FirstOrderSobol => GlobalSensitivity.FirstOrderSobol(inputs, outputs, GivenDataBins),
+                SensitivityMeasure.PawnMedian => GlobalSensitivity.PawnMedian(inputs, outputs, GivenDataBins),
+                _ => GlobalSensitivity.BorgonovoDelta(inputs, outputs, GivenDataBins, GivenDataBins),
+            };
         }
 
         #endregion

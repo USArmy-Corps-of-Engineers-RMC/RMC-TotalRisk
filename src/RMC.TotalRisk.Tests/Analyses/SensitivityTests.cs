@@ -4,8 +4,10 @@ using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Numerics.Data;
+using Numerics.Data.Statistics;
 using Numerics.Distributions;
 using RMC.TotalRisk.Analyses;
+using RMC.TotalRisk.Core;
 using RMC.TotalRisk.Core.Enums;
 using RMC.TotalRisk.Core.Interfaces;
 using RMC.TotalRisk.Results;
@@ -136,6 +138,9 @@ public class SensitivityTests
         Assert.AreEqual(0, (int)SensitivityMeasure.PearsonCorrelation);
         Assert.AreEqual(1, (int)SensitivityMeasure.SpearmanCorrelation);
         Assert.AreEqual(2, (int)SensitivityMeasure.SensitivityIndex);
+        Assert.AreEqual(3, (int)SensitivityMeasure.FirstOrderSobol);
+        Assert.AreEqual(4, (int)SensitivityMeasure.PawnMedian);
+        Assert.AreEqual(5, (int)SensitivityMeasure.BorgonovoDelta);
 
         Assert.AreEqual(0, (int)RiskMeasure.TotalProbability);
         Assert.AreEqual(1, (int)RiskMeasure.ConditionalMean);
@@ -172,6 +177,69 @@ public class SensitivityTests
             "The sensitivity index is the squared Pearson correlation.");
         Assert.AreEqual(100, spearman.Realizations);
         Assert.AreEqual(RiskType.Fail, spearman.RiskType);
+    }
+
+    /// <summary>
+    /// Verifies the given-data measures behind the engine: each entry equals the direct
+    /// upstream estimator call over the re-derived knowledge column and the stored outputs
+    /// bit-exactly (the plumbing proof), and the deterministic monotone single-input map
+    /// drives all three toward their saturated upper ranges.
+    /// </summary>
+    [TestMethod]
+    public async Task Test_GivenDataMeasures_MatchDirectUpstreamCalls()
+    {
+        // Arrange — the stored component-scope outputs and the re-derived knowledge column.
+        var analysis = await RunFull(Component());
+        var outputs = new double[100];
+        for (int i = 0; i < 100; i++)
+        {
+            outputs[i] = analysis.RiskResults![i]!.ComponentResults[0].Fail.TotalProbability;
+        }
+        var components = new List<SystemComponent>(analysis.Components);
+        SystemComponent.AssignOccurrenceIndices(components);
+        int seed = SeedHelpers.HashCombine(analysis.Options.PRNGSeed, components[0].CanonicalHash(), components[0].OccurrenceIndex);
+        components[0].SetupSamplers(100, seed, analysis.Options.SamplingScheme);
+        var inputs = new List<SensitivityInput>();
+        components[0].CollectSensitivityInputs(inputs);
+        var column = new double[100];
+        for (int i = 0; i < 100; i++) column[i] = inputs[0].Read(i);
+
+        // Act
+        var sobol = analysis.MeasureSensitivity(RiskMeasure.TotalProbability, RiskType.Fail, SensitivityMeasure.FirstOrderSobol, componentIndex: 0)!;
+        var pawn = analysis.MeasureSensitivity(RiskMeasure.TotalProbability, RiskType.Fail, SensitivityMeasure.PawnMedian, componentIndex: 0)!;
+        var delta = analysis.MeasureSensitivity(RiskMeasure.TotalProbability, RiskType.Fail, SensitivityMeasure.BorgonovoDelta, componentIndex: 0)!;
+
+        // Assert — bit agreement with the upstream estimators on the identical sample.
+        Assert.AreEqual(GlobalSensitivity.FirstOrderSobol(column, outputs), sobol.Entries[0].Value, 0d,
+            "The engine routes the same column and outputs through the upstream Sobol estimator.");
+        Assert.AreEqual(GlobalSensitivity.PawnMedian(column, outputs), pawn.Entries[0].Value, 0d,
+            "The engine routes the same column and outputs through the upstream PAWN estimator.");
+        Assert.AreEqual(GlobalSensitivity.BorgonovoDelta(column, outputs), delta.Entries[0].Value, 0d,
+            "The engine routes the same column and outputs through the upstream Borgonovo estimator.");
+        Assert.IsTrue(sobol.Entries[0].Value > 0.9d, "A deterministic monotone map saturates the main-effect share.");
+        Assert.IsTrue(pawn.Entries[0].Value > 0.6d, "A deterministic map separates the conditional distributions.");
+        Assert.IsTrue(delta.Entries[0].Value > 0.5d, "A deterministic map concentrates the conditional classes.");
+        Assert.AreEqual(SensitivityMeasure.FirstOrderSobol, sobol.Measure);
+    }
+
+    /// <summary>
+    /// Verifies the given-data sample floor: a design smaller than the bin convention returns
+    /// null rather than a noise-dominated result, while the correlation members still answer
+    /// on the same design.
+    /// </summary>
+    [TestMethod]
+    public async Task Test_GivenData_BelowBinConvention_ReturnsNull()
+    {
+        // Arrange
+        var analysis = await RunFull(Component());
+
+        // Act
+        var givenData = analysis.HazardLevelSensitivity(0, 15d, SensitivityMeasure.BorgonovoDelta, RiskType.Fail, realizations: 10);
+        var correlation = analysis.HazardLevelSensitivity(0, 15d, SensitivityMeasure.PearsonCorrelation, RiskType.Fail, realizations: 10);
+
+        // Assert
+        Assert.IsNull(givenData, "Fewer valid pairs than bins cannot support a given-data estimate.");
+        Assert.IsNotNull(correlation, "The correlation members keep the three-pair floor.");
     }
 
     /// <summary>

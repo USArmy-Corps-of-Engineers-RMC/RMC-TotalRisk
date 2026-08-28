@@ -17,6 +17,13 @@ namespace RMC.TotalRisk.Core.Enums
     /// of the RMC-TotalRisk Technical Reference Manual, Appendix G (Eq. 249–250), and the
     /// indices sum to at most one across inputs.
     /// </para>
+    /// <para>
+    /// The given-data members route through the Numerics given-data global-sensitivity
+    /// estimators over the same stored realizations, under the documented 20-bin convention:
+    /// they see nonlinear and (for the moment-independent pair) distribution-shape effects the
+    /// correlation members cannot, and they require at least as many valid realization pairs
+    /// as bins — a smaller sample returns no result rather than a noise-dominated one.
+    /// </para>
     /// </remarks>
     public enum SensitivityMeasure
     {
@@ -36,5 +43,26 @@ namespace RMC.TotalRisk.Core.Enums
         /// contribution to the output variance.
         /// </summary>
         SensitivityIndex = 2,
+
+        /// <summary>
+        /// The given-data first-order Sobol index: the variance of the conditional output mean
+        /// across equal-frequency input bins over the output variance — the main-effect
+        /// variance share without the linearity assumption of <see cref="SensitivityIndex"/>.
+        /// </summary>
+        FirstOrderSobol = 3,
+
+        /// <summary>
+        /// The PAWN median: the median across input bins of the Kolmogorov–Smirnov distance
+        /// between the conditional and unconditional output distributions — moment-independent,
+        /// sensitive to tail and shape effects a variance share cannot see.
+        /// </summary>
+        PawnMedian = 4,
+
+        /// <summary>
+        /// Borgonovo's delta via the double-histogram total-variation estimator over rank
+        /// classes — moment-independent and exactly invariant under monotone re-expression of
+        /// the input.
+        /// </summary>
+        BorgonovoDelta = 5,
     }
 }
