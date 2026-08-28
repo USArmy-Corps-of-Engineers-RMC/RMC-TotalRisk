@@ -220,6 +220,30 @@ configured, never an influence on sampling seeds — and
 ensemble summary and therefore no confidence block; validation warns when criteria are
 configured on one.
 
+### 6.3 Retained realizations and post-hoc re-banding
+
+The percentile bands are assembled from the full per-realization curve sets, which are normally
+released after the run — the stored ensemble keeps only the scalar summaries, which is exactly
+why new weights re-reduce the *scalar* catalog but cannot re-draw the *curves*. Enabling
+`RiskAnalysis.RetainRealizations` keeps the complete realization ensemble on
+`RetainedRealizations` (runtime-only diagnostic state: never serialized, never hashed, no
+influence on any computed value — the published results are byte-identical either way), and
+`ReassemblePercentileBands(weights)` re-runs the weight-aware percentile assembly over the
+retained state, returning fresh lower/upper/median/mean band realizations without touching the
+published ones. Because weights never move a sampled realization, the post-hoc weighted re-band
+is **exactly** the band set a run carrying those weights as its input would have published —
+pinned byte-for-byte by test — completing the weighted-ensemble story: likelihood re-weighting
+or scenario credibilities assigned after the run re-band the confidence curves with no
+re-simulation. Validation warns while retention is on (the ensemble's full curve sets stay in
+memory); a mean-only run has no ensemble and retains nothing.
+
+A second, orthogonal selector exposes the integration ledger itself:
+`RetainedIntegrationDetailIndex` (−1 for the mean-only pass, a realization index for the
+ensemble) skips the selected realization's memory dump, so `RetainedIntegrationDetail` carries
+every recorded `(hazard level, non-exceedance, mass, per-entry response probabilities,
+per-entry consequences)` point on its component curves — the material to show how the integral
+was built. Risk points never serialize, so the selection cannot move a stored byte.
+
 ## 7. Diagnostics
 
 The library computes and serializes the diagnostic substance; plotting (kernel densities, tornado

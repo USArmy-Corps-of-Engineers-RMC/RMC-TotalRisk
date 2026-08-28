@@ -109,6 +109,18 @@ identification), the failure is recorded in the runtime-only `EnsembleResults.Lo
 and an analysis restored over the cleared container reports unestimated — the analysis must be
 rerun and its results saved again.
 
+## Retained realizations (runtime-only)
+
+Two opt-in diagnostic surfaces on the analysis expose state the run normally releases, neither
+of them serialized, hashed, or able to move a published byte: `RetainRealizations` keeps the
+full per-realization ensemble on `RetainedRealizations` and enables
+`ReassemblePercentileBands(weights)` — the post-hoc weighted re-band whose output is
+byte-identical to a run that carried those weights as its input — and
+`RetainedIntegrationDetailIndex` keeps one selected realization's recorded risk-point ledger on
+`RetainedIntegrationDetail` (−1 selects the mean-only pass). Both are cleared and replaced by
+each run; validation warns about the memory cost while retention is on. The mechanics live in
+[uncertainty-analysis §6.3](uncertainty-analysis.md).
+
 ## Tolerable-risk confidence
 
 `EnsembleSummary.TolerableRiskConfidence` carries the evaluated epistemic guideline statements —

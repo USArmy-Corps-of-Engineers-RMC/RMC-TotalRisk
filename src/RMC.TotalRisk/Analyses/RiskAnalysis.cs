@@ -399,6 +399,12 @@ namespace RMC.TotalRisk.Analyses
             /// <summary>Gets or sets the captured sampler seed map.</summary>
             internal SamplerSeedMap CapturedSeeds { get; set; } = null!;
 
+            /// <summary>Gets or sets the retained per-realization ensemble, when retention is enabled.</summary>
+            internal SystemRealization[]? RetainedRealizations { get; set; }
+
+            /// <summary>Gets or sets the retained integration-detail realization, when one is selected.</summary>
+            internal SystemRealization? RetainedIntegrationDetail { get; set; }
+
             /// <summary>Gets the structured computation diagnostics staged with the result.</summary>
             internal List<ComputationDiagnostic> Diagnostics { get; } = new List<ComputationDiagnostic>();
         }
@@ -433,6 +439,28 @@ namespace RMC.TotalRisk.Analyses
 
         /// <summary>The immutable public view over <see cref="_realizationWeights"/>.</summary>
         private ReadOnlyCollection<double>? _realizationWeightsView;
+
+        /// <summary>Backing field for <see cref="RetainRealizations"/>.</summary>
+        private bool _retainRealizations;
+
+        /// <summary>Backing field for <see cref="RetainedIntegrationDetailIndex"/>.</summary>
+        private int? _retainedIntegrationDetailIndex;
+
+        /// <summary>Backing field for <see cref="RetainedRealizations"/>.</summary>
+        private SystemRealization[]? _retainedRealizations;
+
+        /// <summary>Backing field for <see cref="RetainedIntegrationDetail"/>.</summary>
+        private SystemRealization? _retainedIntegrationDetail;
+
+        /// <summary>The run-start snapshot of <see cref="RetainRealizations"/>.</summary>
+        private bool _runRetainRealizations;
+
+        /// <summary>
+        /// The run-start snapshot of <see cref="RetainedIntegrationDetailIndex"/> the
+        /// realization loop compares against — a mid-run reassignment never reaches the
+        /// running computation.
+        /// </summary>
+        private int? _runRetainedDetailIndex;
 
         /// <summary>Backing field for <see cref="ComputationWarnings"/>.</summary>
         private readonly List<string> _computationWarnings = new List<string>();
@@ -653,6 +681,62 @@ namespace RMC.TotalRisk.Analyses
         }
 
         /// <summary>
+        /// Whether the next full-uncertainty run keeps its complete per-realization ensemble on
+        /// <see cref="RetainedRealizations"/> instead of discarding it after the percentile
+        /// assembly. Runtime-only diagnostic state: never serialized, never hashed, never an
+        /// influence on any computed value — the run's published results are byte-identical
+        /// either way. Off by default because retention holds every realization's full curve
+        /// sets in memory (<see cref="Validate"/> warns while it is on); a mean-only run has no
+        /// ensemble and ignores it. Enables <see cref="ReassemblePercentileBands"/>.
+        /// </summary>
+        public bool RetainRealizations
+        {
+            get { return _retainRealizations; }
+            set
+            {
+                _retainRealizations = value;
+                RaisePropertyChange(nameof(RetainRealizations));
+            }
+        }
+
+        /// <summary>
+        /// The realization whose recorded integration detail the next run keeps: −1 for the
+        /// mean-only pass, a realization index for the full-uncertainty ensemble, null for
+        /// none (the default — every realization releases its recorded risk points after
+        /// post-processing). Runtime-only diagnostic state with no influence on any computed or
+        /// serialized value: risk points never serialize, so the selection cannot move a stored
+        /// byte. The matching realization skips its memory dump and is exposed on
+        /// <see cref="RetainedIntegrationDetail"/> with every recorded
+        /// (hazard, probability, mass, consequence) point intact.
+        /// </summary>
+        public int? RetainedIntegrationDetailIndex
+        {
+            get { return _retainedIntegrationDetailIndex; }
+            set
+            {
+                _retainedIntegrationDetailIndex = value;
+                RaisePropertyChange(nameof(RetainedIntegrationDetailIndex));
+            }
+        }
+
+        /// <summary>
+        /// The retained per-realization ensemble of the last run, when
+        /// <see cref="RetainRealizations"/> was enabled; null otherwise. The realizations are
+        /// the run's own objects — read them, never mutate them. Valid for the model state
+        /// that produced them (the same contract every diagnostic over stored results carries).
+        /// </summary>
+        public IReadOnlyList<SystemRealization>? RetainedRealizations => _retainedRealizations;
+
+        /// <summary>
+        /// The realization retained with its full recorded integration detail, when
+        /// <see cref="RetainedIntegrationDetailIndex"/> selected one; null otherwise. Its
+        /// curves keep their recorded risk points — the (hazard level, non-exceedance, mass,
+        /// per-entry response probabilities, per-entry consequences) ledger the integral was
+        /// built from.
+        /// </summary>
+        public SystemRealization? RetainedIntegrationDetail => _retainedIntegrationDetail;
+
+        /// <summary>
         /// The computational warnings raised by the last run (negative consequences clamped,
         /// mutually-exclusive probabilities normalized, exhaustive mass-balance drift) — the
         /// headless replacement for the v1.0 messenger surface.
@@ -748,6 +832,28 @@ namespace RMC.TotalRisk.Analyses
             if (_options.TolerableRiskCriteria.Count > 0 && _options.EstimateMeanRiskOnly)
             {
                 messages.Add("Warning: Tolerable-risk criteria evaluate on the full-uncertainty ensemble; a mean-only run does not produce them.");
+            }
+
+            if (_retainRealizations)
+            {
+                if (_options.EstimateMeanRiskOnly)
+                {
+                    messages.Add("Warning: Realization retention applies to the full-uncertainty ensemble; a mean-only run retains nothing.");
+                }
+                else
+                {
+                    messages.Add($"Warning: Retaining the realization ensemble holds all {_options.Realizations:N0} per-realization curve sets in memory after the run; intended for diagnostics and re-banding, not routine runs.");
+                }
+            }
+            if (_retainedIntegrationDetailIndex is int retainedIndex)
+            {
+                bool matchable = _options.EstimateMeanRiskOnly
+                    ? retainedIndex == -1
+                    : retainedIndex >= 0 && retainedIndex < _options.Realizations;
+                if (!matchable)
+                {
+                    messages.Add($"Warning: The retained integration-detail index ({retainedIndex}) matches no realization of this run (−1 selects the mean-only pass; a full run computes indices 0 through {_options.Realizations - 1:N0}); nothing will be retained.");
+                }
             }
 
             if (_components.Count == 0)
@@ -1325,10 +1431,13 @@ namespace RMC.TotalRisk.Analyses
                 AnalysisRunPublication? publication = null;
 
                 // Snapshot the run-input epistemic weights with the rest of the author state:
-                // the running computation must not observe a mid-run reassignment.
+                // the running computation must not observe a mid-run reassignment. The
+                // retention selectors snapshot the same way.
                 double[]? runRealizationWeights = _realizationWeights == null
                     ? null
                     : (double[])_realizationWeights.Clone();
+                _runRetainRealizations = _retainRealizations;
+                _runRetainedDetailIndex = _retainedIntegrationDetailIndex;
 
                 await Task.Run(() =>
                 {
@@ -1440,6 +1549,45 @@ namespace RMC.TotalRisk.Analyses
             }
         }
 
+        /// <summary>
+        /// Re-assembles the mean, median, and confidence-bound curve sets from the retained
+        /// realization ensemble under new epistemic weights — post-hoc weighted re-banding with
+        /// no re-simulation: the retained realizations are the run's own sampled state, so the
+        /// returned bands are exactly what a run with these weights as its run input would have
+        /// published. The published results are never modified; fresh staged realizations are
+        /// returned.
+        /// </summary>
+        /// <param name="weights">
+        /// The realization weights (one per retained realization, the shared weight rule), or
+        /// null for the unweighted assembly.
+        /// </param>
+        /// <returns>The freshly assembled lower, upper, median, and mean realizations.</returns>
+        /// <exception cref="InvalidOperationException">Thrown when no retained ensemble exists — enable <see cref="RetainRealizations"/> and run first.</exception>
+        /// <exception cref="ArgumentException">Thrown when the weight vector fails the shared weight rule.</exception>
+        /// <remarks>
+        /// Valid for the model and options state that produced the retained ensemble (the same
+        /// contract every diagnostic over stored results carries); the assembly reads the
+        /// configured confidence-interval width and output length.
+        /// </remarks>
+        public (SystemRealization? Lower, SystemRealization? Upper, SystemRealization? Median, SystemRealization? Mean)
+            ReassemblePercentileBands(IList<double>? weights = null)
+        {
+            var retained = _retainedRealizations
+                ?? throw new InvalidOperationException("No retained realization ensemble exists. Enable RetainRealizations and run the analysis first.");
+            double[]? vector = null;
+            if (weights != null)
+            {
+                vector = new double[weights.Count];
+                for (int i = 0; i < vector.Length; i++) vector[i] = weights[i];
+                string? reason = EnsembleResults.DescribeInvalidWeights(vector, retained.Length, out _);
+                if (reason != null)
+                {
+                    throw new ArgumentException($"The realization weights are invalid. {reason}", nameof(weights));
+                }
+            }
+            return PostProcessUncertainty(retained, vector, CancellationToken.None);
+        }
+
         #endregion
 
         #region Serialization
@@ -1483,6 +1631,8 @@ namespace RMC.TotalRisk.Analyses
             _medianRiskResults = null;
             _lowerRiskResults = null;
             _upperRiskResults = null;
+            _retainedRealizations = null;
+            _retainedIntegrationDetail = null;
             CapturedSamplerSeeds = null;
             _computationWarnings.Clear();
             _computationDiagnostics.Clear();
@@ -1492,6 +1642,8 @@ namespace RMC.TotalRisk.Analyses
             RaisePropertyChange(nameof(MedianRiskResults));
             RaisePropertyChange(nameof(LowerRiskResults));
             RaisePropertyChange(nameof(UpperRiskResults));
+            RaisePropertyChange(nameof(RetainedRealizations));
+            RaisePropertyChange(nameof(RetainedIntegrationDetail));
             RaisePropertyChange(nameof(ComputationWarnings));
             RaisePropertyChange(nameof(ComputationDiagnostics));
         }
@@ -1508,6 +1660,8 @@ namespace RMC.TotalRisk.Analyses
             _medianRiskResults = publication.Median;
             _lowerRiskResults = publication.Lower;
             _upperRiskResults = publication.Upper;
+            _retainedRealizations = publication.RetainedRealizations;
+            _retainedIntegrationDetail = publication.RetainedIntegrationDetail;
             CapturedSamplerSeeds = publication.CapturedSeeds;
             _computationWarnings.Clear();
             _computationDiagnostics.Clear();
@@ -1522,6 +1676,8 @@ namespace RMC.TotalRisk.Analyses
             RaisePropertyChange(nameof(MedianRiskResults));
             RaisePropertyChange(nameof(LowerRiskResults));
             RaisePropertyChange(nameof(UpperRiskResults));
+            RaisePropertyChange(nameof(RetainedRealizations));
+            RaisePropertyChange(nameof(RetainedIntegrationDetail));
             RaisePropertyChange(nameof(ComputationWarnings));
             RaisePropertyChange(nameof(ComputationDiagnostics));
         }
@@ -1578,6 +1734,7 @@ namespace RMC.TotalRisk.Analyses
                 Results = ensemble,
                 Mean = realization,
             };
+            if (_runRetainedDetailIndex == -1) publication.RetainedIntegrationDetail = realization;
             CollectDiagnostics(flags, publication.Diagnostics, realization);
             progressReporter?.ReportProgress(100d);
             return publication;
@@ -1661,6 +1818,11 @@ namespace RMC.TotalRisk.Analyses
                 Lower = percentiles.Lower,
                 Upper = percentiles.Upper,
             };
+            if (_runRetainRealizations) publication.RetainedRealizations = realizations;
+            if (_runRetainedDetailIndex is int detailIndex && detailIndex >= 0 && detailIndex < realizationCount)
+            {
+                publication.RetainedIntegrationDetail = realizations[detailIndex];
+            }
             CollectDiagnostics(mergedFlags, publication.Diagnostics, publication.Mean);
             return publication;
         }
@@ -2539,7 +2701,7 @@ namespace RMC.TotalRisk.Analyses
             if (_components.Count > 1 && _options.SystemRiskMethod == SystemRiskType.JointRiskMethod)
             {
                 IntegrateJointSystem(sampledComponents, componentRealizations, realization, flags, realizationIndex, token);
-                realization.DumpMemory();
+                if (_runRetainedDetailIndex != realizationIndex) realization.DumpMemory();
                 return realization;
             }
 
@@ -2584,7 +2746,7 @@ namespace RMC.TotalRisk.Analyses
                 AggregateAdditiveSystem(realization, componentRealizations, token);
             }
 
-            realization.DumpMemory();
+            if (_runRetainedDetailIndex != realizationIndex) realization.DumpMemory();
             return realization;
         }
 
