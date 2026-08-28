@@ -777,17 +777,30 @@ namespace RMC.TotalRisk.RiskFunctions.Hazards
         }
 
         /// <summary>
-        /// Precomputes the realization-independent discretization vectors: N + 1 conditional
-        /// nodes t_j = j/N with the endpoint nodes clamped to [1e-16, 1 − 1e-16], and the
-        /// trapezoid weights with the last computed as the exact residual so the ordered weight
-        /// sum is exactly one in floating point.
+        /// Precomputes the realization-independent discretization vectors for the configured
+        /// bin count.
         /// </summary>
         private void BuildConditionalVectors()
         {
             int bins = _secondaryIntegrationBins;
             var nodes = new double[bins + 1];
             var weights = new double[bins + 1];
+            BuildConditionalVectors(bins, nodes, weights);
+            _conditionalNodes = nodes;
+            _conditionalWeights = weights;
+        }
 
+        /// <summary>
+        /// Fills the discretization vectors for a bin count: N + 1 conditional nodes t_j = j/N
+        /// with the endpoint nodes clamped to [1e-16, 1 − 1e-16], and the trapezoid weights
+        /// with the last computed as the exact residual so the ordered weight sum is exactly
+        /// one in floating point.
+        /// </summary>
+        /// <param name="bins">The bin count.</param>
+        /// <param name="nodes">Receives the N + 1 conditional nodes.</param>
+        /// <param name="weights">Receives the index-aligned trapezoid weights.</param>
+        private static void BuildConditionalVectors(int bins, double[] nodes, double[] weights)
+        {
             double interior = 1d / bins;
             double running = 0d;
             for (int j = 0; j < bins; j++)
@@ -798,9 +811,37 @@ namespace RMC.TotalRisk.RiskFunctions.Hazards
             }
             nodes[bins] = 1d - ProbabilityFloor;
             weights[bins] = 1d - running;
+        }
 
-            _conditionalNodes = nodes;
-            _conditionalWeights = weights;
+        /// <summary>
+        /// Builds a mean diagnostic snapshot at an arbitrary bin count — the same mean Y
+        /// marginal and cloned copula as <see cref="SampleBivariate()"/> over freshly derived
+        /// discretization vectors — without touching the stored bin count, the precomputed
+        /// vectors, the canonical hash, or any seed. The discretization-error diagnostic
+        /// evaluates the mean pass at halved counts through this snapshot.
+        /// </summary>
+        /// <param name="bins">The diagnostic bin count, inside the configured [3, 1000] range.</param>
+        /// <returns>The mean snapshot at the diagnostic count.</returns>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown when the count is outside the supported range.</exception>
+        /// <exception cref="InvalidOperationException">
+        /// Thrown when the bivariate configuration is invalid, or when <see cref="SetupSampler"/>
+        /// has not been called since the last bin-count change.
+        /// </exception>
+        internal SampledBivariateHazard SampleBivariateAt(int bins)
+        {
+            if (bins < MinimumSecondaryIntegrationBins || bins > MaximumSecondaryIntegrationBins)
+            {
+                throw new ArgumentOutOfRangeException(nameof(bins),
+                    $"The diagnostic bin count must be inside [{MinimumSecondaryIntegrationBins}, {MaximumSecondaryIntegrationBins}].");
+            }
+            ThrowIfUnusable();
+            if (_conditionalNodes == null || _conditionalWeights == null)
+                throw new InvalidOperationException("SetupSampler() must be called before sampling the bivariate snapshot.");
+
+            var nodes = new double[bins + 1];
+            var weights = new double[bins + 1];
+            BuildConditionalVectors(bins, nodes, weights);
+            return new SampledBivariateHazard(_marginalY!.SampleFunction(), _copula.Clone(), nodes, weights);
         }
 
         /// <summary>

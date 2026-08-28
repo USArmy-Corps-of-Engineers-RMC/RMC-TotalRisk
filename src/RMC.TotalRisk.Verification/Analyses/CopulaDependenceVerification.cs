@@ -604,4 +604,70 @@ public class CopulaDependenceVerification
         }
         Console.WriteLine($"marginal-uncertainty parity: {realizations} realizations, worst relative deviation {worst:G4}");
     }
+
+    /// <summary>
+    /// Verifies the secondary-axis discretization diagnostic against this family's measured
+    /// truth. (i) Level cross-pins: the diagnostic's halved and quartered evaluations must be
+    /// bit-identical to mean runs of the same fixture configured at those counts — the levels
+    /// are the engine itself at reduced grids, never a re-implementation. (ii) On the smooth
+    /// separable-log fixture (clean O(N⁻²) per the convergence study), the Richardson estimate
+    /// must land within a factor of two of the true bins = 20 error — in-regime the estimate
+    /// is e₂₀·(1 + O(N⁻²)) exactly — the observed ratio must sit near the second-order four,
+    /// and the extrapolated value must beat the configured-count value against the closed
+    /// form. (iii) On the legacy tail-concentrated fixture (the study's measured
+    /// pre-asymptotic series), the estimate must stay inside a documented indicative band of
+    /// the true error — one order each way — while the observed ratio falls below the
+    /// second-order four: the regime check flagging exactly the fixture the study flagged.
+    /// </summary>
+    [TestMethod]
+    public void Test_DiscretizationDiagnostic_TracksMeasuredErrors()
+    {
+        // Arrange — the smooth fixture at the default 20 bins, primary quadrature pinned at
+        // 1e-10 so every difference is the conditional discretization's (the study's rationale).
+        double ln10 = Math.Log(10d);
+        double smoothExact = 1e-4d * ((100d - 1d) / (2d * ln10)) * ((10d - 1d) / ln10);
+        var smoothAnalysis = new RiskAnalysis(new[] { SingleCellComponent(null, 20,
+            SingleCellSurface(1e-4d, 1e-3d, 1e-2d, 1e-1d, Transform.Logarithmic)) });
+        smoothAnalysis.Options.UseDefaults = false;
+        smoothAnalysis.Options.Tolerance = 1e-10;
+
+        // Act
+        var smooth = smoothAnalysis.EstimateSecondaryDiscretizationError(0);
+
+        // Assert — (i) the level cross-pins against independently configured models.
+        Assert.IsNotNull(smooth);
+        double atHalf = RunForFailureProbability(SingleCellComponent(null, 10,
+            SingleCellSurface(1e-4d, 1e-3d, 1e-2d, 1e-1d, Transform.Logarithmic)), pinTolerance: 1e-10);
+        double atQuarter = RunForFailureProbability(SingleCellComponent(null, 5,
+            SingleCellSurface(1e-4d, 1e-3d, 1e-2d, 1e-1d, Transform.Logarithmic)), pinTolerance: 1e-10);
+        Assert.AreEqual(atHalf, smooth!.FailureProbability.HalfValue, 0d,
+            "The halved level must equal a model configured at ten bins, bit-exactly.");
+        Assert.AreEqual(atQuarter, smooth.FailureProbability.QuarterValue, 0d,
+            "The quartered level must equal a model configured at five bins, bit-exactly.");
+
+        // (ii) the in-regime estimate against the true error.
+        double trueSmoothError = Math.Abs(smooth.FailureProbability.Value - smoothExact) / smoothExact;
+        double estimatedSmoothError = smooth.FailureProbability.EstimatedRelativeError;
+        Assert.IsTrue(estimatedSmoothError > 0.5d * trueSmoothError && estimatedSmoothError < 2d * trueSmoothError,
+            $"Smooth fixture: the Richardson estimate {estimatedSmoothError:G4} must sit within a factor of two of the true error {trueSmoothError:G4}.");
+        Assert.IsTrue(smooth.FailureProbability.ObservedRatio > 3d && smooth.FailureProbability.ObservedRatio < 5.5d,
+            $"Smooth fixture: the observed ratio {smooth.FailureProbability.ObservedRatio:G4} must sit near the second-order four.");
+        Assert.IsTrue(Math.Abs(smooth.FailureProbability.ExtrapolatedValue - smoothExact) < Math.Abs(smooth.FailureProbability.Value - smoothExact),
+            "The extrapolation must improve on the configured-count value in-regime.");
+
+        // (iii) the tail-concentrated legacy fixture — indicative band plus the regime flag.
+        double legacyExact = BivariateOracleFixtures.ExactMarginalizedSurface(0.8d);
+        var legacyAnalysis = new RiskAnalysis(new[] {
+            BivariateOracleFixtures.JointComponent(20, BivariateOracleFixtures.DegeneratePrimary(0.8d)) });
+        var legacy = legacyAnalysis.EstimateSecondaryDiscretizationError(0);
+        Assert.IsNotNull(legacy);
+        double trueLegacyError = Math.Abs(legacy!.FailureProbability.Value - legacyExact) / legacyExact;
+        double estimatedLegacyError = legacy.FailureProbability.EstimatedRelativeError;
+        Assert.IsTrue(trueLegacyError > 0.2d,
+            $"The legacy fixture's 20-bin error {trueLegacyError:G4} must reproduce the study's ≈ 0.353 inadequacy scale.");
+        Assert.IsTrue(estimatedLegacyError > 0.1d * trueLegacyError && estimatedLegacyError < 10d * trueLegacyError,
+            $"Legacy fixture: the estimate {estimatedLegacyError:G4} must stay within one order of the true error {trueLegacyError:G4} (indicative only, pre-asymptotic).");
+        Assert.IsTrue(double.IsNaN(legacy.FailureProbability.ObservedRatio) || legacy.FailureProbability.ObservedRatio < 3.5d,
+            $"Legacy fixture: the observed ratio {legacy.FailureProbability.ObservedRatio:G4} must fall below the second-order four — the regime check flagging the tail concentration.");
+    }
 }

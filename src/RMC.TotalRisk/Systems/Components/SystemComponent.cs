@@ -14,6 +14,7 @@ using RMC.TotalRisk.Core;
 using RMC.TotalRisk.Core.Enums;
 using RMC.TotalRisk.Core.Interfaces;
 using RMC.TotalRisk.Results;
+using RMC.TotalRisk.RiskFunctions.Hazards;
 using RMC.TotalRisk.RiskFunctions.Responses;
 using RMC.TotalRisk.RiskFunctions.Responses.Trees;
 using RMC.TotalRisk.Systems.Components.Graph;
@@ -1372,6 +1373,33 @@ namespace RMC.TotalRisk.Systems.Components
                 throw new InvalidOperationException("SetupSamplers() must be called before sampling.");
             }
             return new SampledComponent(this, _sampledModes, _sampledNonFailureMode, _sampledLayout, realizationIndex);
+        }
+
+        /// <summary>
+        /// Samples the mean component with its bivariate hazard's conditional discretization
+        /// replaced by a diagnostic snapshot at an arbitrary bin count — the
+        /// discretization-error diagnostic's entry point. The stored bin count, the canonical
+        /// hash, and every seed are untouched; only the returned snapshot differs.
+        /// </summary>
+        /// <param name="bins">The diagnostic bin count.</param>
+        /// <returns>The mean sampled component over the diagnostic conditional grid.</returns>
+        /// <exception cref="InvalidOperationException">
+        /// Thrown before <see cref="SetupSamplers(int, int, SamplingScheme)"/> has run, or when
+        /// the component's hazard is not a bivariate hazard.
+        /// </exception>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown when the count is outside the supported range.</exception>
+        internal SampledComponent SampleWithConditionalBins(int bins)
+        {
+            if (_sampledModes == null || _sampledLayout == null)
+            {
+                throw new InvalidOperationException("SetupSamplers() must be called before sampling.");
+            }
+            if (HazardFunction is not BivariateHazard bivariate)
+            {
+                throw new InvalidOperationException("The conditional-bin diagnostic requires a bivariate hazard.");
+            }
+            return new SampledComponent(this, _sampledModes, _sampledNonFailureMode, _sampledLayout, -1,
+                bivariate.SampleBivariateAt(bins));
         }
 
         /// <summary>

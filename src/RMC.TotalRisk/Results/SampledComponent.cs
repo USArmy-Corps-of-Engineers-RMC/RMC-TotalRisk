@@ -90,13 +90,19 @@ namespace RMC.TotalRisk.Results
         /// <param name="nonFailureMode">The projected non-failure mode, or null when the component has none.</param>
         /// <param name="layout">The end-state group layout over the projected modes, frozen with them.</param>
         /// <param name="realizationIndex">The realization index, or −1 for the mean functions.</param>
+        /// <param name="conditionalOverride">
+        /// An optional pre-built conditional snapshot replacing the hazard's own — the
+        /// discretization-error diagnostic passes a mean snapshot at a halved bin count; null
+        /// (the default, and every engine path) samples the hazard's configured snapshot.
+        /// </param>
         /// <exception cref="ArgumentNullException">Thrown when the component, mode list, or layout is null.</exception>
         /// <exception cref="InvalidOperationException">
         /// Thrown when the component has no hazard function, or when sampling by realization
         /// index before the samplers have been set up.
         /// </exception>
         internal SampledComponent(SystemComponent component, IReadOnlyList<FailureMode> projectedModes,
-            FailureMode? nonFailureMode, EndStateGroupLayout layout, int realizationIndex = -1)
+            FailureMode? nonFailureMode, EndStateGroupLayout layout, int realizationIndex = -1,
+            SampledBivariateHazard? conditionalOverride = null)
         {
             if (component == null) throw new ArgumentNullException(nameof(component));
             if (projectedModes == null) throw new ArgumentNullException(nameof(projectedModes));
@@ -120,7 +126,8 @@ namespace RMC.TotalRisk.Results
             // univariate component, whose construction and evaluation are untouched.
             if (hazardFunction is IBivariateHazardFunction bivariateHazard)
             {
-                _conditionalHazard = realizationIndex < 0 ? bivariateHazard.SampleBivariate() : bivariateHazard.SampleBivariate(realizationIndex);
+                _conditionalHazard = conditionalOverride
+                    ?? (realizationIndex < 0 ? bivariateHazard.SampleBivariate() : bivariateHazard.SampleBivariate(realizationIndex));
                 int nodeCount = _conditionalHazard.ConditionalNodeCount;
                 _binY = new double[nodeCount];
                 _binW = new double[nodeCount];

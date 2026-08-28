@@ -22,6 +22,7 @@ using RMC.TotalRisk.Core;
 using RMC.TotalRisk.Core.Enums;
 using RMC.TotalRisk.Core.Interfaces;
 using RMC.TotalRisk.Results;
+using RMC.TotalRisk.RiskFunctions.Hazards;
 using RMC.TotalRisk.Systems.Components;
 
 namespace RMC.TotalRisk.Analyses
@@ -1586,6 +1587,96 @@ namespace RMC.TotalRisk.Analyses
                 }
             }
             return PostProcessUncertainty(retained, vector, CancellationToken.None);
+        }
+
+        /// <summary>
+        /// Estimates the secondary-axis discretization error of one bivariate component: the
+        /// mean pass is integrated at the configured, halved, and quartered conditional bin
+        /// counts, and the annual failure probability and the mean incremental risk per
+        /// consequence type are Richardson-extrapolated at the trapezoid rule's second-order
+        /// rate — the a-posteriori answer to "are the conditional bins fine enough", with the
+        /// observed convergence ratio as the regime check.
+        /// </summary>
+        /// <param name="componentIndex">The component whose discretization is probed.</param>
+        /// <returns>
+        /// The diagnostic, or null when the analysis is invalid, the component's hazard is not
+        /// bivariate, or the configured count cannot support three levels (the quartered count
+        /// must stay at or above the three-bin floor).
+        /// </returns>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown for an out-of-range component index.</exception>
+        /// <remarks>
+        /// The evaluations run on diagnostic mean snapshots at the reduced counts — the stored
+        /// bin count, the canonical hash, and every seed are untouched, and nothing about the
+        /// query is serialized. The call re-runs the component's sampler setup (a subsequent
+        /// <see cref="RunAsync"/> re-seeds itself at run start). The extrapolation assumes the
+        /// second-order regime; an observed ratio far from four — the documented conditional
+        /// tail-concentration mechanism — marks the estimate as indicative only, and more bins
+        /// or the collapse arrangement deserve consideration.
+        /// </remarks>
+        public SecondaryDiscretizationDiagnostic? EstimateSecondaryDiscretizationError(int componentIndex)
+        {
+            if (componentIndex < 0 || componentIndex >= _components.Count)
+            {
+                throw new ArgumentOutOfRangeException(nameof(componentIndex), "The component index is out of range.");
+            }
+            if (!Validate().IsValid) return null;
+            var component = _components[componentIndex];
+            if (component.HazardFunction is not BivariateHazard hazard) return null;
+            int bins = hazard.SecondaryIntegrationBins;
+            int halfBins = bins / 2;
+            int quarterBins = bins / 4;
+            if (quarterBins < 3) return null;
+
+            SystemComponent.AssignOccurrenceIndices(_components);
+            int seed = SeedHelpers.HashCombine(_options.PRNGSeed, component.CanonicalHash(), component.OccurrenceIndex);
+            component.SetupSamplers(_options.Realizations, seed, _options.SamplingScheme);
+
+            var additionalThresholds = new double[RunAdditionalConsequenceTypes.Count];
+            for (int k = 0; k < additionalThresholds.Length; k++)
+            {
+                additionalThresholds[k] = RunAdditionalConsequenceTypes[k].ConsequenceThreshold;
+            }
+
+            var levels = new[] { bins, halfBins, quarterBins };
+            var failureProbabilities = new double[levels.Length];
+            double[][]? meanRisk = null;
+            for (int level = 0; level < levels.Length; level++)
+            {
+                var sampled = component.SampleWithConditionalBins(levels[level]);
+                int typeCount = sampled.ConsequenceTypeCount;
+                meanRisk ??= new double[levels.Length][];
+                meanRisk[level] = new double[typeCount];
+
+                var componentRealization = new ComponentRealization(sampled.FailureModeCount);
+                componentRealization.EnsureAdditionalCurves(typeCount - 1);
+                componentRealization.SetMeasureOptions(_options.RiskMeasures);
+                var realization = new SystemRealization(new List<ComponentRealization> { componentRealization });
+                realization.EnsureAdditionalCurves(typeCount - 1);
+                var flags = new RiskComputeFlags();
+                using (var ledger = IntegrateComponent(sampled, componentRealization, realization, flags, -1, CancellationToken.None))
+                {
+                    componentRealization.ApplyRecordedMass(ledger);
+                    componentRealization.CreateCurves(_options.LECOutputLength);
+                }
+                componentRealization.ComputeRiskMeasures(_options.ConsequenceThreshold, _options.Alpha,
+                    component.HazardThreshold, additionalThresholds);
+
+                failureProbabilities[level] = componentRealization.Curves.Fail.TotalProbability;
+                meanRisk[level][0] = componentRealization.Curves.Excess.Mean;
+                for (int k = 1; k < typeCount; k++)
+                {
+                    meanRisk[level][k] = componentRealization.AdditionalCurves[k - 1].Excess.Mean;
+                }
+            }
+
+            var riskEstimates = new List<DiscretizationEstimate>(meanRisk![0].Length);
+            for (int k = 0; k < meanRisk[0].Length; k++)
+            {
+                riskEstimates.Add(new DiscretizationEstimate(meanRisk[0][k], meanRisk[1][k], meanRisk[2][k]));
+            }
+            return new SecondaryDiscretizationDiagnostic(component.Name, bins, halfBins, quarterBins,
+                new DiscretizationEstimate(failureProbabilities[0], failureProbabilities[1], failureProbabilities[2]),
+                riskEstimates);
         }
 
         #endregion

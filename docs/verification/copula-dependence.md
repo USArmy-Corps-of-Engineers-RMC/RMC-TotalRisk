@@ -1,6 +1,6 @@
 # Copula Dependence Verification
 
-**Test class:** `CopulaDependenceVerification` · **Tests:** 6 · **Run of record:** 2026-08-07, isolated run, ✅ all passed
+**Test class:** `CopulaDependenceVerification` · **Tests:** 7 · **Run of record:** 2026-08-28, isolated run, ✅ all passed
 
 > Family: the conditional-bin integration of `BivariateHazard` under dependence (greenfield — no legacy counterpart)
 > Anchors: exactness identities, analytic copula closed forms independently transcribed, a dense analytic-CDF moment re-derivation, and the bin-count convergence study whose measured figures are the pinned tolerance source for [bivariate-risk](bivariate-risk.md)
@@ -38,6 +38,22 @@ The derivation source for every trapezoid allowance in the bivariate families. T
 **Pinned figures** (consumed by the legacy-oracle family's tolerances, with head-room over the measured values): the legacy fixture's bins = 20 relative error is pinned at 0.5 and its bins = 1000 error at 4e-3.
 
 **Default-20 adequacy, stated honestly:** the default bin count is adequate for smooth, moderate-variation surfaces (≈ 0.1% relative) and INADEQUATE for tail-concentrated log-scale surfaces under normal-Z-tailed marginals (≈ 35% relative on the legacy seismic fixture, and still ≈ 0.2% at 1000 bins). Practitioner guidance is in [bivariate-hazards](../technical-reference/bivariate-hazards.md).
+
+## The discretization diagnostic against the measured truth
+
+`Test_DiscretizationDiagnostic_TracksMeasuredErrors` (added 2026-08-28) anchors
+`RiskAnalysis.EstimateSecondaryDiscretizationError` — the a-posteriori Richardson estimate over
+mean evaluations at the configured, halved, and quartered bin counts — to this family's own
+measured errors. Three layers: the diagnostic's halved and quartered levels must be
+**bit-identical** to mean runs of the same fixture configured at those counts (the levels are
+the engine at reduced grids, never a re-implementation; asserted at 0); on the smooth
+separable-log fixture the estimate must land within a factor of two of the true bins = 20 error
+(in-regime the Richardson estimate is e₂₀·(1 + O(N⁻²)) exactly) with the observed ratio inside
+[3, 5.5] around the second-order four and the extrapolation beating the raw value against the
+closed form; and on the legacy tail-concentrated fixture the estimate must stay within one
+order of the true ≈ 0.35 error — indicative only, documented — while the observed ratio falls
+below 3.5, the regime check flagging exactly the fixture whose pre-asymptotic series this study
+measured.
 
 ## Upstream defect found and fixed by this family
 
