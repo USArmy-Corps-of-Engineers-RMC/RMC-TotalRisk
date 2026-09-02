@@ -27,7 +27,7 @@ below are the measurement history and pin provenance (superseded pins remain as 
 | F3 | `e46763eff9139854b9ba30ecf219c35260da3feda6fa5276e5e30e5bc0560e33` |
 | F4 | `8a3a8b522b92aae893902ebc9aa785bbf02efa58de660b5a98219241dd8ea212` |
 | F5 | `2ae3925bfb7488cbfa4bd516cc2d4eb7d71c6f84bfff9f4891873a2bfd811349` |
-| F6 | `53be64aac9a7b4f4ae3de042007e6b620818c84ea2157321d958472404fbbaf9` |
+| F6 | `bd4a26e80972540f5247effb4521c26b94bfeb8998f99817cf7f352ca13d044b` |
 | F7 | `f985ca0228952ac0ba66cc29b39cf9006247ea3965264b966ab785fa74317084` |
 | F8 | `7833ad5f9db34f57fbf71c1cd0d3b6adecb2391e903beda8101fd10ed3d01350` |
 
@@ -645,3 +645,24 @@ Re-pinned with approval 2026-08-27:
 - F4 `8a3a8b522b92aae893902ebc9aa785bbf02efa58de660b5a98219241dd8ea212` (4.62 GB)
 - F6 `53be64aac9a7b4f4ae3de042007e6b620818c84ea2157321d958472404fbbaf9` (3.12 GB)
 - F8 `7833ad5f9db34f57fbf71c1cd0d3b6adecb2391e903beda8101fd10ed3d01350` (38.26 GB)
+
+## F6 re-pin — the log-family CDF tail stabilization reached the stored bootstrap content (2026-09-02)
+
+A session-start byte-gate round against numerics `2b57771` found F6 at `bd4a26e8…` against the
+recorded `53be64aa…`, with the other seven fixtures reproducing their pins bit-exactly. A
+detached-worktree bisect over the 43 upstream commits since `fa91884` isolated the movement to
+the single commit `99db59a` (log-family lower-tail stabilization: `LnNormal`, `LogNormal`, and
+the near-zero-skew `LogPearsonTypeIII` CDF rerouted from `0.5·(1 + erf(z/√2))` onto
+`Normal.StandardCDF`, the tail-stable MVNPHI Φ): every commit before it reproduces the prior
+pin bit-exactly and every commit from it through HEAD reproduces the new hash, exonerating the
+other 42 commits. The mechanism differs from the 2026-08-27 version-stamp re-pin: an `--dump`
+payload diff shows the `AnalysisContentHash` itself moved (the effective-options hash is
+unchanged) — F6's bootstrap-estimated log-family content shifts at the ulp level under the
+stabilized CDF, the stored model content moves, and the content-derived seeds legitimately
+re-roll every downstream draw. Magnitude evidence against the final DLL:
+`CompositeHazardVerification` 11/11 (including the bit-reproducibility pin),
+`CompositeEngineVerification` 5/5, `NfipAssuranceVerification` 7/7 (the direct log-Pearson
+surface), and the fast suite 1,225/1,225 — the movement sits inside every statistical
+tolerance and breaks no pinned oracle constant. Re-pinned with approval 2026-09-02:
+
+- F6 `bd4a26e80972540f5247effb4521c26b94bfeb8998f99817cf7f352ca13d044b` (3.12 GB)
