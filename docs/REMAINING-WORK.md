@@ -91,8 +91,28 @@ approved and executed (`74af2e95…`, its own commit).
   every consuming mode's matrix — which necessarily pins the paired failure/non-failure
   consequences of that type together (the pairing is the column's purpose) — a small, separate
   ratification when a consequence cross-tab is actually wanted.
-- `CompositeTransform` **Mixture** mode and the explicit epistemic mixture mode — both wait on an
-  engine transform-branch analog of the consequence exposure branches (arch Q-Y).
+- `CompositeTransform` **aleatory `Mixture`** mode — still waits on an engine transform-branch
+  analog of the consequence exposure branches (within-realization enumeration). The explicit
+  epistemic mixture mode landed 2026-09-02 (arch Q-Y closure): `EpistemicMixture` on all four
+  composite clusters with named shared epistemic variables (`EpistemicVariable`,
+  conditional-presence hashed; run-scope selector columns overwritten after seeding — zero
+  walk-ordinal movement), branch attribution, the mean-only Error/Warning gates, and the
+  `EpistemicMixtureVerification` family. The epistemic reading needed no branch-enumeration
+  surface — one branch per realization chains like any sampled function — which is why it
+  shipped while the aleatory transform mixture stays deferred.
+- **Shared epistemic variables on `CompositeConsequence` (recorded 2026-09-02, from the
+  epistemic-mixture landing; not scheduled).** An epistemic consequence composite selects from
+  its failure mode's coupling draw (consequences are never walked), so it has no per-function
+  selector seat for a shared variable to overwrite — binding one is a validation-visible
+  non-feature (the property is deliberately absent). Extending sharing there rides the same
+  future ratification as consequence fractile pinning via the coupling columns (above): both
+  need a ruled seat for per-function conditioning of coupling-driven draws.
+- **A first-class shared-epistemic-variable object (recorded 2026-09-02; not scheduled).** The
+  landed sharing identity is the name string on each binder — cheap, mode-portable, and exact.
+  If authoring UX ever wants one place to declare a variable (description, weight-vector
+  defaults, discoverability before any binder exists), that is a new Id-linked object paying the
+  full registration bill (factory/resolver cases, both serialization modes, its own hash
+  surface); the run mechanics underneath would not change.
 - S-4 — upstreaming `CanonicalContentHasher` to `Numerics.Utilities` (deferred; TotalRisk copies
   the pattern).
 - Arch §7.9.9 cascade deferrals: multi-group claimed non-failure states, competing over else-chain

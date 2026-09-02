@@ -2,7 +2,7 @@
 
 > **Types:** `CompositeHazard`, `CompositeTransform`, `CompositeResponse`, `CompositeConsequence`
 > **Namespaces:** `RMC.TotalRisk.RiskFunctions.{Hazards, Transforms, Responses, Consequences}`
-> **Verification:** [composite-hazard](../verification/composite-hazard.md) · [composite-response](../verification/composite-response.md) · [composite-transform](../verification/composite-transform.md) · [composite-consequence](../verification/composite-consequence.md)
+> **Verification:** [composite-hazard](../verification/composite-hazard.md) · [composite-response](../verification/composite-response.md) · [composite-transform](../verification/composite-transform.md) · [composite-consequence](../verification/composite-consequence.md) · [epistemic-mixture](../verification/epistemic-mixture.md)
 
 A composite function combines a weighted list of child functions of the same kind. It is the
 standard way to express the dam-safety practice the 2024 verification report describes: *evaluate
@@ -14,15 +14,16 @@ surfaces are documented in the types' own XML remarks.
 
 ---
 
-## 1. Two different questions
+## 1. Three different questions
 
-Practitioners reach for a composite to answer one of two questions, and they need different
+Practitioners reach for a composite to answer one of three questions, and they need different
 combinations.
 
 | Question | Combination | Reading |
 |---|---|---|
 | "Which of these describes the loading (or the response)? Each with this probability." | **Mixture** | Alternative *descriptions*; exactly one applies to any given event |
 | "All of these mechanisms act at once — which one governs?" | **CompetingRisks** | Simultaneous *mechanisms*; the governing one controls |
+| "Exactly one of these is the truth for the whole period of analysis — we do not know which." | **EpistemicMixture** | The logic tree; the weights are credences, one branch is selected per realization |
 
 Mixture weights must lie in [0, 1] and sum to one. **Under CompetingRisks the weights are inert** —
 the combination is governed by the rule and the configured dependence, not by weighting — and they
@@ -81,27 +82,68 @@ Test: more data would *refine* the weights, not collapse them toward one branch.
 
 Test: a site investigation or more data could settle which branch is true.
 
-### What v1.1 supports
+### How each reading computes
 
-**v1.1 implements the aleatory reading only.** Every composite mixture in the library is aleatory,
-and that is deliberate rather than an oversight — aleatory representability differs by cluster, and
-only three of the four clusters can represent it at all:
+**Both readings ship, and they compute differently by construction.** The aleatory reading (the
+`Mixture` member) has no branch selection — the mixture is one object carried through every
+realization — while the epistemic reading (`EpistemicMixture`) selects exactly one branch per
+realization by inverse-CDF of the cumulative weights, so the ensemble carries branch-conditional
+realizations and the epistemic percentiles straddle the alternatives instead of blending them:
 
-| Cluster | Aleatory mixture representable? | Mechanism |
+| Cluster | Aleatory `Mixture` | `EpistemicMixture` |
 |---|---|---|
-| Hazard | Yes | a real `Mixture` distribution; the AEP integration integrates `Σ ωᵢFᵢ(x)` directly |
-| Response | Yes | a real `Mixture` distribution; the conditional failure probability at *h* is `Σ ωᵢpᵢ(h)` |
-| Consequence | Yes | exposure branches — the engine enumerates weighted branches at every hazard point |
-| Transform | **No** | transforms chain deterministically; there is no branch surface in the engine |
+| Hazard | a real `Mixture` distribution; the AEP integration integrates `Σ ωᵢFᵢ(x)` directly | one selector dimension; the realization integrates the selected child's own curve |
+| Response | a real `Mixture` distribution; the conditional failure probability at *h* is `Σ ωᵢpᵢ(h)` | one selector dimension; the realization carries the selected fragility whole |
+| Consequence | exposure branches — the engine enumerates weighted branches at every hazard point | the mode's coupling draw selects one branch; a nested aleatory mixture still enumerates inside it |
+| Transform | **not representable** — transforms chain deterministically, with no within-realization branch surface | one selector dimension; the selected rating curve chains downstream whole |
 
-For hazards and responses a realization *is already a distribution*, so the mixture folds into it
-losslessly and the loss-exceedance tail stays exact. That is why those composites declare zero
-sampling dimensions and carry no branch selector.
+For hazards and responses an aleatory realization *is already a distribution*, so the mixture folds
+into it losslessly and the loss-exceedance tail stays exact — those composites declare zero sampling
+dimensions in the aleatory modes. An epistemic composite on a walked cluster declares exactly one
+sampling dimension of its own (the branch selector); its children keep their own streams, so the
+selection is one more knowledge quantity, visible to the tornado, the given-data measures, and the
+value-of-information rollups, and conditionable with a fractile pin ("risk given rating model B").
 
-**Modeling an epistemic alternative today:** run the alternatives as separate analyses and combine
-the results outside the model, rather than weighting them inside one composite. Adding a genuine
-epistemic mode is deferred until the engine can enumerate branches for the cluster in question —
-see §5.
+**Mean-only runs and the epistemic mode.** A mean pass has no realization to select a branch with,
+so an epistemic hazard, transform, or response composite in a mean-only analysis would silently
+answer with the analytic blend — the wrong side of §4's elevenfold example — and analysis
+validation refuses the combination with an Error. An epistemic *consequence* composite is a Warning
+instead: consequences enter mean risk linearly, so the blend keeps the exact mean and only the
+epistemic spread is absent.
+
+### Shared epistemic variables — state-of-knowledge correlation
+
+A logic tree requires the same branch choice to apply everywhere it is relevant: three reaches
+whose fragilities all depend on which geologic interpretation is true must move *together*, and
+content-based seeding deliberately gives equal-content functions independent streams — the exact
+opposite. Naming the same **`EpistemicVariable`** on several epistemic composites couples them: at
+run seeding, one selector column per distinct variable is derived from the analysis seed and the
+variable name alone and overwritten onto every binder's selector (the fractile-pin overwrite
+pattern, so no walk ordinal moves and no other function's stream can shift). Every binder then
+selects the same branch draw per realization — nuclear PRA's state-of-knowledge correlation
+requirement, delivered without a first-class object.
+
+Rules that follow from the mechanics:
+
+- The variable's **name is its identity**: binding, unbinding, or renaming is compute-relevant
+  hashed content (written and hashed only when non-empty, so unbound composites are byte-identical
+  to their pre-epistemic forms). Renaming a variable re-rolls its shared draw.
+- Binders may declare different weight vectors — the shared uniform still selects consistently by
+  rank — but analysis validation warns, because branches then no longer correspond one-to-one.
+- One shared variable is **one knowledge quantity**: the sensitivity and value-of-information
+  walks collect a single column per variable, labeled `Epistemic Variable - <name>`.
+- A fractile pin on a bound composite overrides the share for that function alone (validation
+  warns); pinning the branch choice for the whole tree means pinning every binder.
+- A consequence composite cannot bind a variable — its branch draw rides the failure mode's
+  coupling matrix, which is per mode rather than per function (the same seat that keeps
+  consequence fractile pins a no-effect warning; extending that seat is recorded future work).
+- A standalone `SystemComponent.SetupSamplers` call shares within the component from the component
+  seed; an analysis run shares across all components from the run seed.
+
+**Branch attribution:** `SelectedBranchIndex(realizationIndex)` on the walked composites answers
+"which model alternative did this realization live in" — runtime-only, re-derivable bit-exactly
+from the content seeds. It composes with the A4 realization weights (weight the ensemble by branch
+posteriors) and with retained realizations for per-branch disaggregation.
 
 ---
 
@@ -124,37 +166,40 @@ see §5.
 
 ---
 
-## 4. `CompositeTransform` is weighted-average only
+## 4. `CompositeTransform`: blend or select
 
-A composite transform blends candidate transforms — several rating curves with credibility weights —
-into a single consensus curve, `Σ ωᵢfᵢ(x)`. It supports **`Average` only**;
-`Mixture` and `Additive` are validation errors.
+A composite transform combines candidate transforms — several rating curves with credibility
+weights. It supports **`Average`** (the blended consensus curve, `Σ ωᵢfᵢ(x)`) and
+**`EpistemicMixture`** (one candidate curve selected per realization); the aleatory `Mixture` and
+`Additive` stay validation errors.
 
-**Why Mixture is rejected.** Mixture would require per-realization branch selection. There is no
-transform analog of the consequence exposure-branch surface — `SampledFailureMode` chains transforms
-deterministically — so a mean-only run would collapse the branch and its loss-exceedance tail would
-diverge from the mean of the full-uncertainty ensemble. That is exactly the defect the
-exposure-branch contract solved for consequences. Enabling it requires the engine change, not just
-the function.
+**Why the aleatory Mixture is still rejected.** It would require *within-realization* branch
+enumeration, and there is no transform analog of the consequence exposure-branch surface —
+`SampledFailureMode` chains transforms deterministically — so a mean-only run would collapse the
+branch and its loss-exceedance tail would diverge from the mean of the full-uncertainty ensemble.
+The epistemic reading needs no such surface: one branch per realization chains through the engine
+like any other sampled transform, which is why it ships while the aleatory mode stays deferred.
 
-**What this costs, stated plainly.** A weighted average is the aleatory-*mean* reading of a set of
-candidate transforms: exact when everything downstream is linear, approximate otherwise. Because a
-fragility is steeply nonlinear, blending rating curves *before* evaluating it is not the same as
-weighting the risks each curve produces — `Risk(Σωᵢfᵢ) ≠ Σωᵢ·Risk(fᵢ)` by Jensen's inequality — and
-the blended curve contributes no spread of its own to the uncertainty bands.
+**What the blend costs, stated plainly.** A weighted average is the aleatory-*mean* reading of a
+set of candidate transforms: exact when everything downstream is linear, approximate otherwise.
+Because a fragility is steeply nonlinear, blending rating curves *before* evaluating it is not the
+same as weighting the risks each curve produces — `Risk(Σωᵢfᵢ) ≠ Σωᵢ·Risk(fᵢ)` by Jensen's
+inequality — and the blended curve contributes no spread of its own to the uncertainty bands.
 
 A worked example. Three candidate rating curves give stage at the 1% discharge, weights 0.3/0.4/0.3,
 feeding a fragility of `Normal(µ = 105 ft, σ = 1 ft)`:
 
 | Reading | Computation | P(failure \| 1% event) |
 |---|---|---|
-| Weighted average | blended stage `0.3·100 + 0.4·103 + 0.3·106 = 103.0` → `Φ(−2)` | 0.023 |
-| Weight the risks | `0.3·Φ(−5) + 0.4·Φ(−2) + 0.3·Φ(+1)` | 0.262 |
+| `Average` (weighted average) | blended stage `0.3·100 + 0.4·103 + 0.3·106 = 103.0` → `Φ(−2)` | 0.023 |
+| `EpistemicMixture` (weight the risks) | `0.3·Φ(−5) + 0.4·Φ(−2) + 0.3·Φ(+1)` | 0.262 |
 
-An eleven-fold difference, driven entirely by the curvature of the fragility. **Where the weights
-genuinely mean "one of these curves is the truth", model the alternatives as separate analyses**
-rather than blending them. Where they mean "give me one consensus best-estimate curve" — model
-averaging — the weighted average is the correct and intended tool.
+An eleven-fold difference, driven entirely by the curvature of the fragility — and both rows are
+now runnable model choices, pinned at engine grade by the
+[epistemic-mixture verification family](../verification/epistemic-mixture.md). **Where the weights
+genuinely mean "one of these curves is the truth", use `EpistemicMixture`.** Where they mean "give
+me one consensus best-estimate curve" — model averaging — the weighted average is the correct and
+intended tool.
 
 ---
 
@@ -162,9 +207,8 @@ averaging — the weighted average is the correct and intended tool.
 
 | Item | Blocked on |
 |---|---|
-| An explicit epistemic mixture mode for hazards and responses | A settled design; the code is inexpensive (a per-realization selector), the doctrine and verification are the work |
-| `CompositeTransform` Mixture | Engine support for enumerating transform branches, the transform analog of the consequence exposure-branch contract |
-| An epistemic mode for `CompositeConsequence` | The same design decision as the hazard/response one; today its mixture is aleatory per the exposure-branch contract |
+| `CompositeTransform` aleatory `Mixture` | Engine support for enumerating transform branches within a realization, the transform analog of the consequence exposure-branch contract (the epistemic reading needs none and ships) |
+| Shared epistemic variables on `CompositeConsequence` | A per-function selector seat — the consequence branch draw rides each mode's coupling matrix, the same seat that keeps consequence fractile pins a no-effect warning |
 
 ---
 

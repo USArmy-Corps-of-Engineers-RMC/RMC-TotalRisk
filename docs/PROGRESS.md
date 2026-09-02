@@ -1,5 +1,118 @@
 # Progress Log
 
+## 2026-09-02 — v2.0 program session 5: B3 epistemic branch mode + shared epistemic variables (the Q-Y closure)
+
+**Goal:** execute session 5 of the capability program — **B3, the epistemic-mixture (logic-tree)
+mode with named shared epistemic variables**, designed against source (two reconnaissance passes:
+the composite cluster and the sampler walk/sharing precedents) and ratified via four
+AskUserQuestion rulings, all as recommended: **all four composite clusters** (consequence
+coupling-driven, no sharing seat in B3); **sharing by hashed string key + run-scope selector
+overwrite** (the A6 `OverrideSampledPercentiles` pattern — zero walk-ordinal movement, captured
+seed maps stay valid); **split mean-only gating** (Error for walked-cluster epistemic composites —
+the 11× Jensen gap; Warning for consequence ones — the blend keeps the exact mean); and the
+**four-oracle verification family**.
+
+**Session-start baseline (the mandated protocol):** numerics HEAD `2b57771`, clean, 3 ahead of
+origin, **no v2.2.x tag** (T8's ask-first trigger did not fire; N4 unchanged — the packed nupkg
+stays stale), **43 commits past the session-4 close `fa91884`**; sibling Debug DLL rebuilt and
+frozen. TotalRisk `5b4cd30` clean; build 0 warnings; fast suite 1,225/1,225; eight gates as
+separate invocations — **seven bit-exact, F6 moved** (`53be64aa…` → `bd4a26e8…`). Attribution by
+automated detached-worktree `git bisect run` over the 43 commits: the single stable step is
+`99db59a` "Stabilize logarithmic distribution lower tails" (LnNormal/LogNormal/near-zero-skew
+LogPearsonTypeIII CDFs rerouted from `0.5·(1+erf(z/√2))` onto `Normal.StandardCDF` = MVNPHI —
+tail-stable Φ); every commit before it reproduces the old pin bitwise and every commit from it
+through HEAD reproduces the new hash. The harness `--dump` payload diff shows the
+`AnalysisContentHash` itself moved (options hash unchanged): F6's bootstrap-estimated log-family
+content shifts at the ulp level, the stored model identity moves, and the content-derived seeds
+legitimately re-roll — the second stored-content-identity movement precedent (after the 2026-08-27
+product-moments/erfc batch). Magnitude: `CompositeHazardVerification` 11/11,
+`CompositeEngineVerification` 5/5, `NfipAssuranceVerification` 7/7, fast suite 1,225/1,225 — no
+tolerance or pinned constant violated. **Ruling: re-pin approved and executed** (`bcf4cee`,
+attribution recorded in RESULTS.md).
+
+**Landed (`b068d15` impl + tests + verification; docs following):**
+- **The mode:** `CompositeCombinationType.EpistemicMixture = 2` and
+  `CompositeFunctionType.EpistemicMixture = 3` (append-only, serialized by name — selecting is the
+  deliberate hash event; both mode attributes were already unconditional, so existing forms are
+  untouched). Walked clusters (`CompositeHazard`/`CompositeResponse`/`CompositeTransform`) declare
+  ONE selector dimension in epistemic mode — the first non-zero-dimension containers among the
+  composites; the base sampler allocates the N×1 matrix, pinned bit-equal to the consequence's
+  legacy inline selector recipe. Index path selects by inverse-CDF of the cumulative weights at
+  `Percentile(i, 0)` and samples the chosen child at the same index (child streams untouched);
+  percentile path uses the consequence single-uniform composition convention (select, rescale into
+  the branch); mean path stays the analytic blend with the loud Jensen caveat.
+  `CompositeConsequence` keeps `SamplingDimensions` 0 — its epistemic selection rides the mode's
+  coupling draw: `SampleExposureBranches(p)` returns the SELECTED child's own branches (nested
+  aleatory mixtures still enumerate inside the chosen branch — the flatten also learned to route
+  a nested epistemic child correctly), `CountExposureBranches` prices the worst selectable child
+  (max, not sum). `CompositeTransform` legalizes Average + EpistemicMixture (the aleatory Mixture
+  keeps its recorded enumeration blocker; epistemic transformed-hazard bounds take the extremum
+  across positively weighted branches). `IsDeterministic` false at ≥ 2 positive weights on all
+  four; degenerate single-branch Warning; weight rules apply in epistemic mode.
+- **Shared epistemic variables:** `EpistemicVariable` string on the three walked composites —
+  conditional-presence serialized AND hashed (unbound forms/hashes/seeds byte-identical, pinned;
+  the name is the variable's identity; naming outside epistemic mode is an Error in Validate and
+  the sampling gate). The ambient `EpistemicSharingScope` ([ThreadStatic], the tree-scope
+  precedent) carries per-run columns keyed by name — derived
+  `ToPositiveSeed(HashCombine(PRNGSeed, SHA256(UTF8(name)), 0))` through the run's scheme — and
+  every bound composite (nested ones included, reached through the composites' own recursion)
+  overwrites its selector column post-seeding via the new internal
+  `RiskFunctionBase.OverrideSelectorColumn`: seed-inert to every other function, ZERO new walk
+  ordinals (`SeedScribe` shapes unchanged, pinned). `RiskAnalysis` enters the scope at the run
+  seeding loop and all three diagnostic re-seed sites; the standalone public
+  `SystemComponent.SetupSamplers` shares within component scope from the component seed
+  (documented divergence). Engine gates: mean-only Error/Warning split via the recursive
+  `UsesEpistemicMode` discovery; differing binder weight vectors Warning; a fractile pin on a
+  bound composite warns and wins for that function alone. Sensitivity/VoI collect ONE column per
+  variable (`Epistemic Variable - <name>`, deduped across components through the threaded seen
+  set); `SelectedBranchIndex(realizationIndex)` is the runtime-only branch-attribution query.
+- **Tests** (+21 → fast suite **1,246/1,246**): the two enum pins extended;
+  `EpistemicSharingScopeTests` (scope nesting, the declared column recipe reproduced
+  independently, guards); `CompositeEpistemicMixtureTests` (per-cluster selection semantics with
+  the exact 3/4/3 LHS allocation, selector bit-parity, percentile rescale pins, mean-blend
+  equality, conditional-presence + hash events + both-mode round trips, validation matrices, the
+  shared-scope binder alignment with the unbound anti-check, the transform legalization, the
+  consequence exposure-branch selection incl. the nested-aleatory preservation and the max
+  guardrail); `EpistemicSharingTests` (the mean-only gates, the deterministic-branch identity
+  behind a full run — every realization bitwise one branch run's value, 30/40/30, the ensemble
+  mean exactly the weighted branch risks — the run-scope alignment recovered from published
+  results plus the declared column, walk-shape invariance via captured seed-map ordinal counts,
+  pin-holds-branch, the one-column sensitivity dedup); three epistemic kitchen-sink registry
+  entries. Two engine-test lessons recorded: `RunAsync` computes on `RiskAnalysisRunContext`
+  clones, so post-run reads must re-derive streams or use published results; and the
+  ensemble/mean integration-discipline split must be pinned in-test wherever per-realization
+  values meet mean-only values (the documented rule, hit live by the enumeration oracle).
+- **Verification:** new family **`EpistemicMixtureVerification` 5/5 isolated** (4 m 17 s) — the
+  bitwise conditioned-interleaving partition (the unpinned ensemble ≡ the per-index interleaving
+  of three fractile-pinned branch runs, exact 300/400/300 — simultaneously the A6 composition
+  proof), the cross-model statistical mixture identity at 4·SE, the exact Jensen doctrine pin
+  (0.023 blended vs 0.262 weighted through a composite-transform chain, 1e-12 against the closed
+  forms, the elevenfold gap asserted), the shared-variable selection oracle against an
+  independently re-implemented column derivation (SHA-256 + the little-endian fold + the
+  positive-seed map + the LHS block, no library seed kernel) with the unbound anti-oracle, and
+  the six-combination exact enumeration with 4·SE convergence — the C3 seed
+  (docs/verification/epistemic-mixture.md).
+- **Docs:** composite-functions.md rewritten (three questions, the per-reading mechanism table,
+  the shared-variable/state-of-knowledge-correlation doctrine, the mean-only gates, §4 "blend or
+  select" with both worked-example rows now runnable, the deferred table reduced to the aleatory
+  transform Mixture and the consequence sharing seat); uncertainty-analysis.md §5 epistemic
+  selector paragraph; arch doc — the §5.8.4 dimension rows amended, the stale pre-Q-Y §5.8.5
+  sketch corrected (wrong fold-argument order and dimensions formula), the Q-Y entry closed with
+  the landing record; REMAINING-WORK — the Q-Y row closed, the consequence sharing seat and the
+  optional first-class variable object recorded as future ratifications.
+
+**Verified:** build 0 warnings throughout; fast suite **1,246/1,246**; code/XML + traceability
+validators green; `EpistemicMixtureVerification` **5/5** isolated; **all eight byte gates re-run
+after the implementation — bit-identical** (F1 `b2e6ea88…`, F2 `ac35a7fa…`, F3 `e46763ef…`, F4
+`8a3a8b52…`, F5 `2ae3925b…`, F6 `bd4a26e8…` at its new session pin, F7 `f985ca02…`, F8
+`7833ad5f…`) — no committed fixture opts into the epistemic mode, and the F6 composite fixture's
+bit-identity is the zero-overhead proof for the mode dispatch.
+
+**Next:** session 6 = **C3 (exact logic-tree enumeration — B3's exact oracle)** per the saved
+prompt; B1 stays gated on Haden's design session over the draft; B10 follows A2's measurements;
+B4 independent whenever; N4/T8 whenever Haden re-packs, tags, and pushes 2.2.0 (the stale-nupkg
+list now also trails the 43 post-`fa91884` parallel commits, `99db59a` included).
+
 ## 2026-08-28 — v2.0 program session 4: A10 extrapolation policy (both repos) + A6/A5/A1 + the full A8 stretch
 
 **Goal:** execute session 4 of the capability program per Haden's redirect — **A10, the

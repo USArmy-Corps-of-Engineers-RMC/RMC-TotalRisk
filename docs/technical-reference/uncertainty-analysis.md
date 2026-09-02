@@ -142,9 +142,17 @@ distribution's inverse CDF, `x = F⁻¹(r)` (Eq. 2). Per family:
   [../verification/single-component-uncertainty.md](../verification/single-component-uncertainty.md).
 
 Beyond the note's list, the composite families recurse — each child owns its dimensions and its
-content-seeded stream — and a mixture's branch choice is **not** a knowledge dimension at all: the
-engine enumerates exposure branches at every hazard level instead of drawing one
-([composite-functions.md](composite-functions.md)).
+content-seeded stream. An *aleatory* mixture's branch choice is **not** a knowledge dimension at
+all: the engine enumerates exposure branches at every hazard level instead of drawing one. An
+**epistemic** mixture's branch choice is exactly one knowledge dimension — the logic-tree
+selector, drawn per realization by inverse-CDF of the credence weights — and several composites
+binding one named shared epistemic variable draw that selector **together** (state-of-knowledge
+correlation: the same model alternative applies everywhere it is relevant, delivered by
+overwriting each binder's selector column with a run-derived shared draw, the fractile-pin
+pattern). One shared variable is one knowledge quantity in the tornado, the given-data measures,
+and value of information; a fractile pin on an epistemic composite conditions the whole analysis
+on one branch. See [composite-functions.md](composite-functions.md) §2 for the doctrine and the
+mean-only gates.
 
 ## 6. Risk results with confidence intervals
 

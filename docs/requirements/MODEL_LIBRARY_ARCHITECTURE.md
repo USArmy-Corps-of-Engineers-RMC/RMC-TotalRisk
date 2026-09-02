@@ -824,41 +824,56 @@ public abstract class RiskFunctionBase : IRiskFunction
 | `BivariateTransform`, `BivariateConsequence` | 0 | deterministic two-way tables |
 | `EventTreeResponse`, `FaultTreeResponse` | local uncertain-source dimensions plus recursively owned referenced-function dimensions; independent link occurrences bind independent canonical occurrences, shared fault events bind once | see §5.8.6 and the normative tree-response design §8 |
 | `TabularConsequence`, `LifeSimConsequence` | 1 | percentile-driven `UncertainOrderedPairedData` |
-| `CompositeHazard`, `CompositeConsequence` | **0** | *(Corrected 2026-07-25, Phase 9 — this row was pre-Q-V.)* `CompositeConsequence` is 0 under ratified Q-V (branches enumerated, not drawn). `CompositeHazard` is 0 because its mixture is **aleatory**: `SampleFunction(k)` returns a real `Mixture` distribution built from the children sampled at realization k, so no branch is ever selected. Children own their own dimensions and are set up recursively. |
-| `CompositeResponse` | **0** | *(Corrected 2026-07-25, Phase 9.)* Same aleatory-mixture reasoning as `CompositeHazard`. |
+| `CompositeHazard`, `CompositeConsequence` | **0**, or 1 in `EpistemicMixture` mode (hazard only) | *(Corrected 2026-07-25, Phase 9 — this row was pre-Q-V; amended 2026-09-02 for the ratified epistemic mode.)* `CompositeConsequence` is 0 in every mode: aleatory branches are enumerated under ratified Q-V, and the epistemic branch draw rides the failure mode's coupling matrix (consequences are never walked). `CompositeHazard` is 0 in the aleatory modes — `SampleFunction(k)` returns a real `Mixture` distribution built from the children sampled at realization k, so no branch is ever selected — and declares exactly **1** selector dimension in `EpistemicMixture` mode, where each realization selects one child by inverse-CDF of the cumulative weights. Children own their own dimensions and are set up recursively in every mode. |
+| `CompositeResponse`, `CompositeTransform` | **0**, or 1 in `EpistemicMixture` mode | *(Corrected 2026-07-25, Phase 9; amended 2026-09-02.)* Same reasoning as `CompositeHazard` — zero under the aleatory readings, one declared selector dimension under the epistemic reading. A composite bound to a shared `EpistemicVariable` still declares its own dimension; the run overwrites the selector column with the variable's shared draw after seeding (the fractile-pin overwrite pattern), so the walk shape and captured seed maps never move. |
 
 Bootstrap-driven hazards (`ParametricHazard`, `BestFitHazard`) and the bootstrap response (`ParametricResponse`) use `SampleFunction(int idx)` to look up the idx-th pre-computed posterior parameter set. Their `SamplingDimensions` is 0; their `SetupSampler` records `N` for index-bound checks but allocates no matrix.
 
 #### 5.8.5 Composite recursion
 
-Each composite recursively initializes its sub-functions. Sub-seeds derive from `(parentSeed, ordinal, sub.CanonicalHash)` so identical-content siblings get different seeds:
+Each composite recursively initializes its sub-functions. Sub-seeds derive from
+`(parentSeed, sub.CanonicalHash, ordinal)` so identical-content siblings get different seeds.
+*(Sketch corrected 2026-09-02: the original pre-Q-Y draft showed a Mixture selector dimension and
+the fold arguments in the wrong order; the shipped shape declares the selector dimension only in
+`EpistemicMixture` mode and folds `HashCombine(seed, childHash, ordinal)`.)*
 
 ```csharp
 public override int SamplingDimensions
-    => (CompositeFunctionType == CompositeFunctionType.Mixture ? 1 : 0)
-       + HazardFunctions.Sum(w => 0);   // composite's own dims; subs counted separately
+    => CompositeCombinationType == CompositeCombinationType.EpistemicMixture ? 1 : 0;
+    // children own their dimensions; they are set up recursively below
 
 public override void SetupSampler(int N, int seed, SamplingScheme scheme)
 {
-    base.SetupSampler(N, seed, scheme);   // own mixture-selector dim if any
+    base.SetupSampler(N, seed, scheme);   // the selector matrix in epistemic mode, none otherwise
+
+    // A bound shared epistemic variable overwrites the selector column after seeding
+    // (the fractile-pin pattern): seed-inert to every other function, no walk movement.
+    if (CompositeCombinationType == CompositeCombinationType.EpistemicMixture && EpistemicVariable.Length > 0)
+    {
+        var shared = EpistemicSharingScope.TryGetColumn(EpistemicVariable);
+        if (shared != null) OverrideSelectorColumn(shared);
+    }
+
     for (int i = 0; i < HazardFunctions.Count; i++)
     {
         int childSeed = SeedHelpers.HashCombine(
-            seed, i, HazardFunctions[i].HazardFunction.CanonicalHash());
+            seed, HazardFunctions[i].HazardFunction.CanonicalHash(), i);
         HazardFunctions[i].HazardFunction.SetupSampler(N, childSeed, scheme);
     }
 }
 
 public IUnivariateDistribution SampleFunction(int idx)
 {
+    if (CompositeCombinationType == CompositeCombinationType.EpistemicMixture)
+    {
+        // One branch is the realization's whole truth; its child streams are untouched.
+        var (branch, _) = SelectMixtureChild(Percentile(idx, dimension: 0), rescale: false);
+        return HazardFunctions[branch].HazardFunction.SampleFunction(idx);
+    }
+    // The aleatory modes rebuild the combination over the children sampled at idx.
     var subs = HazardFunctions.Select(w => w.HazardFunction.SampleFunction(idx)).ToList();
-    return BuildMixture(subs, GetWeights(), MixtureSelector(idx));
+    return BuildCombined(subs);
 }
-
-private double? MixtureSelector(int idx)
-    => CompositeFunctionType == CompositeFunctionType.Mixture
-       ? Percentile(idx, dimension: 0)
-       : null;
 ```
 
 #### 5.8.6 Tree responses: recursive LHS-driven evaluation
@@ -1849,7 +1864,7 @@ Living section. Append entries as we go. Once an item is resolved, move it under
 - **Q-B / Q-O** *(resolved 2026-07-28, v0.21)*: The complete tree-response design is [EVENT_AND_FAULT_TREE_RESPONSE_DESIGN.md](EVENT_AND_FAULT_TREE_RESPONSE_DESIGN.md). Canonical identity uses projected topology and target content rather than names/IDs; mathematically commutative fault inputs sort canonically while stable branch IDs preserve event-tree output connections. Event trees compile independent links and propagate conditional mass in linear time. Static fault trees distinguish shared logical events from independent clones and use an exact ROBDD; cut sets are inspection only. Both recursively participate in LHS and produce conditional fragility, leaving hazard frequency and risk to the existing function/graph/analysis layers.
 
 - **Q-X** *(added 2026-07-22, v0.14; successor design ratified 2026-07-23, v0.16; **RESOLVED 2026-07-24, v0.18 — Phase 6.7 landed**)*: Multi-stage response composition semantics. The Phase-3 grammar `T* (R T*)* C` authors chains with two or more response stages, but v1.0 had exactly one response and no oracle covered composition. The v0.14 deferral (the `RiskAnalysis.Validate()` gate + the `SampledFailureMode` constructor throw) is replaced by the implemented cascading-response-end-states design: typed Fail/Non-Fail output ports, per-stage `BranchPolarity` (polarity-product SRP), end states as projected modes in mutually-exclusive state groups with the complement remainder to background, final-polarity classification (§7.9.2), the claimed-complement mixture (§7.9.5), sibling excess pairing (§7.9.4), and the across-unit combination with the narrow competing gate (§7.9.6). See the v0.18 status block and §7.9; evidence in `CascadeEndStateVerification`.
-- **Q-Y** *(added and **RESOLVED 2026-07-25, v0.19** — Phase 9 partial landing)*: **Are composite mixture weights aleatory or epistemic?** A weighted list of children admits two readings — the weights are frequencies within the event population (aleatory), or they are credibility that one fixed-but-unknown alternative is correct (epistemic). The two share a mean and differ in spread, so the choice is invisible in expected risk and decisive in the uncertainty bands. **Ratified: v1.1 implements the aleatory reading only**, because aleatory representability differs by cluster and only three of four clusters can express it. Hazard and response composites return a real `Numerics.Mixture` distribution built from the children sampled at the same realization, so `SamplingDimensions` is 0 and no branch is ever selected — a realization *is already a distribution*, the mixture folds into it losslessly, and the Q-V tail defect cannot arise. `CompositeConsequence` is aleatory by ratified Q-V (exposure branches). `CompositeTransform` **cannot** represent an aleatory mixture at all — `SampledFailureMode` chains transforms deterministically, with no branch surface — so it ships `Average` only, and `Mixture` is a validation error until the engine gains a transform analog of exposure branches. Consequences: a mixture of deterministic hazard/response children is itself deterministic (the divergence from `CompositeConsequence`); an epistemic mode for any cluster is deferred to its own ratification, with the practitioner decision rule and the Jensen-bias worked example already written up in `docs/technical-reference/composite-functions.md`. Evidence in `CompositeHazardVerification`, `CompositeResponseVerification`, and `CompositeTransformVerification`.
+- **Q-Y** *(added and **RESOLVED 2026-07-25, v0.19** — Phase 9 partial landing)*: **Are composite mixture weights aleatory or epistemic?** A weighted list of children admits two readings — the weights are frequencies within the event population (aleatory), or they are credibility that one fixed-but-unknown alternative is correct (epistemic). The two share a mean and differ in spread, so the choice is invisible in expected risk and decisive in the uncertainty bands. **Ratified: v1.1 implements the aleatory reading only**, because aleatory representability differs by cluster and only three of four clusters can express it. Hazard and response composites return a real `Numerics.Mixture` distribution built from the children sampled at the same realization, so `SamplingDimensions` is 0 and no branch is ever selected — a realization *is already a distribution*, the mixture folds into it losslessly, and the Q-V tail defect cannot arise. `CompositeConsequence` is aleatory by ratified Q-V (exposure branches). `CompositeTransform` **cannot** represent an aleatory mixture at all — `SampledFailureMode` chains transforms deterministically, with no branch surface — so it ships `Average` only, and `Mixture` is a validation error until the engine gains a transform analog of exposure branches. Consequences: a mixture of deterministic hazard/response children is itself deterministic (the divergence from `CompositeConsequence`); an epistemic mode for any cluster is deferred to its own ratification, with the practitioner decision rule and the Jensen-bias worked example already written up in `docs/technical-reference/composite-functions.md`. Evidence in `CompositeHazardVerification`, `CompositeResponseVerification`, and `CompositeTransformVerification`. **Epistemic mode ratified and landed 2026-09-02**: `EpistemicMixture` appended to both composite mode enums (append-only, serialized by name; selecting it is a deliberate hash event) on all four clusters — the walked clusters declare one selector dimension and select one child per realization by inverse-CDF of the cumulative weights (sampled at the same realization index, child streams untouched); the consequence cluster selects from the mode's coupling draw and returns the selected child's exposure branches (a nested aleatory mixture still enumerates inside the chosen branch); `CompositeTransform` legalizes the epistemic reading while the aleatory `Mixture` stays deferred on the unchanged engine-enumeration blocker. Named shared epistemic variables (`EpistemicVariable`, conditional-presence serialized and hashed) couple binders through run-derived selector columns overwritten after seeding — state-of-knowledge correlation with zero walk-ordinal movement (see the amended §5.8.4/§5.8.5). Mean-only analyses refuse walked-cluster epistemic composites (Error) and warn on consequence ones. Evidence: `EpistemicMixtureVerification` (the conditioned-interleaving exact partition, the cross-model statistical identity, the Jensen doctrine pin, the independently re-derived shared column, and the exact branch-combination enumeration — the future exact logic-tree enumerator's seed) plus the composite doctrine rewrite in `docs/technical-reference/composite-functions.md`.
 - **Q-Z** *(added 2026-07-25, v0.19; **resolved upstream 2026-07-26 — N12**)*: **`BootstrapAnalysis.Estimate()` was not bit-reproducible across calls.** Its summary assembly uses a parallel, order-nondeterministic reduction, so two `Estimate()` calls on a parametric function with identical inputs and an identical `PRNGSeed` agree numerically (≤ 1e-6 on every sampled quantile) but not bit-for-bit. The posterior is serialized content, so **any container that folds a child hash — a composite, a `SystemComponent` — has an unstable canonical hash across estimation runs**, and therefore unstable derived child seeds. Round-tripping through XML carries the posterior verbatim and is stable, which is what a stored project does, so the Phase 9 reproducibility pins round-trip rather than re-estimate. Same root cause as the documented `NonparametricHazard` mean-assembly nondeterminism. Resolved upstream by the N12 fixed-chunk deterministic reductions: two estimation runs with identical inputs and an identical `PRNGSeed` now agree bit-for-bit, pinned by `CompositeHazardVerification.Test_UpstreamEstimation_IsBitReproducible`; estimated parametric functions stay out of byte-gate fixtures as a defensive convention.
 
 - **Q-K**: ~~Refactor `EventTreeResponse` to consume k percentiles…~~ **Resolved 2026-04-30**: incorporated into §5.8.6. Event trees are LHS-driven from day one of the Phase 2.3 port.
