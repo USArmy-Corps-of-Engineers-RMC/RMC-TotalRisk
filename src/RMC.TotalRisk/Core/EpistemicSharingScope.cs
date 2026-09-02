@@ -42,23 +42,55 @@ namespace RMC.TotalRisk.Core
     /// draw (the name is the variable's identity), and two scopes with the same base seed and
     /// realization count reproduce bit-identically.
     /// </para>
+    /// <para>
+    /// The exact logic-tree enumerator extends the scope in two ways, both inert outside an
+    /// enumeration run. A scope may additionally carry columns keyed by function <c>Id</c>, which
+    /// an <i>unbound</i> epistemic composite (no named variable) consults for its own id — the
+    /// runtime seat that lets the enumerator force every walked epistemic composite without the
+    /// author naming a variable; no ordinary run ever populates id columns, so the unbound
+    /// sampling path is untouched by default. And a scope may carry applied-key sinks that record
+    /// every name and id whose column a composite actually consumed, so the enumerator can prove
+    /// after seeding that every discovered axis was reached and refuse loudly otherwise.
+    /// </para>
     /// </remarks>
     internal static class EpistemicSharingScope
     {
         /// <summary>
-        /// The columns of the currently entered scope, keyed by variable name; null when no scope
-        /// is active on this thread.
+        /// The name-keyed columns of the currently entered scope; null when no scope is active on
+        /// this thread.
         /// </summary>
         [ThreadStatic]
         private static Dictionary<string, double[]>? _current;
 
         /// <summary>
-        /// True when a scope is entered on the current thread.
+        /// The function-id-keyed columns of the currently entered scope — populated only by the
+        /// logic-tree enumerator's forcing scope; null otherwise.
         /// </summary>
-        internal static bool IsActive => _current != null;
+        [ThreadStatic]
+        private static Dictionary<Guid, double[]>? _currentById;
 
         /// <summary>
-        /// Looks up the shared selector column for a variable in the current scope.
+        /// The sink recording every variable name whose column was consumed under the current
+        /// scope; null when the scope does not reconcile applications.
+        /// </summary>
+        [ThreadStatic]
+        private static ISet<string>? _appliedNames;
+
+        /// <summary>
+        /// The sink recording every function id whose column was consumed under the current
+        /// scope; null when the scope does not reconcile applications.
+        /// </summary>
+        [ThreadStatic]
+        private static ISet<Guid>? _appliedIds;
+
+        /// <summary>
+        /// True when a scope is entered on the current thread.
+        /// </summary>
+        internal static bool IsActive => _current != null || _currentById != null;
+
+        /// <summary>
+        /// Looks up the shared selector column for a variable in the current scope, recording the
+        /// application when the scope reconciles.
         /// </summary>
         /// <param name="variable">The variable name.</param>
         /// <returns>The shared column, or null when no scope is active or the scope does not
@@ -67,12 +99,31 @@ namespace RMC.TotalRisk.Core
         {
             var current = _current;
             if (current == null || string.IsNullOrEmpty(variable)) return null;
-            return current.TryGetValue(variable, out var column) ? column : null;
+            if (!current.TryGetValue(variable, out var column)) return null;
+            _appliedNames?.Add(variable);
+            return column;
         }
 
         /// <summary>
-        /// Enters a scope holding the given columns, returning the token that restores the prior
-        /// scope on dispose (scopes nest by save-and-restore).
+        /// Looks up the shared selector column for a function id in the current scope — the
+        /// unbound-composite seat of the logic-tree enumerator — recording the application when
+        /// the scope reconciles.
+        /// </summary>
+        /// <param name="functionId">The consulting function's id.</param>
+        /// <returns>The forcing column, or null when no scope is active or the scope carries no
+        /// column for the id (every scope outside an enumeration run).</returns>
+        internal static double[]? TryGetColumnById(Guid functionId)
+        {
+            var current = _currentById;
+            if (current == null) return null;
+            if (!current.TryGetValue(functionId, out var column)) return null;
+            _appliedIds?.Add(functionId);
+            return column;
+        }
+
+        /// <summary>
+        /// Enters a scope holding the given name-keyed columns, returning the token that restores
+        /// the prior scope on dispose (scopes nest by save-and-restore).
         /// </summary>
         /// <param name="columns">The shared columns, keyed by variable name.</param>
         /// <returns>The restoration token.</returns>
@@ -80,9 +131,30 @@ namespace RMC.TotalRisk.Core
         internal static IDisposable Enter(Dictionary<string, double[]> columns)
         {
             if (columns == null) throw new ArgumentNullException(nameof(columns));
-            var previous = _current;
+            return Enter(columns, null, null, null);
+        }
+
+        /// <summary>
+        /// Enters a scope holding name-keyed and optionally id-keyed columns with optional
+        /// applied-key reconciliation sinks — the logic-tree enumerator's forcing entry. The
+        /// returned token restores the prior scope, sinks included, on dispose.
+        /// </summary>
+        /// <param name="columns">The name-keyed columns (empty when only id columns force).</param>
+        /// <param name="idColumns">The function-id-keyed columns, or null.</param>
+        /// <param name="appliedNames">The sink recording consumed variable names, or null.</param>
+        /// <param name="appliedIds">The sink recording consumed function ids, or null.</param>
+        /// <returns>The restoration token.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when the name-keyed map is null.</exception>
+        internal static IDisposable Enter(Dictionary<string, double[]> columns,
+            Dictionary<Guid, double[]>? idColumns, ISet<string>? appliedNames, ISet<Guid>? appliedIds)
+        {
+            if (columns == null) throw new ArgumentNullException(nameof(columns));
+            var restorer = new Restorer(_current, _currentById, _appliedNames, _appliedIds);
             _current = columns;
-            return new Restorer(previous);
+            _currentById = idColumns;
+            _appliedNames = appliedNames;
+            _appliedIds = appliedIds;
+            return restorer;
         }
 
         /// <summary>
@@ -139,14 +211,30 @@ namespace RMC.TotalRisk.Core
         }
 
         /// <summary>
-        /// The scope-restoration token <see cref="Enter"/> hands out.
+        /// The scope-restoration token <see cref="Enter(Dictionary{string, double[]})"/> hands out.
         /// </summary>
         private sealed class Restorer : IDisposable
         {
             /// <summary>
-            /// The scope to restore on dispose (null when the scope being entered was outermost).
+            /// The name-keyed columns to restore on dispose (null when the scope being entered
+            /// was outermost).
             /// </summary>
             private readonly Dictionary<string, double[]>? _previous;
+
+            /// <summary>
+            /// The id-keyed columns to restore on dispose.
+            /// </summary>
+            private readonly Dictionary<Guid, double[]>? _previousById;
+
+            /// <summary>
+            /// The applied-name sink to restore on dispose.
+            /// </summary>
+            private readonly ISet<string>? _previousAppliedNames;
+
+            /// <summary>
+            /// The applied-id sink to restore on dispose.
+            /// </summary>
+            private readonly ISet<Guid>? _previousAppliedIds;
 
             /// <summary>
             /// True once disposed, making a double dispose inert.
@@ -154,22 +242,32 @@ namespace RMC.TotalRisk.Core
             private bool _disposed;
 
             /// <summary>
-            /// Captures the scope to restore.
+            /// Captures the scope state to restore.
             /// </summary>
-            /// <param name="previous">The prior scope.</param>
-            public Restorer(Dictionary<string, double[]>? previous)
+            /// <param name="previous">The prior name-keyed columns.</param>
+            /// <param name="previousById">The prior id-keyed columns.</param>
+            /// <param name="previousAppliedNames">The prior applied-name sink.</param>
+            /// <param name="previousAppliedIds">The prior applied-id sink.</param>
+            public Restorer(Dictionary<string, double[]>? previous, Dictionary<Guid, double[]>? previousById,
+                ISet<string>? previousAppliedNames, ISet<Guid>? previousAppliedIds)
             {
                 _previous = previous;
+                _previousById = previousById;
+                _previousAppliedNames = previousAppliedNames;
+                _previousAppliedIds = previousAppliedIds;
             }
 
             /// <summary>
-            /// Restores the prior scope.
+            /// Restores the prior scope state.
             /// </summary>
             public void Dispose()
             {
                 if (_disposed) return;
                 _disposed = true;
                 _current = _previous;
+                _currentById = _previousById;
+                _appliedNames = _previousAppliedNames;
+                _appliedIds = _previousAppliedIds;
             }
         }
     }

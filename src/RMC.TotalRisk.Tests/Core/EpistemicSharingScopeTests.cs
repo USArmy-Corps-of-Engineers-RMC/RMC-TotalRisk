@@ -90,6 +90,51 @@ public class EpistemicSharingScopeTests
         CollectionAssert.AreNotEqual(first["Rating Model"], otherScheme["Rating Model"]);
     }
 
+    /// <summary>
+    /// Verifies the enumerator's scope extensions: id-keyed columns answer only inside a scope
+    /// that carries them, the applied-key sinks record exactly the consumed names and ids, and
+    /// the ordinary name-keyed entry leaves both extensions inert.
+    /// </summary>
+    [TestMethod]
+    public void Test_IdColumnsAndAppliedSinks_RecordConsumption()
+    {
+        // Arrange
+        var id = Guid.NewGuid();
+        var otherId = Guid.NewGuid();
+        var names = new Dictionary<string, double[]> { ["Bound"] = new[] { 0.25d } };
+        var ids = new Dictionary<Guid, double[]> { [id] = new[] { 0.75d } };
+        var appliedNames = new HashSet<string>(StringComparer.Ordinal);
+        var appliedIds = new HashSet<Guid>();
+
+        // Assert — no ambient scope answers by id.
+        Assert.IsNull(EpistemicSharingScope.TryGetColumnById(id));
+
+        // Act / Assert — the forcing scope answers both keys and records consumption.
+        using (EpistemicSharingScope.Enter(names, ids, appliedNames, appliedIds))
+        {
+            Assert.IsNotNull(EpistemicSharingScope.TryGetColumn("Bound"));
+            Assert.IsNotNull(EpistemicSharingScope.TryGetColumnById(id));
+            Assert.IsNull(EpistemicSharingScope.TryGetColumnById(otherId));
+            Assert.IsNull(EpistemicSharingScope.TryGetColumn("Unbound"));
+
+            // An ordinary nested scope hides the id columns and the sinks.
+            using (EpistemicSharingScope.Enter(new Dictionary<string, double[]> { ["Inner"] = new[] { 0.5d } }))
+            {
+                Assert.IsNull(EpistemicSharingScope.TryGetColumnById(id));
+                Assert.IsNotNull(EpistemicSharingScope.TryGetColumn("Inner"));
+            }
+
+            // The restored forcing scope still answers and records.
+            Assert.IsNotNull(EpistemicSharingScope.TryGetColumnById(id));
+        }
+        Assert.IsFalse(EpistemicSharingScope.IsActive);
+        Assert.IsNull(EpistemicSharingScope.TryGetColumnById(id));
+
+        // The sinks recorded exactly the consumed keys — misses record nothing.
+        CollectionAssert.AreEquivalent(new[] { "Bound" }, new List<string>(appliedNames));
+        CollectionAssert.AreEquivalent(new[] { id }, new List<Guid>(appliedIds));
+    }
+
     /// <summary>Verifies the argument guards and the empty/duplicate variable handling.</summary>
     [TestMethod]
     public void Test_BuildColumns_GuardsAndFilters()

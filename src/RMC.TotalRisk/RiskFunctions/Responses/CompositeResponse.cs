@@ -458,9 +458,11 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
             ThrowIfUnusable(checkCycles: true);
             base.SetupSampler(sampleSize, seed, scheme);
 
-            if (_compositeCombinationType == CompositeCombinationType.EpistemicMixture && _epistemicVariable.Length > 0)
+            if (_compositeCombinationType == CompositeCombinationType.EpistemicMixture)
             {
-                var shared = EpistemicSharingScope.TryGetColumn(_epistemicVariable);
+                var shared = _epistemicVariable.Length > 0
+                    ? EpistemicSharingScope.TryGetColumn(_epistemicVariable)
+                    : EpistemicSharingScope.TryGetColumnById(Id);
                 if (shared != null) OverrideSelectorColumn(shared);
             }
 
@@ -1186,6 +1188,37 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
             {
                 if (_responseFunctions[i].ResponseFunction is CompositeResponse nested)
                     nested.CollectEpistemicVariables(sink, visited);
+            }
+        }
+
+        /// <summary>
+        /// Accumulates the logic-tree axes declared by this composite or any nested composite
+        /// response — the exact enumerator's cycle-safe discovery surface. A bound composite
+        /// merges into its variable's axis (weight disagreement recorded), an unbound epistemic
+        /// composite is its own axis, and every epistemic composite's id feeds the pin-conflict
+        /// gate.
+        /// </summary>
+        /// <param name="boundAxes">The bound axes, keyed by variable name.</param>
+        /// <param name="unboundAxes">The unbound axes, in discovery order.</param>
+        /// <param name="mismatchedVariables">The sink recording variables whose binders declare differing weight vectors.</param>
+        /// <param name="epistemicFunctionIds">The sink recording every epistemic composite id.</param>
+        /// <param name="visited">The functions already searched (reference identity, shared across clusters).</param>
+        internal void CollectLogicTreeAxes(IDictionary<string, LogicTreeAxisSeed> boundAxes,
+            IList<LogicTreeAxisSeed> unboundAxes, ISet<string> mismatchedVariables,
+            ISet<Guid> epistemicFunctionIds, ISet<IRiskFunction> visited)
+        {
+            if (!visited.Add(this)) return;
+            if (_compositeCombinationType == CompositeCombinationType.EpistemicMixture)
+            {
+                var weights = new double[_responseFunctions.Count];
+                for (int i = 0; i < weights.Length; i++) weights[i] = _responseFunctions[i].Weight;
+                LogicTreeAxisSeed.Register(_epistemicVariable, Id, Name, weights,
+                    boundAxes, unboundAxes, mismatchedVariables, epistemicFunctionIds);
+            }
+            for (int i = 0; i < _responseFunctions.Count; i++)
+            {
+                if (_responseFunctions[i].ResponseFunction is CompositeResponse nested)
+                    nested.CollectLogicTreeAxes(boundAxes, unboundAxes, mismatchedVariables, epistemicFunctionIds, visited);
             }
         }
 

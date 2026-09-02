@@ -26,6 +26,9 @@ using RMC.TotalRisk.Results;
 using RMC.TotalRisk.RiskFunctions.Consequences;
 using RMC.TotalRisk.RiskFunctions.Hazards;
 using RMC.TotalRisk.RiskFunctions.Responses;
+using RMC.TotalRisk.RiskFunctions.Responses.EventTrees;
+using RMC.TotalRisk.RiskFunctions.Responses.FaultTrees;
+using RMC.TotalRisk.RiskFunctions.Responses.Trees;
 using RMC.TotalRisk.RiskFunctions.Transforms;
 using RMC.TotalRisk.Systems.Components;
 
@@ -231,6 +234,29 @@ namespace RMC.TotalRisk.Analyses
         private const long JointEntryErrorLimit = 65_536;
 
         /// <summary>
+        /// The logic-tree branch-combination count above which enumeration warns (the ensemble
+        /// grows one block of realizations per combination).
+        /// </summary>
+        private const long LogicTreeCombinationWarningLimit = 4_096;
+
+        /// <summary>
+        /// The logic-tree branch-combination count above which enumeration refuses.
+        /// </summary>
+        private const long LogicTreeCombinationErrorLimit = 65_536;
+
+        /// <summary>
+        /// The enumerated realization count (K·M) above which enumeration warns — the ensemble
+        /// holds every realization's summaries in memory, mirroring the option ceiling of a
+        /// sampled run.
+        /// </summary>
+        private const long LogicTreeRealizationWarningLimit = 10_000;
+
+        /// <summary>
+        /// The enumerated realization count (K·M) above which enumeration refuses.
+        /// </summary>
+        private const long LogicTreeRealizationErrorLimit = 1_000_000;
+
+        /// <summary>
         /// The salt distinguishing the joint path's VEGAS driving stream from the component
         /// sampler streams in the content-based seed derivation ("VEGAS" in ASCII).
         /// </summary>
@@ -410,6 +436,9 @@ namespace RMC.TotalRisk.Analyses
             /// <summary>Gets or sets the retained integration-detail realization, when one is selected.</summary>
             internal SystemRealization? RetainedIntegrationDetail { get; set; }
 
+            /// <summary>Gets or sets the logic-tree enumeration design, or null for a sampled run.</summary>
+            internal LogicTreeEnumerationMap? LogicTree { get; set; }
+
             /// <summary>Gets the structured computation diagnostics staged with the result.</summary>
             internal List<ComputationDiagnostic> Diagnostics { get; } = new List<ComputationDiagnostic>();
         }
@@ -474,6 +503,12 @@ namespace RMC.TotalRisk.Analyses
 
         /// <summary>Backing field for <see cref="RetainedIntegrationDetailIndex"/>.</summary>
         private int? _retainedIntegrationDetailIndex;
+
+        /// <summary>Backing field for <see cref="LogicTreeEnumerationRealizations"/>.</summary>
+        private int? _logicTreeEnumerationRealizations;
+
+        /// <summary>Backing field for <see cref="LogicTreeEnumeration"/>.</summary>
+        private LogicTreeEnumerationMap? _logicTreeEnumeration;
 
         /// <summary>Backing field for <see cref="RetainedRealizations"/>.</summary>
         private SystemRealization[]? _retainedRealizations;
@@ -793,6 +828,57 @@ namespace RMC.TotalRisk.Analyses
         }
 
         /// <summary>
+        /// The per-combination realization count M of the exact logic-tree enumeration, or null
+        /// (the default) to sample the epistemic branches like any other knowledge quantity.
+        /// When set, the next full-uncertainty run enumerates every branch combination of the
+        /// model's epistemic-mixture composites — shared variables force every binder together;
+        /// an unbound composite is its own axis — computing one ensemble of K·M realizations in
+        /// which each combination holds one block of M continuous-knowledge realizations and the
+        /// published <see cref="EnsembleResults.RealizationWeights"/> carry the exact
+        /// branch-weight products, so the weighted fractiles have zero Monte Carlo noise on the
+        /// branch axis (and are exact outright when every branch chain is deterministic — set
+        /// M = 1 there). Runtime-only input state: never serialized, never part of a canonical
+        /// hash, and never an influence on sampling seeds — the branch forcing overwrites only
+        /// the composites' selector columns after seeding, exactly like a fractile pin, and every
+        /// continuous knowledge stream is the stream a sampled run of the same size draws. The
+        /// run sizes itself at K·M on its isolated options snapshot;
+        /// <see cref="RiskAnalysisOptions.Realizations"/> is not consulted (resource estimates
+        /// still read it, so mind the enumeration warnings for large K·M). Enumeration owns the
+        /// weight vector (<see cref="RealizationWeights"/> must be null; re-weight a retained
+        /// enumerated run post hoc instead), refuses a mean-only run, refuses fractile pins on
+        /// the enumerated composites, refuses an epistemic composite referenced through a tree
+        /// probability source (the tree samples it in isolated setup clones the forcing scope's
+        /// discovery cannot see), and requires every epistemic-mixture consequence composite
+        /// to be removed or made aleatory — its branch rides the failure mode's coupling draw,
+        /// which the enumerator cannot force. Assigning invalidates
+        /// <see cref="AnalysisBase.IsEstimated"/>.
+        /// </summary>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown when a value below one is assigned.</exception>
+        public int? LogicTreeEnumerationRealizations
+        {
+            get { return _logicTreeEnumerationRealizations; }
+            set
+            {
+                if (value is int perCombination && perCombination < 1)
+                    throw new ArgumentOutOfRangeException(nameof(value), "The per-combination realization count must be at least one.");
+                _logicTreeEnumerationRealizations = value;
+                IsEstimated = false;
+                RaisePropertyChange(nameof(LogicTreeEnumerationRealizations));
+            }
+        }
+
+        /// <summary>
+        /// The last run's logic-tree enumeration design, when
+        /// <see cref="LogicTreeEnumerationRealizations"/> was set: the axes crossed, every
+        /// combination's exact weight, and the realization-to-combination assignment — the
+        /// post-run branch-attribution surface (the run computes on component clones, so reading
+        /// branch attribution from the authoring composites after a run is invalid). Null for a
+        /// sampled run, and null on an analysis restored from stored results — the map is
+        /// runtime-only and never serialized.
+        /// </summary>
+        public LogicTreeEnumerationMap? LogicTreeEnumeration => _logicTreeEnumeration;
+
+        /// <summary>
         /// The retained per-realization ensemble of the last run, when
         /// <see cref="RetainRealizations"/> was enabled; null otherwise. The realizations are
         /// the run's own objects — read them, never mutate them. Valid for the model state
@@ -1006,6 +1092,415 @@ namespace RMC.TotalRisk.Analyses
         }
 
         /// <summary>
+        /// The aggregated result of one logic-tree axis discovery: the ordered axes, the
+        /// disagreements that block exact enumeration, every epistemic composite id (the
+        /// pin-conflict gate), and whether an epistemic consequence composite exists.
+        /// </summary>
+        private sealed class LogicTreeDiscovery
+        {
+            /// <summary>The enumeration axes in deterministic order: bound variables by ordinal name, then unbound composites by function id.</summary>
+            internal List<LogicTreeAxisSeed> Axes { get; } = new List<LogicTreeAxisSeed>();
+
+            /// <summary>The shared variables whose binders declare differing weight vectors.</summary>
+            internal SortedSet<string> MismatchedVariables { get; } = new SortedSet<string>(StringComparer.Ordinal);
+
+            /// <summary>The names of unbound composites whose equal-id self-contained copies declare differing weight vectors.</summary>
+            internal SortedSet<string> MismatchedFunctionCopies { get; } = new SortedSet<string>(StringComparer.Ordinal);
+
+            /// <summary>Every epistemic-mixture composite id discovered on the walked clusters.</summary>
+            internal HashSet<Guid> EpistemicFunctionIds { get; } = new HashSet<Guid>();
+
+            /// <summary>True when any consequence composite uses the epistemic mode anywhere in its subtree.</summary>
+            internal bool ConsequenceEpistemic { get; set; }
+        }
+
+        /// <summary>
+        /// Discovers the logic-tree axes across every component's walked epistemic composites:
+        /// one axis per distinct shared variable (ordinal name order), then one per unbound
+        /// epistemic composite (function-id order, equal-id self-contained copies merged as one
+        /// knowledge quantity with bitwise weight agreement required).
+        /// </summary>
+        /// <param name="components">The components to discover over (author state at validation, run clones at run start).</param>
+        /// <returns>The aggregated discovery.</returns>
+        private LogicTreeDiscovery DiscoverLogicTreeAxes(List<SystemComponent> components)
+        {
+            var discovery = new LogicTreeDiscovery();
+            var boundAxes = new Dictionary<string, LogicTreeAxisSeed>(StringComparer.Ordinal);
+            var unboundRaw = new List<LogicTreeAxisSeed>();
+            var visited = new HashSet<IRiskFunction>(ReferenceEqualityComparer.Instance);
+            for (int i = 0; i < components.Count; i++)
+            {
+                components[i].CollectLogicTreeAxes(boundAxes, unboundRaw, discovery.MismatchedVariables,
+                    discovery.EpistemicFunctionIds, visited);
+                foreach (var function in components[i].GetReferencedFunctions())
+                {
+                    if (function is CompositeConsequence consequence && consequence.UsesEpistemicMode())
+                    {
+                        discovery.ConsequenceEpistemic = true;
+                    }
+                }
+            }
+
+            var unboundById = new Dictionary<Guid, LogicTreeAxisSeed>();
+            foreach (var seed in unboundRaw)
+            {
+                if (unboundById.TryGetValue(seed.FunctionId, out var existing))
+                {
+                    if (!existing.WeightsMatch(seed)) discovery.MismatchedFunctionCopies.Add(existing.FunctionName);
+                    continue;
+                }
+                unboundById.Add(seed.FunctionId, seed);
+            }
+
+            var names = new List<string>(boundAxes.Keys);
+            names.Sort(StringComparer.Ordinal);
+            for (int i = 0; i < names.Count; i++)
+            {
+                discovery.Axes.Add(boundAxes[names[i]]);
+            }
+            var unbound = new List<LogicTreeAxisSeed>(unboundById.Values);
+            unbound.Sort((a, b) => a.FunctionId.CompareTo(b.FunctionId));
+            discovery.Axes.AddRange(unbound);
+            return discovery;
+        }
+
+        /// <summary>
+        /// Reports whether an epistemic-mixture composite is reachable through a tree
+        /// probability source anywhere under the given response function. Trees sample their
+        /// referenced sources through isolated self-contained setup clones the walked-cluster
+        /// axis discovery cannot see, so a tree-carried epistemic composite selects branches the
+        /// enumerator cannot force and the mean pass would silently blend — both gates treat it
+        /// explicitly. The containment recursion crosses composite children into nested trees
+        /// and tree sources into nested composites; an epistemic composite reached purely
+        /// through walked composite nesting is a discovered axis, not a tree-carried one.
+        /// </summary>
+        /// <param name="function">The response function to search under.</param>
+        /// <param name="insideTreeSource">True once the recursion has crossed a tree probability-source edge.</param>
+        /// <param name="visited">The (function, inside-tree) states already searched — one
+        /// function can be reachable both directly and through a tree edge, and the two states
+        /// answer differently.</param>
+        /// <returns>True when a tree-carried epistemic composite exists.</returns>
+        private static bool TreeCarriesEpistemicComposite(IResponseFunction function, bool insideTreeSource,
+            HashSet<(IResponseFunction Function, bool InsideTree)> visited)
+        {
+            if (!visited.Add((function, insideTreeSource))) return false;
+            switch (function)
+            {
+                case CompositeResponse composite:
+                    if (insideTreeSource && composite.UsesEpistemicMode()) return true;
+                    for (int i = 0; i < composite.ResponseFunctions.Count; i++)
+                    {
+                        var child = composite.ResponseFunctions[i].ResponseFunction;
+                        if (child != null && TreeCarriesEpistemicComposite(child, insideTreeSource, visited)) return true;
+                    }
+                    return false;
+                case EventTreeResponse eventTree:
+                    foreach (var node in eventTree.EventTree.Nodes)
+                    {
+                        IResponseFunction? source = node switch
+                        {
+                            ChanceNode chance => chance.ProbabilitySource?.ResponseFunction,
+                            EventTreeLinkNode link => link.TargetFunction,
+                            _ => null,
+                        };
+                        if (source != null && TreeCarriesEpistemicComposite(source, true, visited)) return true;
+                    }
+                    return false;
+                case FaultTreeResponse faultTree:
+                    foreach (var node in faultTree.FaultTree.Nodes)
+                    {
+                        if (node is FaultTreeBasicEventNode basic)
+                        {
+                            var source = basic.ProbabilitySource?.ResponseFunction;
+                            if (source != null && TreeCarriesEpistemicComposite(source, true, visited)) return true;
+                        }
+                    }
+                    return false;
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// The single gate generator behind the logic-tree enumeration: discovers the axes and
+        /// produces every configuration error and warning — <see cref="Validate"/> appends them,
+        /// and the run start throws on any error over the captured run state (the race-safe
+        /// re-check pattern the realization weights and fractile pins follow).
+        /// </summary>
+        /// <param name="components">The components to gate over.</param>
+        /// <param name="realizationsPerCombination">The configured per-combination count M.</param>
+        /// <param name="fractilePins">The configured fractile pins, or null.</param>
+        /// <param name="realizationWeights">The configured run-input weights, or null.</param>
+        /// <param name="meanOnly">Whether the options request a mean-only run.</param>
+        /// <returns>The discovery and the accumulated error and warning messages.</returns>
+        private (LogicTreeDiscovery Discovery, List<string> Errors, List<string> Warnings) AnalyzeLogicTreeConfiguration(
+            List<SystemComponent> components, int realizationsPerCombination,
+            IReadOnlyList<FractilePin>? fractilePins, double[]? realizationWeights, bool meanOnly)
+        {
+            var errors = new List<string>();
+            var warnings = new List<string>();
+            var discovery = DiscoverLogicTreeAxes(components);
+
+            if (meanOnly)
+            {
+                errors.Add("Error: The logic-tree enumeration selects one branch combination per realization block; a mean-only run has no realizations to enumerate with. Disable the mean-only option or clear LogicTreeEnumerationRealizations.");
+            }
+            if (realizationWeights != null)
+            {
+                errors.Add("Error: The logic-tree enumeration computes the realization weight vector itself; clear RealizationWeights to enumerate (re-weight a retained enumerated run post hoc instead).");
+            }
+            if (discovery.ConsequenceEpistemic)
+            {
+                errors.Add("Error: An epistemic-mixture consequence composite selects from its failure mode's coupling draw, which the enumerator cannot force; switch it to the aleatory Mixture (exposure branches enumerate exactly within every realization) or remove it before enumerating.");
+            }
+            var treeVisited = new HashSet<(IResponseFunction Function, bool InsideTree)>();
+            bool treeCarried = false;
+            for (int i = 0; i < components.Count && !treeCarried; i++)
+            {
+                foreach (var function in components[i].GetReferencedFunctions())
+                {
+                    if (function is IResponseFunction response && TreeCarriesEpistemicComposite(response, false, treeVisited))
+                    {
+                        treeCarried = true;
+                        break;
+                    }
+                }
+            }
+            if (treeCarried)
+            {
+                errors.Add("Error: An epistemic-mixture composite is referenced through a tree probability source; the tree samples it in isolated setup clones the enumerator cannot force. Remove it from the tree, or restructure the branch alternatives outside the tree, before enumerating.");
+            }
+            if (discovery.Axes.Count == 0)
+            {
+                errors.Add("Error: The logic-tree enumeration found no epistemic-mixture composite on the walked clusters; there is nothing to enumerate.");
+            }
+            foreach (string variable in discovery.MismatchedVariables)
+            {
+                errors.Add($"Error: The shared epistemic variable '{variable}' is bound by composites with differing weight vectors; exact enumeration needs one well-defined branch set per axis.");
+            }
+            foreach (string name in discovery.MismatchedFunctionCopies)
+            {
+                errors.Add($"Error: Epistemic-mixture composite '{name}' appears as equal-id self-contained copies with differing weight vectors; exact enumeration needs one well-defined branch set per axis.");
+            }
+
+            long combinationCount = 1;
+            bool countable = discovery.Axes.Count > 0;
+            for (int i = 0; i < discovery.Axes.Count; i++)
+            {
+                var seed = discovery.Axes[i];
+                int positive = 0;
+                for (int w = 0; w < seed.Weights.Length; w++)
+                {
+                    if (seed.Weights[w] > 0d) positive++;
+                }
+                if (positive == 0)
+                {
+                    errors.Add($"Error: Epistemic-mixture composite '{seed.FunctionName}' has no positively weighted branch to enumerate.");
+                    countable = false;
+                    continue;
+                }
+                combinationCount = SaturatingProduct(combinationCount, positive);
+            }
+            if (countable)
+            {
+                if (combinationCount > LogicTreeCombinationErrorLimit)
+                {
+                    errors.Add($"Error: The logic-tree enumeration crosses {combinationCount:N0} branch combinations, above the {LogicTreeCombinationErrorLimit:N0} limit; reduce the branch counts or the number of epistemic axes.");
+                }
+                else if (combinationCount > LogicTreeCombinationWarningLimit)
+                {
+                    warnings.Add($"Warning: The logic-tree enumeration crosses {combinationCount:N0} branch combinations; the ensemble computes one block of realizations per combination, growing cost and memory accordingly.");
+                }
+                long realizationCount = SaturatingProduct(combinationCount, realizationsPerCombination);
+                if (realizationCount < 2)
+                {
+                    errors.Add("Error: The logic-tree enumeration would compute a single realization; increase LogicTreeEnumerationRealizations or the branch counts (the percentile assembly needs at least two).");
+                }
+                if (realizationCount > LogicTreeRealizationErrorLimit)
+                {
+                    errors.Add($"Error: The logic-tree enumeration would compute {realizationCount:N0} realizations (combinations × per-combination count), above the {LogicTreeRealizationErrorLimit:N0} limit; reduce LogicTreeEnumerationRealizations or the branch counts.");
+                }
+                else if (realizationCount > LogicTreeRealizationWarningLimit)
+                {
+                    warnings.Add($"Warning: The logic-tree enumeration holds {realizationCount:N0} realizations' summaries in memory (combinations × per-combination count) — above the {LogicTreeRealizationWarningLimit:N0} a sampled run can configure; intended for deliberate studies.");
+                }
+                if (_options.SamplingScheme == SamplingScheme.ScrambledSobol && realizationCount <= int.MaxValue
+                    && (realizationCount & (realizationCount - 1)) != 0)
+                {
+                    warnings.Add($"Warning: Scrambled-Sobol sampling stratifies most evenly at power-of-two realization counts; the enumeration computes {realizationCount:N0}, which is not one.");
+                }
+            }
+
+            if (fractilePins != null)
+            {
+                for (int i = 0; i < fractilePins.Count; i++)
+                {
+                    if (discovery.EpistemicFunctionIds.Contains(fractilePins[i].FunctionId))
+                    {
+                        errors.Add($"Error: Fractile pin {i + 1} targets epistemic-mixture composite {fractilePins[i].FunctionId:D}; a pin would overwrite the enumerator's forced branch selection. Pins on non-enumerated functions remain valid.");
+                    }
+                }
+            }
+            return (discovery, errors, warnings);
+        }
+
+        /// <summary>
+        /// Builds the enumeration design from the discovered axes: per axis, the positively
+        /// weighted branches with their forcing percentiles (the midpoint of each branch's
+        /// cumulative-weight interval — the sampled mode's inclusive-upper inverse-CDF algebra)
+        /// and the per-axis normalized weights whose lexicographic products are the exact
+        /// combination weights.
+        /// </summary>
+        /// <param name="axes">The discovered axes, in deterministic order.</param>
+        /// <param name="realizationsPerCombination">The per-combination realization count M.</param>
+        /// <returns>The enumeration design.</returns>
+        /// <exception cref="InvalidOperationException">Thrown when a branch weight is too small to force a distinct selector percentile at its cumulative position.</exception>
+        private static LogicTreeEnumerationMap BuildLogicTreeMap(List<LogicTreeAxisSeed> axes, int realizationsPerCombination)
+        {
+            var builtAxes = new List<LogicTreeAxis>(axes.Count);
+            var normalizedWeights = new List<double[]>(axes.Count);
+            for (int a = 0; a < axes.Count; a++)
+            {
+                var seed = axes[a];
+                double positiveSum = 0d;
+                for (int i = 0; i < seed.Weights.Length; i++)
+                {
+                    if (seed.Weights[i] > 0d) positiveSum += seed.Weights[i];
+                }
+                var branches = new List<LogicTreeBranch>();
+                var normalized = new List<double>();
+                double cumulative = 0d;
+                for (int i = 0; i < seed.Weights.Length; i++)
+                {
+                    double weight = seed.Weights[i];
+                    if (weight <= 0d) continue;
+                    double prior = cumulative;
+                    cumulative += weight;
+                    double forced = prior + weight / 2d;
+                    if (!(forced > prior && forced <= cumulative))
+                    {
+                        throw new InvalidOperationException(
+                            $"Epistemic-mixture composite '{seed.FunctionName}' declares a branch whose weight is too small to force a distinct selector percentile; remove the branch or rebalance the weights.");
+                    }
+                    branches.Add(new LogicTreeBranch(i, weight, forced));
+                    normalized.Add(weight / positiveSum);
+                }
+                bool isSharedVariable = seed.Variable.Length > 0;
+                builtAxes.Add(new LogicTreeAxis(isSharedVariable ? seed.Variable : seed.FunctionName,
+                    isSharedVariable, isSharedVariable ? null : seed.FunctionId, branches));
+                normalizedWeights.Add(normalized.ToArray());
+            }
+
+            long combinationCount = 1;
+            for (int a = 0; a < builtAxes.Count; a++)
+            {
+                combinationCount *= builtAxes[a].Branches.Count;
+            }
+            var combinationWeights = new double[combinationCount];
+            var digits = new int[builtAxes.Count];
+            for (long c = 0; c < combinationCount; c++)
+            {
+                double product = 1d;
+                for (int a = 0; a < builtAxes.Count; a++)
+                {
+                    product *= normalizedWeights[a][digits[a]];
+                }
+                combinationWeights[c] = product;
+                for (int a = builtAxes.Count - 1; a >= 0; a--)
+                {
+                    digits[a]++;
+                    if (digits[a] < builtAxes[a].Branches.Count) break;
+                    digits[a] = 0;
+                }
+            }
+            return new LogicTreeEnumerationMap(builtAxes, realizationsPerCombination, combinationWeights);
+        }
+
+        /// <summary>
+        /// Builds the constant-per-block forcing columns of an enumeration design: for every
+        /// axis, one column of the run's length whose block [c·M, (c+1)·M) holds the forcing
+        /// percentile of the branch combination c selects on that axis — keyed by variable name
+        /// for shared-variable axes and by function id for unbound composites.
+        /// </summary>
+        /// <param name="map">The enumeration design.</param>
+        /// <param name="nameColumns">The name-keyed forcing columns.</param>
+        /// <param name="idColumns">The id-keyed forcing columns.</param>
+        private static void BuildLogicTreeColumns(LogicTreeEnumerationMap map,
+            out Dictionary<string, double[]> nameColumns, out Dictionary<Guid, double[]> idColumns)
+        {
+            nameColumns = new Dictionary<string, double[]>(StringComparer.Ordinal);
+            idColumns = new Dictionary<Guid, double[]>();
+            int perCombination = map.RealizationsPerCombination;
+            for (int a = 0; a < map.Axes.Count; a++)
+            {
+                var axis = map.Axes[a];
+                var column = new double[map.RealizationCount];
+                for (int c = 0; c < map.CombinationCount; c++)
+                {
+                    double forced = axis.Branches[map.BranchIndexOf(c, a)].ForcedPercentile;
+                    int start = c * perCombination;
+                    for (int i = 0; i < perCombination; i++)
+                    {
+                        column[start + i] = forced;
+                    }
+                }
+                if (axis.IsSharedVariable)
+                {
+                    nameColumns[axis.Name] = column;
+                }
+                else
+                {
+                    idColumns[axis.FunctionId!.Value] = column;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Builds the enumeration's exact per-realization weight vector: each realization
+        /// carries its combination's weight divided by the per-combination count, so the
+        /// weighted reductions integrate the logic tree with zero Monte Carlo noise on the
+        /// branch axis.
+        /// </summary>
+        /// <param name="map">The enumeration design.</param>
+        /// <returns>The weight vector, one entry per realization.</returns>
+        private static double[] BuildLogicTreeRealizationWeights(LogicTreeEnumerationMap map)
+        {
+            var weights = new double[map.RealizationCount];
+            int perCombination = map.RealizationsPerCombination;
+            for (int c = 0; c < map.CombinationCount; c++)
+            {
+                double weight = map.CombinationWeights[c] / perCombination;
+                int start = c * perCombination;
+                for (int i = 0; i < perCombination; i++)
+                {
+                    weights[start + i] = weight;
+                }
+            }
+            return weights;
+        }
+
+        /// <summary>
+        /// Enters the epistemic sharing scope a post-run re-derivation needs to reproduce the
+        /// last run's streams: when the last run enumerated and the design size matches, the
+        /// enumeration's forcing columns are rebuilt (deterministic from the published map);
+        /// otherwise the standard seed-derived shared columns apply. Null when no scope is
+        /// needed at all.
+        /// </summary>
+        /// <param name="sampleSize">The re-derivation design size.</param>
+        /// <returns>The scope restoration token, or null.</returns>
+        private IDisposable? EnterEpistemicScopeForRederivation(int sampleSize)
+        {
+            var map = _logicTreeEnumeration;
+            if (map != null && map.RealizationCount == sampleSize)
+            {
+                BuildLogicTreeColumns(map, out var forcedNameColumns, out var forcedIdColumns);
+                return EpistemicSharingScope.Enter(forcedNameColumns, forcedIdColumns, null, null);
+            }
+            var columns = BuildEpistemicSharingColumns(sampleSize);
+            return columns == null ? null : EpistemicSharingScope.Enter(columns);
+        }
+
+        /// <summary>
         /// The epistemic-mixture validation gates. A mean-only run cannot select a branch, so a
         /// walked-cluster epistemic composite's analytic blend would silently answer with the
         /// wrong (Jensen-gap) number — an Error; an epistemic consequence composite's blend keeps
@@ -1072,6 +1567,26 @@ namespace RMC.TotalRisk.Analyses
                         case CompositeConsequence consequence:
                             if (consequence.UsesEpistemicMode()) anyConsequenceEpistemic = true;
                             break;
+                    }
+                }
+            }
+
+            // A tree-carried epistemic composite (a composite referenced through a tree
+            // probability source) is invisible to the walked-function switch above, but a mean
+            // pass evaluates it through the tree's mean clone as the same silent analytic blend
+            // — the identical Jensen-gap wrong answer, so the same gate applies.
+            if (_options.EstimateMeanRiskOnly && !anyWalkedEpistemic)
+            {
+                var treeVisited = new HashSet<(IResponseFunction Function, bool InsideTree)>();
+                for (int i = 0; i < _components.Count && !anyWalkedEpistemic; i++)
+                {
+                    foreach (var function in _components[i].GetReferencedFunctions())
+                    {
+                        if (function is IResponseFunction response && TreeCarriesEpistemicComposite(response, false, treeVisited))
+                        {
+                            anyWalkedEpistemic = true;
+                            break;
+                        }
                     }
                 }
             }
@@ -1144,7 +1659,16 @@ namespace RMC.TotalRisk.Analyses
                 }
             }
 
+            if (_logicTreeEnumerationRealizations is int logicTreeRealizations)
+            {
+                var logicTree = AnalyzeLogicTreeConfiguration(_components, logicTreeRealizations,
+                    _fractilePins, _realizationWeights, _options.EstimateMeanRiskOnly);
+                messages.AddRange(logicTree.Errors);
+                messages.AddRange(logicTree.Warnings);
+            }
+
             if (_options.SamplingScheme == SamplingScheme.ScrambledSobol && !_options.EstimateMeanRiskOnly
+                && _logicTreeEnumerationRealizations == null
                 && _options.Realizations > 0 && (_options.Realizations & (_options.Realizations - 1)) != 0)
             {
                 messages.Add($"Warning: Scrambled-Sobol sampling stratifies most evenly at power-of-two realization counts; {_options.Realizations:N0} is not one.");
@@ -1773,6 +2297,28 @@ namespace RMC.TotalRisk.Analyses
                 _runRetainRealizations = _retainRealizations;
                 _runRetainedDetailIndex = _retainedIntegrationDetailIndex;
 
+                // The exact logic-tree enumeration derivation, gated race-safe over the captured
+                // run state (Validate() checked the author state, but every runtime input can
+                // move between that gate and this snapshot's use): discover the axes on the run
+                // clones, size the isolated options snapshot at N = K·M — the author options are
+                // untouched, and the manifest records the effective run — and take ownership of
+                // the realization-weight vector with the exact branch-weight products.
+                int? runLogicTreeRealizations = _logicTreeEnumerationRealizations;
+                LogicTreeEnumerationMap? logicTreeMap = null;
+                if (runLogicTreeRealizations is int perCombination)
+                {
+                    var logicTree = AnalyzeLogicTreeConfiguration(_components, perCombination,
+                        runFractilePins, runRealizationWeights, _options.EstimateMeanRiskOnly);
+                    if (logicTree.Errors.Count > 0)
+                    {
+                        throw new InvalidOperationException(
+                            "The logic-tree enumeration is invalid. " + string.Join(" ", logicTree.Errors));
+                    }
+                    logicTreeMap = BuildLogicTreeMap(logicTree.Discovery.Axes, perCombination);
+                    _options.Realizations = logicTreeMap.RealizationCount;
+                    runRealizationWeights = BuildLogicTreeRealizationWeights(logicTreeMap);
+                }
+
                 await Task.Run(() =>
                 {
                     RunWorkerObserver?.Invoke();
@@ -1811,8 +2357,25 @@ namespace RMC.TotalRisk.Analyses
                     // captured seed maps stay valid and no other function's stream can move.
                     var capturedSeeds = new List<int[]>(_components.Count);
                     var contentHashes = new byte[_components.Count][];
-                    var epistemicColumns = BuildEpistemicSharingColumns(_options.Realizations);
-                    using (epistemicColumns == null ? null : EpistemicSharingScope.Enter(epistemicColumns))
+                    HashSet<string>? appliedVariables = null;
+                    HashSet<Guid>? appliedFunctionIds = null;
+                    IDisposable? sharingScope;
+                    if (logicTreeMap != null)
+                    {
+                        // The enumeration's forcing scope: constant-per-block columns in place of
+                        // the seed-derived shared draws, with applied-key sinks so the walk can
+                        // prove after seeding that every axis was reached.
+                        BuildLogicTreeColumns(logicTreeMap, out var forcedNameColumns, out var forcedIdColumns);
+                        appliedVariables = new HashSet<string>(StringComparer.Ordinal);
+                        appliedFunctionIds = new HashSet<Guid>();
+                        sharingScope = EpistemicSharingScope.Enter(forcedNameColumns, forcedIdColumns, appliedVariables, appliedFunctionIds);
+                    }
+                    else
+                    {
+                        var epistemicColumns = BuildEpistemicSharingColumns(_options.Realizations);
+                        sharingScope = epistemicColumns == null ? null : EpistemicSharingScope.Enter(epistemicColumns);
+                    }
+                    using (sharingScope)
                     {
                         for (int i = 0; i < _components.Count; i++)
                         {
@@ -1830,6 +2393,25 @@ namespace RMC.TotalRisk.Analyses
                             if (appliedPinIds!.Contains(pinId)) continue;
                             throw new InvalidOperationException(
                                 $"Fractile pin {pinId:D} could not be applied: the component walk does not sample that function directly (a function referenced only inside a tree's own sampling clones cannot be conditioned), so the run would silently not condition on it.");
+                        }
+                    }
+
+                    if (logicTreeMap != null)
+                    {
+                        // The enumeration reconciliation (the fractile-pin refusal pattern): any
+                        // axis the seeding walk did not consume would leave its branch selection
+                        // sampled, silently voiding the exactness contract — refuse instead.
+                        for (int a = 0; a < logicTreeMap.Axes.Count; a++)
+                        {
+                            var axis = logicTreeMap.Axes[a];
+                            bool applied = axis.IsSharedVariable
+                                ? appliedVariables!.Contains(axis.Name)
+                                : appliedFunctionIds!.Contains(axis.FunctionId!.Value);
+                            if (!applied)
+                            {
+                                throw new InvalidOperationException(
+                                    $"Logic-tree axis '{axis.Name}' was not reached by the sampler walk (a composite sampled only inside a tree's own setup clones cannot be forced), so the run would silently not enumerate it.");
+                            }
                         }
                     }
 
@@ -1902,6 +2484,7 @@ namespace RMC.TotalRisk.Analyses
                         ? RunMeanOnly(progressReporter, token)
                         : RunFullUncertainty(progressReporter, token, runRealizationWeights);
                     publication.CapturedSeeds = captured;
+                    publication.LogicTree = logicTreeMap;
                     var manifest = AnalysisRunManifest.Create(_options, _components, contentHashes, order,
                         RunSpecifiedConsequence, RunConsequenceUnit, RunAdditionalConsequenceTypes,
                         captured, runRealizationWeights);
@@ -2014,8 +2597,7 @@ namespace RMC.TotalRisk.Analyses
 
             SystemComponent.AssignOccurrenceIndices(_components);
             int seed = SeedHelpers.HashCombine(_options.PRNGSeed, component.CanonicalHash(), component.OccurrenceIndex);
-            var epistemicColumns = BuildEpistemicSharingColumns(_options.Realizations);
-            using (epistemicColumns == null ? null : EpistemicSharingScope.Enter(epistemicColumns))
+            using (EnterEpistemicScopeForRederivation(_options.Realizations))
             {
                 component.SetupSamplers(_options.Realizations, seed, _options.SamplingScheme, null, BuildCurrentFractilePinMap(), null);
             }
@@ -2113,6 +2695,7 @@ namespace RMC.TotalRisk.Analyses
             _upperRiskResults = null;
             _retainedRealizations = null;
             _retainedIntegrationDetail = null;
+            _logicTreeEnumeration = null;
             _jointCertificate = null;
             _jointCertificateChiSquared = null;
             _jointCertificateRelativeSe = null;
@@ -2130,6 +2713,7 @@ namespace RMC.TotalRisk.Analyses
             RaisePropertyChange(nameof(UpperRiskResults));
             RaisePropertyChange(nameof(RetainedRealizations));
             RaisePropertyChange(nameof(RetainedIntegrationDetail));
+            RaisePropertyChange(nameof(LogicTreeEnumeration));
             RaisePropertyChange(nameof(JointCertificate));
             RaisePropertyChange(nameof(ComputationWarnings));
             RaisePropertyChange(nameof(ComputationDiagnostics));
@@ -2149,6 +2733,7 @@ namespace RMC.TotalRisk.Analyses
             _upperRiskResults = publication.Upper;
             _retainedRealizations = publication.RetainedRealizations;
             _retainedIntegrationDetail = publication.RetainedIntegrationDetail;
+            _logicTreeEnumeration = publication.LogicTree;
             _jointCertificate = AssembleJointCertificate();
             CapturedSamplerSeeds = publication.CapturedSeeds;
             _computationWarnings.Clear();
@@ -2166,6 +2751,7 @@ namespace RMC.TotalRisk.Analyses
             RaisePropertyChange(nameof(UpperRiskResults));
             RaisePropertyChange(nameof(RetainedRealizations));
             RaisePropertyChange(nameof(RetainedIntegrationDetail));
+            RaisePropertyChange(nameof(LogicTreeEnumeration));
             RaisePropertyChange(nameof(JointCertificate));
             RaisePropertyChange(nameof(ComputationWarnings));
             RaisePropertyChange(nameof(ComputationDiagnostics));
@@ -2605,8 +3191,7 @@ namespace RMC.TotalRisk.Analyses
 
             SystemComponent.AssignOccurrenceIndices(_components);
             int seed = SeedHelpers.HashCombine(_options.PRNGSeed, component.CanonicalHash(), component.OccurrenceIndex);
-            var epistemicColumns = BuildEpistemicSharingColumns(realizations);
-            using (epistemicColumns == null ? null : EpistemicSharingScope.Enter(epistemicColumns))
+            using (EnterEpistemicScopeForRederivation(realizations))
             {
                 component.SetupSamplers(realizations, seed, _options.SamplingScheme, null, BuildCurrentFractilePinMap(), null);
             }
@@ -2710,8 +3295,7 @@ namespace RMC.TotalRisk.Analyses
             var inputs = new List<SensitivityInput>();
             var fractilePinMap = BuildCurrentFractilePinMap();
             var sharedEpistemicSeen = new HashSet<string>(StringComparer.Ordinal);
-            var epistemicColumns = BuildEpistemicSharingColumns(sampleSize);
-            using (epistemicColumns == null ? null : EpistemicSharingScope.Enter(epistemicColumns))
+            using (EnterEpistemicScopeForRederivation(sampleSize))
             {
                 for (int i = 0; i < _components.Count; i++)
                 {

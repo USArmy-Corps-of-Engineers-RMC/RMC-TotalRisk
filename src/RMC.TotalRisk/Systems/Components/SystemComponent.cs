@@ -1314,6 +1314,43 @@ namespace RMC.TotalRisk.Systems.Components
         }
 
         /// <summary>
+        /// Accumulates the logic-tree axes declared by this component's walked epistemic
+        /// composites, nested composites included — the exact enumerator's discovery surface,
+        /// aggregating through the clusters' own cycle-safe recursions.
+        /// </summary>
+        /// <param name="boundAxes">The bound axes, keyed by variable name.</param>
+        /// <param name="unboundAxes">The unbound axes, in discovery order.</param>
+        /// <param name="mismatchedVariables">The sink recording variables whose binders declare differing weight vectors.</param>
+        /// <param name="epistemicFunctionIds">The sink recording every epistemic composite id.</param>
+        /// <param name="visited">The functions already searched (reference identity, shared across components).</param>
+        /// <exception cref="ArgumentNullException">Thrown when a sink is null.</exception>
+        internal void CollectLogicTreeAxes(IDictionary<string, LogicTreeAxisSeed> boundAxes,
+            IList<LogicTreeAxisSeed> unboundAxes, ISet<string> mismatchedVariables,
+            ISet<Guid> epistemicFunctionIds, ISet<IRiskFunction> visited)
+        {
+            if (boundAxes == null) throw new ArgumentNullException(nameof(boundAxes));
+            if (unboundAxes == null) throw new ArgumentNullException(nameof(unboundAxes));
+            if (mismatchedVariables == null) throw new ArgumentNullException(nameof(mismatchedVariables));
+            if (epistemicFunctionIds == null) throw new ArgumentNullException(nameof(epistemicFunctionIds));
+            if (visited == null) throw new ArgumentNullException(nameof(visited));
+            foreach (var function in GetReferencedFunctions())
+            {
+                switch (function)
+                {
+                    case CompositeHazard hazard:
+                        hazard.CollectLogicTreeAxes(boundAxes, unboundAxes, mismatchedVariables, epistemicFunctionIds, visited);
+                        break;
+                    case CompositeResponse response:
+                        response.CollectLogicTreeAxes(boundAxes, unboundAxes, mismatchedVariables, epistemicFunctionIds, visited);
+                        break;
+                    case CompositeTransform transform:
+                        transform.CollectLogicTreeAxes(boundAxes, unboundAxes, mismatchedVariables, epistemicFunctionIds, visited);
+                        break;
+                }
+            }
+        }
+
+        /// <summary>
         /// Sets up the component's samplers with a seed scribe threaded through the walk — the
         /// engine's capture/apply entry for the §5.5.8 seed-stable perturbation mode (the
         /// public overload passes no scribe).
