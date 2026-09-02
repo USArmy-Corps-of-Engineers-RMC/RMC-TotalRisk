@@ -294,6 +294,44 @@ stored realization weights ([results-catalog.md](results-catalog.md)). Stationar
 inter-year independence are assumed — the caveat that motivates a genuine time axis rather than
 a conversion.
 
+### 6.6 Exact logic-tree enumeration
+
+The sampled epistemic mode draws each realization's branch combination, so a branch's share of
+the ensemble is its weight only in expectation and a small-weight branch is resolved by a
+handful of realizations. Setting `RiskAnalysis.LogicTreeEnumerationRealizations = M` replaces
+that draw with **exact enumeration**: the run discovers the model's epistemic axes — one axis
+per distinct shared `EpistemicVariable` (every binder forced together, nested binders included)
+and one per unbound epistemic-mixture composite — crosses their positively weighted branches
+into K combinations, and computes one full-uncertainty ensemble of N = K·M realizations in
+which block [c·M, (c+1)·M) is held on combination c by overwriting the composites' selector
+columns with the branch's cumulative-midpoint percentile (the fractile-pin overwrite, applied
+after seeding, so no walk ordinal moves and every continuous knowledge stream is the stream a
+sampled run of the same size draws). The published realization weights carry the exact products
+wᵢ = W(c)/M, where W(c) multiplies the per-axis normalized branch weights — so every weighted
+reduction of §6.1–§6.3 integrates the logic tree with **zero Monte Carlo noise on the branch
+axis**: the weighted CDF of any measure is exact at every level up to the continuous-knowledge
+sampling inside each combination, and with deterministic branch chains (M = 1) the weighted
+fractiles are exact outright. For a dam-scale tree — a few axes of a few branches — the
+enumeration is simultaneously cheaper than the sampled ensemble: a 0.02-weight branch receives
+M dedicated realizations instead of ≈ N·0.02 draws.
+
+The mode is runtime-only input state in the fractile-pin family: never serialized, never part
+of a canonical hash, never an influence on sampling seeds, and the run sizes itself at K·M on
+its isolated options snapshot (`Options.Realizations` is not consulted). The published
+`RiskAnalysis.LogicTreeEnumeration` map is the attribution authority — axes, branches, forcing
+percentiles, exact combination weights, and the realization-to-combination assignment — and the
+post-run sensitivity and value-of-information re-derivations rebuild the forcing columns from
+it, so the recorded design is exactly what those queries correlate against. Enumeration is
+whole-or-not: it refuses a mean-only run, a user weight vector (the enumerator owns it —
+re-weight a retained enumerated run post hoc, and the re-band is byte-equal to a run carrying
+those weights), fractile pins on enumerated composites, differing binder weight vectors on a
+shared variable, an epistemic consequence composite (its branch rides the failure mode's
+coupling draw, which cannot be forced), and an epistemic composite referenced through an event-
+or fault-tree probability source (the tree samples it in isolated setup clones the forcing
+scope's discovery cannot see) — every refusal loud, never a silently part-sampled "exact"
+result. Combination and realization counts are guarded (warnings at 4,096 combinations and
+10,000 realizations; errors at 65,536 and 1,000,000).
+
 ## 7. Diagnostics
 
 The library computes and serializes the diagnostic substance; plotting (kernel densities, tornado

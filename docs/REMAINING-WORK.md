@@ -26,7 +26,13 @@
 > exposure-period/life-cycle conversions, **A1** exact fault-tree importance; and the full A8
 > stretch — the runtime joint convergence certificate and, per the ratified attempt, the
 > scrambled-Sobol `SamplingScheme` member plus the opt-in seeded-Sobol joint driver, with
-> `Vegas.SobolSeed` also riding 2.2.0) are complete.
+> `Vegas.SobolSeed` also riding 2.2.0), session 5 (**B3 — the epistemic-mixture logic-tree mode
+> on all four composite clusters with named shared epistemic variables**, closing arch item
+> Q-Y), and session 6 (**C3 — exact logic-tree enumeration**: the runtime-only
+> `RiskAnalysis.LogicTreeEnumerationRealizations` mode running every branch combination as one
+> weighted ensemble of K·M realizations with the exact branch-weight products on the A4
+> carrier — zero Monte Carlo noise on the branch axis, the sampled mode's exact oracle with the
+> convergence roles reversed) are complete.
 
 ## The sequence to `v1.1.0-alpha`
 
@@ -106,7 +112,21 @@ approved and executed (`74af2e95…`, its own commit).
   selector seat for a shared variable to overwrite — binding one is a validation-visible
   non-feature (the property is deliberately absent). Extending sharing there rides the same
   future ratification as consequence fractile pinning via the coupling columns (above): both
-  need a ruled seat for per-function conditioning of coupling-driven draws.
+  need a ruled seat for per-function conditioning of coupling-driven draws. The exact
+  logic-tree enumerator inherits the boundary: it refuses epistemic consequence composites
+  with an Error until the coupling seat exists (the aleatory Mixture's exposure branches
+  already enumerate exactly within every realization).
+- **Enumerating epistemic composites carried by tree probability sources (recorded 2026-09-02,
+  from the exact-enumeration close; not scheduled).** A composite referenced through an event-
+  or fault-tree probability source is sampled by the tree's own self-contained setup clones —
+  invisible to the walked-cluster axis discovery — so the enumerator refuses it loudly
+  (whole-or-not exactness), and the same containment walker now makes the mean-only blend gate
+  fire for tree-carried epistemic composites (previously silent). The forcing mechanism would
+  actually reach the clones (they keep the source function's id and seed inside the walk's
+  ambient scope), so extending enumeration through trees is feasible — but the tree evaluation
+  paths compose branch selection with the percentile-rescale convention for uncertain branch
+  chains, which needs its own ratified verification story before the exactness claim can cover
+  it.
 - **A first-class shared-epistemic-variable object (recorded 2026-09-02; not scheduled).** The
   landed sharing identity is the name string on each binder — cheap, mode-portable, and exact.
   If authoring UX ever wants one place to declare a variable (description, weight-vector

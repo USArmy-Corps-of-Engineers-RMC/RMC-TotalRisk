@@ -1,5 +1,117 @@
 # Progress Log
 
+## 2026-09-02 — v2.0 program session 6: C3 exact logic-tree enumeration (the sampled mode's exact oracle)
+
+**Goal:** execute session 6 of the capability program — **C3, exact logic-tree enumeration**:
+branch combinations × continuous knowledge samples with weight = the branch-weight product ÷ the
+per-combination count, producing exact weighted fractiles with zero Monte Carlo noise on the
+branch axis, riding the A4 weighted-ensemble carrier. Designed against source (the B3 forcing
+mechanisms, the run flow, the weight plumbing, and the fractile-pin constraints all verified
+before planning) and ratified via four AskUserQuestion rulings, all as recommended: **auto
+Id-keyed forcing** for unbound epistemic composites (every walked epistemic composite
+enumerable; no naming hoop, no hash movement); **Error** for epistemic consequence composites
+(whole-or-not exactness — the coupling seat stays the recorded future ratification); **N = K·M
+with explicit M** on a runtime-only property (the run sizes its isolated options snapshot;
+`Options.Realizations` unused under enumeration — the `HazardLevelSensitivity` own-count
+precedent); and **LogicTree\*** naming (the practice term; "branch enumeration" collides with
+the aleatory exposure-branch surface).
+
+**Session-start baseline (the mandated protocol):** numerics HEAD `2b57771`, clean, 3 ahead of
+origin, **no v2.2.x tag** (identical to hand-off — T8/N4 triggers did not fire); sibling Debug
+DLL rebuilt and frozen. TotalRisk `09ad798` clean; build 0 warnings; fast suite 1,246/1,246;
+all eight gates as separate invocations — **bit-exact to every pin**, no movement, no bisect.
+
+**Landed (`66c125b` impl + unit tests; `9aaf607` verification + its docs; docs/bookkeeping
+following):**
+- **The enumerator:** runtime-only `RiskAnalysis.LogicTreeEnumerationRealizations` (int? M —
+  never serialized, hashed, or seed-affecting; setter guards ≥ 1 and invalidates IsEstimated;
+  default null byte-inert, gate-proven). One full-uncertainty run of N = K·M realizations:
+  axis discovery across components (one axis per shared `EpistemicVariable` with bitwise
+  binder-weight agreement enforced; one per unbound epistemic composite by function Id, with
+  equal-Id self-contained copies merged as one knowledge quantity; deterministic order — bound
+  by ordinal name, then unbound by Id; the three walked clusters and `SystemComponent` carry
+  the cycle-safe `CollectLogicTreeAxes` collectors over the shared `LogicTreeAxisSeed`
+  registrar), block [c·M, (c+1)·M) forced onto combination c by overwriting selector columns
+  with the branch's cumulative-midpoint percentile (the `SelectMixtureChild` algebra verbatim)
+  through the extended `EpistemicSharingScope` — name-keyed for bound axes, **Id-keyed for
+  unbound** (`TryGetColumnById`, populated only by the enumerator's forcing scope; the walked
+  composites consult it only when unbound, so ordinary runs are byte-inert) — with applied-key
+  reconciliation refusing any unreached axis loudly (the fractile-pin refusal pattern), and
+  the exact products wᵢ = W(c)/M published as the run's realization weights. Everything
+  downstream composes untouched: weighted bands and summary (A4), tolerable-risk confidence
+  (A7), retention and re-banding (A9), given-data VoI (B2).
+- **Attribution:** the unpersisted `LogicTreeEnumerationMap`/`LogicTreeAxis`/`LogicTreeBranch`
+  (Results) published on `RiskAnalysis.LogicTreeEnumeration` — axes, branches with forcing
+  percentiles, exact lexicographic combination weights, `CombinationOf`/`BranchIndexOf`/
+  `RealizationWeight` — the post-run attribution authority (the run computes on clones);
+  cleared with published state, absent from restored analyses. The three diagnostic re-seeds
+  rebuild the forcing columns from the published map at matching design size
+  (`EnterEpistemicScopeForRederivation`), so post-run sensitivity/VoI re-derivations are
+  bit-exact — pinned by the author composite's re-derived selector column equaling the map's
+  forcing percentiles bitwise.
+- **Gates (Validate + race-safe run re-check on the clones):** Errors — mean-only; user
+  `RealizationWeights` (the enumerator owns the vector); no epistemic axes; epistemic
+  consequence composites; fractile pins targeting enumerated composites (pins apply after the
+  scope override and would silently break exactness); differing binder weight vectors on a
+  shared variable (the sampled-mode Warning stays); **tree-carried epistemic composites** —
+  see the finding below; single-realization enumerations; K > 65,536; N > 1,000,000.
+  Warnings — K > 4,096; N > 10,000; the effective-N scrambled-Sobol power-of-two note.
+- **Session finding (a real boundary + a closed B3 gap):** `GetReferencedFunctions` yields
+  element-assigned functions only — an epistemic composite referenced through an event- or
+  fault-tree probability source is invisible to axis discovery while the tree samples it in
+  isolated self-contained setup clones. Enumeration therefore **refuses tree-carried epistemic
+  composites loudly** (never a silently part-sampled "exact" result), via a new containment
+  walker (`TreeCarriesEpistemicComposite`, (function, inside-tree)-keyed visited set crossing
+  composite children and tree sources incl. links); and the **same walker closes the
+  previously silent B3 mean-only gap** — a tree-carried epistemic composite in a mean-only run
+  now fires the ratified blend Error instead of silently blending. The forcing mechanism would
+  in fact reach the tree clones (they keep the source id and seed inside the walk's ambient
+  scope — verified in source), so extending enumeration through trees is feasible future work,
+  recorded in REMAINING-WORK with the percentile-rescale caveat.
+- **Tests** (+18 → fast suite **1,264/1,264**): `LogicTreeBranchTests`/`LogicTreeAxisTests`/
+  `LogicTreeEnumerationMapTests` (counts, lexicographic decode, weights, guards);
+  `LogicTreeEnumerationTests` (the property contract, the full gate matrix, the guardrails,
+  the exact deterministic 2×3 tree at M = 1 with weights/map/weighted-mean identities, the
+  shared-variable axis forcing both binders, the nested-unbound Id-keyed forcing through an
+  aleatory parent, the tree-carried refusal triple — enumeration Error, mean-only Error, valid
+  sampled config — the bitwise sensitivity re-derivation, and the published-map lifecycle);
+  `EpistemicSharingScopeTests` extended (Id columns, applied-key sinks, nesting restore of all
+  four scope slots).
+- **Verification:** new family **`LogicTreeEnumerationVerification` 5/5 isolated** (2 m 14 s)
+  — the closed-form analytic tree (per-realization manual-run identity at 1e-12 under the
+  pinned discipline, exact weight products at 1e-15, the hand-blended weighted mean, and exact
+  weighted exceedance fractions at every threshold probed between adjacent atoms — the
+  convention-free exact-weighted-fractile statement), the roles-reversed convergence (the
+  enumerator ≡ the manual blend at 1e-12; the sampled N = 4,096 ensemble lands every
+  realization on an enumerated atom and converges at 4·SE), shared-variable forcing through a
+  nested binder inside an aleatory mixture, the post-hoc re-band byte-equal to the published
+  bands under the map's weights (the A9+A4 composition on the C3 vector), and the 0.02-weight
+  branch resolved with exactly one 64-realization block carrying exactly 0.02 mass vs the
+  sampled mode's exact N·ω = 20-of-1,000 allocation (docs/verification/
+  logic-tree-enumeration.md). The touched B3 family re-run: **`EpistemicMixtureVerification`
+  5/5 isolated** (4 m 10 s).
+- **Docs:** uncertainty-analysis.md §6.6 (the full contract), composite-functions.md §2
+  "Running the tree exactly" + the verification-link header, the new verification page, the
+  epistemic-mixture.md roles-reversed cross-note, the verification README rows (adding the
+  session-5-omitted epistemic-mixture row in passing), the Ported Types Matrix (RiskAnalysis,
+  Results, and CompositeCombinationType rows), REMAINING-WORK (the program note; the
+  consequence-seat item extended with the enumeration Error; the new tree-source enumeration
+  future-ratification record), AGENTS.md regenerated.
+
+**Verified:** build 0 warnings throughout; fast suite **1,264/1,264** (Debug and Release);
+code/XML + traceability validators green (one process-language catch fixed in the family's XML
+docs); `LogicTreeEnumerationVerification` **5/5** isolated; `EpistemicMixtureVerification`
+**5/5** isolated; **all eight byte gates re-run after the implementation — bit-identical**
+(F1 `b2e6ea88…`, F2 `ac35a7fa…`, F3 `e46763ef…`, F4 `8a3a8b52…`, F5 `2ae3925b…`,
+F6 `bd4a26e8…`, F7 `f985ca02…`, F8 `7833ad5f…`) — no committed fixture opts into enumeration,
+and F6's bit-identity is the zero-overhead proof for the composite-seam edits.
+
+**Next:** session 7 = **B9 (shared event-tree limbs)** per the saved prompt
+(`~/.claude/plans/session-7-totalrisk-b9.md`), with B8 (configuration risk) the follow-on if
+B9 closes clean; B1 stays gated on Haden's design session over the draft; B10 route (i) is
+implementable whenever Haden rules the value-moving change; B4 needs a numerics authorization;
+N4/T8 whenever Haden re-packs, tags, and pushes 2.2.0.
+
 ## 2026-09-02 — v2.0 program session 5: B3 epistemic branch mode + shared epistemic variables (the Q-Y closure)
 
 **Goal:** execute session 5 of the capability program — **B3, the epistemic-mixture (logic-tree)

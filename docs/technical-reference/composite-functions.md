@@ -2,7 +2,7 @@
 
 > **Types:** `CompositeHazard`, `CompositeTransform`, `CompositeResponse`, `CompositeConsequence`
 > **Namespaces:** `RMC.TotalRisk.RiskFunctions.{Hazards, Transforms, Responses, Consequences}`
-> **Verification:** [composite-hazard](../verification/composite-hazard.md) · [composite-response](../verification/composite-response.md) · [composite-transform](../verification/composite-transform.md) · [composite-consequence](../verification/composite-consequence.md) · [epistemic-mixture](../verification/epistemic-mixture.md)
+> **Verification:** [composite-hazard](../verification/composite-hazard.md) · [composite-response](../verification/composite-response.md) · [composite-transform](../verification/composite-transform.md) · [composite-consequence](../verification/composite-consequence.md) · [epistemic-mixture](../verification/epistemic-mixture.md) · [logic-tree-enumeration](../verification/logic-tree-enumeration.md)
 
 A composite function combines a weighted list of child functions of the same kind. It is the
 standard way to express the dam-safety practice the 2024 verification report describes: *evaluate
@@ -144,6 +144,24 @@ Rules that follow from the mechanics:
 "which model alternative did this realization live in" — runtime-only, re-derivable bit-exactly
 from the content seeds. It composes with the A4 realization weights (weight the ensemble by branch
 posteriors) and with retained realizations for per-branch disaggregation.
+
+### Running the tree exactly
+
+The sampled epistemic mode draws branches, so branch shares carry Monte Carlo noise and a
+small-weight branch is resolved by few realizations. Setting
+`RiskAnalysis.LogicTreeEnumerationRealizations = M` runs the same model as an **exact
+enumeration** instead: every branch combination of the epistemic axes (one axis per shared
+variable, forcing all its binders together; one per unbound epistemic composite) receives its
+own block of M continuous-knowledge realizations, and the published realization weights carry
+the exact branch-weight products — so the weighted fractiles have zero Monte Carlo noise on the
+branch axis, and are exact outright when the branch chains are deterministic (M = 1). The
+published `LogicTreeEnumeration` map records the axes, forcing percentiles, exact combination
+weights, and each realization's combination — the post-run attribution surface. Runtime-only,
+seed-inert, and whole-or-not: enumeration refuses loudly anything it cannot force exactly
+(consequence-cluster epistemic composites, composites inside tree probability sources, pins on
+enumerated composites, disagreeing binder weights). The full contract lives in
+[uncertainty-analysis.md](uncertainty-analysis.md) §6.6, and the exactness oracles in
+[logic-tree-enumeration](../verification/logic-tree-enumeration.md).
 
 ---
 
