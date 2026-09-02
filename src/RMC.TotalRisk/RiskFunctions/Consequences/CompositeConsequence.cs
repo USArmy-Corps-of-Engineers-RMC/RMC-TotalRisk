@@ -18,9 +18,11 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
     /// <summary>
     /// A composite consequence function: combines a weighted list of child consequence functions
     /// as a sum (<see cref="CompositeFunctionType.Additive"/>), a weighted average
-    /// (<see cref="CompositeFunctionType.Average"/>), or a mixture that samples one child per
+    /// (<see cref="CompositeFunctionType.Average"/>), a mixture that samples one child per
     /// realization (<see cref="CompositeFunctionType.Mixture"/>, the default) — the day/night
-    /// exposure model, with the weight as the probability of each exposure scenario.
+    /// exposure model, with the weight as the probability of each exposure scenario — or an
+    /// epistemic mixture (<see cref="CompositeFunctionType.EpistemicMixture"/>), the logic tree
+    /// over alternative consequence models of which exactly one is true.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -54,6 +56,21 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
     /// surface (<see cref="SampleFunction(int)"/>, the uncertainty summary) rides an internal
     /// selector matrix generated with the seed fold and scheme a declared selector dimension
     /// would use, so the standalone and engine formulations can never drift apart.
+    /// </para>
+    /// <para>
+    /// <b>EpistemicMixture is the logic tree,</b> distinct from the aleatory Mixture above: the
+    /// weights are the analyst's credence that each child is the true consequence model, so the
+    /// engine draws <i>one</i> branch per realization instead of enumerating them —
+    /// <see cref="SampleExposureBranches(double)"/> selects by the failure mode's coupling
+    /// percentile (the consequence cluster's knowledge channel; consequences are deliberately
+    /// not in the sampler walk) and returns the selected child's own branches, so a nested
+    /// aleatory mixture still enumerates inside the chosen branch.
+    /// <see cref="SamplingDimensions"/> stays zero, and a shared epistemic variable cannot be
+    /// bound here — the coupling matrix is per failure mode, not per function — which is the
+    /// recorded companion limitation to consequence fractile pinning. The mean overloads return
+    /// the weighted blend, which is exact for mean risk (consequences enter it linearly); a
+    /// mean-only analysis over an epistemic consequence composite carries only the spread loss
+    /// and is therefore a validation warning rather than an error.
     /// </para>
     /// <para>
     /// <b>Serialization:</b> under <see cref="RiskSerializationMode.SelfContained"/> (the default,
@@ -182,7 +199,7 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
         /// <summary>
         /// The internal N×1 mixture-selector matrix behind the standalone per-realization surface
         /// (<see cref="SampleFunction(int)"/> and the uncertainty summary); allocated by
-        /// <see cref="SetupSampler"/> in Mixture mode, null otherwise.
+        /// <see cref="SetupSampler"/> in the Mixture and EpistemicMixture modes, null otherwise.
         /// </summary>
         /// <remarks>
         /// Under the exposure-branch contract the selector is not an engine sampling dimension
@@ -277,7 +294,8 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
 
         /// <inheritdoc/>
         /// <remarks>
-        /// A Mixture over two or more positively weighted entries is never deterministic — the
+        /// A Mixture or EpistemicMixture over two or more positively weighted entries is never
+        /// deterministic — the
         /// per-realization branch pick is real variability even when every child is deterministic.
         /// (Improved over v1.0, which answered "all children deterministic" and let the branch
         /// variability be silently averaged away.) Otherwise the composite is deterministic when
@@ -287,7 +305,8 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
         {
             get
             {
-                if (_compositeFunctionType == CompositeFunctionType.Mixture && CountPositiveWeights() >= 2) return false;
+                if ((_compositeFunctionType == CompositeFunctionType.Mixture ||
+                     _compositeFunctionType == CompositeFunctionType.EpistemicMixture) && CountPositiveWeights() >= 2) return false;
                 for (int i = 0; i < _consequenceFunctions.Count; i++)
                 {
                     var function = _consequenceFunctions[i].ConsequenceFunction;
@@ -299,11 +318,13 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
 
         /// <inheritdoc/>
         /// <remarks>
-        /// Always zero (the exposure-branch contract,
-        /// docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §6.4.1): the mixture branch choice is
-        /// aleatory exposure that the risk engine enumerates through
+        /// Always zero, in every mode. Under the exposure-branch contract
+        /// (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §6.4.1) the aleatory mixture branch
+        /// choice is exposure the risk engine enumerates through
         /// <see cref="SampleExposureBranches()"/> rather than a knowledge-uncertainty dimension it
-        /// draws — Mixture mode declares no selector dimension.
+        /// draws — Mixture mode declares no selector dimension. EpistemicMixture also declares
+        /// none: consequence functions are deliberately not in the sampler walk, so its
+        /// per-realization branch draw rides the failure mode's coupling percentile instead.
         /// Children own their dimensions and are set up recursively by
         /// <see cref="SetupSampler"/> (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §5.8.5);
         /// the standalone per-realization mixture surface rides an
@@ -317,7 +338,8 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
 
         /// <inheritdoc/>
         /// <remarks>
-        /// Sets up the internal mixture-selector matrix (Mixture mode only — generated with the
+        /// Sets up the internal mixture-selector matrix (the Mixture and EpistemicMixture modes —
+        /// generated with the
         /// exact seed fold, scheme, and N×1 shape a declared selector dimension would use, so
         /// standalone streams stay content-seeded), then recurses into every child with a
         /// content-derived seed: <c>SeedHelpers.HashCombine(seed, child.CanonicalHash(), ordinal)</c>.
@@ -332,7 +354,8 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
             ThrowIfUnusable(checkCycles: true);
             base.SetupSampler(sampleSize, seed, scheme);
 
-            if (_compositeFunctionType == CompositeFunctionType.Mixture)
+            if (_compositeFunctionType == CompositeFunctionType.Mixture ||
+                _compositeFunctionType == CompositeFunctionType.EpistemicMixture)
             {
                 int positiveSeed = SeedHelpers.ToPositiveSeed(seed);
                 _mixtureSelector = scheme switch
@@ -365,7 +388,8 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
         /// circular reference through nested composites; an invalid child (summary line only — the
         /// child reports its own details where it is stored). Warnings (advisory): child axis
         /// labels that do not match the composite's — labels are unhashed metadata and never gate
-        /// compute.
+        /// compute — and an epistemic mixture with fewer than two positively weighted branches,
+        /// which degenerates to the one branch it can select.
         /// </remarks>
         public override (bool IsValid, List<string> ValidationMessages) Validate()
         {
@@ -408,6 +432,8 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
                 messages.Add("Error: The consequence function weight must be between 0 and 1.");
             if (weightsApply && !anyWeightOutOfRange && Math.Abs(weightSum - 1d) > WeightSumTolerance)
                 messages.Add("Error: Composite consequence function weights do not sum to 1.");
+            if (_compositeFunctionType == CompositeFunctionType.EpistemicMixture && !anyWeightOutOfRange && CountPositiveWeights() < 2)
+                messages.Add("Warning: An epistemic mixture with fewer than two positively weighted branches degenerates to the one branch it can select.");
 
             var circularChild = FindCircularChild();
             if (circularChild != null)
@@ -481,7 +507,8 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
         public override IUnivariateFunction SampleFunction(double percentile)
         {
             ThrowIfUnusable(checkCycles: true);
-            if (_compositeFunctionType == CompositeFunctionType.Mixture)
+            if (_compositeFunctionType == CompositeFunctionType.Mixture ||
+                _compositeFunctionType == CompositeFunctionType.EpistemicMixture)
             {
                 var (index, childPercentile) = SelectMixtureChild(percentile, rescale: true);
                 var selected = _consequenceFunctions[index].ConsequenceFunction!.SampleFunction(childPercentile);
@@ -516,7 +543,8 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
         public override IUnivariateFunction SampleFunction(int realizationIndex)
         {
             ThrowIfUnusable(checkCycles: false);
-            if (_compositeFunctionType == CompositeFunctionType.Mixture)
+            if (_compositeFunctionType == CompositeFunctionType.Mixture ||
+                _compositeFunctionType == CompositeFunctionType.EpistemicMixture)
             {
                 if (_mixtureSelector == null)
                     throw new InvalidOperationException("SetupSampler() must be called before sampling by realization index.");
@@ -544,7 +572,11 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
         /// unit-weight entry carrying the collapsed mean curve; a Mixture returns one entry per
         /// positively weighted child carrying the child's mean curve, with nested Mixture children
         /// flattened by multiplied weights (an Additive/Average child is one branch carrying its
-        /// collapsed curve). Zero-weight children are unreachable branches and are skipped.
+        /// collapsed curve). Zero-weight children are unreachable branches and are skipped. An
+        /// EpistemicMixture returns the single unit-weight blended mean curve — the mean pass has
+        /// no draw to select a branch with, and the blend is exact for mean risk because
+        /// consequences enter it linearly; only the epistemic spread is absent, which is why a
+        /// mean-only analysis over an epistemic consequence composite is a validation warning.
         /// </remarks>
         /// <exception cref="InvalidOperationException">Thrown when the composite configuration is invalid.</exception>
         public override IReadOnlyList<(double Weight, IUnivariateFunction Function)> SampleExposureBranches()
@@ -562,16 +594,26 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
 
         /// <inheritdoc/>
         /// <remarks>
-        /// The branch set is structural — identical weights to
+        /// For the aleatory modes the branch set is structural — identical weights to
         /// <see cref="SampleExposureBranches()"/> — and every branch curve is sampled
         /// co-monotonically at the given knowledge percentile, the same single-uniform semantic
         /// the percentile overloads already carry. One shared percentile driving both a failure
-        /// composite and its paired non-failure consequence keeps the pair coherent.
+        /// composite and its paired non-failure consequence keeps the pair coherent. An
+        /// EpistemicMixture instead <i>selects</i>: the percentile picks one child by inverse-CDF
+        /// of the cumulative weights, and the selected child's own exposure branches at the
+        /// rescaled percentile are returned — so a nested aleatory mixture still enumerates
+        /// inside the chosen branch, while the epistemic alternatives never mix within one
+        /// realization.
         /// </remarks>
         /// <exception cref="InvalidOperationException">Thrown when the composite configuration is invalid.</exception>
         public override IReadOnlyList<(double Weight, IUnivariateFunction Function)> SampleExposureBranches(double percentile)
         {
             ThrowIfUnusable(checkCycles: true);
+            if (_compositeFunctionType == CompositeFunctionType.EpistemicMixture)
+            {
+                var (index, childPercentile) = SelectMixtureChild(percentile, rescale: true);
+                return _consequenceFunctions[index].ConsequenceFunction!.SampleExposureBranches(childPercentile);
+            }
             if (_compositeFunctionType != CompositeFunctionType.Mixture)
             {
                 return new[] { (1d, SampleFunction(percentile)) };
@@ -586,11 +628,16 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
         /// <remarks>
         /// Structural and sampling-free: one for Additive/Average composites, the flattened
         /// positive-weight leaf count for a Mixture (nested Mixtures recurse; any other child is
-        /// one leaf). Cycle-safe — a cyclic child graph contributes no further leaves here and is
+        /// one leaf), and for an EpistemicMixture the <i>largest</i> branch count over the
+        /// positively weighted children — one branch is active per realization, so the guardrail
+        /// prices the worst selectable child rather than the sum of alternatives. Cycle-safe — a
+        /// cyclic child graph contributes no further leaves here and is
         /// reported as an error by <see cref="Validate"/>.
         /// </remarks>
         public override int CountExposureBranches()
         {
+            if (_compositeFunctionType == CompositeFunctionType.EpistemicMixture)
+                return MaxExposureBranchesOverChildren(new HashSet<CompositeConsequence>());
             if (_compositeFunctionType != CompositeFunctionType.Mixture) return 1;
             return CountExposureBranches(new HashSet<CompositeConsequence>());
         }
@@ -898,7 +945,10 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
         /// Flattens this Mixture's positively weighted children into exposure branches: a nested
         /// Mixture child recurses with multiplied weights (guarded by its own usability gate, so a
         /// nested cycle throws the standard invalid-configuration error instead of recursing
-        /// without bound); any other child contributes one branch carrying its mean curve, or its
+        /// without bound); a nested EpistemicMixture child on the percentile path contributes its
+        /// <i>selected</i> child's branches (so an aleatory mixture inside the chosen epistemic
+        /// branch still enumerates), and on the mean path its blended curve; any other child
+        /// contributes one branch carrying its mean curve, or its
         /// curve sampled co-monotonically at the given knowledge percentile.
         /// </summary>
         /// <param name="branches">The accumulating branch list.</param>
@@ -918,6 +968,16 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
                     nested.ThrowIfUnusable(checkCycles: true);
                     nested.CollectExposureBranches(branches, parentWeight * weight, percentile);
                 }
+                else if (percentile.HasValue && child is CompositeConsequence epistemicNested
+                    && epistemicNested.CompositeFunctionType == CompositeFunctionType.EpistemicMixture)
+                {
+                    epistemicNested.ThrowIfUnusable(checkCycles: true);
+                    var selected = epistemicNested.SampleExposureBranches(percentile.Value);
+                    for (int b = 0; b < selected.Count; b++)
+                    {
+                        branches.Add((parentWeight * weight * selected[b].Weight, selected[b].Function));
+                    }
+                }
                 else
                 {
                     branches.Add((parentWeight * weight,
@@ -930,7 +990,7 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
         /// The cycle-safe recursion behind <see cref="CountExposureBranches()"/>: counts the
         /// flattened positive-weight leaves of a Mixture. A null child entry counts as one leaf so
         /// the guardrail product stays meaningful while <see cref="Validate"/> reports the missing
-        /// function.
+        /// function; a nested EpistemicMixture child prices its worst selectable branch.
         /// </summary>
         /// <param name="visited">The composites already counted (guards cyclic graphs).</param>
         /// <returns>The leaf count contributed by this composite.</returns>
@@ -941,12 +1001,73 @@ namespace RMC.TotalRisk.RiskFunctions.Consequences
             for (int i = 0; i < _consequenceFunctions.Count; i++)
             {
                 if (_consequenceFunctions[i].Weight <= 0d) continue;
-                count += _consequenceFunctions[i].ConsequenceFunction is CompositeConsequence nested
-                        && nested.CompositeFunctionType == CompositeFunctionType.Mixture
-                    ? nested.CountExposureBranches(visited)
-                    : 1;
+                count += _consequenceFunctions[i].ConsequenceFunction switch
+                {
+                    CompositeConsequence nested when nested.CompositeFunctionType == CompositeFunctionType.Mixture
+                        => nested.CountExposureBranches(visited),
+                    CompositeConsequence nested when nested.CompositeFunctionType == CompositeFunctionType.EpistemicMixture
+                        => nested.MaxExposureBranchesOverChildren(visited),
+                    _ => 1,
+                };
             }
             return count;
+        }
+
+        /// <summary>
+        /// The cycle-safe worst-case branch count of an EpistemicMixture: the largest exposure
+        /// branch count over the positively weighted children, at least one — exactly one child is
+        /// active per realization, so the guardrail prices the worst selectable alternative rather
+        /// than the sum of alternatives.
+        /// </summary>
+        /// <param name="visited">The composites already counted (guards cyclic graphs).</param>
+        /// <returns>The worst-case active branch count.</returns>
+        private int MaxExposureBranchesOverChildren(HashSet<CompositeConsequence> visited)
+        {
+            if (!visited.Add(this)) return 1;
+            int max = 1;
+            for (int i = 0; i < _consequenceFunctions.Count; i++)
+            {
+                if (_consequenceFunctions[i].Weight <= 0d) continue;
+                int count = _consequenceFunctions[i].ConsequenceFunction switch
+                {
+                    CompositeConsequence nested when nested.CompositeFunctionType == CompositeFunctionType.Mixture
+                        => nested.CountExposureBranches(visited),
+                    CompositeConsequence nested when nested.CompositeFunctionType == CompositeFunctionType.EpistemicMixture
+                        => nested.MaxExposureBranchesOverChildren(visited),
+                    null => 1,
+                    var child => child.CountExposureBranches(),
+                };
+                if (count > max) max = count;
+            }
+            return max;
+        }
+
+        /// <summary>
+        /// True when this composite, or any nested composite consequence beneath it, is in
+        /// <see cref="CompositeFunctionType.EpistemicMixture"/> mode — the analysis-level
+        /// mean-only gate's discovery surface.
+        /// </summary>
+        /// <returns>True when an epistemic mixture exists anywhere in the subtree.</returns>
+        internal bool UsesEpistemicMode()
+        {
+            return UsesEpistemicMode(new HashSet<CompositeConsequence>());
+        }
+
+        /// <summary>
+        /// The cycle-safe recursion behind <see cref="UsesEpistemicMode()"/>.
+        /// </summary>
+        /// <param name="visited">The composites already searched.</param>
+        /// <returns>True when an epistemic mixture exists anywhere in the subtree.</returns>
+        private bool UsesEpistemicMode(HashSet<CompositeConsequence> visited)
+        {
+            if (!visited.Add(this)) return false;
+            if (_compositeFunctionType == CompositeFunctionType.EpistemicMixture) return true;
+            for (int i = 0; i < _consequenceFunctions.Count; i++)
+            {
+                if (_consequenceFunctions[i].ConsequenceFunction is CompositeConsequence nested && nested.UsesEpistemicMode(visited))
+                    return true;
+            }
+            return false;
         }
 
         /// <summary>

@@ -255,7 +255,7 @@ public class HashInvarianceKitchenSinkTests
             },
             f => ((BivariateHazard)f).SecondaryIntegrationBins = 50);
 
-        // The composite transform (Average-only; the mutation nudges a weight).
+        // The composite transform (Average mode; the mutation nudges a weight).
         yield return new RegistryEntry(
             nameof(CompositeTransform),
             () => new CompositeTransform(new[]
@@ -276,6 +276,58 @@ public class HashInvarianceKitchenSinkTests
                 composite.TransformFunctions[0].Weight = 0.5d;
                 composite.TransformFunctions[1].Weight = 0.5d;
             });
+
+        // The epistemic-mixture variants: the bound shared variable is compute-relevant hashed
+        // content, so renaming it (hazard), editing a branch weight (response), and binding a
+        // variable (transform) are the compute mutations; metadata edits must stay inert.
+        yield return new RegistryEntry(
+            $"{nameof(CompositeHazard)} (EpistemicMixture)",
+            () => new CompositeHazard(new[]
+            {
+                new WeightedHazardFunction(new TabularHazard { Name = "Model A", SpecifiedHazard = "Flow", HazardUnit = "cfs" }, 0.45d),
+                new WeightedHazardFunction(new TabularHazard { Name = "Model B", SpecifiedHazard = "Flow", HazardUnit = "cfs" }, 0.55d),
+            })
+            {
+                Name = "Flood Tree",
+                SpecifiedHazard = "Flow",
+                HazardUnit = "cfs",
+                CompositeCombinationType = CompositeCombinationType.EpistemicMixture,
+                EpistemicVariable = "Flood Model",
+            },
+            f => ((CompositeHazard)f).EpistemicVariable = "Flood Model 2");
+
+        yield return new RegistryEntry(
+            $"{nameof(CompositeResponse)} (EpistemicMixture)",
+            () => new CompositeResponse(new[]
+            {
+                new WeightedResponseFunction(new TabularResponse { Name = "Frag A", SpecifiedHazard = "Stage", HazardUnit = "ft" }, 0.45d),
+                new WeightedResponseFunction(new TabularResponse { Name = "Frag B", SpecifiedHazard = "Stage", HazardUnit = "ft" }, 0.55d),
+            })
+            {
+                Name = "Fragility Tree",
+                SpecifiedHazard = "Stage",
+                HazardUnit = "ft",
+                CompositeCombinationType = CompositeCombinationType.EpistemicMixture,
+                EpistemicVariable = "Breach Model",
+            },
+            f => ((CompositeResponse)f).ResponseFunctions[0].Weight = 0.5d);
+
+        yield return new RegistryEntry(
+            $"{nameof(CompositeTransform)} (EpistemicMixture)",
+            () => new CompositeTransform(new[]
+            {
+                new WeightedTransformFunction(new LinearTransform { Name = "Rating A", SpecifiedHazard = "Flow", HazardUnit = "cfs", TransformedHazard = "Stage", TransformedHazardUnit = "ft", Alpha = 2d, Beta = 3d, IsUncertain = false }, 0.4d),
+                new WeightedTransformFunction(new LinearTransform { Name = "Rating B", SpecifiedHazard = "Flow", HazardUnit = "cfs", TransformedHazard = "Stage", TransformedHazardUnit = "ft", Alpha = 10d, Beta = 4d, IsUncertain = false }, 0.6d),
+            })
+            {
+                Name = "Rating Tree",
+                SpecifiedHazard = "Flow",
+                HazardUnit = "cfs",
+                TransformedHazard = "Stage",
+                TransformedHazardUnit = "ft",
+                CompositeFunctionType = CompositeFunctionType.EpistemicMixture,
+            },
+            f => ((CompositeTransform)f).EpistemicVariable = "Rating Model");
 
         // The bivariate transform — a labeled 3×2 surface. The mutation edits one cell;
         // axis/transform-enum/transpose sensitivity is covered in BivariateTransformTests.

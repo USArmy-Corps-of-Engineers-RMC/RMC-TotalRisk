@@ -25,7 +25,9 @@ namespace RMC.TotalRisk.Core.Enums
     /// <b>Choosing a mode.</b> If the children are alternative <i>descriptions</i> of one loading or
     /// one response — only one of them acts, with the stated probabilities — use
     /// <see cref="Mixture"/>. If they are simultaneous <i>mechanisms</i>, all acting at once with
-    /// the governing one controlling the outcome, use <see cref="CompetingRisks"/>. See
+    /// the governing one controlling the outcome, use <see cref="CompetingRisks"/>. If exactly one
+    /// child is the <i>truth</i> for the whole period of analysis and the weights state the
+    /// analyst's credence in each — a logic tree — use <see cref="EpistemicMixture"/>. See
     /// <c>docs/technical-reference/composite-functions.md</c>.
     /// </para>
     /// </remarks>
@@ -46,5 +48,17 @@ namespace RMC.TotalRisk.Core.Enums
         /// this mode, and are coerced out of the canonical hash accordingly.
         /// </summary>
         CompetingRisks,
+
+        /// <summary>
+        /// An epistemic mixture — the logic tree: exactly one child is the true description for
+        /// the whole period of analysis, with the weights stating the analyst's credence in each.
+        /// One child is selected per realization by a knowledge draw (inverse-CDF of the
+        /// cumulative weights), so the ensemble carries branch-conditional realizations and the
+        /// epistemic percentiles straddle the alternatives instead of blending them. The
+        /// selection consumes one knowledge dimension of the composite's own; child streams are
+        /// untouched. Statistical dependence is inert in this mode, exactly as under
+        /// <see cref="Mixture"/>. Selecting this mode is compute-relevant hashed content.
+        /// </summary>
+        EpistemicMixture,
     }
 }

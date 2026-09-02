@@ -19,10 +19,12 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
     /// <summary>
     /// A composite response (fragility) function: combines a weighted list of child response
     /// functions as a mixture distribution (<see cref="CompositeCombinationType.Mixture"/>, the
-    /// default) or as a competing-risks weakest-link combination
+    /// default), as a competing-risks weakest-link combination
     /// (<see cref="CompositeCombinationType.CompetingRisks"/>) — the dam-safety practice of
     /// weighting alternative response scenarios, or of combining several simultaneous failure
-    /// mechanisms whose weakest link governs.
+    /// mechanisms whose weakest link governs — or as an epistemic mixture
+    /// (<see cref="CompositeCombinationType.EpistemicMixture"/>), the logic tree over alternative
+    /// fragilities of which exactly one is true.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -43,11 +45,23 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
     /// <para>
     /// <b>The mixture is aleatory by design,</b> exactly as for <c>CompositeHazard</c>:
     /// the combination is one distribution carried through every realization,
-    /// <see cref="SamplingDimensions"/> is zero in both modes, and a mixture of deterministic
+    /// <see cref="SamplingDimensions"/> is zero in Mixture and CompetingRisks mode, and a mixture
+    /// of deterministic
     /// children is itself deterministic. The RMC-TotalRisk Verification Report notes that a
     /// composite response is the same mixture as a composite hazard, plotted as a CDF against
     /// non-exceedance probability rather than as exceedance probability — its Tables 44 through
     /// 46 verify both.
+    /// </para>
+    /// <para>
+    /// <b>EpistemicMixture is the logic tree,</b> exactly as for <c>CompositeHazard</c>: the
+    /// weights are the analyst's credence that each child fragility is the true one, the
+    /// composite declares one branch-selector dimension of its own, and each realization selects
+    /// one child by inverse-CDF of the cumulative weights, sampling it at the same realization
+    /// index. This is precisely the three-rating-curve doctrine example — weighting the
+    /// <i>risks</i> (0.262) instead of blending the curves (0.023) — so the mean overload's
+    /// analytic blend is gated out of mean-only analyses by analysis-level validation. A named
+    /// <see cref="EpistemicVariable"/> shares the selector draw across binders, and a fractile
+    /// pin on the composite holds its branch choice.
     /// </para>
     /// <para>
     /// <b>Ordered-pair curve samples are not emitted</b> (v1.0 parity — the legacy overloads threw
@@ -126,6 +140,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
             _correlationMatrix = SerializationUtilities.ParseMatrix(SerializationUtilities.ReadString(xElement, nameof(CorrelationMatrix)));
             _hazardTransform = SerializationUtilities.ReadEnum(xElement, nameof(HazardTransform), Transform.None);
             _probabilityTransform = SerializationUtilities.ReadEnum(xElement, nameof(ProbabilityTransform), Transform.None);
+            _epistemicVariable = SerializationUtilities.ReadString(xElement, nameof(EpistemicVariable));
 
             ResponseFunctions = new ObservableCollection<WeightedResponseFunction>();
             var container = xElement.Element(nameof(ResponseFunctions));
@@ -215,6 +230,11 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
         /// (the hazard composite defaults to NormalZ).
         /// </summary>
         private Transform _probabilityTransform = Transform.None;
+
+        /// <summary>
+        /// Backing field for <see cref="EpistemicVariable"/> — empty means unbound.
+        /// </summary>
+        private string _epistemicVariable = string.Empty;
 
         /// <summary>
         /// The distinct entries this composite currently holds a change subscription on — the
@@ -349,20 +369,51 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
             }
         }
 
+        /// <summary>
+        /// The named shared epistemic variable the branch selection binds to, empty (the default)
+        /// when the composite selects independently. Meaningful only under
+        /// <see cref="CompositeCombinationType.EpistemicMixture"/> — naming a variable in any
+        /// other mode is a validation error. During an analysis run (or a standalone
+        /// component-scope setup), every bound composite of the same variable receives the same
+        /// per-realization selector draw, derived from the variable name alone — the logic tree's
+        /// state-of-knowledge correlation. Compute-relevant when non-empty: serialized and hashed
+        /// by conditional presence, so an unbound composite's form and hash are unchanged, and
+        /// renaming a variable deliberately re-rolls its shared draw (the name is the variable's
+        /// identity). Null coerces to empty.
+        /// </summary>
+        public string EpistemicVariable
+        {
+            get { return _epistemicVariable; }
+            set
+            {
+                string coerced = value ?? string.Empty;
+                if (_epistemicVariable != coerced)
+                {
+                    _epistemicVariable = coerced;
+                    RaisePropertyChange(nameof(EpistemicVariable));
+                }
+            }
+        }
+
         /// <inheritdoc/>
         public override ResponseFunctionType FunctionType => ResponseFunctionType.Composite;
 
         /// <inheritdoc/>
         /// <remarks>
         /// Deterministic when every non-null child is. There is deliberately no mixture special
-        /// case (the divergence from <c>CompositeConsequence</c>): the mixture is aleatory, so no
+        /// case under the aleatory modes (the divergence from <c>CompositeConsequence</c>): the
+        /// mixture is aleatory, so no
         /// branch is drawn per realization and a mixture of fixed distributions is itself one fixed
-        /// distribution.
+        /// distribution. Under <see cref="CompositeCombinationType.EpistemicMixture"/> the
+        /// selection itself is a knowledge draw, so the composite is never deterministic while two
+        /// or more branches carry positive weight — even over fixed children.
         /// </remarks>
         public override bool IsDeterministic
         {
             get
             {
+                if (_compositeCombinationType == CompositeCombinationType.EpistemicMixture && CountPositiveWeights() >= 2)
+                    return false;
                 for (int i = 0; i < _responseFunctions.Count; i++)
                 {
                     var function = _responseFunctions[i].ResponseFunction;
@@ -374,11 +425,13 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
 
         /// <inheritdoc/>
         /// <remarks>
-        /// Always zero, in both modes: the combination is aleatory and consumes no knowledge draw
-        /// of its own. Children own their dimensions and are set up recursively by
+        /// Zero under the aleatory modes: the combination consumes no knowledge draw of its own.
+        /// One under <see cref="CompositeCombinationType.EpistemicMixture"/> — the branch-selector
+        /// dimension. Children own their dimensions and are set up recursively by
         /// <see cref="SetupSampler"/> (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §5.8.5).
         /// </remarks>
-        public override int SamplingDimensions => 0;
+        public override int SamplingDimensions =>
+            _compositeCombinationType == CompositeCombinationType.EpistemicMixture ? 1 : 0;
 
         #endregion
 
@@ -389,7 +442,12 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
         /// Recurses into every child with a content-derived seed:
         /// <c>SeedHelpers.HashCombine(seed, child.CanonicalHash(), ordinal)</c>. The ordinal gives
         /// identical-content siblings independent draws; the child hash is metadata-inert, so
-        /// renaming a child can never change results.
+        /// renaming a child can never change results. Under
+        /// <see cref="CompositeCombinationType.EpistemicMixture"/> the base call also allocates
+        /// the one-column branch-selector matrix from this composite's own seed; when bound to an
+        /// <see cref="EpistemicVariable"/> inside an active sharing scope, the selector column is
+        /// then overwritten with the variable's shared draw — seed-inert to every other function,
+        /// exactly like a fractile pin.
         /// </remarks>
         /// <exception cref="InvalidOperationException">
         /// Thrown when the composite configuration is invalid, or when a posterior-indexed child
@@ -399,6 +457,12 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
         {
             ThrowIfUnusable(checkCycles: true);
             base.SetupSampler(sampleSize, seed, scheme);
+
+            if (_compositeCombinationType == CompositeCombinationType.EpistemicMixture && _epistemicVariable.Length > 0)
+            {
+                var shared = EpistemicSharingScope.TryGetColumn(_epistemicVariable);
+                if (shared != null) OverrideSelectorColumn(shared);
+            }
 
             for (int i = 0; i < _responseFunctions.Count; i++)
             {
@@ -414,14 +478,18 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
         /// Errors (invalidating): missing axis labels; no children (or an unresolved serialized
         /// reference, reported precisely instead); a null child entry; a <c>NonFailResponse</c>
         /// child, which emits no distribution to combine; a bivariate child, whose univariate
-        /// surface is its own weighted collapse and cannot be combined; Mixture weights outside
+        /// surface is its own weighted collapse and cannot be combined; Mixture or
+        /// EpistemicMixture weights outside
         /// [0, 1] or not
-        /// summing to one (±1e-8); a correlation matrix that is missing, wrongly dimensioned, or not
+        /// summing to one (±1e-8); an <see cref="EpistemicVariable"/> named outside
+        /// EpistemicMixture mode (dead hashed content); a correlation matrix that is missing,
+        /// wrongly dimensioned, or not
         /// positive definite when the competing-risks dependence requires one; a circular reference;
         /// an invalid child (summary line only). Warnings (advisory): child axis labels that do not
-        /// match the composite's (labels are unhashed metadata and never gate compute), and a
+        /// match the composite's (labels are unhashed metadata and never gate compute), a
         /// single-entry competing-risks
-        /// combination, which degenerates to that child.
+        /// combination, which degenerates to that child, and an epistemic mixture with fewer than
+        /// two positively weighted branches, which degenerates to the one branch it can select.
         /// </remarks>
         public override (bool IsValid, List<string> ValidationMessages) Validate()
         {
@@ -444,7 +512,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
                 return (messages.FindIndex(m => m.StartsWith("Error:", StringComparison.Ordinal)) < 0, messages);
             }
 
-            bool weightsApply = _compositeCombinationType == CompositeCombinationType.Mixture;
+            bool weightsApply = _compositeCombinationType != CompositeCombinationType.CompetingRisks;
             bool anyWeightOutOfRange = false;
             double weightSum = 0d;
             for (int i = 0; i < _responseFunctions.Count; i++)
@@ -473,6 +541,11 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
 
             if (_compositeCombinationType == CompositeCombinationType.CompetingRisks && _responseFunctions.Count == 1)
                 messages.Add("Warning: A competing-risks combination over a single response function degenerates to that function.");
+
+            if (_epistemicVariable.Length > 0 && _compositeCombinationType != CompositeCombinationType.EpistemicMixture)
+                messages.Add($"Error: The composite response function names the shared epistemic variable '{_epistemicVariable}' but is not in {nameof(CompositeCombinationType.EpistemicMixture)} mode; clear the variable or select the epistemic mode.");
+            if (_compositeCombinationType == CompositeCombinationType.EpistemicMixture && !anyWeightOutOfRange && CountPositiveWeights() < 2)
+                messages.Add("Warning: An epistemic mixture with fewer than two positively weighted branches degenerates to the one branch it can select.");
 
             var circularChild = FindCircularChild();
             if (circularChild != null)
@@ -525,7 +598,14 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
         }
 
         /// <inheritdoc/>
-        /// <remarks>The combined mean distribution: every child contributes its own mean distribution.</remarks>
+        /// <remarks>
+        /// The combined mean distribution: every child contributes its own mean distribution.
+        /// Under <see cref="CompositeCombinationType.EpistemicMixture"/> this is still the
+        /// analytic blend — a mean pass has no realization to select a branch with — which is
+        /// exactly the wrong-answer side of the doctrine's Jensen example, so analysis-level
+        /// validation refuses a mean-only run over an epistemic composite. The blend remains the
+        /// correct deterministic probe value inside a full-uncertainty run.
+        /// </remarks>
         /// <exception cref="InvalidOperationException">Thrown when the composite configuration is invalid.</exception>
         public override IUnivariateDistribution SampleFunction()
         {
@@ -542,13 +622,22 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
         /// <inheritdoc/>
         /// <remarks>
         /// Deterministic and RNG-free (the v1.0 percentile-reseeded <c>Random</c> is deliberately
-        /// gone): every child is sampled co-monotonically at the given knowledge percentile and the
-        /// combination is rebuilt over the resulting distributions.
+        /// gone). Under the aleatory modes every child is sampled co-monotonically at the given
+        /// knowledge percentile and the combination is rebuilt over the resulting distributions.
+        /// Under <see cref="CompositeCombinationType.EpistemicMixture"/> the percentile is the
+        /// single composition draw: it selects the branch by inverse-CDF of the cumulative
+        /// weights and the selected child is sampled at the percentile rescaled within its weight
+        /// span (the consequence composite's percentile-path convention).
         /// </remarks>
         /// <exception cref="InvalidOperationException">Thrown when the composite configuration is invalid.</exception>
         public override IUnivariateDistribution SampleFunction(double percentile)
         {
             ThrowIfUnusable(checkCycles: true);
+            if (_compositeCombinationType == CompositeCombinationType.EpistemicMixture)
+            {
+                var (index, childPercentile) = SelectMixtureChild(percentile, rescale: true);
+                return _responseFunctions[index].ResponseFunction!.SampleFunction(childPercentile);
+            }
             int count = _responseFunctions.Count;
             var distributions = new IUnivariateDistribution[count];
             for (int i = 0; i < count; i++)
@@ -563,11 +652,21 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
         /// The per-realization path: every child samples realization
         /// <paramref name="realizationIndex"/> from its own content-seeded sampler (children are
         /// mutually independent), and the combination is rebuilt over the resulting distributions.
+        /// Under <see cref="CompositeCombinationType.EpistemicMixture"/> the realization's
+        /// selector percentile (the composite's own declared dimension, or the shared variable's
+        /// draw when bound) picks one branch, and that child alone is sampled at the same
+        /// realization index — its distribution is returned as-is, because the selected child is
+        /// the realization's whole truth.
         /// </remarks>
         /// <exception cref="InvalidOperationException">Thrown when the composite configuration is invalid.</exception>
         public override IUnivariateDistribution SampleFunction(int realizationIndex)
         {
             ThrowIfUnusable(checkCycles: false);
+            if (_compositeCombinationType == CompositeCombinationType.EpistemicMixture)
+            {
+                var (index, _) = SelectMixtureChild(Percentile(realizationIndex, 0), rescale: false);
+                return _responseFunctions[index].ResponseFunction!.SampleFunction(realizationIndex);
+            }
             int count = _responseFunctions.Count;
             var distributions = new IUnivariateDistribution[count];
             for (int i = 0; i < count; i++)
@@ -575,6 +674,26 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
                 distributions[i] = _responseFunctions[i].ResponseFunction!.SampleFunction(realizationIndex);
             }
             return BuildCombined(distributions);
+        }
+
+        /// <summary>
+        /// The branch the given realization selects under
+        /// <see cref="CompositeCombinationType.EpistemicMixture"/> — the branch-attribution query
+        /// ("which model alternative did this realization live in"). Runtime-only: nothing is
+        /// persisted, and the answer is re-derivable bit-exactly from the content seeds.
+        /// </summary>
+        /// <param name="realizationIndex">The realization row, in [0, <see cref="RiskFunctionBase.SampleSize"/>).</param>
+        /// <returns>The selected entry index in <see cref="ResponseFunctions"/> declared order.</returns>
+        /// <exception cref="InvalidOperationException">
+        /// Thrown when the composite is not in epistemic mode, or when
+        /// <see cref="SetupSampler"/> has not been called.
+        /// </exception>
+        public int SelectedBranchIndex(int realizationIndex)
+        {
+            if (_compositeCombinationType != CompositeCombinationType.EpistemicMixture)
+                throw new InvalidOperationException("Branch attribution is defined only in EpistemicMixture mode.");
+            var (index, _) = SelectMixtureChild(Percentile(realizationIndex, 0), rescale: false);
+            return index;
         }
 
         /// <inheritdoc/>
@@ -790,6 +909,12 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
                     : string.Empty);
             element.SetAttributeValue(nameof(HazardTransform), _hazardTransform.ToString());
             element.SetAttributeValue(nameof(ProbabilityTransform), _probabilityTransform.ToString());
+            // Conditional presence: written only when bound, so every unbound composite's form —
+            // and its canonical hash — is unchanged.
+            if (_epistemicVariable.Length > 0)
+            {
+                element.SetAttributeValue(nameof(EpistemicVariable), _epistemicVariable);
+            }
 
             var container = new XElement(nameof(ResponseFunctions));
             for (int i = 0; i < _responseFunctions.Count; i++)
@@ -814,10 +939,12 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
         /// <remarks>
         /// Hashes the projected identity form, never the persisted form (the
         /// <c>SystemComponent</c> identity-form exception): the combination mode, the interpolation
-        /// transforms, the dependence and correlation matrix, the entry count, and per entry the
+        /// transforms, the dependence and correlation matrix, the shared epistemic variable when
+        /// bound, the entry count, and per entry the
         /// effective weight and the child's own canonical hash. Three coercions keep inert edits
         /// from re-rolling seeds — weights project as one under CompetingRisks, the dependence
-        /// projects as Independent under Mixture, and the correlation matrix projects as empty
+        /// projects as Independent under the mixture modes, and the correlation matrix projects as
+        /// empty
         /// outside the one mode that reads it.
         /// </remarks>
         public override byte[] CanonicalHash()
@@ -831,6 +958,12 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
                     : string.Empty);
             identity.SetAttributeValue(nameof(HazardTransform), _hazardTransform.ToString());
             identity.SetAttributeValue(nameof(ProbabilityTransform), _probabilityTransform.ToString());
+            // Conditional presence mirrors the persisted form: binding a shared epistemic
+            // variable is compute-relevant, so it enters the identity only when named.
+            if (_epistemicVariable.Length > 0)
+            {
+                identity.SetAttributeValue(nameof(EpistemicVariable), _epistemicVariable);
+            }
             identity.SetAttributeValue("Count", _responseFunctions.Count.ToString(CultureInfo.InvariantCulture));
             for (int i = 0; i < _responseFunctions.Count; i++)
             {
@@ -877,7 +1010,10 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
         {
             CompositeSupport.ThrowIfNotNumericsDistributions(distributions, nameof(CompositeResponse));
 
-            if (_compositeCombinationType == CompositeCombinationType.Mixture)
+            // EpistemicMixture reaches this path only from the mean overload, where the analytic
+            // blend is the deterministic probe value; its per-percentile and per-realization
+            // overloads select a branch before ever building a combination.
+            if (_compositeCombinationType != CompositeCombinationType.CompetingRisks)
             {
                 var weights = new double[distributions.Length];
                 for (int i = 0; i < weights.Length; i++) weights[i] = EffectiveWeight(i);
@@ -943,7 +1079,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
 
         /// <summary>
         /// The dependence the hash projects: the configured value under CompetingRisks, and
-        /// Independent under Mixture, which ignores dependence entirely.
+        /// Independent under the mixture modes, which ignore dependence entirely.
         /// </summary>
         /// <returns>The effective dependence.</returns>
         private DependencyType EffectiveDependency()
@@ -952,9 +1088,112 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
         }
 
         /// <summary>
+        /// Maps a composition percentile onto a child entry: entries are laid out on [0, 1] in
+        /// declared order by weight, the percentile lands in one span (inclusive upper edge), and
+        /// zero-weight entries are skipped. Numerical drift past the last positive weight clamps
+        /// to that entry. The algorithm is the consequence composite's, verbatim, so the two
+        /// selectors can never disagree.
+        /// </summary>
+        /// <param name="percentile">The composition percentile, in [0, 1].</param>
+        /// <param name="rescale">True to rescale the percentile within the selected span (the
+        /// single-uniform composition convention); false to pass it through unchanged.</param>
+        /// <returns>The selected entry index and the child percentile.</returns>
+        private (int Index, double ChildPercentile) SelectMixtureChild(double percentile, bool rescale)
+        {
+            double cumulative = 0d;
+            int lastPositive = -1;
+            for (int i = 0; i < _responseFunctions.Count; i++)
+            {
+                double weight = _responseFunctions[i].Weight;
+                if (weight <= 0d) continue;
+                double prior = cumulative;
+                cumulative += weight;
+                lastPositive = i;
+                if (percentile <= cumulative)
+                {
+                    return (i, rescale ? (percentile - prior) / weight : percentile);
+                }
+            }
+            return (lastPositive, rescale ? 1d : percentile);
+        }
+
+        /// <summary>
+        /// Counts the entries carrying strictly positive weight — the epistemic mixture's
+        /// selectable branch count.
+        /// </summary>
+        /// <returns>The positively weighted entry count.</returns>
+        private int CountPositiveWeights()
+        {
+            int count = 0;
+            for (int i = 0; i < _responseFunctions.Count; i++)
+            {
+                if (_responseFunctions[i].Weight > 0d) count++;
+            }
+            return count;
+        }
+
+        /// <summary>
+        /// True when this composite, or any nested composite response beneath it, is in
+        /// <see cref="CompositeCombinationType.EpistemicMixture"/> mode — the analysis-level
+        /// mean-only gate's discovery surface.
+        /// </summary>
+        /// <returns>True when an epistemic mixture exists anywhere in the subtree.</returns>
+        internal bool UsesEpistemicMode()
+        {
+            return UsesEpistemicMode(new HashSet<CompositeResponse>());
+        }
+
+        /// <summary>
+        /// Accumulates every shared epistemic variable named by this composite or any nested
+        /// composite response — the sharing scope's discovery surface.
+        /// </summary>
+        /// <param name="sink">The accumulating distinct variable names.</param>
+        /// <exception cref="ArgumentNullException">Thrown when the sink is null.</exception>
+        internal void CollectEpistemicVariables(ISet<string> sink)
+        {
+            if (sink == null) throw new ArgumentNullException(nameof(sink));
+            CollectEpistemicVariables(sink, new HashSet<CompositeResponse>());
+        }
+
+        /// <summary>
+        /// The cycle-safe recursion behind <see cref="UsesEpistemicMode()"/>.
+        /// </summary>
+        /// <param name="visited">The composites already searched.</param>
+        /// <returns>True when an epistemic mixture exists anywhere in the subtree.</returns>
+        private bool UsesEpistemicMode(HashSet<CompositeResponse> visited)
+        {
+            if (!visited.Add(this)) return false;
+            if (_compositeCombinationType == CompositeCombinationType.EpistemicMixture) return true;
+            for (int i = 0; i < _responseFunctions.Count; i++)
+            {
+                if (_responseFunctions[i].ResponseFunction is CompositeResponse nested && nested.UsesEpistemicMode(visited))
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// The cycle-safe recursion behind <see cref="CollectEpistemicVariables(ISet{string})"/>.
+        /// </summary>
+        /// <param name="sink">The accumulating distinct variable names.</param>
+        /// <param name="visited">The composites already searched.</param>
+        private void CollectEpistemicVariables(ISet<string> sink, HashSet<CompositeResponse> visited)
+        {
+            if (!visited.Add(this)) return;
+            if (_compositeCombinationType == CompositeCombinationType.EpistemicMixture && _epistemicVariable.Length > 0)
+                sink.Add(_epistemicVariable);
+            for (int i = 0; i < _responseFunctions.Count; i++)
+            {
+                if (_responseFunctions[i].ResponseFunction is CompositeResponse nested)
+                    nested.CollectEpistemicVariables(sink, visited);
+            }
+        }
+
+        /// <summary>
         /// The sample-time usability gate: at least one entry, every entry configured and neither
-        /// a non-failure sentinel nor a bivariate response, Mixture weights in [0, 1] summing to
-        /// one, and a usable correlation
+        /// a non-failure sentinel nor a bivariate response, Mixture or EpistemicMixture weights in
+        /// [0, 1] summing to
+        /// one, a variable bound only in epistemic mode, and a usable correlation
         /// matrix where the dependence requires one.
         /// </summary>
         /// <param name="checkCycles">True to also reject circular references.</param>
@@ -962,10 +1201,12 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
         private void ThrowIfUnusable(bool checkCycles)
         {
             bool usable = _responseFunctions.Count > 0;
+            if (usable && _epistemicVariable.Length > 0 && _compositeCombinationType != CompositeCombinationType.EpistemicMixture)
+                usable = false;
             if (usable)
             {
                 double weightSum = 0d;
-                bool weightsApply = _compositeCombinationType == CompositeCombinationType.Mixture;
+                bool weightsApply = _compositeCombinationType != CompositeCombinationType.CompetingRisks;
                 for (int i = 0; i < _responseFunctions.Count; i++)
                 {
                     var entry = _responseFunctions[i];

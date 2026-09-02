@@ -209,6 +209,30 @@ namespace RMC.TotalRisk.Core
             }
         }
 
+        /// <summary>
+        /// Overwrites the first (selector) column of the pre-allocated percentile matrix with a
+        /// shared per-realization draw — the shared-epistemic-variable primitive behind
+        /// <see cref="EpistemicSharingScope"/>. Like <see cref="OverrideSampledPercentiles"/>,
+        /// overwriting after seeding is what keeps the share seed-inert: every other function's
+        /// draws are untouched and the captured seed map does not move.
+        /// </summary>
+        /// <param name="column">The shared uniform (0, 1) draws, one per realization.</param>
+        /// <exception cref="ArgumentNullException">Thrown when the column is null.</exception>
+        /// <exception cref="InvalidOperationException">Thrown when <see cref="SetupSampler"/> has
+        /// not populated the matrix, or when the column length does not match the sample size.</exception>
+        internal void OverrideSelectorColumn(double[] column)
+        {
+            if (column == null) throw new ArgumentNullException(nameof(column));
+            if (_percentiles == null)
+                throw new InvalidOperationException("SetupSampler() must be called before applying a shared selector column.");
+            if (_percentiles.GetLength(0) != column.Length)
+                throw new InvalidOperationException("The shared selector column length does not match the sampler's sample size.");
+            for (int i = 0; i < column.Length; i++)
+            {
+                _percentiles[i, 0] = column[i];
+            }
+        }
+
         /// <inheritdoc/>
         public abstract UncertaintyAnalysisResults? ComputeUncertaintyResults(double confidenceIntervalWidth = 0.9);
 

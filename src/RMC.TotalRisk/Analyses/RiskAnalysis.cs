@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Globalization;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Linq;
@@ -22,7 +23,10 @@ using RMC.TotalRisk.Core;
 using RMC.TotalRisk.Core.Enums;
 using RMC.TotalRisk.Core.Interfaces;
 using RMC.TotalRisk.Results;
+using RMC.TotalRisk.RiskFunctions.Consequences;
 using RMC.TotalRisk.RiskFunctions.Hazards;
+using RMC.TotalRisk.RiskFunctions.Responses;
+using RMC.TotalRisk.RiskFunctions.Transforms;
 using RMC.TotalRisk.Systems.Components;
 
 namespace RMC.TotalRisk.Analyses
@@ -947,6 +951,17 @@ namespace RMC.TotalRisk.Analyses
                     pinMap?.Add(pin.FunctionId, pin.Percentile);
                     continue;
                 }
+                string? boundVariable = function switch
+                {
+                    CompositeHazard h when h.EpistemicVariable.Length > 0 => h.EpistemicVariable,
+                    CompositeResponse r when r.EpistemicVariable.Length > 0 => r.EpistemicVariable,
+                    CompositeTransform t when t.EpistemicVariable.Length > 0 => t.EpistemicVariable,
+                    _ => null,
+                };
+                if (boundVariable != null)
+                {
+                    warnings.Add($"Warning: Fractile pin {i + 1} targets function '{function.Name}', which is bound to the shared epistemic variable '{boundVariable}'; the pin overrides the shared draw for this function alone, decoupling it from the other binders.");
+                }
                 pinMap?.Add(pin.FunctionId, pin.Percentile);
                 expectedApplied?.Add(pin.FunctionId);
             }
@@ -968,6 +983,127 @@ namespace RMC.TotalRisk.Analyses
                 map[pins[i].FunctionId] = pins[i].Percentile;
             }
             return map;
+        }
+
+        /// <summary>
+        /// Builds the shared-epistemic-variable selector columns for a sampler setup at the given
+        /// size: the distinct variable names collected across every component's epistemic
+        /// composites, each column derived from the run seed and the variable name alone
+        /// (<see cref="EpistemicSharingScope.BuildColumns"/>) — so every binder of one variable
+        /// receives the same per-realization branch draw, at any component and any nesting depth.
+        /// </summary>
+        /// <param name="sampleSize">The realization count the columns must match.</param>
+        /// <returns>The columns keyed by variable name, or null when no component names one.</returns>
+        private Dictionary<string, double[]>? BuildEpistemicSharingColumns(int sampleSize)
+        {
+            var variables = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < _components.Count; i++)
+            {
+                _components[i].CollectEpistemicVariables(variables);
+            }
+            if (variables.Count == 0) return null;
+            return EpistemicSharingScope.BuildColumns(variables, _options.PRNGSeed, sampleSize, _options.SamplingScheme);
+        }
+
+        /// <summary>
+        /// The epistemic-mixture validation gates. A mean-only run cannot select a branch, so a
+        /// walked-cluster epistemic composite's analytic blend would silently answer with the
+        /// wrong (Jensen-gap) number — an Error; an epistemic consequence composite's blend keeps
+        /// the exact mean and loses only the spread — a Warning. Shared variables bound by root
+        /// composites with disagreeing weight vectors are flagged, because the shared draw then
+        /// still ranks consistently but branches no longer correspond one-to-one.
+        /// </summary>
+        /// <param name="messages">The accumulating validation messages.</param>
+        private void ValidateEpistemicComposites(List<string> messages)
+        {
+            bool anyWalkedEpistemic = false;
+            bool anyConsequenceEpistemic = false;
+            var binderSignatures = new Dictionary<string, string>(StringComparer.Ordinal);
+            var mismatched = new SortedSet<string>(StringComparer.Ordinal);
+
+            void NoteBinder(string variable, string signature)
+            {
+                if (variable.Length == 0) return;
+                if (binderSignatures.TryGetValue(variable, out string? existing))
+                {
+                    if (!string.Equals(existing, signature, StringComparison.Ordinal)) mismatched.Add(variable);
+                }
+                else
+                {
+                    binderSignatures.Add(variable, signature);
+                }
+            }
+
+            var seen = new HashSet<IRiskFunction>(ReferenceEqualityComparer.Instance);
+            for (int i = 0; i < _components.Count; i++)
+            {
+                foreach (var function in _components[i].GetReferencedFunctions())
+                {
+                    if (!seen.Add(function)) continue;
+                    switch (function)
+                    {
+                        case CompositeHazard hazard:
+                            if (hazard.UsesEpistemicMode()) anyWalkedEpistemic = true;
+                            if (hazard.CompositeCombinationType == CompositeCombinationType.EpistemicMixture && hazard.EpistemicVariable.Length > 0)
+                            {
+                                var weights = new double[hazard.HazardFunctions.Count];
+                                for (int w = 0; w < weights.Length; w++) weights[w] = hazard.HazardFunctions[w].Weight;
+                                NoteBinder(hazard.EpistemicVariable, WeightSignature(weights));
+                            }
+                            break;
+                        case CompositeResponse response:
+                            if (response.UsesEpistemicMode()) anyWalkedEpistemic = true;
+                            if (response.CompositeCombinationType == CompositeCombinationType.EpistemicMixture && response.EpistemicVariable.Length > 0)
+                            {
+                                var weights = new double[response.ResponseFunctions.Count];
+                                for (int w = 0; w < weights.Length; w++) weights[w] = response.ResponseFunctions[w].Weight;
+                                NoteBinder(response.EpistemicVariable, WeightSignature(weights));
+                            }
+                            break;
+                        case CompositeTransform transform:
+                            if (transform.UsesEpistemicMode()) anyWalkedEpistemic = true;
+                            if (transform.CompositeFunctionType == CompositeFunctionType.EpistemicMixture && transform.EpistemicVariable.Length > 0)
+                            {
+                                var weights = new double[transform.TransformFunctions.Count];
+                                for (int w = 0; w < weights.Length; w++) weights[w] = transform.TransformFunctions[w].Weight;
+                                NoteBinder(transform.EpistemicVariable, WeightSignature(weights));
+                            }
+                            break;
+                        case CompositeConsequence consequence:
+                            if (consequence.UsesEpistemicMode()) anyConsequenceEpistemic = true;
+                            break;
+                    }
+                }
+            }
+
+            if (_options.EstimateMeanRiskOnly && anyWalkedEpistemic)
+            {
+                messages.Add("Error: An epistemic-mixture composite selects one branch per realization; a mean-only run has no realizations to select with, and its analytic blend is the wrong answer for a nonlinear downstream chain. Run the full-uncertainty analysis, or change the composite mode.");
+            }
+            if (_options.EstimateMeanRiskOnly && anyConsequenceEpistemic)
+            {
+                messages.Add("Warning: An epistemic-mixture consequence composite blends to the exact mean in a mean-only run, but the epistemic spread is absent; run the full-uncertainty analysis to carry it.");
+            }
+            foreach (string variable in mismatched)
+            {
+                messages.Add($"Warning: The shared epistemic variable '{variable}' is bound by composites with differing weight vectors; the shared draw still selects consistently by rank, but branches no longer correspond one-to-one across binders.");
+            }
+        }
+
+        /// <summary>
+        /// The ordinal signature of a weight vector, for cross-binder comparison.
+        /// </summary>
+        /// <param name="weights">The declared entry weights.</param>
+        /// <returns>The G17 pipe-joined signature.</returns>
+        private static string WeightSignature(double[] weights)
+        {
+            var builder = new StringBuilder();
+            for (int i = 0; i < weights.Length; i++)
+            {
+                if (i > 0) builder.Append('|');
+                builder.Append(weights[i].ToString("G17", CultureInfo.InvariantCulture));
+            }
+            return builder.ToString();
         }
 
         private (bool IsValid, List<string> ValidationMessages) ValidateMessages()
@@ -1013,6 +1149,8 @@ namespace RMC.TotalRisk.Analyses
             {
                 messages.Add($"Warning: Scrambled-Sobol sampling stratifies most evenly at power-of-two realization counts; {_options.Realizations:N0} is not one.");
             }
+
+            ValidateEpistemicComposites(messages);
 
             for (int i = 0; i < _options.TolerableRiskCriteria.Count; i++)
             {
@@ -1666,14 +1804,23 @@ namespace RMC.TotalRisk.Analyses
                         appliedPinIds = new HashSet<Guid>();
                     }
 
+                    // The shared-epistemic-variable columns (one per distinct variable named by
+                    // any component's epistemic composites), derived from the run seed and the
+                    // variable name alone, and applied inside each bound composite's own
+                    // SetupSampler by post-seeding overwrite — zero walk-ordinal movement, so
+                    // captured seed maps stay valid and no other function's stream can move.
                     var capturedSeeds = new List<int[]>(_components.Count);
                     var contentHashes = new byte[_components.Count][];
-                    for (int i = 0; i < _components.Count; i++)
+                    var epistemicColumns = BuildEpistemicSharingColumns(_options.Realizations);
+                    using (epistemicColumns == null ? null : EpistemicSharingScope.Enter(epistemicColumns))
                     {
-                        contentHashes[i] = _components[i].CanonicalHash();
-                        int componentSeed = SeedHelpers.HashCombine(_options.PRNGSeed, contentHashes[i], _components[i].OccurrenceIndex);
-                        var scribe = new SeedScribe(pinned?.ComponentSeeds[i]);
-                        capturedSeeds.Add(_components[i].SetupSamplers(_options.Realizations, componentSeed, _options.SamplingScheme, scribe, fractilePinMap, appliedPinIds));
+                        for (int i = 0; i < _components.Count; i++)
+                        {
+                            contentHashes[i] = _components[i].CanonicalHash();
+                            int componentSeed = SeedHelpers.HashCombine(_options.PRNGSeed, contentHashes[i], _components[i].OccurrenceIndex);
+                            var scribe = new SeedScribe(pinned?.ComponentSeeds[i]);
+                            capturedSeeds.Add(_components[i].SetupSamplers(_options.Realizations, componentSeed, _options.SamplingScheme, scribe, fractilePinMap, appliedPinIds));
+                        }
                     }
 
                     if (expectedPinIds != null)
@@ -1867,7 +2014,11 @@ namespace RMC.TotalRisk.Analyses
 
             SystemComponent.AssignOccurrenceIndices(_components);
             int seed = SeedHelpers.HashCombine(_options.PRNGSeed, component.CanonicalHash(), component.OccurrenceIndex);
-            component.SetupSamplers(_options.Realizations, seed, _options.SamplingScheme, null, BuildCurrentFractilePinMap(), null);
+            var epistemicColumns = BuildEpistemicSharingColumns(_options.Realizations);
+            using (epistemicColumns == null ? null : EpistemicSharingScope.Enter(epistemicColumns))
+            {
+                component.SetupSamplers(_options.Realizations, seed, _options.SamplingScheme, null, BuildCurrentFractilePinMap(), null);
+            }
 
             var additionalThresholds = new double[RunAdditionalConsequenceTypes.Count];
             for (int k = 0; k < additionalThresholds.Length; k++)
@@ -2454,7 +2605,11 @@ namespace RMC.TotalRisk.Analyses
 
             SystemComponent.AssignOccurrenceIndices(_components);
             int seed = SeedHelpers.HashCombine(_options.PRNGSeed, component.CanonicalHash(), component.OccurrenceIndex);
-            component.SetupSamplers(realizations, seed, _options.SamplingScheme, null, BuildCurrentFractilePinMap(), null);
+            var epistemicColumns = BuildEpistemicSharingColumns(realizations);
+            using (epistemicColumns == null ? null : EpistemicSharingScope.Enter(epistemicColumns))
+            {
+                component.SetupSamplers(realizations, seed, _options.SamplingScheme, null, BuildCurrentFractilePinMap(), null);
+            }
             var inputs = new List<SensitivityInput>();
             component.CollectSensitivityInputs(inputs);
             if (inputs.Count == 0) return null;
@@ -2554,12 +2709,17 @@ namespace RMC.TotalRisk.Analyses
             SystemComponent.AssignOccurrenceIndices(_components);
             var inputs = new List<SensitivityInput>();
             var fractilePinMap = BuildCurrentFractilePinMap();
-            for (int i = 0; i < _components.Count; i++)
+            var sharedEpistemicSeen = new HashSet<string>(StringComparer.Ordinal);
+            var epistemicColumns = BuildEpistemicSharingColumns(sampleSize);
+            using (epistemicColumns == null ? null : EpistemicSharingScope.Enter(epistemicColumns))
             {
-                if (componentIndex >= 0 && i != componentIndex) continue;
-                int seed = SeedHelpers.HashCombine(_options.PRNGSeed, _components[i].CanonicalHash(), _components[i].OccurrenceIndex);
-                _components[i].SetupSamplers(sampleSize, seed, _options.SamplingScheme, null, fractilePinMap, null);
-                _components[i].CollectSensitivityInputs(inputs);
+                for (int i = 0; i < _components.Count; i++)
+                {
+                    if (componentIndex >= 0 && i != componentIndex) continue;
+                    int seed = SeedHelpers.HashCombine(_options.PRNGSeed, _components[i].CanonicalHash(), _components[i].OccurrenceIndex);
+                    _components[i].SetupSamplers(sampleSize, seed, _options.SamplingScheme, null, fractilePinMap, null);
+                    _components[i].CollectSensitivityInputs(inputs, sharedEpistemicSeen);
+                }
             }
             return inputs;
         }

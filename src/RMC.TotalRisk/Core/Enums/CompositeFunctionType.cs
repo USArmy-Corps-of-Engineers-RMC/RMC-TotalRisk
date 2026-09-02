@@ -33,8 +33,18 @@ namespace RMC.TotalRisk.Core.Enums
         /// <summary>
         /// One child is sampled per realization with probability equal to its weight — the full
         /// mixture-distribution treatment of scenario uncertainty (the preferred day/night
-        /// exposure model), and the v1.0 default.
+        /// exposure model), and the v1.0 default. The weights are aleatory: every realization
+        /// experiences the whole population of children in proportion to them.
         /// </summary>
         Mixture,
+
+        /// <summary>
+        /// An epistemic mixture — the logic tree: exactly one child is the true function for the
+        /// whole period of analysis, with the weights stating the analyst's credence in each, and
+        /// one child selected per realization by a knowledge draw. Distinct from
+        /// <see cref="Mixture"/>, whose weights are aleatory fractions of each realization's
+        /// event population. Selecting this mode is compute-relevant hashed content.
+        /// </summary>
+        EpistemicMixture,
     }
 }

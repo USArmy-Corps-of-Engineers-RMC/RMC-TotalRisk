@@ -17,8 +17,11 @@ namespace RMC.TotalRisk.RiskFunctions.Transforms
 {
     /// <summary>
     /// A composite transform function: the weighted average <c>Σ ωᵢ·fᵢ(x)</c> of a weighted list of
-    /// child transform functions — several candidate rating curves blended into one consensus
-    /// curve by their credibility weights.
+    /// child transform functions (<see cref="CompositeFunctionType.Average"/>, the default) —
+    /// several candidate rating curves blended into one consensus curve by their credibility
+    /// weights — or an epistemic mixture
+    /// (<see cref="CompositeFunctionType.EpistemicMixture"/>), the logic tree that selects one
+    /// candidate curve as the truth per realization.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -32,20 +35,25 @@ namespace RMC.TotalRisk.RiskFunctions.Transforms
     /// for the transform cluster (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §6.2).
     /// </para>
     /// <para>
-    /// <b>Only <see cref="CompositeFunctionType.Average"/> is supported</b> (a deliberate restriction;
-    /// it is also the default, unlike <c>CompositeConsequence</c>, so a new instance is valid out of
-    /// the box). <see cref="CompositeFunctionType.Mixture"/> and
+    /// <b><see cref="CompositeFunctionType.Average"/> and
+    /// <see cref="CompositeFunctionType.EpistemicMixture"/> are supported</b> (Average is the
+    /// default, unlike <c>CompositeConsequence</c>, so a new instance is valid out of the box).
+    /// <see cref="CompositeFunctionType.Mixture"/> and
     /// <see cref="CompositeFunctionType.Additive"/> are validation errors:
     /// </para>
     /// <list type="bullet">
     /// <item><description>
-    /// <b>Mixture</b> would require per-realization branch selection, and there is no transform
+    /// <b>Mixture</b> (the aleatory reading) would require within-realization branch enumeration,
+    /// and there is no transform
     /// analog of the consequence exposure-branch surface — <c>SampledFailureMode</c> chains
     /// transforms deterministically. A mean-only run would therefore collapse the branch and its
     /// loss-exceedance tail would diverge from the mean of the full-uncertainty ensemble: exactly
     /// the defect the exposure-branch contract solved for consequences
     /// (docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md §6.4.1). Deferred until
-    /// the engine gains transform-branch enumeration.
+    /// the engine gains transform-branch enumeration. The epistemic reading needs no such
+    /// surface: one branch per realization chains through <c>SampledFailureMode</c> exactly like
+    /// any other sampled transform, which is why <see cref="CompositeFunctionType.EpistemicMixture"/>
+    /// ships while the aleatory Mixture stays deferred.
     /// </description></item>
     /// <item><description>
     /// <b>Additive</b> (summing transforms, weights inert) has no physical reading for a
@@ -53,13 +61,19 @@ namespace RMC.TotalRisk.RiskFunctions.Transforms
     /// </description></item>
     /// </list>
     /// <para>
-    /// <b>Users should know</b> that a weighted average is the aleatory-mean reading of a set of
+    /// <b>Choosing between the two supported modes:</b> a weighted average is the aleatory-mean
+    /// reading of a set of
     /// candidate transforms — exact when everything downstream is linear, approximate otherwise.
     /// Because a fragility is steeply nonlinear, blending candidate rating curves before evaluating
     /// it is not the same as weighting the risks each curve produces (Jensen's inequality), and the
     /// blended curve contributes no spread of its own to the uncertainty bands. Where the weights
-    /// genuinely mean "one of these curves is the truth and we do not know which", model the
-    /// alternatives as separate analyses until the engine supports transform branches. See
+    /// genuinely mean "one of these curves is the truth and we do not know which", use
+    /// <see cref="CompositeFunctionType.EpistemicMixture"/>: the composite declares one
+    /// branch-selector dimension, each realization selects one candidate curve by inverse-CDF of
+    /// the cumulative weights and chains it downstream whole, and the ensemble straddles the
+    /// alternatives — the doctrine's three-rating-curve example made runnable. A named
+    /// <see cref="EpistemicVariable"/> shares the selector draw across binders, and mean-only
+    /// analyses over an epistemic composite are refused by analysis-level validation. See
     /// <c>docs/technical-reference/composite-functions.md</c>.
     /// </para>
     /// <para>
@@ -122,6 +136,7 @@ namespace RMC.TotalRisk.RiskFunctions.Transforms
             TransformedHazard = SerializationUtilities.ReadString(xElement, nameof(TransformedHazard));
             TransformedHazardUnit = SerializationUtilities.ReadString(xElement, nameof(TransformedHazardUnit));
             _compositeFunctionType = SerializationUtilities.ReadEnum(xElement, nameof(CompositeFunctionType), CompositeFunctionType.Average);
+            _epistemicVariable = SerializationUtilities.ReadString(xElement, nameof(EpistemicVariable));
 
             TransformFunctions = new ObservableCollection<WeightedTransformFunction>();
             var container = xElement.Element(nameof(TransformFunctions));
@@ -184,9 +199,14 @@ namespace RMC.TotalRisk.RiskFunctions.Transforms
         private ObservableCollection<WeightedTransformFunction> _transformFunctions = null!;
 
         /// <summary>
-        /// Backing field for <see cref="CompositeFunctionType"/> — Average, the only supported mode.
+        /// Backing field for <see cref="CompositeFunctionType"/> — the default is Average.
         /// </summary>
         private CompositeFunctionType _compositeFunctionType = CompositeFunctionType.Average;
+
+        /// <summary>
+        /// Backing field for <see cref="EpistemicVariable"/> — empty means unbound.
+        /// </summary>
+        private string _epistemicVariable = string.Empty;
 
         /// <summary>
         /// The distinct entries this composite currently holds a change subscription on — the
@@ -237,8 +257,9 @@ namespace RMC.TotalRisk.RiskFunctions.Transforms
         }
 
         /// <summary>
-        /// How the children are combined. Only <see cref="CompositeFunctionType.Average"/> is
-        /// supported; the other members are validation errors (see the class remarks). Hashed
+        /// How the children are combined. <see cref="CompositeFunctionType.Average"/> and
+        /// <see cref="CompositeFunctionType.EpistemicMixture"/> are supported; the other members
+        /// are validation errors (see the class remarks). Hashed
         /// content, so enabling a further mode later cannot silently reinterpret a stored model.
         /// </summary>
         public CompositeFunctionType CompositeFunctionType
@@ -254,15 +275,48 @@ namespace RMC.TotalRisk.RiskFunctions.Transforms
             }
         }
 
+        /// <summary>
+        /// The named shared epistemic variable the branch selection binds to, empty (the default)
+        /// when the composite selects independently. Meaningful only under
+        /// <see cref="CompositeFunctionType.EpistemicMixture"/> — naming a variable in any other
+        /// mode is a validation error. During an analysis run (or a standalone component-scope
+        /// setup), every bound composite of the same variable receives the same per-realization
+        /// selector draw, derived from the variable name alone — the logic tree's
+        /// state-of-knowledge correlation. Compute-relevant when non-empty: serialized and hashed
+        /// by conditional presence, so an unbound composite's form and hash are unchanged, and
+        /// renaming a variable deliberately re-rolls its shared draw (the name is the variable's
+        /// identity). Null coerces to empty.
+        /// </summary>
+        public string EpistemicVariable
+        {
+            get { return _epistemicVariable; }
+            set
+            {
+                string coerced = value ?? string.Empty;
+                if (_epistemicVariable != coerced)
+                {
+                    _epistemicVariable = coerced;
+                    RaisePropertyChange(nameof(EpistemicVariable));
+                }
+            }
+        }
+
         /// <inheritdoc/>
         public override TransformFunctionType FunctionType => TransformFunctionType.Composite;
 
         /// <inheritdoc/>
-        /// <remarks>Deterministic when every non-null child is.</remarks>
+        /// <remarks>
+        /// Deterministic when every non-null child is. Under
+        /// <see cref="CompositeFunctionType.EpistemicMixture"/> the selection itself is a
+        /// knowledge draw, so the composite is never deterministic while two or more branches
+        /// carry positive weight — even over fixed children.
+        /// </remarks>
         public override bool IsDeterministic
         {
             get
             {
+                if (_compositeFunctionType == CompositeFunctionType.EpistemicMixture && CountPositiveWeights() >= 2)
+                    return false;
                 for (int i = 0; i < _transformFunctions.Count; i++)
                 {
                     var function = _transformFunctions[i].TransformFunction;
@@ -274,10 +328,13 @@ namespace RMC.TotalRisk.RiskFunctions.Transforms
 
         /// <inheritdoc/>
         /// <remarks>
-        /// Always zero: a weighted average consumes no knowledge draw of its own. Children own
-        /// their dimensions and are set up recursively by <see cref="SetupSampler"/>.
+        /// Zero under <see cref="CompositeFunctionType.Average"/>: a weighted average consumes no
+        /// knowledge draw of its own. One under
+        /// <see cref="CompositeFunctionType.EpistemicMixture"/> — the branch-selector dimension.
+        /// Children own their dimensions and are set up recursively by <see cref="SetupSampler"/>.
         /// </remarks>
-        public override int SamplingDimensions => 0;
+        public override int SamplingDimensions =>
+            _compositeFunctionType == CompositeFunctionType.EpistemicMixture ? 1 : 0;
 
         #endregion
 
@@ -287,13 +344,24 @@ namespace RMC.TotalRisk.RiskFunctions.Transforms
         /// <remarks>
         /// Recurses into every child with a content-derived seed:
         /// <c>SeedHelpers.HashCombine(seed, child.CanonicalHash(), ordinal)</c>. The ordinal gives
-        /// identical-content siblings independent draws; the child hash is metadata-inert.
+        /// identical-content siblings independent draws; the child hash is metadata-inert. Under
+        /// <see cref="CompositeFunctionType.EpistemicMixture"/> the base call also allocates the
+        /// one-column branch-selector matrix from this composite's own seed; when bound to an
+        /// <see cref="EpistemicVariable"/> inside an active sharing scope, the selector column is
+        /// then overwritten with the variable's shared draw — seed-inert to every other function,
+        /// exactly like a fractile pin.
         /// </remarks>
         /// <exception cref="InvalidOperationException">Thrown when the composite configuration is invalid.</exception>
         public override void SetupSampler(int sampleSize, int seed, SamplingScheme scheme)
         {
             ThrowIfUnusable(checkCycles: true);
             base.SetupSampler(sampleSize, seed, scheme);
+
+            if (_compositeFunctionType == CompositeFunctionType.EpistemicMixture && _epistemicVariable.Length > 0)
+            {
+                var shared = EpistemicSharingScope.TryGetColumn(_epistemicVariable);
+                if (shared != null) OverrideSelectorColumn(shared);
+            }
 
             for (int i = 0; i < _transformFunctions.Count; i++)
             {
@@ -307,14 +375,20 @@ namespace RMC.TotalRisk.RiskFunctions.Transforms
         /// <inheritdoc/>
         /// <remarks>
         /// Errors (invalidating): missing axis labels; a combine mode other than
-        /// <see cref="CompositeFunctionType.Average"/>; no children (or an unresolved serialized
+        /// <see cref="CompositeFunctionType.Average"/> or
+        /// <see cref="CompositeFunctionType.EpistemicMixture"/>; an
+        /// <see cref="EpistemicVariable"/> named outside EpistemicMixture mode (dead hashed
+        /// content); no children (or an unresolved serialized
         /// reference, reported precisely instead); a null child entry; a bivariate child (which
-        /// has no univariate sampling surface for the composite to average); weights outside
+        /// has no univariate sampling surface for the composite to average or select); weights
+        /// outside
         /// [0, 1] or
         /// not summing to one (±1e-8); an empty child-domain intersection; a circular reference; an
         /// invalid child (summary line only). Warnings (advisory): child axis labels that do not
-        /// match the composite's (labels are unhashed metadata and never gate compute), and child input domains that
-        /// differ, since the composite evaluates only over their intersection.
+        /// match the composite's (labels are unhashed metadata and never gate compute), child input domains that
+        /// differ, since the composite evaluates only over their intersection, and an epistemic
+        /// mixture with fewer than two positively weighted branches, which degenerates to the one
+        /// branch it can select.
         /// </remarks>
         public override (bool IsValid, List<string> ValidationMessages) Validate()
         {
@@ -329,11 +403,16 @@ namespace RMC.TotalRisk.RiskFunctions.Transforms
             if (string.IsNullOrEmpty(TransformedHazardUnit))
                 messages.Add("Error: The composite transform function does not have a specified transformed hazard unit.");
 
-            if (_compositeFunctionType != CompositeFunctionType.Average)
-                messages.Add($"Error: The composite transform function only supports the {nameof(CompositeFunctionType.Average)} combination. " +
-                    $"{nameof(CompositeFunctionType.Mixture)} requires per-realization branch selection, which the risk engine cannot yet " +
-                    "enumerate for transforms, so a mean-only run would disagree with the mean of the full-uncertainty ensemble; " +
+            if (_compositeFunctionType != CompositeFunctionType.Average && _compositeFunctionType != CompositeFunctionType.EpistemicMixture)
+                messages.Add($"Error: The composite transform function only supports the {nameof(CompositeFunctionType.Average)} and " +
+                    $"{nameof(CompositeFunctionType.EpistemicMixture)} combinations. " +
+                    $"{nameof(CompositeFunctionType.Mixture)} (the aleatory reading) requires within-realization branch enumeration, which " +
+                    "the risk engine cannot yet perform for transforms, so a mean-only run would disagree with the mean of the " +
+                    "full-uncertainty ensemble; " +
                     $"{nameof(CompositeFunctionType.Additive)} has no physical reading for a hazard-to-hazard mapping.");
+
+            if (_epistemicVariable.Length > 0 && _compositeFunctionType != CompositeFunctionType.EpistemicMixture)
+                messages.Add($"Error: The composite transform function names the shared epistemic variable '{_epistemicVariable}' but is not in {nameof(CompositeFunctionType.EpistemicMixture)} mode; clear the variable or select the epistemic mode.");
 
             foreach (string reference in _unresolvedFunctionReferences)
             {
@@ -362,6 +441,8 @@ namespace RMC.TotalRisk.RiskFunctions.Transforms
                 messages.Add("Error: The transform function weight must be between 0 and 1.");
             if (!anyWeightOutOfRange && Math.Abs(weightSum - 1d) > WeightSumTolerance)
                 messages.Add("Error: Composite transform function weights do not sum to 1.");
+            if (_compositeFunctionType == CompositeFunctionType.EpistemicMixture && !anyWeightOutOfRange && CountPositiveWeights() < 2)
+                messages.Add("Warning: An epistemic mixture with fewer than two positively weighted branches degenerates to the one branch it can select.");
 
             var circularChild = FindCircularChild();
             if (circularChild != null)
@@ -421,7 +502,14 @@ namespace RMC.TotalRisk.RiskFunctions.Transforms
         }
 
         /// <inheritdoc/>
-        /// <remarks>The weighted average of the child mean curves.</remarks>
+        /// <remarks>
+        /// The weighted average of the child mean curves. Under
+        /// <see cref="CompositeFunctionType.EpistemicMixture"/> this is still the analytic blend —
+        /// a mean pass has no realization to select a branch with — which is the wrong answer for
+        /// the nonlinear downstream chain (the Jensen gap), so analysis-level validation refuses
+        /// a mean-only run over an epistemic composite. The blend remains the correct
+        /// deterministic probe value inside a full-uncertainty run.
+        /// </remarks>
         /// <exception cref="InvalidOperationException">Thrown when the composite configuration is invalid.</exception>
         public override IUnivariateFunction SampleFunction()
         {
@@ -437,13 +525,23 @@ namespace RMC.TotalRisk.RiskFunctions.Transforms
 
         /// <inheritdoc/>
         /// <remarks>
-        /// Deterministic and RNG-free: every child is sampled co-monotonically at the given
+        /// Deterministic and RNG-free. Under <see cref="CompositeFunctionType.Average"/> every
+        /// child is sampled co-monotonically at the given
         /// knowledge percentile and the weighted average is rebuilt over the resulting curves.
+        /// Under <see cref="CompositeFunctionType.EpistemicMixture"/> the percentile is the
+        /// single composition draw: it selects the branch by inverse-CDF of the cumulative
+        /// weights and the selected child is sampled at the percentile rescaled within its weight
+        /// span (the consequence composite's percentile-path convention).
         /// </remarks>
         /// <exception cref="InvalidOperationException">Thrown when the composite configuration is invalid.</exception>
         public override IUnivariateFunction SampleFunction(double percentile)
         {
             ThrowIfUnusable(checkCycles: true);
+            if (_compositeFunctionType == CompositeFunctionType.EpistemicMixture)
+            {
+                var (index, childPercentile) = SelectMixtureChild(percentile, rescale: true);
+                return _transformFunctions[index].TransformFunction!.SampleFunction(childPercentile);
+            }
             int count = _transformFunctions.Count;
             var functions = new IUnivariateFunction[count];
             for (int i = 0; i < count; i++)
@@ -458,11 +556,21 @@ namespace RMC.TotalRisk.RiskFunctions.Transforms
         /// The per-realization path: every child samples realization
         /// <paramref name="realizationIndex"/> from its own content-seeded sampler (children are
         /// mutually independent), and the weighted average is rebuilt over the resulting curves.
+        /// Under <see cref="CompositeFunctionType.EpistemicMixture"/> the realization's selector
+        /// percentile (the composite's own declared dimension, or the shared variable's draw when
+        /// bound) picks one branch, and that child alone is sampled at the same realization index
+        /// — its curve chains downstream whole, because the selected child is the realization's
+        /// whole truth.
         /// </remarks>
         /// <exception cref="InvalidOperationException">Thrown when the composite configuration is invalid.</exception>
         public override IUnivariateFunction SampleFunction(int realizationIndex)
         {
             ThrowIfUnusable(checkCycles: false);
+            if (_compositeFunctionType == CompositeFunctionType.EpistemicMixture)
+            {
+                var (index, _) = SelectMixtureChild(Percentile(realizationIndex, 0), rescale: false);
+                return _transformFunctions[index].TransformFunction!.SampleFunction(realizationIndex);
+            }
             int count = _transformFunctions.Count;
             var functions = new IUnivariateFunction[count];
             for (int i = 0; i < count; i++)
@@ -470,6 +578,26 @@ namespace RMC.TotalRisk.RiskFunctions.Transforms
                 functions[i] = _transformFunctions[i].TransformFunction!.SampleFunction(realizationIndex);
             }
             return BuildCombined(functions);
+        }
+
+        /// <summary>
+        /// The branch the given realization selects under
+        /// <see cref="CompositeFunctionType.EpistemicMixture"/> — the branch-attribution query
+        /// ("which model alternative did this realization live in"). Runtime-only: nothing is
+        /// persisted, and the answer is re-derivable bit-exactly from the content seeds.
+        /// </summary>
+        /// <param name="realizationIndex">The realization row, in [0, <see cref="RiskFunctionBase.SampleSize"/>).</param>
+        /// <returns>The selected entry index in <see cref="TransformFunctions"/> declared order.</returns>
+        /// <exception cref="InvalidOperationException">
+        /// Thrown when the composite is not in epistemic mode, or when
+        /// <see cref="SetupSampler"/> has not been called.
+        /// </exception>
+        public int SelectedBranchIndex(int realizationIndex)
+        {
+            if (_compositeFunctionType != CompositeFunctionType.EpistemicMixture)
+                throw new InvalidOperationException("Branch attribution is defined only in EpistemicMixture mode.");
+            var (index, _) = SelectMixtureChild(Percentile(realizationIndex, 0), rescale: false);
+            return index;
         }
 
         /// <inheritdoc/>
@@ -497,20 +625,32 @@ namespace RMC.TotalRisk.RiskFunctions.Transforms
         /// <inheritdoc/>
         /// <remarks>
         /// The combined curve evaluated at <see cref="MinHazard"/> — the same shape the closed-form
-        /// transforms use, and a tight bound for monotone children.
+        /// transforms use, and a tight bound for monotone children. Under
+        /// <see cref="CompositeFunctionType.EpistemicMixture"/> the uncertain bound is the
+        /// smallest low-percentile value across the positively weighted branches, because any of
+        /// them may be the selected truth.
         /// </remarks>
         /// <exception cref="InvalidOperationException">Thrown when the composite configuration is invalid.</exception>
         public override double MinTransformedHazard(bool meanOnly)
         {
+            if (!meanOnly && _compositeFunctionType == CompositeFunctionType.EpistemicMixture)
+                return BranchExtremum(0.00001d, smallest: true);
             var function = meanOnly ? SampleFunction() : SampleFunction(0.00001d);
             return function.Function(MinHazard());
         }
 
         /// <inheritdoc/>
-        /// <remarks>The combined curve evaluated at <see cref="MaxHazard"/> — see <see cref="MinTransformedHazard"/>.</remarks>
+        /// <remarks>
+        /// The combined curve evaluated at <see cref="MaxHazard"/> — see
+        /// <see cref="MinTransformedHazard"/>. Under
+        /// <see cref="CompositeFunctionType.EpistemicMixture"/> the uncertain bound is the largest
+        /// high-percentile value across the positively weighted branches.
+        /// </remarks>
         /// <exception cref="InvalidOperationException">Thrown when the composite configuration is invalid.</exception>
         public override double MaxTransformedHazard(bool meanOnly)
         {
+            if (!meanOnly && _compositeFunctionType == CompositeFunctionType.EpistemicMixture)
+                return BranchExtremum(1d - 0.00001d, smallest: false);
             var function = meanOnly ? SampleFunction() : SampleFunction(1d - 0.00001d);
             return function.Function(MaxHazard());
         }
@@ -646,6 +786,12 @@ namespace RMC.TotalRisk.RiskFunctions.Transforms
             element.SetAttributeValue(nameof(TransformedHazard), TransformedHazard);
             element.SetAttributeValue(nameof(TransformedHazardUnit), TransformedHazardUnit);
             element.SetAttributeValue(nameof(CompositeFunctionType), _compositeFunctionType.ToString());
+            // Conditional presence: written only when bound, so every unbound composite's form —
+            // and its canonical hash — is unchanged.
+            if (_epistemicVariable.Length > 0)
+            {
+                element.SetAttributeValue(nameof(EpistemicVariable), _epistemicVariable);
+            }
 
             var container = new XElement(nameof(TransformFunctions));
             for (int i = 0; i < _transformFunctions.Count; i++)
@@ -676,6 +822,12 @@ namespace RMC.TotalRisk.RiskFunctions.Transforms
         {
             var identity = new XElement(nameof(CompositeTransform));
             identity.SetAttributeValue(nameof(CompositeFunctionType), _compositeFunctionType.ToString());
+            // Conditional presence mirrors the persisted form: binding a shared epistemic
+            // variable is compute-relevant, so it enters the identity only when named.
+            if (_epistemicVariable.Length > 0)
+            {
+                identity.SetAttributeValue(nameof(EpistemicVariable), _epistemicVariable);
+            }
             identity.SetAttributeValue("Count", _transformFunctions.Count.ToString(CultureInfo.InvariantCulture));
             for (int i = 0; i < _transformFunctions.Count; i++)
             {
@@ -729,6 +881,132 @@ namespace RMC.TotalRisk.RiskFunctions.Transforms
         private double EffectiveWeight(int index)
         {
             return _compositeFunctionType == CompositeFunctionType.Additive ? 1d : _transformFunctions[index].Weight;
+        }
+
+        /// <summary>
+        /// Maps a composition percentile onto a child entry: entries are laid out on [0, 1] in
+        /// declared order by weight, the percentile lands in one span (inclusive upper edge), and
+        /// zero-weight entries are skipped. Numerical drift past the last positive weight clamps
+        /// to that entry. The algorithm is the consequence composite's, verbatim, so the two
+        /// selectors can never disagree.
+        /// </summary>
+        /// <param name="percentile">The composition percentile, in [0, 1].</param>
+        /// <param name="rescale">True to rescale the percentile within the selected span (the
+        /// single-uniform composition convention); false to pass it through unchanged.</param>
+        /// <returns>The selected entry index and the child percentile.</returns>
+        private (int Index, double ChildPercentile) SelectMixtureChild(double percentile, bool rescale)
+        {
+            double cumulative = 0d;
+            int lastPositive = -1;
+            for (int i = 0; i < _transformFunctions.Count; i++)
+            {
+                double weight = _transformFunctions[i].Weight;
+                if (weight <= 0d) continue;
+                double prior = cumulative;
+                cumulative += weight;
+                lastPositive = i;
+                if (percentile <= cumulative)
+                {
+                    return (i, rescale ? (percentile - prior) / weight : percentile);
+                }
+            }
+            return (lastPositive, rescale ? 1d : percentile);
+        }
+
+        /// <summary>
+        /// Counts the entries carrying strictly positive weight — the epistemic mixture's
+        /// selectable branch count.
+        /// </summary>
+        /// <returns>The positively weighted entry count.</returns>
+        private int CountPositiveWeights()
+        {
+            int count = 0;
+            for (int i = 0; i < _transformFunctions.Count; i++)
+            {
+                if (_transformFunctions[i].Weight > 0d) count++;
+            }
+            return count;
+        }
+
+        /// <summary>
+        /// The transformed-hazard extremum across the positively weighted branches at a knowledge
+        /// percentile — the epistemic mode's uncertain bound, where any branch may be the
+        /// selected truth. The smallest bound evaluates at <see cref="MinHazard"/>, the largest
+        /// at <see cref="MaxHazard"/>.
+        /// </summary>
+        /// <param name="percentile">The child knowledge percentile to sample at.</param>
+        /// <param name="smallest">True for the minimum at the domain's lower bound, false for the
+        /// maximum at the upper bound.</param>
+        /// <returns>The extremum across the selectable branches.</returns>
+        private double BranchExtremum(double percentile, bool smallest)
+        {
+            double hazard = smallest ? MinHazard() : MaxHazard();
+            double extremum = smallest ? double.MaxValue : double.MinValue;
+            for (int i = 0; i < _transformFunctions.Count; i++)
+            {
+                var entry = _transformFunctions[i];
+                if (entry.TransformFunction == null || entry.Weight <= 0d) continue;
+                double value = entry.TransformFunction.SampleFunction(percentile).Function(hazard);
+                if (smallest ? value < extremum : value > extremum) extremum = value;
+            }
+            return extremum;
+        }
+
+        /// <summary>
+        /// True when this composite, or any nested composite transform beneath it, is in
+        /// <see cref="CompositeFunctionType.EpistemicMixture"/> mode — the analysis-level
+        /// mean-only gate's discovery surface.
+        /// </summary>
+        /// <returns>True when an epistemic mixture exists anywhere in the subtree.</returns>
+        internal bool UsesEpistemicMode()
+        {
+            return UsesEpistemicMode(new HashSet<CompositeTransform>());
+        }
+
+        /// <summary>
+        /// Accumulates every shared epistemic variable named by this composite or any nested
+        /// composite transform — the sharing scope's discovery surface.
+        /// </summary>
+        /// <param name="sink">The accumulating distinct variable names.</param>
+        /// <exception cref="ArgumentNullException">Thrown when the sink is null.</exception>
+        internal void CollectEpistemicVariables(ISet<string> sink)
+        {
+            if (sink == null) throw new ArgumentNullException(nameof(sink));
+            CollectEpistemicVariables(sink, new HashSet<CompositeTransform>());
+        }
+
+        /// <summary>
+        /// The cycle-safe recursion behind <see cref="UsesEpistemicMode()"/>.
+        /// </summary>
+        /// <param name="visited">The composites already searched.</param>
+        /// <returns>True when an epistemic mixture exists anywhere in the subtree.</returns>
+        private bool UsesEpistemicMode(HashSet<CompositeTransform> visited)
+        {
+            if (!visited.Add(this)) return false;
+            if (_compositeFunctionType == CompositeFunctionType.EpistemicMixture) return true;
+            for (int i = 0; i < _transformFunctions.Count; i++)
+            {
+                if (_transformFunctions[i].TransformFunction is CompositeTransform nested && nested.UsesEpistemicMode(visited))
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// The cycle-safe recursion behind <see cref="CollectEpistemicVariables(ISet{string})"/>.
+        /// </summary>
+        /// <param name="sink">The accumulating distinct variable names.</param>
+        /// <param name="visited">The composites already searched.</param>
+        private void CollectEpistemicVariables(ISet<string> sink, HashSet<CompositeTransform> visited)
+        {
+            if (!visited.Add(this)) return;
+            if (_compositeFunctionType == CompositeFunctionType.EpistemicMixture && _epistemicVariable.Length > 0)
+                sink.Add(_epistemicVariable);
+            for (int i = 0; i < _transformFunctions.Count; i++)
+            {
+                if (_transformFunctions[i].TransformFunction is CompositeTransform nested)
+                    nested.CollectEpistemicVariables(sink, visited);
+            }
         }
 
         /// <summary>
@@ -800,15 +1078,20 @@ namespace RMC.TotalRisk.RiskFunctions.Transforms
         }
 
         /// <summary>
-        /// The sample-time usability gate: the Average combine mode, at least one entry, every
+        /// The sample-time usability gate: the Average or EpistemicMixture combine mode, at least
+        /// one entry, every
         /// entry configured and univariate (a bivariate child has no univariate sampling
-        /// surface), weights in [0, 1] summing to one, and an overlapping child domain.
+        /// surface), weights in [0, 1] summing to one, a variable bound only in epistemic mode,
+        /// and an overlapping child domain.
         /// </summary>
         /// <param name="checkCycles">True to also reject circular references.</param>
         /// <exception cref="InvalidOperationException">Thrown when the configuration is invalid.</exception>
         private void ThrowIfUnusable(bool checkCycles)
         {
-            bool usable = _compositeFunctionType == CompositeFunctionType.Average && _transformFunctions.Count > 0;
+            bool usable = (_compositeFunctionType == CompositeFunctionType.Average ||
+                _compositeFunctionType == CompositeFunctionType.EpistemicMixture) && _transformFunctions.Count > 0;
+            if (usable && _epistemicVariable.Length > 0 && _compositeFunctionType != CompositeFunctionType.EpistemicMixture)
+                usable = false;
             if (usable)
             {
                 double weightSum = 0d;

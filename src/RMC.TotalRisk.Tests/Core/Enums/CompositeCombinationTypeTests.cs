@@ -12,16 +12,17 @@ namespace RMC.TotalRisk.Tests.Core.Enums;
 [TestClass]
 public class CompositeCombinationTypeTests
 {
-    /// <summary>Pins the declared members and order.</summary>
+    /// <summary>Pins the declared members and order (EpistemicMixture appended last).</summary>
     [TestMethod]
     public void Test_Members_Pinned()
     {
         // Assert
         CollectionAssert.AreEqual(
-            new[] { "Mixture", "CompetingRisks" },
+            new[] { "Mixture", "CompetingRisks", "EpistemicMixture" },
             Enum.GetNames<CompositeCombinationType>());
         Assert.AreEqual(0, (int)CompositeCombinationType.Mixture);
         Assert.AreEqual(1, (int)CompositeCombinationType.CompetingRisks);
+        Assert.AreEqual(2, (int)CompositeCombinationType.EpistemicMixture);
     }
 
     /// <summary>

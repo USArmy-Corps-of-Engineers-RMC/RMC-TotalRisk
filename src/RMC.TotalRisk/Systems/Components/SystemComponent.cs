@@ -17,6 +17,7 @@ using RMC.TotalRisk.Results;
 using RMC.TotalRisk.RiskFunctions.Hazards;
 using RMC.TotalRisk.RiskFunctions.Responses;
 using RMC.TotalRisk.RiskFunctions.Responses.Trees;
+using RMC.TotalRisk.RiskFunctions.Transforms;
 using RMC.TotalRisk.Systems.Components.Graph;
 
 namespace RMC.TotalRisk.Systems.Components
@@ -1262,11 +1263,54 @@ namespace RMC.TotalRisk.Systems.Components
         /// own <c>SetupSampler</c> owns its subtree, and the dedup set must absorb subtree
         /// members. This is also the per-run freeze point that materializes the effective
         /// failure-mode dependency matrix (<see cref="EnsureDependencyMatrixCurrent"/>) so the
-        /// automatic modes' derived matrices are current before the first sample.
+        /// automatic modes' derived matrices are current before the first sample. When this
+        /// standalone overload finds no ambient sharing scope and the component's composites
+        /// name shared epistemic variables, it enters a component-scope sharing scope derived
+        /// from the component seed — so binders of one variable share within the component; an
+        /// analysis run supplies its own run-scope columns instead, sharing across components.
         /// </remarks>
         public void SetupSamplers(int sampleSize, int componentSeed, SamplingScheme scheme)
         {
+            if (!EpistemicSharingScope.IsActive)
+            {
+                var variables = new HashSet<string>(StringComparer.Ordinal);
+                CollectEpistemicVariables(variables);
+                if (variables.Count > 0)
+                {
+                    using (EpistemicSharingScope.Enter(EpistemicSharingScope.BuildColumns(variables, componentSeed, sampleSize, scheme)))
+                    {
+                        SetupSamplers(sampleSize, componentSeed, scheme, null);
+                    }
+                    return;
+                }
+            }
             SetupSamplers(sampleSize, componentSeed, scheme, null);
+        }
+
+        /// <summary>
+        /// Accumulates the shared epistemic variables named by this component's composite
+        /// functions, nested composites included — the sharing scope's discovery surface.
+        /// </summary>
+        /// <param name="sink">The accumulating distinct variable names.</param>
+        /// <exception cref="ArgumentNullException">Thrown when the sink is null.</exception>
+        internal void CollectEpistemicVariables(ISet<string> sink)
+        {
+            if (sink == null) throw new ArgumentNullException(nameof(sink));
+            foreach (var function in GetReferencedFunctions())
+            {
+                switch (function)
+                {
+                    case CompositeHazard hazard:
+                        hazard.CollectEpistemicVariables(sink);
+                        break;
+                    case CompositeResponse response:
+                        response.CollectEpistemicVariables(sink);
+                        break;
+                    case CompositeTransform transform:
+                        transform.CollectEpistemicVariables(sink);
+                        break;
+                }
+            }
         }
 
         /// <summary>
@@ -1418,14 +1462,21 @@ namespace RMC.TotalRisk.Systems.Components
         /// for failure modes — the paired non-failure function).
         /// </summary>
         /// <param name="sink">Receives the labeled columns, appended in walk order.</param>
+        /// <param name="sharedEpistemicSeen">
+        /// The shared-epistemic-variable dedup set spanning a multi-component collection, or null
+        /// to dedup within this component alone. Every binder of one variable reads the same
+        /// shared column, so the variable contributes exactly one column — labeled by the
+        /// variable, at the first binder encountered.
+        /// </param>
         /// <exception cref="ArgumentNullException">Thrown when the sink is null.</exception>
         /// <exception cref="InvalidOperationException">Thrown before <see cref="SetupSamplers(int, int, SamplingScheme)"/> has run.</exception>
-        internal void CollectSensitivityInputs(List<SensitivityInput> sink)
+        internal void CollectSensitivityInputs(List<SensitivityInput> sink, ISet<string>? sharedEpistemicSeen = null)
         {
             if (sink == null) throw new ArgumentNullException(nameof(sink));
             var modes = _sampledModes
                 ?? throw new InvalidOperationException("SetupSamplers() must be called before collecting sensitivity inputs.");
             var nonFailureMode = _sampledNonFailureMode;
+            sharedEpistemicSeen ??= new HashSet<string>(StringComparer.Ordinal);
 
             var seen = new HashSet<IRiskFunction>(ReferenceEqualityComparer.Instance);
             var usedLabels = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -1437,6 +1488,28 @@ namespace RMC.TotalRisk.Systems.Components
                 if (function == null || function.SamplingDimensions <= 0 || function.IsDeterministic) return;
                 if (!seen.Add(function)) return;
                 if (function is not RiskFunctionBase readable) return;
+
+                // A bound epistemic composite reads a shared selector column: one variable is
+                // one knowledge quantity, so the first binder contributes the column, labeled by
+                // the variable rather than any single function.
+                string? sharedVariable = function switch
+                {
+                    CompositeHazard h when h.CompositeCombinationType == CompositeCombinationType.EpistemicMixture
+                        && h.EpistemicVariable.Length > 0 => h.EpistemicVariable,
+                    CompositeResponse r when r.CompositeCombinationType == CompositeCombinationType.EpistemicMixture
+                        && r.EpistemicVariable.Length > 0 => r.EpistemicVariable,
+                    CompositeTransform t when t.CompositeFunctionType == CompositeFunctionType.EpistemicMixture
+                        && t.EpistemicVariable.Length > 0 => t.EpistemicVariable,
+                    _ => null,
+                };
+                if (sharedVariable != null)
+                {
+                    if (!sharedEpistemicSeen.Add(sharedVariable)) return;
+                    string sharedLabel = DedupeLabel($"Epistemic Variable - {sharedVariable}", usedLabels);
+                    sink.Add(new SensitivityInput(sharedLabel, index => readable.SampledPercentile(index, 0), sharedLabel));
+                    return;
+                }
+
                 string baseName = string.IsNullOrEmpty(function.Name) ? fallbackRole : function.Name;
                 string label = DedupeLabel($"{Name} - {baseName}", usedLabels);
                 int dimensions = function.SamplingDimensions;
