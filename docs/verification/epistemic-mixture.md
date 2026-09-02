@@ -37,3 +37,9 @@ enumeration.
   conditional-presence/hash-event pins for the mode and the variable, the walk-shape invariance of
   the mode switch (captured seed-map ordinal counts), the run-scope alignment and sensitivity
   dedup, and the deterministic-branch identity behind a full engine run.
+- The enumeration convergence oracle's roles have since reversed: the exact logic-tree enumerator
+  (`RiskAnalysis.LogicTreeEnumerationRealizations`) automates the weight-product construction
+  `Test_ExactEnumeration_Convergence` performs by hand, and the
+  [logic-tree-enumeration](logic-tree-enumeration.md) family pins the enumerator as the exact
+  oracle the sampled mode converges to. The manual construction here stays verbatim — it is the
+  independent anchor both sides answer to.
