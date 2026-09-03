@@ -30,7 +30,10 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
     /// <para>
     /// Supports scalar, uncertain-tabular, ordinary-response,
     /// and recursively nested event-tree probability sources together with internal/external
-    /// independent-clone link occurrences. Reads the recursive node XML emitted by the
+    /// link occurrences in both <see cref="Trees.TreeLinkMode"/> semantics: an independent-clone
+    /// link forks its own sampling streams, while a shared-logical link unifies its occurrences
+    /// onto the source limb's sampling classes so the limb samples and computes identically
+    /// wherever it appears. Reads the recursive node XML emitted by the
     /// v1.0 product and writes only the explicit v1.1 graph form. Every nested occurrence
     /// participates in recursive sampling, two-mode serialization, projected hashing, and mixed
     /// source/link cycle diagnostics. Expanded graph ports are append-only. An instance-scoped
@@ -151,20 +154,23 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
 
         /// <inheritdoc/>
         /// <remarks>
-        /// Counts each expanded independent-link occurrence separately. A linked uncertain table
-        /// therefore owns a distinct local column, and each referenced response occurrence reports
-        /// its full child dimension count.
+        /// Counts each unified sampling class once: a shared-logical limb contributes one
+        /// dimension set no matter how many occurrences reference it, while every expanded
+        /// independent-link occurrence owns a distinct local column and each referenced response
+        /// class reports its full child dimension count.
         /// </remarks>
         public override int SamplingDimensions => GetCompiledPlan().Occurrences.SamplingDimensions;
 
         /// <inheritdoc/>
         /// <remarks>
-        /// Local table dimensions are columns of this function's sampler. Every referenced
-        /// response occurrence, including the first and every recursively nested event tree, is
-        /// prepared on an isolated self-contained setup clone. The parent copies the clone's exact
-        /// flattened percentiles, so indexed sampling and LHS strata remain observable without
-        /// mutating a live stored child. Setup is transactional: a compilation, clone, capacity, or
-        /// child-setup failure restores the exact prior parent sampler state.
+        /// Local table dimensions are columns of this function's sampler, bound once per unified
+        /// sampling class. Every referenced response class, including the first and every
+        /// recursively nested event tree, is prepared on an isolated self-contained setup clone;
+        /// shared-logical occurrences of one class reuse that clone so the limb draws once per
+        /// realization. The parent copies the clone's exact flattened percentiles, so indexed
+        /// sampling and LHS strata remain observable without mutating a live stored child. Setup
+        /// is transactional: a compilation, clone, capacity, or child-setup failure restores the
+        /// exact prior parent sampler state.
         /// </remarks>
         public override void SetupSampler(int sampleSize, int seed, SamplingScheme scheme)
         {
@@ -178,16 +184,29 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                 EventTreeOccurrencePlan plan = GetCompiledPlan().Occurrences;
                 base.SetupSampler(sampleSize, seed, scheme);
                 var nextBindings = new Dictionary<string, SamplingBinding>(StringComparer.Ordinal);
+                var classBindings = new Dictionary<EventTreeSamplingClass, SamplingBinding?>(
+                    ReferenceEqualityComparer.Instance);
                 int dimension = 0;
                 int responseOccurrence = 0;
                 foreach (EventTreeOccurrenceNode occurrence in plan.CanonicalPreOrder)
                 {
-                    if (occurrence.SourceNode is not ChanceNode chance) continue;
+                    if (occurrence.SourceNode is not ChanceNode chance
+                        || occurrence.SamplingClass == null) continue;
+                    if (classBindings.TryGetValue(occurrence.SamplingClass,
+                        out SamplingBinding? sharedBinding))
+                    {
+                        // A shared-logical occurrence reuses its class's binding: one dimension
+                        // set, one referenced-response clone, one draw per realization.
+                        if (sharedBinding != null)
+                            nextBindings.Add(occurrence.CanonicalPath, sharedBinding);
+                        continue;
+                    }
                     ProbabilitySource source = chance.ProbabilitySource;
+                    SamplingBinding? createdBinding = null;
                     if (source.Kind == ProbabilitySourceKind.UncertainTabular)
                     {
-                        nextBindings.Add(occurrence.CanonicalPath,
-                            new SamplingBinding(dimension, null));
+                        createdBinding = new SamplingBinding(dimension, null);
+                        nextBindings.Add(occurrence.CanonicalPath, createdBinding);
                         dimension++;
                     }
                     else if (source.Kind == ProbabilitySourceKind.ResponseFunctionReference
@@ -236,10 +255,11 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                                     sampledBase!.SampledPercentile(realization, childDimension);
                             }
                         }
-                        nextBindings.Add(occurrence.CanonicalPath,
-                            new SamplingBinding(-1, sampledFunction));
+                        createdBinding = new SamplingBinding(-1, sampledFunction);
+                        nextBindings.Add(occurrence.CanonicalPath, createdBinding);
                         dimension += childDimensions;
                     }
+                    classBindings.Add(occurrence.SamplingClass, createdBinding);
                 }
                 if (dimension != plan.SamplingDimensions)
                 {

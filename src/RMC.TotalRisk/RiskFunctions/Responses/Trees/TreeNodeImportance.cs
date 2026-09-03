@@ -24,10 +24,11 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.Trees
     /// <para>
     /// Each pass consumes one uniform draw per uncertain entry per iteration, in canonical entry
     /// order, from an independent Mersenne Twister stream seeded by the base seed, the response's
-    /// canonical content hash, and the pass index. A shared-logical fault variable therefore
-    /// draws once per iteration no matter how many occurrences reference it. The analysis never
-    /// clones the response and never mutates live sampler state, so it is thread-safe against
-    /// concurrent read-only evaluation.
+    /// canonical content hash, and the pass index. A shared-logical fault variable or shared
+    /// event-tree sampling class therefore draws once per iteration no matter how many
+    /// occurrences reference it, and the one-at-a-time pass varies it as one knowledge quantity.
+    /// The analysis never clones the response and never mutates live sampler state, so it is
+    /// thread-safe against concurrent read-only evaluation.
     /// </para>
     /// </remarks>
     public static class TreeNodeImportance
@@ -51,10 +52,24 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.Trees
             IReadOnlyList<EventTreeEvaluationInstruction> instructions = plan.EvaluationInstructions;
             int count = instructions.Count;
             var uncertain = new bool[count];
+            var classIndex = new int[count];
+            var classFirstInstruction = new List<int>();
+            var classInstructions = new Dictionary<EventTreeSamplingClass, int>(
+                ReferenceEqualityComparer.Instance);
             for (int j = 1; j < count; j++)
             {
-                uncertain[j] = instructions[j].Occurrence.SourceNode is ChanceNode chance
-                    && !chance.ProbabilitySource.IsDeterministic;
+                classIndex[j] = -1;
+                EventTreeOccurrenceNode occurrence = instructions[j].Occurrence;
+                if (occurrence.SourceNode is not ChanceNode chance
+                    || occurrence.SamplingClass == null) continue;
+                uncertain[j] = !chance.ProbabilitySource.IsDeterministic;
+                if (!classInstructions.TryGetValue(occurrence.SamplingClass, out int index))
+                {
+                    index = classFirstInstruction.Count;
+                    classInstructions.Add(occurrence.SamplingClass, index);
+                    classFirstInstruction.Add(j);
+                }
+                classIndex[j] = index;
             }
 
             int iterations = options.Iterations;
@@ -68,16 +83,23 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.Trees
             }
 
             var percentiles = new double[count];
+            var classDraws = new double[classFirstInstruction.Count];
             var conditionals = new double[count];
             var paths = new double[count];
             var raw = new double[count];
             MersenneTwister jointStream = CreateStream(response.CanonicalHash(), options, 0);
             for (int i = 0; i < iterations; i++)
             {
+                for (int k = 0; k < classDraws.Length; k++)
+                {
+                    classDraws[k] = uncertain[classFirstInstruction[k]]
+                        ? jointStream.NextDouble()
+                        : -1d;
+                }
                 Array.Fill(percentiles, -1d);
                 for (int j = 1; j < count; j++)
                 {
-                    if (uncertain[j]) percentiles[j] = jointStream.NextDouble();
+                    if (classIndex[j] >= 0) percentiles[j] = classDraws[classIndex[j]];
                 }
                 aggregate[i] = response.EvaluateImportanceSample(plan, options.HazardLevel,
                     hazardIndex, percentiles, conditionals, paths, raw);
@@ -96,13 +118,21 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.Trees
             MersenneTwister oneAtATimeStream = CreateStream(response.CanonicalHash(), options, 1);
             for (int i = 0; i < iterations; i++)
             {
-                for (int j = 1; j < count; j++)
+                for (int k = 0; k < classFirstInstruction.Count; k++)
                 {
-                    if (!uncertain[j]) continue;
+                    if (!uncertain[classFirstInstruction[k]]) continue;
                     Array.Fill(percentiles, -1d);
-                    percentiles[j] = oneAtATimeStream.NextDouble();
-                    firstOrder[j][i] = response.EvaluateImportanceSample(plan, options.HazardLevel,
+                    double draw = oneAtATimeStream.NextDouble();
+                    for (int j = 1; j < count; j++)
+                    {
+                        if (classIndex[j] == k) percentiles[j] = draw;
+                    }
+                    double sample = response.EvaluateImportanceSample(plan, options.HazardLevel,
                         hazardIndex, percentiles, conditionals, paths, raw);
+                    for (int j = 1; j < count; j++)
+                    {
+                        if (classIndex[j] == k) firstOrder[j][i] = sample;
+                    }
                 }
             }
 

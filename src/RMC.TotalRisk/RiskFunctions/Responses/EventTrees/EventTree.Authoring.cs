@@ -120,7 +120,11 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
             }
         }
 
-        /// <summary>Replaces one internal or external independent link with an explicit deep clone.</summary>
+        /// <summary>
+        /// Replaces one internal or external link of either mode with an explicit deep clone.
+        /// Materializing a shared-logical link deliberately converts it to an independently
+        /// authored copy, so its sampled values move away from the source limb's shared draws.
+        /// </summary>
         /// <param name="linkNodeId">The authored link identifier.</param>
         /// <returns>The fresh persistent identifier of the materialized subtree root.</returns>
         /// <exception cref="InvalidOperationException">Thrown when the link or its target is invalid.</exception>
@@ -224,14 +228,14 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
             }
         }
 
-        /// <summary>Gets every authored internal independent-clone reference.</summary>
+        /// <summary>Gets every authored internal structural reference of either link mode.</summary>
         /// <returns>The internal links in persistent insertion order.</returns>
         public IReadOnlyList<EventTreeLinkNode> GetInternalReferences()
         {
             return _nodes.OfType<EventTreeLinkNode>().Where(link => !link.IsExternal).ToArray();
         }
 
-        /// <summary>Gets every authored external independent-clone reference.</summary>
+        /// <summary>Gets every authored external structural reference of either link mode.</summary>
         /// <returns>The external links in persistent insertion order.</returns>
         public IReadOnlyList<EventTreeLinkNode> GetExternalReferences()
         {

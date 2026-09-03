@@ -50,88 +50,95 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
         internal EventTree(XElement xElement, IRiskFunctionResolver? resolver, string ownerName)
         {
             if (xElement == null) throw new ArgumentNullException(nameof(xElement));
-            var nodeContainer = xElement.Element("Nodes")
-                ?? throw new InvalidOperationException("The serialized event tree has no Nodes container.");
-            foreach (XElement nodeElement in nodeContainer.Elements())
+            EventTreeReadScope.Enter();
+            try
             {
-                EventNodeBase node = ReadNode(nodeElement, resolver, ownerName);
-                if (_byId.ContainsKey(node.Id))
-                    throw new InvalidOperationException($"The serialized event tree contains duplicate node id '{node.Id:D}'.");
-                _nodes.Add(node);
-                _byId.Add(node.Id, node);
-                node.Attach(this, null);
-                SubscribeNode(node);
-            }
-
-            Guid rootId = ReadRequiredGuid(xElement, "RootNodeId");
-            if (!_byId.TryGetValue(rootId, out var root) || root is not InitiatingNode initiating)
-                throw new InvalidOperationException("The event-tree root does not resolve to an initiating node.");
-            Root = initiating;
-            if (_nodes.Count(node => node is InitiatingNode) != 1)
-                throw new InvalidOperationException("An event tree must contain exactly one initiating node.");
-
-            var usedPorts = new HashSet<int>();
-            foreach (EventNodeBase node in _nodes.Where(node => node is not InitiatingNode))
-            {
-                if (node.OutputPort < 3) continue;
-                if (!usedPorts.Add(node.OutputPort))
-                    throw new InvalidOperationException($"The serialized event tree contains duplicate output port '{node.OutputPort}'.");
-                _nextOutputPort = Math.Max(_nextOutputPort, node.OutputPort + 1);
-            }
-            XElement? branchPorts = xElement.Element("BranchPorts");
-            if (branchPorts != null)
-            {
-                foreach (XElement branchElement in branchPorts.Elements("Branch"))
+                var nodeContainer = xElement.Element("Nodes")
+                    ?? throw new InvalidOperationException("The serialized event tree has no Nodes container.");
+                foreach (XElement nodeElement in nodeContainer.Elements())
                 {
-                    Guid branchId = ReadRequiredGuid(branchElement, "Id");
-                    int outputPort = SerializationUtilities.ReadInt32(branchElement, "OutputPort");
-                    if (outputPort < 3)
-                        throw new InvalidOperationException("A serialized linked branch output port must be at least three.");
-                    if (!_linkedBranchPorts.TryAdd(branchId, outputPort))
-                        throw new InvalidOperationException($"The serialized event tree contains duplicate linked branch id '{branchId:D}'.");
-                    string? persistencePath = branchElement.Attribute("PersistencePath")?.Value;
-                    if (!string.IsNullOrEmpty(persistencePath))
-                        _linkedBranchPaths.Add(branchId, persistencePath);
-                    if (!usedPorts.Add(outputPort))
-                        throw new InvalidOperationException($"The serialized event tree contains duplicate output port '{outputPort}'.");
-                    _nextOutputPort = Math.Max(_nextOutputPort, outputPort + 1);
+                    EventNodeBase node = ReadNode(nodeElement, resolver, ownerName);
+                    if (_byId.ContainsKey(node.Id))
+                        throw new InvalidOperationException($"The serialized event tree contains duplicate node id '{node.Id:D}'.");
+                    _nodes.Add(node);
+                    _byId.Add(node.Id, node);
+                    node.Attach(this, null);
+                    SubscribeNode(node);
                 }
-            }
-            foreach (EventNodeBase node in _nodes.Where(node => node is not InitiatingNode && node.OutputPort < 3))
-            {
-                AssignNextOutputPort(node);
-            }
 
+                Guid rootId = ReadRequiredGuid(xElement, "RootNodeId");
+                if (!_byId.TryGetValue(rootId, out var root) || root is not InitiatingNode initiating)
+                    throw new InvalidOperationException("The event-tree root does not resolve to an initiating node.");
+                Root = initiating;
+                if (_nodes.Count(node => node is InitiatingNode) != 1)
+                    throw new InvalidOperationException("An event tree must contain exactly one initiating node.");
 
-            var edgeContainer = xElement.Element("Edges");
-            if (edgeContainer != null)
-            {
-                foreach (var parentGroup in edgeContainer.Elements("Edge")
-                    .Select(edge => new
-                    {
-                        Element = edge,
-                        Parent = ReadRequiredGuid(edge, "ParentNodeId"),
-                        Child = ReadRequiredGuid(edge, "ChildNodeId"),
-                        Order = SerializationUtilities.ReadInt32(edge, "Order"),
-                    })
-                    .GroupBy(edge => edge.Parent))
+                var usedPorts = new HashSet<int>();
+                foreach (EventNodeBase node in _nodes.Where(node => node is not InitiatingNode))
                 {
-                    if (!_byId.TryGetValue(parentGroup.Key, out var parent))
-                        throw new InvalidOperationException($"An event-tree edge has missing parent '{parentGroup.Key:D}'.");
-                    foreach (var edge in parentGroup.OrderBy(item => item.Order))
+                    if (node.OutputPort < 3) continue;
+                    if (!usedPorts.Add(node.OutputPort))
+                        throw new InvalidOperationException($"The serialized event tree contains duplicate output port '{node.OutputPort}'.");
+                    _nextOutputPort = Math.Max(_nextOutputPort, node.OutputPort + 1);
+                }
+                XElement? branchPorts = xElement.Element("BranchPorts");
+                if (branchPorts != null)
+                {
+                    foreach (XElement branchElement in branchPorts.Elements("Branch"))
                     {
-                        if (!_byId.TryGetValue(edge.Child, out var child))
-                            throw new InvalidOperationException($"An event-tree edge has missing child '{edge.Child:D}'.");
-                        if (child == Root || child.Parent != null)
-                            throw new InvalidOperationException($"Event-tree node '{child.Name}' has an invalid or duplicate parent edge.");
-                        parent.MutableChildren.Add(child);
-                        child.Attach(this, parent);
+                        Guid branchId = ReadRequiredGuid(branchElement, "Id");
+                        int outputPort = SerializationUtilities.ReadInt32(branchElement, "OutputPort");
+                        if (outputPort < 3)
+                            throw new InvalidOperationException("A serialized linked branch output port must be at least three.");
+                        if (!_linkedBranchPorts.TryAdd(branchId, outputPort))
+                            throw new InvalidOperationException($"The serialized event tree contains duplicate linked branch id '{branchId:D}'.");
+                        string? persistencePath = branchElement.Attribute("PersistencePath")?.Value;
+                        if (!string.IsNullOrEmpty(persistencePath))
+                            _linkedBranchPaths.Add(branchId, persistencePath);
+                        if (!usedPorts.Add(outputPort))
+                            throw new InvalidOperationException($"The serialized event tree contains duplicate output port '{outputPort}'.");
+                        _nextOutputPort = Math.Max(_nextOutputPort, outputPort + 1);
                     }
                 }
-            }
+                foreach (EventNodeBase node in _nodes.Where(node => node is not InitiatingNode && node.OutputPort < 3))
+                {
+                    AssignNextOutputPort(node);
+                }
 
-            if (Root.Parent != null) throw new InvalidOperationException("The initiating event cannot have a parent.");
-            if (FindCycle() != null) throw new InvalidOperationException("The serialized event tree contains a structural cycle.");
+                var edgeContainer = xElement.Element("Edges");
+                if (edgeContainer != null)
+                {
+                    foreach (var parentGroup in edgeContainer.Elements("Edge")
+                        .Select(edge => new
+                        {
+                            Element = edge,
+                            Parent = ReadRequiredGuid(edge, "ParentNodeId"),
+                            Child = ReadRequiredGuid(edge, "ChildNodeId"),
+                            Order = SerializationUtilities.ReadInt32(edge, "Order"),
+                        })
+                        .GroupBy(edge => edge.Parent))
+                    {
+                        if (!_byId.TryGetValue(parentGroup.Key, out var parent))
+                            throw new InvalidOperationException($"An event-tree edge has missing parent '{parentGroup.Key:D}'.");
+                        foreach (var edge in parentGroup.OrderBy(item => item.Order))
+                        {
+                            if (!_byId.TryGetValue(edge.Child, out var child))
+                                throw new InvalidOperationException($"An event-tree edge has missing child '{edge.Child:D}'.");
+                            if (child == Root || child.Parent != null)
+                                throw new InvalidOperationException($"Event-tree node '{child.Name}' has an invalid or duplicate parent edge.");
+                            parent.MutableChildren.Add(child);
+                            child.Attach(this, parent);
+                        }
+                    }
+                }
+
+                if (Root.Parent != null) throw new InvalidOperationException("The initiating event cannot have a parent.");
+                if (FindCycle() != null) throw new InvalidOperationException("The serialized event tree contains a structural cycle.");
+            }
+            finally
+            {
+                EventTreeReadScope.Exit();
+            }
         }
 
         /// <summary>The insertion-ordered authored node list.</summary>
@@ -226,6 +233,48 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
             var reference = new TreeNodeReference(targetFunction.Id, target.Id,
                 targetFunction.Name, target.Name);
             return Add(parentId, new EventTreeLinkNode(name, reference, targetFunction));
+        }
+
+        /// <summary>
+        /// Adds an internal shared-logical link to an authored subtree. Every occurrence of the
+        /// referenced limb reached in the same independent context samples once per realization
+        /// and computes identical probabilities.
+        /// </summary>
+        /// <param name="parentId">The structural parent receiving the link occurrence.</param>
+        /// <param name="targetNodeId">The target subtree root in this tree.</param>
+        /// <param name="name">The link occurrence display name.</param>
+        /// <returns>The added link node id.</returns>
+        public Guid LinkShared(Guid parentId, Guid targetNodeId, string name = "Shared link")
+        {
+            EventNodeBase target = RequireNode(targetNodeId, "LinkShared", "target");
+            var reference = new TreeNodeReference(null, target.Id, nodeName: target.Name);
+            return Add(parentId, new EventTreeLinkNode(name, reference,
+                linkMode: TreeLinkMode.SharedLogicalEvent));
+        }
+
+        /// <summary>
+        /// Adds an external shared-logical link to another event-tree subtree. Every occurrence of
+        /// the referenced limb reached in the same independent context samples once per
+        /// realization and computes identical probabilities.
+        /// </summary>
+        /// <param name="parentId">The structural parent receiving the link occurrence.</param>
+        /// <param name="targetFunction">The live external event-tree response.</param>
+        /// <param name="targetNodeId">The target subtree root in the external function.</param>
+        /// <param name="name">The link occurrence display name.</param>
+        /// <returns>The added link node id.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when the target function is null.</exception>
+        /// <exception cref="InvalidOperationException">Thrown when the target node is missing.</exception>
+        public Guid LinkShared(Guid parentId, EventTreeResponse targetFunction,
+            Guid targetNodeId, string name = "Shared link")
+        {
+            if (targetFunction == null) throw new ArgumentNullException(nameof(targetFunction));
+            EventNodeBase target = targetFunction.EventTree.FindById(targetNodeId)
+                ?? throw new InvalidOperationException(
+                    $"EventTree LinkShared failed: target node '{targetNodeId:D}' was not found in function '{targetFunction.Name}'.");
+            var reference = new TreeNodeReference(targetFunction.Id, target.Id,
+                targetFunction.Name, target.Name);
+            return Add(parentId, new EventTreeLinkNode(name, reference, targetFunction,
+                TreeLinkMode.SharedLogicalEvent));
         }
 
         /// <summary>Inserts an explicit child before an identified sibling.</summary>

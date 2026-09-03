@@ -10,9 +10,11 @@ using RMC.TotalRisk.RiskFunctions.Responses.Trees;
 namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
 {
     /// <summary>
-    /// A structural reference to an internal or external event-tree subtree. Each occurrence is
-    /// evaluated and sampled as an independent logical clone while continuing to follow edits to
-    /// the referenced authored subtree.
+    /// A structural reference to an internal or external event-tree subtree. An
+    /// <see cref="TreeLinkMode.IndependentClone"/> occurrence is evaluated and sampled as an
+    /// independent logical clone, while a <see cref="TreeLinkMode.SharedLogicalEvent"/> occurrence
+    /// unifies onto the referenced limb's sampling classes so the same draws produce the same
+    /// probabilities at every occurrence. Both follow edits to the referenced authored subtree.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -20,29 +22,30 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
     ///     Haden Smith, USACE Risk Management Center, cole.h.smith@usace.army.mil
     /// </para>
     /// <para>
-    /// Event trees support only <see cref="TreeLinkMode.IndependentClone"/>. Shared logical-event
-    /// semantics are reserved for the static fault-tree response because event-tree branches are
-    /// mutually exclusive outcomes rather than reusable Boolean variables.
+    /// Sharing never changes the event-tree path algebra — expansion still multiplies each
+    /// occurrence's conditional probability into its own path — it makes repeated occurrences of
+    /// one limb draw the same sampled values within each realization, the state-of-knowledge
+    /// correlation of a limb modeled once and referenced many times.
     /// </para>
     /// </remarks>
     public sealed class EventTreeLinkNode : EventNodeBase
     {
-        /// <summary>Initializes an independent-clone event-tree link.</summary>
+        /// <summary>Initializes an event-tree link.</summary>
         /// <param name="name">The display name of this authored occurrence.</param>
         /// <param name="target">The internal or external target reference.</param>
         /// <param name="targetFunction">
         /// The live external event-tree response, or null for an internal reference.
         /// </param>
-        /// <param name="linkMode">The link semantics; event trees accept independent clone only.</param>
+        /// <param name="linkMode">The link semantics; independent clone is the event-tree default.</param>
         /// <exception cref="ArgumentNullException">Thrown when the target is null.</exception>
         /// <exception cref="ArgumentException">Thrown when internal/external addressing is inconsistent.</exception>
-        /// <exception cref="NotSupportedException">Thrown when shared logical-event semantics are requested.</exception>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown when the link mode is undefined.</exception>
         public EventTreeLinkNode(string name, TreeNodeReference target,
             EventTreeResponse? targetFunction = null,
             TreeLinkMode linkMode = TreeLinkMode.IndependentClone)
             : base(name, true)
         {
-            ValidateLinkMode(linkMode);
+            if (!Enum.IsDefined(linkMode)) throw new ArgumentOutOfRangeException(nameof(linkMode));
             _target = target ?? throw new ArgumentNullException(nameof(target));
             bool external = IsExternalReference(target);
             if (external && targetFunction == null)
@@ -63,12 +66,13 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
         /// <param name="target">The serialized target reference.</param>
         /// <param name="targetFunction">The resolved or inline external target function.</param>
         /// <param name="unresolvedReferences">Any unresolved serialized function references.</param>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown when the link mode is undefined.</exception>
         internal EventTreeLinkNode(Guid id, string name, string description, bool isFailure,
             int outputPort, TreeLinkMode linkMode, TreeNodeReference target,
             EventTreeResponse? targetFunction, IEnumerable<string> unresolvedReferences)
             : base(id, name, description, isFailure, outputPort)
         {
-            ValidateLinkMode(linkMode);
+            if (!Enum.IsDefined(linkMode)) throw new ArgumentOutOfRangeException(nameof(linkMode));
             _target = target ?? throw new ArgumentNullException(nameof(target));
             TargetFunction = targetFunction;
             LinkMode = linkMode;
@@ -101,7 +105,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
         /// <summary>The live external event-tree response, or null for an internal link.</summary>
         public EventTreeResponse? TargetFunction { get; }
 
-        /// <summary>The link semantics. Event trees support independent clones only.</summary>
+        /// <summary>The link semantics; event trees support both modes.</summary>
         public TreeLinkMode LinkMode { get; }
 
         /// <inheritdoc/>
@@ -175,7 +179,8 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
             XElement element, IRiskFunctionResolver? resolver, string ownerName)
         {
             TreeLinkMode mode = SerializationUtilities.ReadEnum(element, nameof(LinkMode), TreeLinkMode.IndependentClone);
-            ValidateLinkMode(mode);
+            if (!Enum.IsDefined(mode))
+                throw new InvalidOperationException("A serialized event-tree link has an undefined link mode.");
             XElement targetElement = element.Element("Target")
                 ?? throw new InvalidOperationException("A serialized event-tree link has no Target element.");
             Guid? functionId = Guid.TryParse(targetElement.Attribute(nameof(TreeNodeReference.FunctionId))?.Value,
@@ -192,9 +197,21 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
             {
                 XElement child = element.Element("Function")?.Elements().FirstOrDefault()
                     ?? throw new InvalidOperationException("An external event-tree link has no serialized function entry.");
-                function = FunctionEntry.Read<EventTreeResponse>(child, resolver,
-                    c => RiskFunctionFactory.CreateFromXElement(c, resolver), ownerName,
-                    $"The event-tree response '{ownerName}'", "event-tree link target", unresolved);
+                // Repeated self-contained embeds of one external function must materialize as one
+                // live instance, or shared-logical occurrences would stop unifying after a round
+                // trip and both the sampled values and the canonical identity would move.
+                bool embedded = child.Name.LocalName == nameof(EventTreeResponse)
+                    && Guid.TryParse(child.Attribute("Id")?.Value, out Guid embeddedId)
+                    && embeddedId != Guid.Empty;
+                function = embedded
+                    ? EventTreeReadScope.GetOrAdd(
+                        Guid.Parse(child.Attribute("Id")!.Value), child,
+                        () => FunctionEntry.Read<EventTreeResponse>(child, resolver,
+                            c => RiskFunctionFactory.CreateFromXElement(c, resolver), ownerName,
+                            $"The event-tree response '{ownerName}'", "event-tree link target", unresolved))
+                    : FunctionEntry.Read<EventTreeResponse>(child, resolver,
+                        c => RiskFunctionFactory.CreateFromXElement(c, resolver), ownerName,
+                        $"The event-tree response '{ownerName}'", "event-tree link target", unresolved);
             }
             return (mode, target, function, unresolved);
         }
@@ -203,14 +220,6 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
         private static bool IsExternalReference(TreeNodeReference target)
         {
             return target.FunctionId.HasValue || !string.IsNullOrEmpty(target.FunctionName);
-        }
-
-        /// <summary>Rejects link semantics that event trees cannot represent.</summary>
-        private static void ValidateLinkMode(TreeLinkMode linkMode)
-        {
-            if (!Enum.IsDefined(linkMode)) throw new ArgumentOutOfRangeException(nameof(linkMode));
-            if (linkMode != TreeLinkMode.IndependentClone)
-                throw new NotSupportedException("Event-tree links support IndependentClone semantics only.");
         }
     }
 }

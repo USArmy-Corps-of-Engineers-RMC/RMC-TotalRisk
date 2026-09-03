@@ -211,6 +211,34 @@ public class HashInvarianceKitchenSinkTests
                 nestedChance.ProbabilitySource = new ProbabilitySource(0.3d);
             });
 
+        // The event-tree response with a shared-logical limb — the class-unified link mode.
+        yield return new RegistryEntry(
+            nameof(EventTreeResponse) + " shared limb",
+            () =>
+            {
+                var tree = new EventTree();
+                var carrier = new ChanceNode("Carrier", new ProbabilitySource(0.5d)) { IsFailure = false };
+                tree.Add(tree.Root.Id, carrier);
+                var limb = new ChanceNode("Limb", new ProbabilitySource(0.1d));
+                tree.Add(carrier.Id, limb);
+                var gate = new ChanceNode("Gate", new ProbabilitySource(0.25d)) { IsFailure = false };
+                tree.Add(tree.Root.Id, gate);
+                tree.LinkShared(gate.Id, limb.Id, "Shared limb occurrence");
+                tree.Add(tree.Root.Id, new RemainderNode("No failure"));
+                return new EventTreeResponse(new[] { 0d, 1d }, tree)
+                {
+                    Name = "Shared-limb event tree",
+                    SpecifiedHazard = "Stage",
+                    HazardUnit = "ft",
+                };
+            },
+            f =>
+            {
+                var tree = (EventTreeResponse)f;
+                var limb = (ChanceNode)tree.EventTree.Nodes.First(node => node.Name == "Limb");
+                limb.ProbabilitySource = new ProbabilitySource(0.2d);
+            });
+
         // The fault-tree response — repeated shared events behind a threshold gate.
         yield return new RegistryEntry(
             nameof(FaultTreeResponse),

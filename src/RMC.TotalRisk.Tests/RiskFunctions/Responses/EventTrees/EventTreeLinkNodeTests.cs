@@ -5,7 +5,7 @@ using RMC.TotalRisk.RiskFunctions.Responses.Trees;
 
 namespace RMC.TotalRisk.Tests.RiskFunctions.Responses.EventTrees;
 
-/// <summary>Tests internal and external independent-clone event-tree link nodes.</summary>
+/// <summary>Tests internal and external event-tree link nodes in both link modes.</summary>
 [TestClass]
 public class EventTreeLinkNodeTests
 {
@@ -44,14 +44,29 @@ public class EventTreeLinkNodeTests
         Assert.AreEqual("Renamed branch", link.Target.NodeName);
     }
 
-    /// <summary>Verifies event trees reject fault-tree shared-logical semantics.</summary>
+    /// <summary>Verifies event trees accept shared-logical link semantics.</summary>
     [TestMethod]
-    public void Test_SharedLogicalMode_Throws()
+    public void Test_SharedLogicalMode_IsAccepted()
+    {
+        var target = new TreeNodeReference(null, Guid.NewGuid(), nodeName: "Target");
+
+        var link = new EventTreeLinkNode("Shared reuse", target,
+            linkMode: TreeLinkMode.SharedLogicalEvent);
+
+        Assert.AreEqual(TreeLinkMode.SharedLogicalEvent, link.LinkMode);
+        Assert.AreSame(target, link.Target);
+        Assert.IsNull(link.TargetFunction);
+        Assert.IsTrue(link.IsFailure);
+    }
+
+    /// <summary>Verifies an undefined link mode is rejected at construction.</summary>
+    [TestMethod]
+    public void Test_UndefinedLinkMode_Throws()
     {
         var target = new TreeNodeReference(null, Guid.NewGuid());
 
-        Assert.ThrowsException<NotSupportedException>(() =>
-            new EventTreeLinkNode("Invalid", target, linkMode: TreeLinkMode.SharedLogicalEvent));
+        Assert.ThrowsException<ArgumentOutOfRangeException>(() =>
+            new EventTreeLinkNode("Invalid", target, linkMode: (TreeLinkMode)7));
     }
 
     /// <summary>Builds a labeled response for link-node fixtures.</summary>

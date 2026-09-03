@@ -2,7 +2,9 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.Trees
 {
     /// <summary>
     /// Selects whether a tree reference represents an independently sampled occurrence or the
-    /// same logical event. Event trees admit only <see cref="IndependentClone"/>.
+    /// same logical event. Fault trees unify shared references onto one Boolean variable in the
+    /// exact repeated-event algebra; event trees unify them onto one sampling class so a shared
+    /// limb draws once per realization and computes identically at every occurrence.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -15,7 +17,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.Trees
         /// <summary>The referenced subtree is evaluated as a distinct occurrence.</summary>
         IndependentClone = 0,
 
-        /// <summary>The reference denotes the same Boolean event (fault trees only).</summary>
+        /// <summary>The reference denotes the same logical event, sampled once per realization.</summary>
         SharedLogicalEvent = 1,
     }
 }
