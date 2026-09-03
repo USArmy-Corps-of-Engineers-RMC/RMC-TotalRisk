@@ -1,5 +1,107 @@
 # Progress Log
 
+## 2026-09-03 — v2.0 program session 7: B9 shared event-tree limbs
+
+**Goal:** execute session 7 of the capability program — **B9, shared-limb links in event
+trees**: a cloned limb that samples and computes identically to its source, mirroring the
+fault-tree occurrence plan's context-keyed unified-variable scheme onto the event-tree seams.
+The design doc listed shared event-tree reuse as a deliberate non-goal *"unless a future,
+separately approved dependency feature says otherwise"*; the capability plan's B9 row records
+the approval, and the session presented the verified design for ratification before any code.
+
+**Session-start baseline (the mandated protocol):** numerics HEAD `2b57771`, clean, 3 ahead of
+origin, **no v2.2.x tag** (identical to hand-off — T8/N4 did not fire); sibling Debug DLL
+rebuilt and frozen. TotalRisk `dcb05bd` clean; build 0 warnings; fast suite 1,264/1,264; all
+eight gates as separate invocations — **bit-exact to every pin**, no movement, no bisect.
+
+**Design verification (every Item 1 claim checked against source before planning):** three
+findings made B9 cheaper than scoped — `LinkMode` was already serialized unconditionally on
+every link node AND already stamped into the projected-identity wrapper, so selecting
+`SharedLogicalEvent` is automatically the deliberate hash event with zero conditional-presence
+work; the cycle guard makes a second same-class factor on one root-to-leaf path impossible, so
+sharing moves draws only and mean/percentile curves are analytically invariant; and absent
+shared links every (node, context) key is reached exactly once, so the class machinery is
+byte-inert by construction (F5, built in code from 24 `LinkIndependent` calls, safe by design).
+One real semantic fork surfaced: the shipped fault compiler forks a fresh context at EVERY
+expansion of an independent transfer, so an independent transfer nested inside a shared fault
+target re-instantiates per occurrence — shared copies of such a subtree are not deeply
+identical there.
+
+**Rulings (AskUserQuestion, all as recommended):** (1) the B9 design approved as presented —
+(ChanceNode, context) sampling classes, shared inherits/independent forks, one
+binding/clone/draw per class, conditional `SharedVariable` ordinals stamped only on classes
+with ≥ 2 occurrences, `LinkShared` overloads, `EventTreeReadScope`, class-level importance
+draws, the design doc amended; (2) **deep identity** — a nested independent link inside a
+shared limb memoizes its fork per (authored link, caller context), so the limb is one deep
+object ("samples and computes identically" holds unconditionally; the fault side stays as
+shipped, the asymmetry recorded in REMAINING-WORK); (3) **extend `EventTreeVerification`**
+with the reconstruction/invisibility/variance oracle set as a fourth partial file.
+
+**Landed (`a36bdc2` model + unit tests; `cdc9cbf` verification + corpus + its docs page):**
+- **The plan** (`EventTreeOccurrencePlan`): context threading through `Expand`;
+  `EventTreeSamplingClass` keyed (authored chance node, context) carrying
+  dimensions/determinism/nested-response hash (the `GetOrCreateVariable` pattern, nested
+  compiles memoized per class); the `_linkContexts` deep-identity memo; per-plan class
+  collection in first-occurrence pre-order with `SamplingDimensions` = Σ classes; and the
+  conditional stamped identity — the unstamped path is the prior code verbatim, and the
+  stamped rebuild (underlying identity + wrapper modes + `SharedVariable` numbers over
+  shared classes only) runs only when a class unifies ≥ 2 occurrences.
+- **Sampling** (`EventTreeResponse.SetupSampler`): bind once per class at its first canonical
+  occurrence, register every member occurrence's path to the same `SamplingBinding` — the
+  evaluation path (`EvaluateSource`) untouched. `EventTreeLinkNode` accepts both modes
+  (undefined modes throw `ArgumentOutOfRangeException`; the reader mirrors the fault reader's
+  `InvalidOperationException`); `EventTree.LinkShared` internal/external overloads;
+  `EventTreeReadScope` (the `FaultTreeReadScope` sibling, entered in the read ctor,
+  `GetOrAdd` on embedded external link targets with the divergent-embed rejection);
+  `TreeNodeImportance` event passes draw once per uncertain class in first-occurrence order
+  and vary a class as one knowledge quantity (bit-inert absent sharing).
+- **Unit tests** (+17 → fast suite 1,281/1,281 with the corpus pass): the bitwise shared-draw
+  halving pin and the independent anti-pin; mean/percentile bit-invisibility (with the
+  documented two-explicit-branch constructive condition); hash movement/restoration and
+  metadata inertness; the sharing-group disambiguation (equal-content limbs, different
+  groupings, different hashes); two-mode round trips; external read-scope unification +
+  divergent-embed throw; the deep-identity nested-fork halving chains; `LinkShared`
+  authoring + cycle rollback; materialize value movement; paste-clone joining the source
+  class; importance class draws (exact path-summary halving, equal first-order indices); the
+  kitchen-sink registration ("EventTreeResponse shared limb"); and the corpus **shared-twin
+  pass** — all 128 fixed-seed cases rebuilt with every serialized link mode rewritten,
+  checking validity, branch-mass exhaustiveness, both persistence modes, tolerance-grade mean
+  equality, and identity stability/movement.
+- **A session finding the corpus caught immediately:** the mode attribute participates in each
+  occurrence's identity token, tokens drive canonical sibling ordering, and sibling sums
+  evaluate in canonical order — so flipping a link mode can reorder a ≥ 3-term compensated
+  sum at ulp scale. Sharing's mean invisibility is analytic; bit-grade cross-mode comparisons
+  require ≤ 2 explicit branches per sibling group. Documented in the tests, the verification
+  page, and the tech ref.
+- **Verification** (`EventTreeSharedLimbVerification`, family **20/20 isolated**, 46 s): the
+  Numerics-primitive single-draw reconstruction bit-oracle (N = 1,000, seed 10202801 —
+  `LatinHypercube.Random` + `ToPositiveSeed` + `CurveSample` + the explicit mass algebra,
+  bit-equal every realization); the two-column twin oracle (exactly one column assignment
+  consistent, the single-draw collapse excluded); the exact 1.8 closed-form variance ratio
+  (measured **1.79077** at N = 4,096; ensemble means 0.300000005/0.299999909; mean and median
+  curves bit-equal); engine mean-only bit-identity between the modes (AFP 0.3, EAD 225); the
+  full-run byte-reproducibility pin plus published-ensemble-mean agreement (0.300028 vs
+  0.300012) and the retained-ensemble variance ordering (measured 1.64615 in the documented
+  1.8 ± 0.5 band at N = 200) — with the session lesson that full-run `RiskResults[i]` is
+  realization i and the published ensemble means live on `MeanRiskResults`; and the at-scale
+  external round trip (one class, one hash, bit-equal realizations after the round trip).
+- **Docs:** the normative design doc amended under the ratification (status line; the §1.2
+  non-goal retired; §3.2/§4/§5.3/§8/§10/§12 updated incl. the deep-identity reading and the
+  conditional-ordinal identity rule); event-trees.md (links/sampling/serialization/identity/
+  sibling/importance sections); the verification page (the shared-limb section with the
+  2026-09-03 run of record and measured values); REMAINING-WORK (the program note; the
+  fault-side nested-transfer asymmetry recorded as a future value-moving ruling); the Ported
+  Types Matrix (EventTreeResponse + Trees rows); AGENTS.md regenerated.
+
+**Gates at both commits:** build 0 warnings; fast suite 1,281/1,281 (Release and Debug); both
+validators green; all eight perf gates bit-exact (F1 `b2e6ea88…`, F2 `ac35a7fa…`,
+F3 `e46763ef…`, F4 `8a3a8b52…`, F5 `2ae3925b…` — the B9 tripwire, unmoved, F6 `bd4a26e8…`,
+F7 `f985ca02…`, F8 `7833ad5f…`).
+
+**Next:** B8 (configuration risk) per the session prompt if context allows, else its prepared
+state recorded; then Haden's B1 design session over the standing draft; B10 route (i) whenever
+the value-moving change is ruled; N4/T8 on the 2.2.0 re-pack.
+
 ## 2026-09-02 — v2.0 program session 6: C3 exact logic-tree enumeration (the sampled mode's exact oracle)
 
 **Goal:** execute session 6 of the capability program — **C3, exact logic-tree enumeration**:

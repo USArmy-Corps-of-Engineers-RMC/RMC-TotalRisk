@@ -32,7 +32,12 @@
 > `RiskAnalysis.LogicTreeEnumerationRealizations` mode running every branch combination as one
 > weighted ensemble of K·M realizations with the exact branch-weight products on the A4
 > carrier — zero Monte Carlo noise on the branch axis, the sampled mode's exact oracle with the
-> convergence roles reversed) are complete.
+> convergence roles reversed), and session 7 (**B9 — shared event-tree limbs**: the
+> `SharedLogicalEvent` link mode on event trees through context-keyed sampling classes — one
+> draw per realization per shared limb, deep identity through nested independent links,
+> conditional `SharedVariable` identity ordinals, the read-scope embed unification, and the
+> reconstruction/invisibility/variance verification set — retiring the design doc's
+> shared-reuse non-goal under its recorded approval) are complete.
 
 ## The sequence to `v1.1.0-alpha`
 
@@ -127,6 +132,18 @@ approved and executed (`74af2e95…`, its own commit).
   paths compose branch selection with the percentile-rescale convention for uncertain branch
   chains, which needs its own ratified verification story before the exactness claim can cover
   it.
+- **Fault-tree independent transfers nested inside shared targets re-instantiate per
+  occurrence (observation recorded 2026-09-03, from the shared-limb landing; not scheduled).**
+  The shipped fault compiler forks a fresh variable context at every expansion of an
+  independent transfer, so two shared occurrences of a subtree containing one are not the same
+  Boolean function — each carries its own copy of the interior clone's variables. The
+  event-tree shared-limb implementation deliberately strengthened this: an independent link
+  inside a shared limb memoizes its fork per (authored link, caller context), making the limb
+  one deep object. Aligning the fault side to the memoized reading would move shipped
+  identities (`SharedVariable` ordinals) and sampled values for that nesting, so it is a
+  value-moving ruling if ever wanted; both behaviors are documented in the design doc §5.3 and
+  the technical references.
+
 - **A first-class shared-epistemic-variable object (recorded 2026-09-02; not scheduled).** The
   landed sharing identity is the name string on each binder — cheap, mode-portable, and exact.
   If authoring UX ever wants one place to declare a variable (description, weight-vector

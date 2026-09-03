@@ -1,7 +1,10 @@
 # Event-Tree and Fault-Tree Response Functions
 
 > **Status:** Normative implementation design, approved for Phases 10A and 10B (2026-07-28);
-> fully implemented (Phase 10B complete, 2026-07-31).
+> fully implemented (Phase 10B complete, 2026-07-31). Amended 2026-09-03 under the ratified
+> shared-limb approval (capability program session 7, B9): event-tree links now support
+> `SharedLogicalEvent` semantics through context-keyed sampling classes, retiring the former
+> independent-clone-only non-goal; the affected sections are marked below.
 > **Implementation:** Phase 10A is complete: the controlled event-tree model, recursive sources,
 > independent links, both XML modes, projected identity, expanded graph outputs, immutable compiled
 > plan, fixed-seed property/routing/LHS/thread verification, >90% coverage, and recorded F5 fixture
@@ -49,7 +52,7 @@ Calling a tree a “probability model” in this document always means a conditi
 - The unused legacy `SecondaryHazardNode` chain.
 - `BivariateResponse` or `WeightedHazardLevel`; those remain separate Phase 11 work.
 - Dynamic fault trees, time-to-failure simulation, repair/availability, standby/spare gates, sequence-dependent gates, Markov models, or common-cause failure models.
-- Automatically treating repeated event-tree links as shared physical events. Event-tree reuse is an independent clone unless a future, separately approved dependency feature says otherwise.
+- Automatically treating repeated event-tree links as shared physical events. Event-tree reuse defaults to an independent clone; the separately approved shared-limb capability (ratified 2026-09-03) makes `SharedLogicalEvent` an explicit, deliberately selected link mode on event trees — never an inferred one.
 - Approximate fault-tree cut-set truncation as a production probability algorithm.
 
 ## 2. Legacy audit and porting disposition
@@ -149,7 +152,7 @@ The common layer also supplies internal compilation and traversal records, immut
 - `InitiatingNode`: the single root and a structural container, not a hazard-probability node.
 - `ChanceNode`: an explicit conditional branch whose value comes from a `ProbabilitySource`.
 - `RemainderNode`: the residual sibling branch; at most one per parent and ordered after explicit branches for presentation.
-- `EventTreeLinkNode`: a structural reference to an internal or external event-tree subtree. It has only `IndependentClone` semantics in Phase 10A.
+- `EventTreeLinkNode`: a structural reference to an internal or external event-tree subtree. `IndependentClone` (the default) forks distinct sampling streams per occurrence; `SharedLogicalEvent` (ratified 2026-09-03) unifies every occurrence of the referenced limb reached in one independent context onto shared sampling classes, so the limb draws once per realization and computes identically wherever it appears.
 - `ProbabilitySource`: a discriminated value source: deterministic scalar, uncertain tabular values aligned to the tree hazard levels, or an `IResponseFunction` reference evaluated at the current hazard level.
 
 Every terminal node has a stable branch descriptor. A chance or link terminal defaults to `IsFailure = true`; a remainder terminal defaults to `false`. Callers may explicitly classify a terminal as failure or non-failure. Classification affects aggregate `P(F|h)` and is compute-relevant. Display labels are metadata.
@@ -181,7 +184,7 @@ Public collections are read-only views. All mutation goes through `EventTree` or
 | `Copy` | Produce an in-memory `TreeFragment` snapshot; retain source IDs only for internal-link remapping and do not mutate the tree. |
 | `PasteClone` | Deep-copy the fragment, allocate fresh persistent IDs, rewrite all references whose targets were inside the fragment, and preserve external references. |
 | `LinkIndependent` | Insert a lightweight reference to the source subtree; compile it as an under-the-hood independent clone with its own occurrence path and sampling stream. This supports building a branch left-to-right once and reusing it vertically. |
-| `LinkShared` | Fault trees only: insert a shared-logical reference whose repeated occurrences resolve to the same Boolean variable. Event trees continue to reject it. |
+| `LinkShared` | Insert a shared-logical reference. In fault trees repeated occurrences resolve to the same Boolean variable; in event trees (ratified 2026-09-03) they unify onto the source limb's sampling classes so the limb samples once per realization. |
 | `Move` | Reparent/reorder a node transactionally after cycle and type checks. |
 | `Replace` | Replace a node while applying the selected child/reference policy explicitly. |
 | `Delete` | Require a `RejectIfReferenced`, `CascadeLinks`, or `MaterializeLinks` policy. The default is `RejectIfReferenced`. No dangling link is allowed. |
@@ -232,9 +235,24 @@ An independent link follows the target's current authored structure but compiles
 
 The link's probability math is exactly the target subtree math at the caller's current hazard level. Referenced response functions are evaluated at that level, even if their native knot grid differs. Independent occurrences receive distinct sampler substreams derived from canonical content plus canonical occurrence index. Renames, canvas placement, insertion of unrelated siblings, and GUID regeneration cannot change those streams.
 
-### 5.3 Shared-logical fault links
+### 5.3 Shared-logical links
 
 Shared fault links resolve to one Boolean variable in the compiled decision diagram. They do not multiply the same probability as if it were independent. For example, `AND(A, A)` and `OR(A, A)` both reduce to `A`; an independent clone must be requested to obtain two independent occurrences.
+
+Shared event-tree links (ratified 2026-09-03) unify sampling, not algebra: expansion still
+produces one occurrence per appearance and each occurrence multiplies its conditional probability
+into its own path, but every chance node of the referenced limb reached in one independent
+context forms one sampling class — one local dimension set, one referenced-response setup clone,
+one draw per realization — so the limb's probabilities are identical at every occurrence within a
+realization. Because the cycle guard forbids a class from contributing two factors to one
+root-to-leaf path, sharing leaves every mean and percentile value invariant and moves only the
+realization ensemble: the state-of-knowledge correlation of a limb modeled once and referenced
+many times. Contexts compose as in fault trees — a shared link inherits the caller's context and
+an independent link forks a fresh one — with one deliberate event-tree strengthening: an
+independent link nested inside a shared limb memoizes its fork per authored link and caller
+context, so a shared limb is one deep object whose interior independent instances are also reused
+across its occurrences. The corresponding fault-tree nesting keeps its shipped per-expansion
+re-instantiation; the asymmetry is recorded in the remaining-work map.
 
 ### 5.4 Serialization modes
 
@@ -293,7 +311,7 @@ Tree responses participate in the same engine-owned sampler lifecycle as every o
 - percentile overloads apply one explicit percentile consistently to local uncertain sources and call the referenced function's percentile overload.
 - mean overloads use source means and referenced-function mean curves.
 
-The sampling dimension graph is compiled across local sources, external referenced response functions, and independent link occurrences. A direct uncertain scalar/table source contributes one local dimension according to its documented co-monotonic sampling rule. A referenced function contributes its own dimensions; the tree must not flatten it to one guessed dimension. A shared-logical fault event is sampled once and reused. An independent link occurrence receives a separate occurrence binding even when its target content is identical.
+The sampling dimension graph is compiled across local sources, external referenced response functions, and link occurrences. A direct uncertain scalar/table source contributes one local dimension according to its documented co-monotonic sampling rule. A referenced function contributes its own dimensions; the tree must not flatten it to one guessed dimension. A shared-logical fault event or shared event-tree sampling class is sampled once and reused across its occurrences. An independent link occurrence receives a separate occurrence binding even when its target content is identical.
 
 For LHS, every continuous local dimension receives exactly one deterministic permutation of `N` strata and one within-stratum variate per realization, using the existing Numerics stratification facilities. Posterior-indexed children use the established `realizationIndex` contract and capacity validation. The tree adds no local `Random`, Mersenne Twister, wall-clock seed, or static mutable sampler.
 
@@ -396,7 +414,7 @@ Canonical identity is a projected, normalized form analogous to `SystemComponent
 - sort mathematically commutative fault-gate inputs by child canonical hash;
 - retain event-tree structural branch order only where the authored sequence changes branch identity/output mapping;
 - include normalized referenced target identity and link mode;
-- normalize shared-logical references to `SharedVariable` markers numbered by first canonical occurrence, which is the identity form for repeated shared events;
+- normalize shared-logical references to `SharedVariable` markers numbered by first canonical occurrence, which is the identity form for repeated shared events — unconditional on fault basic events, and on event-tree chance occurrences emitted only when a sampling class unifies more than one occurrence, so every unshared event tree keeps its exact pre-existing identity while shared links to one node remain distinguishable from links to equal-content distinct nodes;
 - exclude `SelfContained` versus `ByReference` wrappers; and
 - use invariant-culture numeric formatting and existing canonicalization helpers.
 
@@ -427,7 +445,7 @@ Validation returns stable codes plus actionable messages. At minimum it covers:
 - duplicate persistent IDs, ambiguous name fallbacks, unresolved function/node references, wrong referenced function type, and cross-function cycles;
 - invalid hazard axes, non-finite values, probability sources outside `[0,1]`, posterior capacity mismatch, and unavailable sampler setup;
 - multiple remainder siblings, remainder nodes in illegal positions, and empty structural link targets;
-- illegal `SharedLogicalEvent` links in event trees;
+- undefined link modes (both tree kinds accept `IndependentClone` and `SharedLogicalEvent`);
 - empty gates, invalid `K`, unsupported dynamic/common-cause gate requests, and BDD resource-limit exceedance;
 - invalid terminal classifications or duplicate branch IDs/ports;
 - stale risk-graph branch connections;

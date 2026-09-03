@@ -51,20 +51,33 @@ in the diagnostic.
 
 ## Links and occurrences
 
-`EventTreeLinkNode` references another node's subtree, internal or external. Event trees admit
-only `TreeLinkMode.IndependentClone`: the referenced subtree is evaluated as a **distinct
-occurrence** with its own epistemic sampler stream (`SharedLogicalEvent` — the same Boolean event —
-is reserved for fault trees). Repeated references to one live source therefore draw independently,
-each canonical nested occurrence seeded from the established source-identity/occurrence recipe.
-Deterministic expanded queries (topological order, unreachable/internal/external references) run on
-the link-expanded view.
+`EventTreeLinkNode` references another node's subtree, internal or external, in either
+`TreeLinkMode`. `IndependentClone` (the default) evaluates the referenced subtree as a
+**distinct occurrence** with its own epistemic sampler stream: repeated references to one live
+source draw independently, each canonical nested occurrence seeded from the established
+source-identity/occurrence recipe. `SharedLogicalEvent` makes the referenced limb **one logical
+object**: every chance node of the limb reached in one independent context forms a single
+sampling class — one dimension set, one referenced-response clone, one draw per realization — so
+the limb samples and computes identically at every occurrence, the state-of-knowledge correlation
+of a limb modeled once and reused many times. Sharing never changes the path algebra (a class can
+never contribute two factors to one root-to-leaf path), so mean and percentile curves are
+invariant between the modes and only the realization ensemble moves. Contexts compose through
+nesting: a shared link inherits its caller's context, an independent link forks a fresh one, and
+an independent link **inside** a shared limb memoizes its fork per authored link and caller
+context, so the shared limb's interior independent instances are also reused across its
+occurrences. `EventTree.LinkShared` mirrors `LinkIndependent` for both internal and external
+targets; materializing a shared link deliberately converts it to an independently drawn authored
+copy. Deterministic expanded queries (topological order, unreachable/internal/external
+references) run on the link-expanded view.
 
 ## Sampling
 
 Setup recursively discovers sampler dimensions through nested event trees, ordinary responses,
-aligned uncertain tables, and independent-clone links, then copies each child occurrence's exact
-percentile columns into the owner's flattened sampler. Mean, co-monotonic percentile, and indexed
-LHS sampling are preserved through arbitrary nesting depth. A failed recursive compile, clone,
+aligned uncertain tables, and link occurrences, binding **once per unified sampling class** —
+a shared limb contributes one dimension set no matter how many occurrences reference it, while
+independent occurrences own distinct columns — then copies each child class's exact percentile
+columns into the owner's flattened sampler. Mean, co-monotonic percentile, and indexed LHS
+sampling are preserved through arbitrary nesting depth. A failed recursive compile, clone,
 capacity check, or child setup restores the owner's prior sample size, percentile matrix, sampler
 identity, and occurrence bindings exactly.
 
@@ -84,7 +97,10 @@ connections, canonical hash, configured samplers, and the compiled caches exactl
 v1.1 writes only the explicit node/edge graph form, in both `RiskSerializationMode`s:
 self-contained sources serialize inline; by-reference sources write `FunctionReference` markers a
 resolver re-attaches to live stored instances, with lenient function/node name fallback and stable
-IDs repaired on the next write. The constructor additionally **imports** the v1.0 recursive `Node`
+IDs repaired on the next write. Repeated self-contained embeds of one external link-target
+function materialize as **one live instance** (divergent repeated embeds of one id are rejected
+loudly), so shared-logical occurrences keep unifying after a round trip — the same read-scope
+discipline the fault-tree reader uses. The constructor additionally **imports** the v1.0 recursive `Node`
 XML (direct, or inside the released `EventTreeResponse`/`EventTree` envelopes;
 `HazardLevels`/`HazardIntervals` and both GUID spellings; scalar, compact/table, and name-only
 response sources; the legacy automatic remainder), converting through
@@ -99,7 +115,11 @@ Canonical identity is **projected**: nested response content and a selected expa
 metadata-free compute-occurrence path participate in the hash; persistent IDs, display names,
 sibling presentation order, output ports, serialization mode, and reference wrappers are projected
 away. Renamed, reordered, or materialized connections are hash- and seed-inert; a changed selected
-path probability moves identity.
+path probability moves identity. The link mode is compute-relevant: selecting
+`SharedLogicalEvent` is a deliberate hash event, and chance occurrences whose sampling class
+unifies more than one occurrence carry `SharedVariable` first-occurrence ordinals in the
+projected identity — emitted only then, so every unshared tree keeps its exact identity while
+shared links to one node hash differently from links to equal-content distinct nodes.
 
 ## The compiled plan
 
@@ -132,14 +152,20 @@ The exact static fault-tree capability is documented in [fault-trees.md](fault-t
 `FaultTreeResponse` shares this family's tree foundation (`ProbabilitySource`, fragments,
 references, link modes, delete policies, transactional authoring, projected identity, and the
 compiled-plan discipline) while adding Boolean gate evaluation through an exact reduced decision
-diagram. `TreeLinkMode.SharedLogicalEvent` — the same-Boolean-event link meaning — is implemented
-there; event trees continue to admit only `IndependentClone` links.
+diagram. Both kinds support both link modes; `SharedLogicalEvent` means the same Boolean
+variable in fault-tree algebra and the same sampling class — one draw per realization — in
+event-tree sampling. One deliberate difference: an independent link nested inside a shared
+event-tree limb memoizes its fork so the limb is one deep object, while a fault-tree independent
+transfer nested inside a shared target re-instantiates per occurrence.
 
 ## Node importance and diagnostics
 
 `TreeNodeImportance.Compute` serves both tree kinds; the two-pass Monte Carlo sweep, its
 statistics, and its seeding are documented with the other sensitivity tooling in
-[sensitivity-analysis.md](sensitivity-analysis.md#tree-node-importance). It is the library-side
+[sensitivity-analysis.md](sensitivity-analysis.md#tree-node-importance). Both passes draw once
+per unified sampling class — a shared limb's occurrences receive one draw per iteration and the
+one-at-a-time pass varies the class as a single knowledge quantity, mirroring the fault side's
+unified variables. It is the library-side
 member of the report's three event-tree diagnostics [7] — node variance contribution (the
 sensitivity index), node likelihood distributions, and node correlation — the latter two being
 consuming-layer presentations over the same sampled node streams (chance nodes correlate
