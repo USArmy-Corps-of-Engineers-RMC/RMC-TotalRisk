@@ -60,7 +60,12 @@ public class EventTreeSharedLimbTests
         Assert.IsTrue(anyDistinct, "Independent occurrences must fork distinct sampling streams.");
     }
 
-    /// <summary>Verifies sharing is invisible on the mean and percentile evaluation paths.</summary>
+    /// <summary>
+    /// Verifies sharing is invisible on the mean and percentile evaluation paths. Bit equality is
+    /// the correct expectation for this fixture because every sibling group carries at most two
+    /// explicit branches, and a two-term compensated sum is insensitive to the canonical-order
+    /// movement the mode attribute causes in wider groups.
+    /// </summary>
     [TestMethod]
     public void Test_SharedVsIndependent_MeanAndPercentileCurves_BitEqual()
     {

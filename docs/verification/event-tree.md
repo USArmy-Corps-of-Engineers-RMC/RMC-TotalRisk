@@ -1,21 +1,22 @@
 # Event-tree response
 
-**Test class:** `EventTreeVerification` — one partial class in three files: `EventTreeVerification.cs` (8) · `EventTreeLegacyConversionVerification.cs` (3) · `EventTreeMonteCarloVerification.cs` (3) · **Tests:** 14 · **Run of record:** 2026-07-28, isolated run, ✅ all passed
+**Test class:** `EventTreeVerification` — one partial class in four files: `EventTreeVerification.cs` (8) · `EventTreeLegacyConversionVerification.cs` (3) · `EventTreeMonteCarloVerification.cs` (3) · `EventTreeSharedLimbVerification.cs` (6) · **Tests:** 20 · **Run of record:** 2026-09-03, isolated run, ✅ all passed (original scope 2026-07-28, 14/14)
 
 ## Scope and status
 
 `EventTreeVerification` verifies the complete numerically observable event-tree response
 capability: controlled scalar/tabular event trees, legacy conditional-probability algebra,
 aggregate failure, exhaustive terminal outputs, indexed LHS table sampling, internal/external
-`IndependentClone` links, direct and multi-level nested `EventTreeResponse` probability sources,
+links in both `TreeLinkMode` semantics, direct and multi-level nested `EventTreeResponse` probability sources,
 both serialization modes, occurrence reproducibility, recursive v1.0 XML conversion and shipped
 templates, graph-connected arbitrary n-way per-leaf consequences, an independent branch-routing
 Monte Carlo oracle, aggregate LHS variance reduction, and thread-count bit identity. It also covers the
 immutable compiled occurrence/evaluation plan, complete dependency invalidation and rollback, and
 the F5 large repeated-link performance fixture. Fixed-seed generated fast tests supply deterministic
-property coverage and minimized serialized counterexamples. At the run of record the isolated
+property coverage and minimized serialized counterexamples. At the original run of record the isolated
 family was **14/14**, the fast suite **781/781**, and unit-only library line coverage
-**90.40% (12,257/13,584)**. The exact static fault-tree capability has its own family, documented
+**90.40% (12,257/13,584)**; the shared-limb extension below raised the family to **20/20**.
+The exact static fault-tree capability has its own family, documented
 in [fault-tree.md](fault-tree.md).
 
 The response computes conditional fragility `P(F|h)` only. Hazard probability, annualization,
@@ -96,6 +97,57 @@ Observed 2026-07-28: **14/14 passed**.
 | Aggregate SRS versus LHS | Two independent affine uniform failure branches, analytic expectation `0.4`, equal `N=256`, `R=12` paired-seed replicates | Both unbiased; variance ratio `37,670.5922`; every LHS stratum covered once per dimension/replicate |
 | Thread-count reproducibility | One expanded five-port event-tree graph, 100 LHS realizations, sequential/four-worker/two default runs | Bit-identical aggregate/per-leaf curves, full JSON, hashes, seeds, IDs, and ports |
 
+## Shared-logical limbs
+
+A `SharedLogicalEvent` link unifies every occurrence of the referenced limb reached in one
+independent context onto shared sampling classes: one authored chance node in one context binds
+one dimension set, one referenced-response setup clone, and one draw per realization, so the limb
+samples and computes identically wherever it appears. Sharing never changes the path-product
+algebra — the cycle guard makes a second same-class factor on one root-to-leaf path impossible —
+so it moves only which draws repeat within a realization: mean and percentile curves are
+analytically invariant, and only the realization ensemble (its variance and cross-leaf
+covariance) responds. Selecting the shared mode is compute-relevant identity: the link wrapper's
+mode attribute and, for classes that unify repeated occurrences, `SharedVariable`
+first-occurrence ordinals enter the projected identity, while unshared models keep their exact
+hashes and streams.
+
+The six shared-limb tests run inside the isolated family command above. Observed 2026-09-03:
+**20/20 passed** (the six below plus the unchanged original fourteen).
+
+| Test | Independent expectation | Result |
+|---|---|---|
+| Single-draw reconstruction | `LatinHypercube.Random(1000, 1, ToPositiveSeed(10202801))`, the co-monotonic `CurveSample` per hazard row, and the explicit products `0.5·p` and `0.25·p` summed as the evaluator sums them reproduce every indexed realization of the shared model | Bit-equal for all 1,000 realizations at both hazards |
+| Two-draw twin reconstruction | The independent twin needs the two-column matrix; exactly one column-to-occurrence assignment reproduces it, and the single-draw reconstruction fails | Bit-equal under one assignment; the collapse is excluded |
+| Variance movement | Hazard-constant limb `U(0.2, 0.6)`: shared aggregate `0.75·p` against `0.5·p₁ + 0.25·p₂`, exact ensemble-variance ratio `0.75²/(0.5² + 0.25²) = 1.8`; mean and median curves bit-equal between the modes | Measured ratio **1.79077** at `N = 4,096`; ensemble means 0.300000005 and 0.299999909; curves bit-equal |
+| Engine mean-only invisibility | Mean-only runs over the shared component and its independent twin publish bit-identical expected annual consequences and failure probabilities | Bit-equal (`AFP = 0.3`, `EAD = 225` for both) |
+| Engine ensemble | Repeated same-content full runs publish byte-identical results JSON; the published ensemble-mean failure probabilities agree within a 0.05 bound derived from four combined standard errors at `N = 200`; the retained per-realization ensembles carry the closed-form variance ordering | Byte-identical; published means **0.300028** and **0.300012**; measured engine-scale ratio **1.64615** inside the documented `1.8 ± 0.5` fluctuation band |
+| External round trip | Two shared links embedding one external target unify onto one live instance after a self-contained round trip: one sampling class, one canonical hash, bit-equal indexed realizations at `N = 1,000` | Preserved exactly |
+
+Two constructions matter for reading these results. First, bit-grade shared-versus-independent
+comparisons require sibling groups of at most two explicit branches: the mode attribute is part
+of each occurrence's identity token, sibling sums evaluate in canonical token order, and a wider
+group can reorder its compensated sum at ulp scale between the modes (a two-term compensated sum
+is order-insensitive). The invisibility itself is analytic; the fixtures make it bitwise. Second,
+the engine's published full-run surfaces are read correctly: `RiskResults` is the per-realization
+ensemble (index 0 is realization 0), and the published ensemble means live on `MeanRiskResults`.
+
+The fast suite adds the remaining shared-limb contracts: class-unified dimension counts; the
+`LinkShared` authoring overloads with cycle rollback; the deliberate value movement of
+materializing a shared link (the shared-to-independent conversion) and its reverse; fragment
+copy/paste joining the source class; the sharing-group identity disambiguation (equal-content
+limbs shared in different groups hash differently); the read-scope unification of repeated
+external embeds with the loud divergent-embed rejection; the deep identity of a shared limb whose
+interior contains an independent link (the memoized fork draws once, shared across the limb's
+occurrences, while remaining independent of the authored source occurrence); node-importance
+class draws (one draw per shared class in both passes, exact path-summary halving); and the
+kitchen-sink hash-invariance registration. The generated-property corpus below additionally
+rebuilds every case as a shared twin.
+
+Limitations: the closed-form variance ratio is exact for the hazard-constant affine fixture and
+is not claimed for nonlinear or interacting trees; the engine ensemble-mean agreement is a
+sampling-error bound, not an identity; and the ulp-scale summation-order caveat applies to any
+cross-mode comparison of trees with three or more explicit branches in one sibling group.
+
 ## Fixed-seed generated properties
 
 `EventTreePropertyTests` uses four fixed structural seeds (`0x10A20261`, `0x10A20262`,
@@ -103,6 +155,13 @@ Observed 2026-07-28: **14/14 passed**.
 corpus forces shallow, deep, and wide forms; sibling sums below/equal/above one; explicit and
 implicit remainders; failure/non-failure terminals; scalar and aligned uncertain-table sources;
 internal/external repeated independent clones; nested event-tree sources; and both XML modes.
+
+A second pass rebuilds every case as a shared-logical twin by rewriting each serialized link
+mode, then checks the invariants sharing must preserve: validity, exhaustive per-realization
+branch mass, both persistence modes, mean-curve equality to the independent original within the
+corpus probability tolerance (the mode attribute participates in canonical sibling ordering, so
+wider groups can reorder a compensated sum at ulp scale), and a stable rebuilt identity that
+moves exactly when the case contains a link. The corpus produces at least 32 linked twins.
 
 For each case an independent authored-tree recursive oracle (not the compiled evaluator) checks
 terminal mass conservation, aggregate failure versus failure leaves, and every compiled terminal.

@@ -71,6 +71,81 @@ public sealed class EventTreePropertyTests
             $"The fixed generator corpus did not exercise every required feature. Observed: {observed}.");
     }
 
+    /// <summary>
+    /// Rebuilds every generated case as a shared-logical twin — every link mode rewritten in the
+    /// serialized form — and verifies the invariants sharing must preserve: validity, exhaustive
+    /// per-realization branch mass, both persistence modes, bitwise mean-curve equality to the
+    /// independent original, and a stable rebuilt identity that moves exactly when a link exists.
+    /// </summary>
+    [TestMethod]
+    public void Test_FixedSeedGeneratedTrees_SharedTwinInvariants()
+    {
+        int linkedTwins = 0;
+        foreach (int seed in GeneratorSeeds)
+        {
+            for (int caseIndex = 0; caseIndex < CasesPerSeed; caseIndex++)
+            {
+                GeneratedCase generated = Generate(seed, caseIndex);
+                XElement rewritten = generated.Response.ToXElement(RiskSerializationMode.SelfContained);
+                bool anyLink = false;
+                foreach (XElement link in rewritten.Descendants(nameof(EventTreeLinkNode)))
+                {
+                    link.SetAttributeValue("LinkMode", nameof(TreeLinkMode.SharedLogicalEvent));
+                    anyLink = true;
+                }
+                var twin = new EventTreeResponse(rewritten);
+                var twinAgain = new EventTreeResponse(new XElement(rewritten));
+
+                var validation = twin.Validate();
+                Assert.IsTrue(validation.IsValid,
+                    $"Seed={generated.Seed}, case={generated.CaseIndex}: " +
+                    string.Join(Environment.NewLine, validation.ValidationMessages));
+
+                // Sharing never changes a mean value analytically, but the mode attribute is part
+                // of each child's identity token and sibling sums evaluate in canonical token
+                // order, so flipping every link can reorder a compensated sum at ulp scale.
+                OrderedPairedData originalMean = generated.Response.SampleResponseFunction();
+                OrderedPairedData twinMean = twin.SampleResponseFunction();
+                for (int h = 0; h < originalMean.Count; h++)
+                    Assert.AreEqual(originalMean[h].Y, twinMean[h].Y, ProbabilityTolerance,
+                        $"Seed={generated.Seed}, case={generated.CaseIndex}: sharing moved the mean curve.");
+
+                string originalHash = Convert.ToHexString(generated.Response.CanonicalHash());
+                string twinHash = Convert.ToHexString(twin.CanonicalHash());
+                Assert.AreEqual(twinHash, Convert.ToHexString(twinAgain.CanonicalHash()),
+                    $"Seed={generated.Seed}, case={generated.CaseIndex}: the shared identity is unstable.");
+                if (anyLink)
+                {
+                    linkedTwins++;
+                    Assert.AreNotEqual(originalHash, twinHash,
+                        $"Seed={generated.Seed}, case={generated.CaseIndex}: selecting the shared mode must move the hash.");
+                }
+                else
+                {
+                    Assert.AreEqual(originalHash, twinHash,
+                        $"Seed={generated.Seed}, case={generated.CaseIndex}: a linkless rewrite must be identity-inert.");
+                }
+
+                twin.SetupSampler(8, unchecked(seed * 31 + caseIndex), SamplingScheme.LatinHypercube);
+                for (int realization = 0; realization < 8; realization++)
+                {
+                    ResponseBranchSample sample = twin.SampleBranches(realization);
+                    for (int h = 0; h < sample.Hazards.Count; h++)
+                    {
+                        double mass = 0d;
+                        for (int branch = 0; branch < sample.Branches.Count; branch++)
+                            mass += sample.Probabilities[branch][h];
+                        Assert.AreEqual(1d, mass, ProbabilityTolerance,
+                            $"Seed={generated.Seed}, case={generated.CaseIndex}: shared branch mass is not exhaustive.");
+                    }
+                }
+                AssertPersistenceModes(twin);
+            }
+        }
+        Assert.IsTrue(linkedTwins >= 32,
+            $"The corpus produced only {linkedTwins} linked shared twins; the sharing pass lost its coverage.");
+    }
+
     /// <summary>Runs every property and reports a deterministically minimized counterexample on failure.</summary>
     /// <param name="generated">The generated case.</param>
     private static void RunWithMinimizedCounterexample(GeneratedCase generated)
