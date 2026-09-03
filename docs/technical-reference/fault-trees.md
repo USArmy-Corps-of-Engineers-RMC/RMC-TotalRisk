@@ -169,3 +169,30 @@ positive infinity. The measures are defined for coherent trees only — a non-co
 Xor gate) is refused loudly with the Monte Carlo redirect, exactly like the minimal cut-set
 surface. Verified against the exhaustive Boolean-enumeration oracle with per-variable forced
 conditionals ([../verification/fault-tree.md](../verification/fault-tree.md)).
+
+## Configuration risk
+
+`RiskAnalysis.MeasureConfigurationRisk(configuration)` answers the operational question the
+importance measures rank in the abstract: the risk of the system **with named house events held
+at specified states** — a spillway gate out of service, a bulkhead installed, a pump
+unavailable. Each `HouseEventState(functionId, nodeId, state)` addresses one house event by the
+fault-tree response's function id and the node's persistent id. The query clones the components
+self-contained (nested and external functions come along embedded), applies the overrides
+through a containment walk — element-assigned functions, external transfer targets,
+tree-referenced responses, structural links, and composite-response children — and refuses any
+override that matches nothing rather than silently ignoring it. Every live instance of one
+function id is reconfigured, the physical reading of one piece of equipment reused across
+components. Two mean-only quantifications, the unmodified baseline and the configured system,
+publish an unpersisted `ConfigurationRiskResults`: system and per-component rows of annual
+failure probability and per-consequence-type expected annual consequences with changes and
+ratios (NaN at a zero baseline, the importance-measure convention), plus the applied-override
+display labels.
+
+The query is runtime-only — the authored model, its published results, and its estimated state
+are byte-untouched, and nothing is serialized, hashed, or seed-affecting. It is deliberately
+mean-only: a house state is compute content, so a configured realization ensemble would re-roll
+every content-derived seed and mix stream noise into the difference; the deterministic
+re-quantification is the "risk right now" answer. Because a configured clone is
+content-identical to a re-authored model, the query is verified **bit-exactly** against
+independently re-authored baseline and configured twins
+([../verification/configuration-risk.md](../verification/configuration-risk.md)).

@@ -93,14 +93,62 @@ with the reconstruction/invisibility/variance oracle set as a fourth partial fil
   fault-side nested-transfer asymmetry recorded as a future value-moving ruling); the Ported
   Types Matrix (EventTreeResponse + Trees rows); AGENTS.md regenerated.
 
-**Gates at both commits:** build 0 warnings; fast suite 1,281/1,281 (Release and Debug); both
+**Gates at the B9 commits:** build 0 warnings; fast suite 1,281/1,281 (Release and Debug); both
 validators green; all eight perf gates bit-exact (F1 `b2e6ea88…`, F2 `ac35a7fa…`,
 F3 `e46763ef…`, F4 `8a3a8b52…`, F5 `2ae3925b…` — the B9 tripwire, unmoved, F6 `bd4a26e8…`,
 F7 `f985ca02…`, F8 `7833ad5f…`).
 
-**Next:** B8 (configuration risk) per the session prompt if context allows, else its prepared
-state recorded; then Haden's B1 design session over the standing draft; B10 route (i) whenever
-the value-moving change is ruled; N4/T8 on the 2.2.0 re-pack.
+**B8 — configuration risk (landed `bd5c743` impl + tests + verification; docs following).**
+B9 closed clean, so the session executed the follow-on per its prompt, source-verifying the
+seams first (mutable INPC `FaultTreeHouseEventNode.State`; `SystemComponent(XElement)` +
+`RiskAnalysisOptions(XElement)` round trips; the settable `Options`; `FractilePin` as the
+input-record precedent; `MeanRiskResults` as the published-mean surface) and ratifying two
+questions (both as recommended): the design as scoped, and the **mean-only boundary** — a
+configured house state is compute content, so a configured ensemble would re-roll every seed
+and mix stream noise into the delta; the extension is recorded, not built.
+- **Landed:** runtime-only `RiskAnalysis.MeasureConfigurationRisk(IReadOnlyList<HouseEventState>)`
+  — SelfContained component clones; the containment walk applying (functionId, nodeId, state)
+  overrides across element-assigned functions, external transfer targets, tree-referenced
+  responses, structural links, and composite-response children, with the loud unmatched-override
+  refusal (the fractile-pin pattern) and every live instance of one function id reconfigured
+  (one physical equipment reading); two mean-only twin runs (options round-tripped,
+  `EstimateMeanRiskOnly` forced) read from `MeanRiskResults`; the unpersisted
+  `ConfigurationRiskResults`/`ConfigurationRiskEntry` (system + per-component
+  baseline/configured/change/ratio AFP — NaN ratio at zero baseline — and per-type expected
+  consequences, label echoes, applied-override display labels); `HouseEventState` in Analyses.
+  The author model is byte-untouched: published JSON, `IsEstimated`, component hash, and the
+  authored house state all pinned.
+- **Tests** (+14 → fast suite **1,295/1,295**): re-authored bit parity, author inertness,
+  unestimated-author path, the no-op configuration reproducing the baseline exactly, the
+  external-transfer nested reach, the refusal matrix, and the two container contracts.
+- **Session findings (recorded in REMAINING-WORK):** the published-surface lesson — after a
+  full run `RiskResults[i]` is realization i (a mean-only run publishes a single-entry
+  ensemble) and the published ensemble means live on `MeanRiskResults` (measured, not assumed:
+  the retained ensemble mean was 0.30003 while `RiskResults[0]` returned realization 0's
+  0.17438 verbatim); and the pre-existing loud degeneracy — a system response of exactly one at
+  every hazard (one true house event under an Or top, no B8 involved) validates but fails
+  integration with the engine's diagnostic, while a flat 0.999 runs fine. The B8 fixtures gate
+  the house event behind an And with a 0.9 basic (0.2 → 0.92) instead of forcing certainty.
+- **Verification:** greenfield **`ConfigurationRiskVerification` 4/4 isolated** (2.5 s) — the
+  two-component re-authored twin oracle bit-exact on every system/component slot with the
+  untouched component exactly zero-change; the exact flat-response closed forms (0.2 → 0.92,
+  change 0.72, ratio 4.6, and the same 4.6 on the consequence ratio because a flat response
+  factors out of the consequence integral); the cross-kind reach into a fault tree carried by
+  an event-tree probability source; and the full-run author byte pin
+  (docs/verification/configuration-risk.md).
+- **Docs:** the fault-trees.md "Configuration risk" section, the verification page + README
+  rows (the event-tree row refreshed for the shared-limb extension in passing), the Ported
+  Types Matrix (RiskAnalysis + Results rows), REMAINING-WORK (the configured-ensemble
+  extension, the certain-failure observation, the program note).
+
+**Gates at the B8 close:** build 0 warnings; fast suite **1,295/1,295** (Release); both
+validators green; all eight perf gates bit-exact to the same pins.
+
+**Next:** Haden's B1 design session over the standing draft
+(`~/.claude/plans/b1-bayesian-updating-design-draft.md`) then B1; B10 route (i) whenever the
+value-moving change is ruled (A2 supplies the error measurements); B4 needs a numerics
+authorization; C1/C5 design sessions whenever called; N4/T8 whenever Haden re-packs, tags, and
+pushes 2.2.0.
 
 ## 2026-09-02 — v2.0 program session 6: C3 exact logic-tree enumeration (the sampled mode's exact oracle)
 

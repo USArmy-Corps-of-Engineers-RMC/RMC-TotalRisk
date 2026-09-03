@@ -37,7 +37,9 @@
 > draw per realization per shared limb, deep identity through nested independent links,
 > conditional `SharedVariable` identity ordinals, the read-scope embed unification, and the
 > reconstruction/invisibility/variance verification set — retiring the design doc's
-> shared-reuse non-goal under its recorded approval) are complete.
+> shared-reuse non-goal under its recorded approval; plus **B8 — configuration risk**: the
+> runtime-only `MeasureConfigurationRisk` house-event query as mean-only clone-and-rerun
+> twins with the bit-exact re-authored oracle) are complete.
 
 ## The sequence to `v1.1.0-alpha`
 
@@ -132,6 +134,23 @@ approved and executed (`74af2e95…`, its own commit).
   paths compose branch selection with the percentile-rescale convention for uncertain branch
   chains, which needs its own ratified verification story before the exactness claim can cover
   it.
+- **The configured-ensemble extension of the configuration-risk query (recorded 2026-09-03,
+  from the B8 landing; not scheduled).** `MeasureConfigurationRisk` is deliberately mean-only:
+  a house-event state is compute content, so a configured realization ensemble re-rolls every
+  content-derived seed and a full-uncertainty delta would mix stream noise into the
+  difference. If a configured uncertainty band is ever wanted, the honest construction is a
+  ruled comparison discipline (paired seeds are impossible under content seeding; the deltas
+  would be statistical with documented k·SE), not a silent extension.
+
+- **The exact certain-failure response fails integration loudly (observation recorded
+  2026-09-03, from the B8 landing; not scheduled).** A model whose system response probability
+  is exactly one at every hazard level — constructible with a single true house event under an
+  Or top gate, with no B8 involvement — validates but fails the run with the engine's
+  integration-failure diagnostic ("an integrand evaluation threw"); a flat response of 0.999
+  runs fine, so the degeneracy is the exact-one curve. Loud, never silently wrong, and
+  pre-existing; worth a diagnosis-and-ruling pass if certain-failure configurations become a
+  practitioner pattern.
+
 - **Fault-tree independent transfers nested inside shared targets re-instantiate per
   occurrence (observation recorded 2026-09-03, from the shared-limb landing; not scheduled).**
   The shipped fault compiler forks a fresh variable context at every expansion of an
