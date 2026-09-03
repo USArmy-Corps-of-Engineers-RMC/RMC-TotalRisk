@@ -3530,6 +3530,211 @@ namespace RMC.TotalRisk.Analyses
         }
 
         /// <summary>
+        /// Answers a configuration-risk query — the risk of the system with named fault-tree
+        /// house events held at specified states, such as a spillway gate out of service — as
+        /// two deterministic mean-only re-quantifications over throwaway component clones: the
+        /// unmodified baseline and the configured system, with system and per-component rows of
+        /// annual failure probability and per-consequence-type expected annual consequences.
+        /// Runtime-only: the authored model, its published results, and its estimated state are
+        /// never touched, nothing is serialized or hashed, and no seed moves. Overrides address
+        /// house events by function id and node id and reach nested targets — external
+        /// transfers, tree-referenced responses, and composite-response children — through the
+        /// same containment discipline the other runtime queries use; an override matching no
+        /// house event is refused loudly rather than silently ignored. Every instance of one
+        /// function id receives the override, so a stored function reused across components is
+        /// reconfigured everywhere, which is the physical reading of one piece of equipment.
+        /// The query is deliberately mean-only: a configured state is compute content, so a
+        /// configured realization ensemble would re-roll every content-derived seed and mix
+        /// stream noise into the difference.
+        /// </summary>
+        /// <param name="configuration">The house-event overrides defining the queried configuration.</param>
+        /// <returns>The baseline and configured mean-only quantifications with their changes.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when the configuration is null.</exception>
+        /// <exception cref="ArgumentException">Thrown for an empty configuration or duplicate overrides.</exception>
+        /// <exception cref="InvalidOperationException">Thrown when an override matches no house event, or when either mean-only run fails.</exception>
+        public ConfigurationRiskResults MeasureConfigurationRisk(IReadOnlyList<HouseEventState> configuration)
+        {
+            if (configuration == null) throw new ArgumentNullException(nameof(configuration));
+            if (configuration.Count == 0)
+                throw new ArgumentException("The configuration-risk query requires at least one house-event override.", nameof(configuration));
+            var seenOverrides = new HashSet<(Guid FunctionId, Guid NodeId)>();
+            for (int i = 0; i < configuration.Count; i++)
+            {
+                if (!seenOverrides.Add((configuration[i].FunctionId, configuration[i].NodeId)))
+                    throw new ArgumentException(
+                        $"The configuration addresses house event '{configuration[i].NodeId:D}' of function '{configuration[i].FunctionId:D}' more than once.",
+                        nameof(configuration));
+            }
+
+            List<SystemComponent> baselineComponents = CloneComponentsForConfiguration();
+            List<SystemComponent> configuredComponents = CloneComponentsForConfiguration();
+            IReadOnlyList<string> appliedOverrides =
+                ApplyHouseEventStates(configuredComponents, configuration);
+
+            SystemRealization baseline = RunConfigurationQuery(baselineComponents);
+            SystemRealization configured = RunConfigurationQuery(configuredComponents);
+
+            int typeCount = 1 + _additionalConsequenceTypes.Count;
+            var componentEntries = new List<ConfigurationRiskEntry>(_authorComponents.Count);
+            for (int i = 0; i < _authorComponents.Count; i++)
+            {
+                componentEntries.Add(CreateConfigurationEntry(_authorComponents[i].Name,
+                    baseline.Components[i].Curves, baseline.Components[i].AdditionalCurves,
+                    configured.Components[i].Curves, configured.Components[i].AdditionalCurves,
+                    typeCount));
+            }
+            ConfigurationRiskEntry system = CreateConfigurationEntry("System",
+                baseline.Curves, baseline.AdditionalCurves,
+                configured.Curves, configured.AdditionalCurves, typeCount);
+
+            var labels = new List<string>(typeCount) { SpecifiedConsequence };
+            var units = new List<string>(typeCount) { ConsequenceUnit };
+            for (int i = 0; i < _additionalConsequenceTypes.Count; i++)
+            {
+                labels.Add(_additionalConsequenceTypes[i].SpecifiedConsequence);
+                units.Add(_additionalConsequenceTypes[i].ConsequenceUnit);
+            }
+            return new ConfigurationRiskResults(system, componentEntries, labels, units, appliedOverrides);
+        }
+
+        /// <summary>Builds one scope row from the baseline and configured mean curve sets.</summary>
+        /// <param name="name">The scope display label.</param>
+        /// <param name="baseline">The baseline primary curve set.</param>
+        /// <param name="baselineAdditional">The baseline additional-type curve sets.</param>
+        /// <param name="configured">The configured primary curve set.</param>
+        /// <param name="configuredAdditional">The configured additional-type curve sets.</param>
+        /// <param name="typeCount">The declared consequence-type count.</param>
+        /// <returns>The scope row.</returns>
+        private static ConfigurationRiskEntry CreateConfigurationEntry(string name, Curves baseline,
+            IReadOnlyList<Curves> baselineAdditional, Curves configured,
+            IReadOnlyList<Curves> configuredAdditional, int typeCount)
+        {
+            var baselineMeans = new double[typeCount];
+            var configuredMeans = new double[typeCount];
+            baselineMeans[0] = baseline.Total.Mean;
+            configuredMeans[0] = configured.Total.Mean;
+            for (int k = 1; k < typeCount; k++)
+            {
+                baselineMeans[k] = baselineAdditional[k - 1].Total.Mean;
+                configuredMeans[k] = configuredAdditional[k - 1].Total.Mean;
+            }
+            return new ConfigurationRiskEntry(name, baseline.Fail.TotalProbability,
+                configured.Fail.TotalProbability, baselineMeans, configuredMeans);
+        }
+
+        /// <summary>Clones the authored components onto throwaway query instances.</summary>
+        /// <returns>The self-contained component clones in author order.</returns>
+        private List<SystemComponent> CloneComponentsForConfiguration()
+        {
+            var clones = new List<SystemComponent>(_authorComponents.Count);
+            for (int i = 0; i < _authorComponents.Count; i++)
+                clones.Add(new SystemComponent(_authorComponents[i].ToXElement(RiskSerializationMode.SelfContained)));
+            return clones;
+        }
+
+        /// <summary>
+        /// Applies the house-event overrides across every fault tree the cloned components can
+        /// reach — element-assigned functions, external transfer targets, tree-referenced
+        /// responses, structural link targets, and composite-response children — and refuses any
+        /// override that matched nothing.
+        /// </summary>
+        /// <param name="components">The cloned components to reconfigure.</param>
+        /// <param name="configuration">The house-event overrides.</param>
+        /// <returns>The display labels of the applied overrides, in configuration order.</returns>
+        /// <exception cref="InvalidOperationException">Thrown when an override matches no house event.</exception>
+        private static IReadOnlyList<string> ApplyHouseEventStates(
+            IReadOnlyList<SystemComponent> components, IReadOnlyList<HouseEventState> configuration)
+        {
+            var labels = new string?[configuration.Count];
+            var visited = new HashSet<IRiskFunction>(ReferenceEqualityComparer.Instance);
+
+            void Walk(IRiskFunction? function)
+            {
+                if (function == null || !visited.Add(function)) return;
+                if (function is FaultTreeResponse fault)
+                {
+                    foreach (FaultTreeNodeBase node in fault.FaultTree.Nodes)
+                    {
+                        if (node is FaultTreeHouseEventNode house)
+                        {
+                            for (int k = 0; k < configuration.Count; k++)
+                            {
+                                if (configuration[k].FunctionId != fault.Id
+                                    || configuration[k].NodeId != house.Id) continue;
+                                house.State = configuration[k].State;
+                                labels[k] ??= $"'{fault.Name}' house event '{house.Name}' = {configuration[k].State}";
+                            }
+                        }
+                        else if (node is FaultTreeBasicEventNode basic)
+                        {
+                            Walk(basic.ProbabilitySource.ResponseFunction);
+                        }
+                        else if (node is FaultTreeTransferNode transfer)
+                        {
+                            Walk(transfer.TargetFunction);
+                        }
+                    }
+                }
+                else if (function is EventTreeResponse tree)
+                {
+                    foreach (EventNodeBase node in tree.EventTree.Nodes)
+                    {
+                        if (node is ChanceNode chance) Walk(chance.ProbabilitySource.ResponseFunction);
+                        else if (node is EventTreeLinkNode link) Walk(link.TargetFunction);
+                    }
+                }
+                else if (function is CompositeResponse composite)
+                {
+                    foreach (WeightedResponseFunction child in composite.ResponseFunctions)
+                        Walk(child.ResponseFunction);
+                }
+            }
+
+            for (int i = 0; i < components.Count; i++)
+            {
+                foreach (IRiskFunction function in components[i].GetReferencedFunctions())
+                    Walk(function);
+            }
+
+            var unmatched = new List<string>();
+            for (int k = 0; k < configuration.Count; k++)
+            {
+                if (labels[k] == null)
+                    unmatched.Add($"function '{configuration[k].FunctionId:D}' node '{configuration[k].NodeId:D}'");
+            }
+            if (unmatched.Count > 0)
+            {
+                throw new InvalidOperationException(
+                    "The configuration-risk query addresses house events the system cannot reach: " +
+                    $"{string.Join("; ", unmatched)}. Overrides are refused rather than silently ignored.");
+            }
+            var applied = new string[configuration.Count];
+            for (int k = 0; k < configuration.Count; k++) applied[k] = labels[k]!;
+            return applied;
+        }
+
+        /// <summary>Runs one mean-only quantification over a throwaway component set.</summary>
+        /// <param name="components">The query components.</param>
+        /// <returns>The published mean realization.</returns>
+        /// <exception cref="InvalidOperationException">Thrown when the query run does not publish mean results.</exception>
+        private SystemRealization RunConfigurationQuery(IList<SystemComponent> components)
+        {
+            var query = new RiskAnalysis(components)
+            {
+                Name = Name,
+                SpecifiedConsequence = SpecifiedConsequence,
+                ConsequenceUnit = ConsequenceUnit,
+                Options = new RiskAnalysisOptions(_authorOptions.ToXElement()),
+            };
+            foreach (ConsequenceTypeDescriptor descriptor in _additionalConsequenceTypes)
+                query.AdditionalConsequenceTypes.Add(descriptor);
+            query.Options.EstimateMeanRiskOnly = true;
+            query.RunAsync().GetAwaiter().GetResult();
+            return query.MeanRiskResults
+                ?? throw new InvalidOperationException("The configuration-risk query run did not publish mean results.");
+        }
+
+        /// <summary>
         /// Computes the exposure-period and life-cycle conversions over the stored ensemble: the
         /// probability of at least one failure over the period and the cumulative, discounted,
         /// and equivalent-annual expected consequences, each converted per realization from the
