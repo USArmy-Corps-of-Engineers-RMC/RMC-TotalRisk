@@ -34,7 +34,7 @@ Porting sources in order of authority: (1) the partial C# port `C:\GIT\RMC-Total
 | 11B | External imports + LifeSim (BestFit bivariate/tabular/transform posteriors, RFA hazard, LifeSim) | Not started (re-sliced out of Phase 11, 2026-08-03) |
 | 12 | Hardening: coverage gate, Linux check, examples, getting-started | Not started (the ≥90% unit-coverage gate script already exists and passes) |
 | 13 | Release prep — `v1.1.0-alpha` tag | Not started |
-| 14 | REST API + MCP server (`RMC.TotalRisk.Api`) | Not started (executable any time after Phase 6) |
+| 14 | REST API + MCP server (`RMC.TotalRisk.Api`) | **14A complete (2026-09-04)** — the stateless round-trip compute surface (REST + MCP + tests + `docs/api.md`); 14B (store-backed resources, full-uncertainty mapping, auth/containers) deferred |
 
 ---
 
@@ -622,8 +622,22 @@ Two close-out results are worth carrying forward. The verification family **foun
 >
 > **Ruling (2026-08-17):** Phase 14 is inside v1.1 and ships **after** the `v1.1.0-alpha` tag —
 > the alpha is the model-library milestone (Phases 8–13) and does not wait on the API.
+>
+> **Superseded and re-sliced (2026-09-03/04, user directive):** the Dam Screening Tool needed the
+> compute surface immediately, so the phase split. **14A — the stateless round-trip compute —
+> landed 2026-09-04**: `src/RMC.TotalRisk.Api` + `src/RMC.TotalRisk.Api.Tests` on the template
+> below **minus the store** (`POST api/risk-analyses/compute`/`validate`, `GET example`/
+> `api/metadata`, OpenAPI, stateless MCP at `/mcp` with `run_risk_analysis`/
+> `validate_risk_analysis`/`get_metadata`/`get_example_request`, the DST model shape —
+> deterministic tabular hazard/responses, day/night `compositeMixture` consequences, definable
+> failure-mode list, unadjusted + adjusted marginal mode results with contributions — 73 tests
+> incl. the EAD closed-form golden, byte-identical reproducibility over HTTP, and the MCP
+> JSON-RPC `tools/call` round trip; `docs/api.md` live; Q-F resolved via `validationIssues`).
+> **14B (deferred):** the store-backed resource lifecycle below, full-uncertainty ensemble result
+> mapping, the wider function-kind catalog on the wire, containerization + auth when deployment
+> demands them. The alpha sequence itself is unchanged.
 
-**Scope:** `src/RMC.TotalRisk.Api` + `src/RMC.TotalRisk.Api.Tests`, mirroring `RMC.BestFit.Api` (confirmed template: one ASP.NET Core `Microsoft.NET.Sdk.Web` net10.0 project hosting **both** surfaces):
+**Scope (the 14B remainder keeps this template):** `src/RMC.TotalRisk.Api` + `src/RMC.TotalRisk.Api.Tests`, mirroring `RMC.BestFit.Api` (confirmed template: one ASP.NET Core `Microsoft.NET.Sdk.Web` net10.0 project hosting **both** surfaces):
 
 - **Packages:** `ModelContextProtocol.AspNetCore`, `Microsoft.AspNetCore.OpenApi`, `Microsoft.OpenApi` (central package management; nuget.org).
 - **Layering (all DI singletons; state in the store):** `Store/` (`IResourceStore`/`InMemoryResourceStore`: GUID-keyed concurrent dictionaries, capacity cap, per-resource `RunLock`, no eviction) → `Services/` (stateless facades shared verbatim by controllers and MCP tools; run orchestration: per-resource lock → 409, global `SemaphoreSlim(MaxConcurrentRuns)` throttle, typed exceptions, run-state machine) → `Mappers/` (model/Numerics → flat DTOs; multi-dim arrays decomposed to parallel lists; NaN→null diagnostics) → `DTOs/` (`Create*Request`; responses derive from a shared `ResponseBase`: success/errorMessage/validationErrors/validationWarnings/computationTimeMs/timestamp/nonFiniteFindings) → thin attribute-routed controllers over `ApiControllerBase.ExecuteAsync` (timing, finite-audit rejecting ±Infinity → 500, exception→status mapping 400/404/409/499/500).

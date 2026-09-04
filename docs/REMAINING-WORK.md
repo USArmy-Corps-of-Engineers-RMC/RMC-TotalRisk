@@ -50,7 +50,7 @@
 | 3 | **Phase 9 residue + Phase 11B — external imports and LifeSim** | One or two sessions | `RFAHazard` (owner: 11B — the tabular import of RMC-RFA results); `CompositeHazard` parameter-set import (+ resolve whether parametric posterior injection supersedes the planned `BestFitUnivariateHazard`); `CompositeConsequence` → Numerics `CompositeFunction` migration; `BestFitBivariateHazard` (θ-posterior import — copula-parameter uncertainty arrives here), `BestFitTabularHazard` (resolves arch Q-P: the import hash shape), `BestFitTransform`; `LifeSimConsequence` + `LifeSimResult` (arch Q-D: audit for hidden file I/O; needs the numerics `Network._nodeCount` ruling — LifeSim consumes that surface). Verification: a BestFit import contract test (deserialize with Numerics alone → construct → evaluate) plus RFA/LifeSim oracle families. **Exit: full v1.1 input-function surface P/T/V** |
 | 4 | **Phase 12 — hardening** | One session | The ≥ 90% coverage gate script already exists and passes; the real delta is the one-off Linux `dotnet build` container check, `docs/getting-started.md`, a headless code example in `examples/`, and the BenchmarkDotNet micro-suite over the hot kernels. Candidate: the arch Q-E threading audit. Standing perf note: the F8 recording-path allocation profile (38.25 GB staging lists) |
 | 5 | **Phase 13 — release prep** | One session; user tags | Recorded full-suite verification run, release notes, version stamping, the `v1.1.0-alpha` tag (user pushes/tags) |
-| 6 | **Phase 14 — `RMC.TotalRisk.Api`** (REST + MCP) | Post-alpha, inside v1.1 (ruling 2026-08-17) | `src/RMC.TotalRisk.Api` + in-process test suite on the confirmed `RMC.BestFit.Api` template (store/services/mappers/DTOs, OpenAPI, stateless MCP at `/mcp`), plus `docs/api.md`. Containerization and an auth scheme are net-new scope decisions when deployment demands them. Unblocked since Phase 6; deliberately sequenced after the alpha tag |
+| 6 | **Phase 14 — `RMC.TotalRisk.Api`** (REST + MCP) | **14A executed 2026-09-04** (user directive 2026-09-03 superseded the post-alpha timing to unblock the Dam Screening Tool); 14B remains | 14A landed: `src/RMC.TotalRisk.Api` + `src/RMC.TotalRisk.Api.Tests` on the confirmed `RMC.BestFit.Api` template minus the store — a **stateless round-trip compute** (`POST api/risk-analyses/compute` / `validate`, `GET example` / `metadata`, OpenAPI, stateless MCP at `/mcp` with run/validate/metadata/example tools), `docs/api.md`, 73 tests incl. the EAD closed-form golden and the MCP JSON-RPC round trip. **14B (deferred)**: the store-backed resource lifecycle (create/run/get with ids), full-uncertainty ensemble result mapping, the wider function-kind catalog on the wire, and containerization + auth when deployment demands them |
 
 ## Rulings recorded 2026-08-17
 
@@ -58,7 +58,9 @@
    exempt (the ~23 test files that carry it are harmless). Enforced by
    `scripts/validate-code-xml-docs.ps1`.
 2. **Phase 14 (API)** is inside v1.1 and ships **after** the `v1.1.0-alpha` tag — the alpha is the
-   model-library milestone.
+   model-library milestone. *(Timing superseded 2026-09-03 by user directive: the 14A stateless
+   compute round trip executed 2026-09-04 to unblock the Dam Screening Tool; the alpha sequence
+   itself is unchanged.)*
 3. **`RMC.TotalRisk.Systems` root** (`SystemModel`, the Hydrologics `BasinModel` analog) is
    **post-v1.1**: the namespace reservation stays; `RiskAnalysis`-owns-components remains the v1.1
    system representation.
@@ -71,7 +73,7 @@
 | Q-D — `LifeSimConsequence` hidden-file-I/O audit | Item 3 |
 | Engine AGK `AbsoluteTolerance` audit — acceptance is absolute-OR-relative, so a small integral can be governed by the absolute criterion (the `UnionSingleFactor` lesson, 2026-08-27); confirm the engine's small-EAD runs are not exposed | Item 4 candidate |
 | Q-E — threading audit of `SampledComponent`/`SampledFailureMode` | Item 4 candidate |
-| Q-F — structured `ValidationIssue` error codes for API/agentic clients | Item 6 trigger |
+| Q-F — structured `ValidationIssue` error codes for API/agentic clients | **Resolved 2026-09-04 (item 6 / 14A)**: the API surfaces `ValidationIssue.Code/Severity/Message/ObjectPath` verbatim on every response (`validationIssues`), and API request-shape checks use the `API_` code family with request-relative object paths |
 | Q-M — bootstrap posterior size vs `Realizations` (index-wrap vs percentile path) | Open (arch §11) |
 
 Closed 2026-08-27 (v2.0-program session 1): the `Network._nodeCount` row was stale — the ruling

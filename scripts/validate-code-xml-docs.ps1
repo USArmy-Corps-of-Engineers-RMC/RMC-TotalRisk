@@ -25,7 +25,9 @@ function Add-Failure([string]$Message) {
 $codeRoots = @(
     "src/RMC.TotalRisk",
     "src/RMC.TotalRisk.Tests",
-    "src/RMC.TotalRisk.Verification"
+    "src/RMC.TotalRisk.Verification",
+    "src/RMC.TotalRisk.Api",
+    "src/RMC.TotalRisk.Api.Tests"
 )
 
 $sourceFiles = @(foreach ($root in $codeRoots) {
@@ -260,7 +262,9 @@ if (-not $SkipBuild) {
     $projects = @(
         "src/RMC.TotalRisk/RMC.TotalRisk.csproj",
         "src/RMC.TotalRisk.Tests/RMC.TotalRisk.Tests.csproj",
-        "src/RMC.TotalRisk.Verification/RMC.TotalRisk.Verification.csproj"
+        "src/RMC.TotalRisk.Verification/RMC.TotalRisk.Verification.csproj",
+        "src/RMC.TotalRisk.Api/RMC.TotalRisk.Api.csproj",
+        "src/RMC.TotalRisk.Api.Tests/RMC.TotalRisk.Api.Tests.csproj"
     )
 
     foreach ($project in $projects) {

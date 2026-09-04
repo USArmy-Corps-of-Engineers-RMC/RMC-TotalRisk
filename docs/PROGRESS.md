@@ -1,5 +1,84 @@
 # Progress Log
 
+## 2026-09-04 — Phase 14A: the REST API + MCP server (stateless round-trip compute), and the v2.0-development branch rename
+
+**Goal:** switch gears from the capability program to Phase 14, per the 2026-09-03 user
+directive (superseding the 2026-08-17 "after the alpha" timing): stand up `RMC.TotalRisk.Api` —
+REST + MCP over the model library — with the near-term surface the Dam Screening Tool needs: a
+**stateless round-trip compute** (complete JSON definition in → mean-only results out, DST owns
+all memory), the DST model shape (deterministic tabular stage-frequency hazard; a definable
+failure-mode list each with a deterministic tabular SRP and a day/night exposure-weighted
+composite-mixture fail consequence; one day/night non-fail mixture on the response-free path),
+full-featured JSON settings, and both **unadjusted and adjusted** marginal failure-mode results
+with risk contributions. Also rename the development branch: the program is well beyond a v1.1.
+
+**User rulings (2026-09-03/04):** (1) branch + docs move to the v2.0 identity while the three
+csproj version stamps stay 1.1.0 until release prep — the run manifest records the assembly
+version into every results payload, so stamping 2.0.0 moves all eight perf byte-gate hashes and
+is done as one deliberate re-record; (2) the wire contract carries `components[]` from day one;
+(3) mean-only first — `estimateMeanRiskOnly=false` gets a structured 400
+(`API_MEAN_ONLY_REQUIRED`) until the full-uncertainty increment.
+
+**Landed (TotalRisk `v2.0-development`, `cc3d4e5` + `46328d6` + the closeout commit):**
+
+- **Branch renamed** `v1.1-development` → `v2.0-development` (local; the user coordinates the
+  remote), with CLAUDE.md/README/BIVARIATE_RISK_DESIGN identity updates and AGENTS regenerated.
+- **`src/RMC.TotalRisk.Api`** (net10.0, `Microsoft.NET.Sdk.Web`) on the confirmed
+  `RMC.BestFit.Api` template **minus the store**: `ApiControllerBase.ExecuteAsync` (typed
+  envelope; structured `validationIssues` carrying `ValidationIssue.Code/Severity/Message/
+  ObjectPath` verbatim — resolving open question Q-F — with the `API_` family for request-shape
+  checks that echo offending values and request-relative paths; ±Infinity response audit → 500;
+  400/499/500 map), camelCase wire options (string enums, ignore-null, NaN as a named literal),
+  `AddOpenApi()`, CORS, health/info endpoints, and the **stateless** streamable-HTTP MCP server
+  at `/mcp` (`run_risk_analysis`, `validate_risk_analysis`, `get_metadata`,
+  `get_example_request`) reusing the same singleton services.
+- **The contract:** `POST api/risk-analyses/compute` + `validate` (run-free twin), `GET
+  example` + `api/metadata`. Request: analysis metadata + declared consequence-type axis,
+  `components[]` (tabular hazard with strictly-descending AEP; failure modes with tabular
+  responses and per-declared-type consequence lists; `compositeMixture` day/night branches with
+  Σweights = 1; non-fail consequences on the single response-free path; combination settings),
+  the full `RiskAnalysisOptions` mirror (every field nullable → engine default), and
+  `resultOptions.includeCurves`. Label inheritance keeps minimal payloads clean (hazard pair and
+  declared-type pair flow into blank function labels; a blank primary consequence name inherits
+  the failure-mode name, which labels the results row). Response: provenance (content hashes,
+  seed, versions, `apiContractVersion` 1.0.0), the effective-options echo (replayable),
+  computation warnings/diagnostics, and the mean results tree — per-mode **unadjusted** marginal
+  curves plus **adjusted** shares (`OutputAdjustedFailureModeCurves` defaults TRUE on the API —
+  documented divergence), contributions at mode and component scope, five streams × stats
+  (NaN → null) × LEC/hazard-frequency/conditional-mean/profile arrays.
+- **Mapper rules that bite:** `OptionsMapper` sets `UseDefaults = false` whenever any of the
+  eight integration knobs is supplied (the run-start defaults re-application would overwrite
+  them); enum strings never silently default; AEP order violations are structured errors, never
+  reorders; the results tree maps from the realization tree only (`RiskResults.Summary` is null
+  on mean-only); failure-mode rows are failure paths only — the non-fail path rides the
+  component background/non-fail streams.
+- **`src/RMC.TotalRisk.Api.Tests`** (MSTest.Sdk 3.6.4, linked MSTestSettings): 73 tests —
+  mapper request-shape matrices, the UseDefaults pin, controller status contracts, MCP tool
+  round trips, plus `WebApplicationFactory` integration: the **EAD golden** (the eight-knot
+  damage-frequency scenario as hazard + identity non-fail consequence reproduces the exact
+  closed form 52,085.41 at 1e-4 relative through the whole HTTP stack — linear-in-probability
+  interpolation pinned; VaR/CVaR/σ against their closed forms), **byte-identical results +
+  provenance across identical requests**, the structured-400 contract, and the raw JSON-RPC
+  `tools/list` + `tools/call run_risk_analysis` round trip (complex typed tool params bind).
+- **Process:** both Api projects registered in `validate-code-xml-docs.ps1` ($codeRoots + build
+  gate — full XML docs enforced; Authors block stays library+Verification-only); `docs/api.md`
+  live (concepts, endpoints, contract trees, MCP section, deferred features); ROADMAP Phase 14
+  re-sliced 14A (landed) / 14B (store-backed lifecycle, full-uncertainty mapping, wider
+  function catalog, auth/containers); REMAINING-WORK item 6 + ruling 2 supersede note + Q-F
+  resolved; CLAUDE.md gains the API Layer section, layout/commands rows, and the updated future
+  enhancements bullet; AGENTS regenerated.
+
+**Verified:** `dotnet build` 0 warnings across all five projects; `dotnet test -c Release` —
+Api suite 73/73 + fast suite 1,295/1,295 (Verification correctly excluded);
+`validate-code-xml-docs.ps1 -Configuration Debug` fully green with the Api projects enforced.
+**The model library is untouched** — no compute, serialization, or seed surface moved, so no
+verification family re-runs and all eight perf byte gates stand.
+
+**Next:** 14B when demanded (store-backed lifecycle, full-uncertainty results mapping, wider
+function kinds on the wire, containerization + auth for the DST deployment); the alpha sequence
+(items 1–5 in REMAINING-WORK) resumes unchanged; the user pushes `v2.0-development` and retires
+the remote `v1.1-development` when ready.
+
 ## 2026-09-03 — v2.0 program session 7: B9 shared event-tree limbs
 
 **Goal:** execute session 7 of the capability program — **B9, shared-limb links in event

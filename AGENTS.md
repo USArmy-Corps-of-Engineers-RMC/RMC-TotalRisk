@@ -83,6 +83,16 @@ Normative spec: `docs/requirements/MODEL_LIBRARY_ARCHITECTURE.md` §8 (v0.11). S
 - **Graph editors use the authoring surface**, never their own mapping: `RiskElementFactory.CreateForFunction`/`Create`, `IRiskElement.TryAssignFunction`, `ComponentGraph.GetUniqueName`/`GetAvailableHazardSources`, `SystemComponent.GetReferencedFunctions`.
 - The model library must stay usable alone: build a system, validate, and hash with no store, no resolver, and no consuming layer in the call path.
 
+## API Layer (`RMC.TotalRisk.Api` — Phase 14A landed 2026-09-04)
+
+One ASP.NET Core `Microsoft.NET.Sdk.Web` net10.0 project hosting BOTH surfaces (the confirmed `RMC.BestFit.Api` template, store deliberately omitted): attribute-routed controllers over `ApiControllerBase.ExecuteAsync` (typed envelope, structured issues, ±Infinity audit → 500, 400/499/500 map) and a **stateless** streamable-HTTP MCP server at `/mcp` (`run_risk_analysis`, `validate_risk_analysis`, `get_metadata`, `get_example_request`) whose tools reuse the same singleton services. Reference: `docs/api.md`. Rules that bite:
+
+- **Stateless round trip only (14A).** `POST api/risk-analyses/compute` builds a fresh `RiskAnalysis` per request via the chain authoring surface (`SystemComponent.AddFailureMode`), validates through `ValidateIssues()` (errors → structured 400; the wire carries `ValidationIssue.Code/Severity/Message/ObjectPath` verbatim — request-shape checks use the `API_` code family), runs mean-only, maps `MeanRiskResults` into camelCase DTOs. No store, no ids; DST owns all memory. 14B adds the store-backed lifecycle + full-uncertainty mapping.
+- **`OptionsMapper` MUST set `UseDefaults = false` whenever a request supplies ANY of the eight integration knobs** (the run-start defaults re-application would silently overwrite them otherwise), and it defaults `OutputAdjustedFailureModeCurves` **true** (documented divergence — the compute contract promises both adjusted and unadjusted marginal failure-mode results). `estimateMeanRiskOnly=false` is refused with `API_MEAN_ONLY_REQUIRED` until the 14B increment.
+- **Wire contract is append-only** (`apiContractVersion` in `/api/info` + provenance). AEP arrays are strictly descending and never silently reordered; enum strings never silently default (errors list accepted values); scalar NaN maps to null; `ResultsJson` is internal/PascalCase so the API maps DTOs — never pass `ToJson()` strings through.
+- **Failure-mode result rows are failure paths only** — the non-fail path rides the component background/non-fail streams. The results tree maps from the realization tree alone (`RiskResults.Summary` is null on mean-only runs — never touch it there).
+- **Both Api projects are registered in `validate-code-xml-docs.ps1`** ($codeRoots + build gate): full XML docs enforced on every member, and the process-language ban applies to Api sources; the Authors-block gate stays library+Verification-only. Api tests can run the real engine (deterministic mean-only runs are milliseconds — the EAD closed-form golden runs through the whole HTTP stack); dev ports 5220/7220 (BestFit uses 5210/7210).
+
 ## Test Project Architecture
 
 Three projects split by scope and speed:
@@ -93,6 +103,9 @@ RMC.TotalRisk.Tests           ← fast programmatic unit tests (seconds)
 RMC.TotalRisk.Verification    ← Monte Carlo verification vs legacy oracles (minutes)
                                 NOT built in Release (omitted .sln Build.0 line)
                                 [assembly: TestCategory("Verification")]
+RMC.TotalRisk.Api             ← REST API + MCP server over the library (see the API Layer section)
+RMC.TotalRisk.Api.Tests       ← fast API unit + in-process integration tests (seconds;
+                                built in Release, so the fast PR gate runs them)
 ```
 
 ### Test classification rule
@@ -107,6 +120,7 @@ RMC.TotalRisk.Verification    ← Monte Carlo verification vs legacy oracles (mi
 | Fast PR gate / dev loop | `dotnet test -c Release` (Verification not built in Release) |
 | Fast loop, Debug binaries | `dotnet test src/RMC.TotalRisk.Tests` |
 | Verification suite (deliberate, per change area) | `dotnet test src/RMC.TotalRisk.Verification` |
+| API suite (fast; also inside the Release gate) | `dotnet test src/RMC.TotalRisk.Api.Tests` |
 | Everything, Debug | `dotnet test` |
 | Doc/namespace/dependency/traceability validation | `.\scripts\validate-code-xml-docs.ps1 -Configuration Debug` |
 | Verification traceability only | `.\scripts\validate-verification-traceability.ps1` |
@@ -152,6 +166,7 @@ RMC-TotalRisk/                      ← repo root (github.com/USACE-RMC/RMC-Tota
 ├── NuGet.config                    ← local feed C:\GIT\numerics\packages + nuget.org
 ├── docs/
 │   ├── index.md, references.md    ← doc map + IEEE-numbered bibliography
+│   ├── api.md                      ← REST/MCP API reference (endpoints, contract, MCP tools)
 │   ├── ROADMAP.md                  ← the phased roadmap (single source of truth for phases)
 │   ├── PROGRESS.md                 ← session progress log — update every session
 │   ├── verification.md             ← oracle-conversion strategy + tolerance policy
@@ -176,7 +191,10 @@ RMC-TotalRisk/                      ← repo root (github.com/USACE-RMC/RMC-Tota
     │   ├── Analyses/               ← RiskAnalysis, CostBenefitAnalysis (Phase 4+)
     │   └── Results/                ← results containers (Phase 4)
     ├── RMC.TotalRisk.Tests/        ← fast unit tests (folders mirror the library)
-    └── RMC.TotalRisk.Verification/ ← Monte Carlo verification tests
+    ├── RMC.TotalRisk.Verification/ ← Monte Carlo verification tests
+    ├── RMC.TotalRisk.Api/          ← REST + MCP compute service (Configuration/ Controllers/
+    │                                 DTOs/ Helpers/ Mappers/ Mcp/ Services/)
+    └── RMC.TotalRisk.Api.Tests/    ← API unit + WebApplicationFactory integration tests
 ```
 
 ## Roadmap and Priorities
