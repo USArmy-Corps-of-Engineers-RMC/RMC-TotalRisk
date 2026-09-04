@@ -15,11 +15,11 @@ evidence, and request a decision. AI confidence is not technical authority.
 
 Monte-Carlo-based quantitative risk analysis framework for dam and levee safety, developed by the USACE Risk Management Center. **This software is used for life-safety flood risk assessments worldwide.** Code quality is paramount.
 
-- **Version:** 1.1.0 (in development on branch `v1.1-development`; v1.0 is the released desktop product — see the README)
+- **Version:** 2.0.0 (in development on branch `v2.0-development`; v1.0 is the released desktop product — see the README. The library csproj files keep their 1.1.0 stamps until release prep: the assembly version is recorded into every results payload via `AnalysisRunManifest`, so stamping 2.0.0 moves all eight perf byte-gate hashes and is done as one deliberate re-record.)
 - **Language:** C# — model library first (no UI, no IO frameworks); UI/App layers come in later phases
 - **Framework:** .NET 10
 - **Primary consumers:** the future RMC-TotalRisk desktop app, USACE practitioners, U.S. Federal agencies, consultants, academics, AWS/agentic headless callers
-- **Porting source:** the legacy repos remain at `C:\GIT\RMC-TotalRisk-Dev` (VB.NET v1.0 engine, partial C# port `RMC.TotalRisk.IO`, and the `Test_TotalRisk` Monte Carlo oracle suite). This repo is the clean v1.1 home; the Dev repo is reference-only.
+- **Porting source:** the legacy repos remain at `C:\GIT\RMC-TotalRisk-Dev` (VB.NET v1.0 engine, partial C# port `RMC.TotalRisk.IO`, and the `Test_TotalRisk` Monte Carlo oracle suite). This repo is the clean v2.0 home; the Dev repo is reference-only.
 
 ## Headless-Compute Philosophy (non-negotiable)
 
@@ -351,7 +351,7 @@ py scripts/sync-agents-md.py                        # regenerate AGENTS.md after
 
 ## Git Workflow
 
-- All v1.1 work lands on **`v1.1-development`**. `main` remains the v1.0-era public face until v1.1 ships; the user coordinates merges and pushes.
+- All v2.0 development work lands on **`v2.0-development`** (renamed from `v1.1-development`, 2026-09-04). `main` remains the v1.0-era public face until v2.0 ships; the user coordinates merges and pushes.
 - **Committing is mandatory** after a successful validation run — commit before reporting the work complete. Stage only files belonging to the change. If validation fails, do not commit.
 - **No AI breadcrumbs in commits**: no generated-by text, no co-authored-by AI trailers, no references to AI assistants or agents by name.
 - **Do not push unless explicitly asked.** Never push to `main`.

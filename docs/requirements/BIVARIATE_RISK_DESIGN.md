@@ -14,7 +14,7 @@ this document wins for the bivariate scope; the formal arch-doc amendments land 
 
 ## Context
 
-RMC-TotalRisk v1.1 (headless model library, branch `v1.1-development`) currently supports univariate
+RMC-TotalRisk v2.0 (headless model library, branch `v2.0-development`, named `v1.1-development` when this document was ratified) currently supports univariate
 hazard chains only. Phase 11 adds full bivariate risk analysis:
 
 - **Bivariate hazard** — new, copula-based, following the RMC-BestFit bivariate analysis concept:

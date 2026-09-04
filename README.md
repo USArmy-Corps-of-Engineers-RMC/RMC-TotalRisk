@@ -24,7 +24,7 @@ RMC-TotalRisk builds on nearly two decades of expertise in flood risk methodolog
 
 ## Development
 
-Version 1.1 is in active development on the [`v1.1-development`](../../tree/v1.1-development) branch. The effort rebuilds RMC-TotalRisk around a headless .NET 10 model library (`RMC.TotalRisk.dll`) — the Monte Carlo risk engine and all input functions with no UI dependencies — followed by new UI and application layers. The v1.0 release above remains the supported product in the meantime.
+Version 2.0 is in active development on the [`v2.0-development`](../../tree/v2.0-development) branch. The effort rebuilds RMC-TotalRisk around a headless .NET 10 model library (`RMC.TotalRisk.dll`) — the Monte Carlo risk engine and all input functions with no UI dependencies — plus a REST/MCP compute API, followed by new UI and application layers. The v1.0 release above remains the supported product in the meantime.
 
 Repository structure on the development branch:
 
