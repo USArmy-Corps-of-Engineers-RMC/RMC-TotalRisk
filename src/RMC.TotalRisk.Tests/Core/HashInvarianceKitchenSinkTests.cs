@@ -239,6 +239,35 @@ public class HashInvarianceKitchenSinkTests
                 limb.ProbabilitySource = new ProbabilitySource(0.2d);
             });
 
+        // The fault-tree response with a parametric common-cause group — the group expands into
+        // derived events at compile time, so its parameters are compute content while its name
+        // and description stay inert.
+        yield return new RegistryEntry(
+            nameof(FaultTreeResponse) + " CCF group",
+            () =>
+            {
+                var tree = new FaultTree();
+                var gate = new FaultTreeGateNode("Pair", FaultTreeGateType.And);
+                tree.Add(tree.Root.Id, gate);
+                var pump = new FaultTreeBasicEventNode("Pump", new ProbabilitySource(0.2d));
+                var valve = new FaultTreeBasicEventNode("Valve", new ProbabilitySource(0.2d));
+                tree.Add(gate.Id, pump);
+                tree.Add(gate.Id, valve);
+                tree.AddCcfGroup(new FaultTreeCcfGroup("Pair group", FaultTreeCcfModel.BetaFactor,
+                    new[] { 0.1d }, new[] { pump.Id, valve.Id }));
+                return new FaultTreeResponse(new[] { 0d, 1d }, tree)
+                {
+                    Name = "CCF fault tree",
+                    SpecifiedHazard = "Stage",
+                    HazardUnit = "ft",
+                };
+            },
+            f =>
+            {
+                var tree = (FaultTreeResponse)f;
+                tree.FaultTree.CcfGroups[0].Parameters = new[] { 0.3d };
+            });
+
         // The event-tree response with a transformed probability source — the hazard-transform
         // chain rides the source identity, so chain content edits must move the hash while the
         // chain transform's metadata stays inert.

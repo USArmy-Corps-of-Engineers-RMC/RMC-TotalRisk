@@ -172,7 +172,10 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.Trees
             var uncertain = new bool[count];
             for (int j = 0; j < count; j++)
             {
-                uncertain[j] = !plan.Variables[j].SourceNode.ProbabilitySource.IsDeterministic;
+                // The slot's own determinism: a derived common-cause event is deterministic (its
+                // group's basis variable carries the one shared knowledge quantity), and every
+                // ordinary slot's flag equals its source's.
+                uncertain[j] = !plan.Variables[j].IsDeterministic;
             }
 
             int iterations = options.Iterations;
@@ -220,7 +223,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.Trees
             {
                 FaultTreeVariableSlot variable = plan.Variables[j];
                 entries.Add(new TreeNodeImportanceEntry(variable.SourceNode.Id,
-                    variable.SourceNode.Name, variable.FirstOccurrence!.CanonicalPath, uncertain[j],
+                    variable.DisplayName, variable.FirstOccurrence!.CanonicalPath, uncertain[j],
                     Array.AsReadOnly(Statistics.FiveNumberSummary(probabilitySeries[j])),
                     SafeCorrelation(probabilitySeries[j], aggregate, aggregateVariance),
                     uncertain[j] ? SeriesVariance(firstOrder[j]) / aggregateVariance : 0d));

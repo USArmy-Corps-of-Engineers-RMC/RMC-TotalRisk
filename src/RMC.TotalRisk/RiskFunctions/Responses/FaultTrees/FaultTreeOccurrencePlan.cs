@@ -307,6 +307,17 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.FaultTrees
             private readonly Dictionary<(FaultTreeBasicEventNode Node, object Context), FaultTreeVariableSlot> _variables =
                 new Dictionary<(FaultTreeBasicEventNode, object), FaultTreeVariableSlot>();
 
+            /// <summary>The expanded common-cause group slot sets keyed by group and independent context.</summary>
+            private readonly Dictionary<(FaultTreeCcfGroup Group, object Context), CcfGroupSlots> _ccfSlots =
+                new Dictionary<(FaultTreeCcfGroup, object), CcfGroupSlots>();
+
+            /// <summary>The group slot sets in first-creation order, for deterministic basis ordinals.</summary>
+            private readonly List<CcfGroupSlots> _ccfSlotsInOrder = new List<CcfGroupSlots>();
+
+            /// <summary>The groups already found invalid this compile, diagnosed once.</summary>
+            private readonly HashSet<FaultTreeCcfGroup> _ccfInvalidGroups =
+                new HashSet<FaultTreeCcfGroup>(ReferenceEqualityComparer.Instance);
+
             /// <summary>Gate-shape diagnostics collected leniently during expansion.</summary>
             internal List<string> GateDiagnostics { get; } = new List<string>();
 
@@ -370,6 +381,13 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.FaultTrees
                     XElement? probabilityIdentity = null;
                     if (node is FaultTreeBasicEventNode basic)
                     {
+                        if (basic.Owner is FaultTree owningTree && owningTree.CcfGroups.Count > 0
+                            && owningTree.FindCcfGroup(basic, out int memberIndex) is FaultTreeCcfGroup group)
+                        {
+                            FaultTreeOccurrenceNode? expanded = TryExpandCcfMember(function, basic,
+                                owningTree, group, memberIndex, context, pendingTransfers);
+                            if (expanded != null) return expanded;
+                        }
                         variable = GetOrCreateVariable(function, basic, context);
                         probabilityIdentity = variable.ProbabilityIdentity;
                     }
@@ -437,6 +455,28 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.FaultTrees
 
                 var ordered = new List<FaultTreeVariableSlot>(_variables.Count);
                 AssignVariableOrdinals(root, ordered);
+
+                // Common-cause basis variables carry the group's shared draw but never appear as
+                // diagram leaves, so they receive trailing ordinals here; a group whose members
+                // were only partially reachable in one context cannot carry its coupling and is
+                // diagnosed loudly.
+                foreach (CcfGroupSlots slots in _ccfSlotsInOrder)
+                {
+                    int size = slots.Group.MemberNodeIds.Count;
+                    if (slots.ExpandedMembers.Count != size)
+                    {
+                        GateDiagnostics.Add(
+                            $"Fault-tree CCF group '{slots.Group.Name}' in function '{DisplayFunction(owner)}' " +
+                            $"expanded {slots.ExpandedMembers.Count} of its {size} member events in one independent " +
+                            "context; every member must be reachable in the same context for the common-cause " +
+                            "coupling to hold.");
+                    }
+                    if (slots.Basis.Ordinal < 0 && slots.FirstOccurrence != null)
+                    {
+                        slots.Basis.AssignOrdinal(ordered.Count, slots.FirstOccurrence);
+                        ordered.Add(slots.Basis);
+                    }
+                }
 
                 FrozenFaultTreeBdd? frozen = null;
                 if (buildDiagram && GateDiagnostics.Count == 0)
@@ -509,6 +549,239 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.FaultTrees
                         : bdd.Or(result, child);
                 }
                 return result;
+            }
+
+            /// <summary>
+            /// Expands one common-cause group member into its derived-event disjunction: the
+            /// member's independent event plus every group combination containing it, all shared
+            /// per (group, context) so co-membered events reference the same derived variables
+            /// and the exact diagram carries the coupling natively. Returns null — falling back
+            /// to the plain expansion with the configuration diagnosed once — when the group is
+            /// invalid.
+            /// </summary>
+            /// <param name="function">The function owning the member.</param>
+            /// <param name="basic">The authored member basic event.</param>
+            /// <param name="owningTree">The tree owning the member and the group.</param>
+            /// <param name="group">The claiming group.</param>
+            /// <param name="memberIndex">The member's position in the group order.</param>
+            /// <param name="context">The independent-variable context.</param>
+            /// <param name="pendingTransfers">Transfers followed to reach the member.</param>
+            /// <returns>The synthesized disjunction occurrence, or null for an invalid group.</returns>
+            private FaultTreeOccurrenceNode? TryExpandCcfMember(FaultTreeResponse function,
+                FaultTreeBasicEventNode basic, FaultTree owningTree, FaultTreeCcfGroup group,
+                int memberIndex, object context, IReadOnlyList<FaultTreeTransferNode> pendingTransfers)
+            {
+                CcfGroupSlots? slots = GetOrCreateCcfSlots(function, owningTree, group, context);
+                if (slots == null) return null;
+                slots.ExpandedMembers.Add(memberIndex);
+
+                var leaves = new List<FaultTreeOccurrenceNode>(1 + slots.CombinationMasks.Count);
+                leaves.Add(CreateCcfLeaf(function, basic, slots.IndependentSlots[memberIndex]));
+                for (int c = 0; c < slots.CombinationMasks.Count; c++)
+                {
+                    if ((slots.CombinationMasks[c] & (1 << memberIndex)) == 0) continue;
+                    leaves.Add(CreateCcfLeaf(function, basic, slots.CombinationSlots[c]));
+                }
+                for (int i = 0; i < leaves.Count; i++) leaves[i].AssignAuthoredSiblingOrder(i);
+                List<FaultTreeOccurrenceNode> sorted = leaves
+                    .Select((child, index) => (Child: child, Index: index))
+                    .OrderBy(item => item.Child.IdentityToken, StringComparer.Ordinal)
+                    .ThenBy(item => item.Index)
+                    .Select(item => item.Child)
+                    .ToList();
+
+                XElement contentIdentity = BuildContentIdentity(slots.MemberGates[memberIndex], null,
+                    sorted.Select(child => child.WrappedContentIdentity).ToList());
+                XElement wrapped = contentIdentity;
+                var wrapperModes = new TreeLinkMode[pendingTransfers.Count];
+                for (int i = pendingTransfers.Count - 1; i >= 0; i--)
+                {
+                    wrapperModes[i] = pendingTransfers[i].LinkMode;
+                    var wrapper = new XElement("Node");
+                    wrapper.SetAttributeValue("Type", nameof(FaultTreeTransferNode));
+                    wrapper.SetAttributeValue(nameof(FaultTreeTransferNode.LinkMode), pendingTransfers[i].LinkMode.ToString());
+                    wrapper.Add(new XElement("Target", wrapped));
+                    wrapped = wrapper;
+                }
+                FaultTreeNodeBase displayNode = pendingTransfers.Count > 0 ? pendingTransfers[0] : basic;
+                var occurrence = new FaultTreeOccurrenceNode(function, slots.MemberGates[memberIndex],
+                    sorted, wrapped, wrapperModes, null, null, displayNode);
+                slots.FirstOccurrence ??= occurrence;
+                return occurrence;
+            }
+
+            /// <summary>Gets or creates the shared derived-slot set for one group in one context.</summary>
+            /// <param name="function">The function owning the group's members.</param>
+            /// <param name="owningTree">The tree owning the group.</param>
+            /// <param name="group">The group.</param>
+            /// <param name="context">The independent-variable context.</param>
+            /// <returns>The slot set, or null for an invalid group.</returns>
+            private CcfGroupSlots? GetOrCreateCcfSlots(FaultTreeResponse function, FaultTree owningTree,
+                FaultTreeCcfGroup group, object context)
+            {
+                if (_ccfSlots.TryGetValue((group, context), out CcfGroupSlots? existing)) return existing;
+                if (_ccfInvalidGroups.Contains(group)) return null;
+                List<string> errors = group.GetConfigurationErrors(owningTree);
+                if (errors.Count > 0)
+                {
+                    _ccfInvalidGroups.Add(group);
+                    foreach (string error in errors)
+                    {
+                        GateDiagnostics.Add(error.StartsWith("Error: ", StringComparison.Ordinal)
+                            ? error.Substring("Error: ".Length)
+                            : error);
+                    }
+                    return null;
+                }
+
+                double[] factors = group.ComputeFactors();
+                int size = group.MemberNodeIds.Count;
+                var members = new FaultTreeBasicEventNode[size];
+                for (int i = 0; i < size; i++)
+                    members[i] = (FaultTreeBasicEventNode)owningTree.FindNode(group.MemberNodeIds[i])!;
+
+                // The exchangeable basis rides the ordinary variable machinery on the first
+                // member (member sources are content-identical by validation), so its dimensions,
+                // clone streams, and hazard-transform chains follow the established rules while
+                // the group draws once per realization per context.
+                FaultTreeVariableSlot basis = GetOrCreateVariable(function, members[0], context);
+                basis.AssignCcfBasis($"{group.Name} (CCF basis)");
+                XElement basisIdentity = basis.ProbabilityIdentity;
+                var slots = new CcfGroupSlots(group, basis, size);
+                for (int m = 0; m < size; m++)
+                {
+                    slots.MemberGates[m] = new FaultTreeGateNode($"{members[m].Name} (CCF)", FaultTreeGateType.Or);
+                    slots.IndependentSlots[m] = CreateDerivedSlot(function, members[m], group, basis,
+                        basisIdentity, factors[0], multiplicity: 1, membersMask: 1 << m,
+                        $"{members[m].Name} (independent)");
+                }
+                for (int multiplicity = 2; multiplicity <= size; multiplicity++)
+                {
+                    for (int mask = 0; mask < 1 << size; mask++)
+                    {
+                        if (CountBits(mask) != multiplicity) continue;
+                        var names = new List<string>(multiplicity);
+                        int lowest = -1;
+                        for (int m = 0; m < size; m++)
+                        {
+                            if ((mask & (1 << m)) == 0) continue;
+                            if (lowest < 0) lowest = m;
+                            names.Add(members[m].Name);
+                        }
+                        slots.CombinationMasks.Add(mask);
+                        slots.CombinationSlots.Add(CreateDerivedSlot(function, members[lowest], group,
+                            basis, basisIdentity, factors[multiplicity - 1], multiplicity, mask,
+                            $"{string.Join(" · ", names)} (common cause)"));
+                    }
+                }
+                _ccfSlots.Add((group, context), slots);
+                _ccfSlotsInOrder.Add(slots);
+                return slots;
+            }
+
+            /// <summary>Creates one derived common-cause variable.</summary>
+            /// <param name="function">The owning function.</param>
+            /// <param name="sourceNode">The member the derived event is anchored to for reporting.</param>
+            /// <param name="group">The group.</param>
+            /// <param name="basis">The group's shared basis variable.</param>
+            /// <param name="basisIdentity">The basis source identity embedded into the derived identity.</param>
+            /// <param name="factor">The multiplicity factor.</param>
+            /// <param name="multiplicity">The event multiplicity.</param>
+            /// <param name="membersMask">The member-combination bit mask over group positions.</param>
+            /// <param name="displayName">The derived-event display label.</param>
+            /// <returns>The derived variable.</returns>
+            private static FaultTreeVariableSlot CreateDerivedSlot(FaultTreeResponse function,
+                FaultTreeBasicEventNode sourceNode, FaultTreeCcfGroup group, FaultTreeVariableSlot basis,
+                XElement basisIdentity, double factor, int multiplicity, int membersMask, string displayName)
+            {
+                var identity = new XElement("CcfEvent");
+                identity.SetAttributeValue("Model", group.Model.ToString());
+                identity.SetAttributeValue("GroupSize",
+                    group.MemberNodeIds.Count.ToString(CultureInfo.InvariantCulture));
+                identity.SetAttributeValue("Parameters",
+                    string.Join("|", group.Parameters.Select(SerializationUtilities.FormatDouble)));
+                identity.SetAttributeValue("Multiplicity", multiplicity.ToString(CultureInfo.InvariantCulture));
+                var positions = new List<string>(multiplicity);
+                for (int m = 0; m < group.MemberNodeIds.Count; m++)
+                {
+                    if ((membersMask & (1 << m)) != 0) positions.Add(m.ToString(CultureInfo.InvariantCulture));
+                }
+                identity.SetAttributeValue("Members", string.Join("|", positions));
+                identity.Add(new XElement(basisIdentity));
+                var slot = new FaultTreeVariableSlot(function, sourceNode, identity,
+                    samplingDimensions: 0, isDeterministic: true);
+                slot.AssignCcfDerivation(factor, basis, displayName);
+                return slot;
+            }
+
+            /// <summary>Creates one derived-event leaf occurrence anchored to a member node.</summary>
+            /// <param name="function">The owning function.</param>
+            /// <param name="member">The authored member the leaf displays as.</param>
+            /// <param name="slot">The derived variable.</param>
+            /// <returns>The leaf occurrence.</returns>
+            private static FaultTreeOccurrenceNode CreateCcfLeaf(FaultTreeResponse function,
+                FaultTreeBasicEventNode member, FaultTreeVariableSlot slot)
+            {
+                XElement probabilityIdentity = slot.ProbabilityIdentity;
+                XElement identity = BuildContentIdentity(member, probabilityIdentity,
+                    Array.Empty<XElement>());
+                return new FaultTreeOccurrenceNode(function, member,
+                    Array.Empty<FaultTreeOccurrenceNode>(), identity, Array.Empty<TreeLinkMode>(),
+                    probabilityIdentity, slot, member);
+            }
+
+            /// <summary>Counts the set bits of one combination mask.</summary>
+            /// <param name="mask">The mask.</param>
+            /// <returns>The bit count.</returns>
+            private static int CountBits(int mask)
+            {
+                int count = 0;
+                while (mask != 0)
+                {
+                    count += mask & 1;
+                    mask >>= 1;
+                }
+                return count;
+            }
+
+            /// <summary>One group's shared derived-slot set within one independent context.</summary>
+            private sealed class CcfGroupSlots
+            {
+                /// <summary>Initializes one slot set.</summary>
+                /// <param name="group">The group.</param>
+                /// <param name="basis">The shared basis variable.</param>
+                /// <param name="memberCount">The group size.</param>
+                internal CcfGroupSlots(FaultTreeCcfGroup group, FaultTreeVariableSlot basis, int memberCount)
+                {
+                    Group = group;
+                    Basis = basis;
+                    MemberGates = new FaultTreeGateNode[memberCount];
+                    IndependentSlots = new FaultTreeVariableSlot[memberCount];
+                }
+
+                /// <summary>The group.</summary>
+                internal FaultTreeCcfGroup Group { get; }
+
+                /// <summary>The shared total-probability basis variable.</summary>
+                internal FaultTreeVariableSlot Basis { get; }
+
+                /// <summary>The synthesized per-member disjunction gates.</summary>
+                internal FaultTreeGateNode[] MemberGates { get; }
+
+                /// <summary>The per-member independent derived variables.</summary>
+                internal FaultTreeVariableSlot[] IndependentSlots { get; }
+
+                /// <summary>The combination bit masks, ordered by multiplicity then mask.</summary>
+                internal List<int> CombinationMasks { get; } = new List<int>();
+
+                /// <summary>The combination derived variables, parallel to <see cref="CombinationMasks"/>.</summary>
+                internal List<FaultTreeVariableSlot> CombinationSlots { get; } = new List<FaultTreeVariableSlot>();
+
+                /// <summary>The member positions expanded in this context.</summary>
+                internal HashSet<int> ExpandedMembers { get; } = new HashSet<int>();
+
+                /// <summary>The first synthesized member occurrence, anchoring the basis ordinal.</summary>
+                internal FaultTreeOccurrenceNode? FirstOccurrence { get; set; }
             }
 
             /// <summary>Gets or creates the unified variable for one basic event in one context.</summary>
@@ -614,6 +887,40 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.FaultTrees
 
         /// <summary>The authored basic event.</summary>
         internal FaultTreeBasicEventNode SourceNode { get; }
+
+        /// <summary>
+        /// The common-cause multiplicity factor for a derived CCF event, or null for an ordinary
+        /// or basis variable. A derived variable's probability is this factor times its group's
+        /// evaluated basis probability; it owns no sampler dimensions of its own.
+        /// </summary>
+        internal double? CcfFactor { get; private set; }
+
+        /// <summary>The derived CCF event's shared group basis variable, or null.</summary>
+        internal FaultTreeVariableSlot? CcfBasisSlot { get; private set; }
+
+        /// <summary>The display-name override for CCF basis and derived variables, or null.</summary>
+        private string? _displayName;
+
+        /// <summary>The variable's diagnostic and reporting label.</summary>
+        internal string DisplayName => _displayName ?? SourceNode.Name;
+
+        /// <summary>Marks this variable as one group's shared common-cause basis.</summary>
+        /// <param name="displayName">The basis display label.</param>
+        internal void AssignCcfBasis(string displayName)
+        {
+            _displayName = displayName;
+        }
+
+        /// <summary>Marks this variable as a derived common-cause event.</summary>
+        /// <param name="factor">The multiplicity factor applied to the basis probability.</param>
+        /// <param name="basisSlot">The group's shared basis variable.</param>
+        /// <param name="displayName">The derived-event display label.</param>
+        internal void AssignCcfDerivation(double factor, FaultTreeVariableSlot basisSlot, string displayName)
+        {
+            CcfFactor = factor;
+            CcfBasisSlot = basisSlot;
+            _displayName = displayName;
+        }
 
         /// <summary>The privately owned metadata-free source identity.</summary>
         private readonly XElement _probabilityIdentity;

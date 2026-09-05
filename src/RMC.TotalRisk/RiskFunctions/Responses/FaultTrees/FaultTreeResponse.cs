@@ -201,7 +201,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.FaultTrees
                 {
                     FaultTreeVariableSlot variable = plan.Variables[ordinalSets[i][j]];
                     events.Add(new FaultTreeCutSetEvent(variable.SourceNode.Id,
-                        variable.SourceNode.Name, variable.FirstOccurrence!.CanonicalPath));
+                        variable.DisplayName, variable.FirstOccurrence!.CanonicalPath));
                 }
                 result.Add(new FaultTreeCutSet(events));
             }
@@ -233,6 +233,9 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.FaultTrees
                 for (int ordinal = 0; ordinal < plan.Variables.Count; ordinal++)
                 {
                     FaultTreeVariableSlot variable = plan.Variables[ordinal];
+                    // Derived common-cause events own no sampler state: their group's basis
+                    // variable carries the one shared stream.
+                    if (variable.CcfFactor != null) continue;
                     ProbabilitySource source = variable.SourceNode.ProbabilitySource;
                     if (source.Kind == ProbabilitySourceKind.UncertainTabular)
                     {
@@ -372,6 +375,9 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.FaultTrees
                 for (int i = 0; i < plan.Warnings.Count; i++) AddUnique(messages, plan.Warnings[i]);
                 foreach (FaultTreeVariableSlot variable in plan.Variables)
                 {
+                    // Derived common-cause events carry no source of their own; the group's
+                    // basis variable validates the shared member source once.
+                    if (variable.CcfFactor != null) continue;
                     foreach (string message in variable.SourceNode.ProbabilitySource.Validate(
                         variable.SourceFunction.HazardLevels,
                         $"Basic event '{variable.SourceNode.Name}'", "fault-tree",
@@ -841,10 +847,20 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.FaultTrees
             var values = new double[_hazardLevels.Count];
             for (int h = 0; h < _hazardLevels.Count; h++)
             {
+                // Ordinary and common-cause basis variables evaluate their sources first; each
+                // derived common-cause event is then its multiplicity factor times its group's
+                // evaluated basis, independent of ordinal order.
                 for (int ordinal = 0; ordinal < plan.Variables.Count; ordinal++)
                 {
+                    if (plan.Variables[ordinal].CcfFactor != null) continue;
                     probabilities[ordinal] = EvaluateVariable(plan.Variables[ordinal],
                         _hazardLevels[h], mode, percentile, realizationIndex);
+                }
+                for (int ordinal = 0; ordinal < plan.Variables.Count; ordinal++)
+                {
+                    FaultTreeVariableSlot variable = plan.Variables[ordinal];
+                    if (variable.CcfFactor is double factor)
+                        probabilities[ordinal] = factor * probabilities[variable.CcfBasisSlot!.Ordinal];
                 }
                 values[h] = ClampRoundoff(frozen.Evaluate(probabilities, scratch));
             }
@@ -964,6 +980,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.FaultTrees
             for (int ordinal = 0; ordinal < plan.Variables.Count; ordinal++)
             {
                 FaultTreeVariableSlot variable = plan.Variables[ordinal];
+                if (variable.CcfFactor != null) continue;
                 ProbabilitySource source = variable.SourceNode.ProbabilitySource;
                 int sourceHazardIndex = variable.SourceFunction._hazardLevels.IndexOf(hazard);
                 bool aligned = sourceHazardIndex >= 0;
@@ -982,8 +999,14 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.FaultTrees
                         : source.EvaluatePercentileAtHazard(hazard, percentile);
                 }
                 if (!double.IsFinite(value) || value < 0d || value > 1d)
-                    throw new InvalidOperationException($"Basic event '{variable.SourceNode.Name}' evaluated outside [0, 1]. Call Validate() and correct the source.");
+                    throw new InvalidOperationException($"Basic event '{variable.DisplayName}' evaluated outside [0, 1]. Call Validate() and correct the source.");
                 variableProbabilities[ordinal] = value;
+            }
+            for (int ordinal = 0; ordinal < plan.Variables.Count; ordinal++)
+            {
+                FaultTreeVariableSlot variable = plan.Variables[ordinal];
+                if (variable.CcfFactor is double factor)
+                    variableProbabilities[ordinal] = factor * variableProbabilities[variable.CcfBasisSlot!.Ordinal];
             }
             return ClampRoundoff(frozen.Evaluate(variableProbabilities, scratch));
         }

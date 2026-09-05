@@ -105,6 +105,13 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.FaultTrees
 
                 if (Root.Parent != null) throw new InvalidOperationException("The top-event gate cannot have a parent.");
                 if (FindCycle() != null) throw new InvalidOperationException("The serialized fault tree contains a structural cycle.");
+
+                var groupContainer = xElement.Element("CcfGroups");
+                if (groupContainer != null)
+                {
+                    foreach (XElement groupElement in groupContainer.Elements(nameof(FaultTreeCcfGroup)))
+                        AddCcfGroup(new FaultTreeCcfGroup(groupElement));
+                }
             }
             finally
             {
@@ -121,6 +128,9 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.FaultTrees
         /// <summary>The attached nodes currently observed for direct compute-property edits.</summary>
         private readonly HashSet<FaultTreeNodeBase> _subscribedNodes =
             new HashSet<FaultTreeNodeBase>(ReferenceEqualityComparer.Instance);
+
+        /// <summary>The insertion-ordered parametric common-cause failure groups.</summary>
+        private readonly List<FaultTreeCcfGroup> _ccfGroups = new List<FaultTreeCcfGroup>();
 
         /// <summary>The cached read-only node view.</summary>
         private ReadOnlyCollection<FaultTreeNodeBase>? _readOnlyNodes;
@@ -530,6 +540,15 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.FaultTrees
                 }
             }
             element.Add(inputs);
+
+            // Conditional presence: the group container exists only when groups are configured,
+            // so every group-free tree keeps its byte-identical serialized form.
+            if (_ccfGroups.Count > 0)
+            {
+                var groups = new XElement("CcfGroups");
+                for (int i = 0; i < _ccfGroups.Count; i++) groups.Add(_ccfGroups[i].ToXElement());
+                element.Add(groups);
+            }
             return element;
         }
 
@@ -545,7 +564,102 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.FaultTrees
                 if (parent is not FaultTreeGateNode && parent.Children.Count != 0)
                     messages.Add($"Error: Fault-tree node '{parent.Name}' owns inputs but is not a gate.");
             }
+
+            var claimed = new Dictionary<Guid, FaultTreeCcfGroup>();
+            for (int i = 0; i < _ccfGroups.Count; i++)
+            {
+                FaultTreeCcfGroup group = _ccfGroups[i];
+                messages.AddRange(group.GetConfigurationErrors(this));
+                foreach (Guid memberId in group.MemberNodeIds)
+                {
+                    if (claimed.TryGetValue(memberId, out FaultTreeCcfGroup? first))
+                    {
+                        if (!ReferenceEquals(first, group))
+                            messages.Add($"Error: Fault-tree CCF groups '{first.Name}' and '{group.Name}' both claim member node '{memberId:D}'; a basic event can belong to at most one group.");
+                    }
+                    else
+                    {
+                        claimed.Add(memberId, group);
+                    }
+                }
+            }
             return messages;
+        }
+
+        /// <summary>The configured parametric common-cause failure groups, in insertion order.</summary>
+        public IReadOnlyList<FaultTreeCcfGroup> CcfGroups => _ccfGroups;
+
+        /// <summary>
+        /// Adds one parametric common-cause failure group. Configuring a group is deliberate
+        /// compute content: the expanded plan replaces each member basic event with its derived
+        /// independent and common-cause events, moving the tree's canonical identity.
+        /// </summary>
+        /// <param name="group">The group.</param>
+        /// <exception cref="ArgumentNullException">Thrown when the group is null.</exception>
+        /// <exception cref="InvalidOperationException">Thrown when the same group instance is already attached.</exception>
+        public void AddCcfGroup(FaultTreeCcfGroup group)
+        {
+            if (group == null) throw new ArgumentNullException(nameof(group));
+            if (_ccfGroups.Any(existing => ReferenceEquals(existing, group)))
+                throw new InvalidOperationException($"Fault-tree CCF group '{group.Name}' is already attached to this tree.");
+            _ccfGroups.Add(group);
+            group.PropertyChanged += CcfGroupPropertyChanged;
+            NotifyStructureChanged();
+        }
+
+        /// <summary>Removes one attached parametric common-cause failure group.</summary>
+        /// <param name="group">The attached group.</param>
+        /// <returns>True when the group was attached and removed.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when the group is null.</exception>
+        public bool RemoveCcfGroup(FaultTreeCcfGroup group)
+        {
+            if (group == null) throw new ArgumentNullException(nameof(group));
+            int index = _ccfGroups.FindIndex(existing => ReferenceEquals(existing, group));
+            if (index < 0) return false;
+            _ccfGroups.RemoveAt(index);
+            group.PropertyChanged -= CcfGroupPropertyChanged;
+            NotifyStructureChanged();
+            return true;
+        }
+
+        /// <summary>Finds the group claiming one basic event, with the event's member position.</summary>
+        /// <param name="node">The basic event.</param>
+        /// <param name="memberIndex">The event's position in the group's member order.</param>
+        /// <returns>The claiming group, or null when the event is ungrouped.</returns>
+        internal FaultTreeCcfGroup? FindCcfGroup(FaultTreeBasicEventNode node, out int memberIndex)
+        {
+            for (int i = 0; i < _ccfGroups.Count; i++)
+            {
+                IReadOnlyList<Guid> members = _ccfGroups[i].MemberNodeIds;
+                for (int j = 0; j < members.Count; j++)
+                {
+                    if (members[j] == node.Id)
+                    {
+                        memberIndex = j;
+                        return _ccfGroups[i];
+                    }
+                }
+            }
+            memberIndex = -1;
+            return null;
+        }
+
+        /// <summary>Resolves one authored node by its persistent id.</summary>
+        /// <param name="id">The persistent node id.</param>
+        /// <returns>The node, or null when the id is unknown.</returns>
+        internal FaultTreeNodeBase? FindNode(Guid id)
+        {
+            return _byId.TryGetValue(id, out FaultTreeNodeBase? node) ? node : null;
+        }
+
+        /// <summary>Invalidates the owner plan after a compute-relevant group edit.</summary>
+        /// <param name="sender">The edited group.</param>
+        /// <param name="e">The property-change payload.</param>
+        private void CcfGroupPropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(FaultTreeCcfGroup.Name)
+                || e.PropertyName == nameof(FaultTreeCcfGroup.Description)) return;
+            _ownerResponse?.NotifyTreeComputeChanged();
         }
 
         /// <summary>Builds the entire tree's projected identity.</summary>

@@ -108,7 +108,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.FaultTrees
                     : double.NaN;
 
                 var variable = plan.Variables[j];
-                entries.Add(new FaultTreeImportanceEntry(variable.SourceNode.Id, variable.SourceNode.Name,
+                entries.Add(new FaultTreeImportanceEntry(variable.SourceNode.Id, variable.DisplayName,
                     variable.FirstOccurrence!.CanonicalPath, q, birnbaum, criticality, fussellVesely,
                     achievement, reduction));
             }
