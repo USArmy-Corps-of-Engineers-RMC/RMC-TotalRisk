@@ -170,6 +170,17 @@ approved and executed (`74af2e95…`, its own commit).
   value-moving ruling if ever wanted; both behaviors are documented in the design doc §5.3 and
   the technical references.
 
+- **The staggered-testing alpha-factor convention (recorded 2026-09-05, from the
+  common-cause landing; not scheduled).** The shipped CCF kernel maps alpha factors through
+  the non-staggered convention; the staggered variant divides differently by the sharing
+  count and would arrive as an append-only `FaultTreeCcfModel` member with its own factor
+  mapping, never as a silent change to the shipped one. Related recorded items from the same
+  landing: published worked-example tables can be pinned as verification constants when a
+  reference document is supplied (the exhaustive derived-space enumeration and independent
+  closed forms carry the correctness claim today), and tree fragments/copy-paste deliberately
+  do not carry CCF groups — a pasted member joins no group, and deleting a member leaves the
+  group with a loud unresolved-member error.
+
 - **A first-class shared-epistemic-variable object (recorded 2026-09-02; not scheduled).** The
   landed sharing identity is the name string on each binder — cheap, mode-portable, and exact.
   If authoring UX ever wants one place to declare a variable (description, weight-vector

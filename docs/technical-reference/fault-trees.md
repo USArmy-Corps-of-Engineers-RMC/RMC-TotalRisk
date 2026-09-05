@@ -102,6 +102,37 @@ unified variable slot with content-seeded clone streams, a bivariate response su
 only with a declared `BivariateSourceAxis` and a chain supplying the other coordinate, and the
 chain is conditional serialized and identity content so chainless events are byte-identical.
 
+## Common-cause failure groups
+
+A `FaultTreeCcfGroup` declares a set of content-identical basic events an exchangeable
+population subject to parametric common-cause failure. Three models ride one kernel: with
+group size `n` and shared member total `Q`, the derived event of multiplicity `k` carries
+probability `f_k · Q`, where the **alpha-factor** model (the kernel, non-staggered convention)
+sets `f_k = k·α_k / (C(n−1, k−1)·α_t)` with `α_t = Σ k·α_k`, the **beta-factor** facade sets
+`f_1 = 1 − β` and `f_n = β`, and the **multiple Greek letter** facade sets
+`f_k = (Π ρ_i, i ≤ k)·(1 − ρ_{k+1}) / C(n−1, k−1)` with `ρ_1 = 1`, `ρ` = (β, γ, δ, …), and
+`ρ_{n+1} = 0`. Every model satisfies the exact per-member identity
+`Σ C(n−1, k−1)·f_k = 1`, so a member's rare-event sum recovers `Q` exactly; the engine
+evaluates the exact Boolean union of the derived events, which sits at or below the rare-event
+figure.
+
+The compiled plan replaces each member with the disjunction of its derived events — one
+independent event per member plus one shared event per member combination of multiplicity two
+and higher — so the exact decision diagram carries the coupling natively: an And gate over two
+members evaluates `Q_pair + (1 − Q_pair)·Q_ind²` rather than the independence product, and cut
+sets report the derived events by combination name. The group samples **one shared basis
+stream** per independent context (the basis rides the first member's source through the
+ordinary variable machinery, hazard-transform chains included), derived events are
+deterministic factors on it, and the node-importance sweep sees the whole group as one
+knowledge quantity. Groups serialize as a conditional `CcfGroups` child of the tree — a
+group-free tree keeps a byte-identical form, canonical identity, and seed, and removing a
+group restores the ungrouped identity bit-exactly — while configuring or re-parameterizing a
+group deliberately moves the hash. Group size is capped at six (the expansion creates
+`2^n − n − 1` combination events); members must be plain same-tree basic events with
+content-identical sources, each claimed by at most one group; and a member set only partially
+reachable within one independent context is a loud plan diagnostic, since a split context
+cannot carry the coupling.
+
 ## Sampling
 
 Setup discovers sampler dimensions per **unified variable**: a shared-logical event contributes

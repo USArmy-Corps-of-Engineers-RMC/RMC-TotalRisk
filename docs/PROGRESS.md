@@ -1,6 +1,6 @@
 # Progress Log
 
-## 2026-09-05 — Capability program session 8: B5 — transform- and axis-mapped tree probability sources
+## 2026-09-05 — Capability program session 8: B5 transform-mapped tree sources AND B6 parametric common-cause failure
 
 **Goal:** land B5 end to end per the ratified design — an optional ordered hazard-transform
 chain on `ProbabilitySource` so a tree node (event-tree chance, fault-tree basic event) can be
@@ -106,8 +106,55 @@ transformed is out of scope); the transformed lookup inherits the established of
 endpoint behavior; the dead sextet arms stay dead; unresolved-reference re-saves keep the
 seat's existing drop precedent.
 
-**Next:** B6 (parametric CCF) under its own mini-ratification if session budget allows,
-per the whole-or-not rule; then the session-9 prompt.
+**B6 — parametric common-cause failure (same session, its own ratification round, all four
+answers as recommended):** (1) attempt now; (2) the **alpha-factor kernel with beta/MGL as
+parameter facades** — one per-multiplicity factor vector f_k (alpha non-staggered
+f_k = k·α_k/(C(n−1,k−1)·α_t); beta f₁ = 1−β, f_n = β; MGL f_k = (Πρ_i)(1−ρ_{k+1})/C(n−1,k−1))
+with the exact per-member identity Σ C(n−1,k−1)·f_k = 1 holding for all three; (3)
+**content-equal members with ONE shared basis draw** per group per independent context —
+declaring the group is the exchangeability statement, the basis rides the first member's
+source through the ordinary variable machinery (B5 chains included) and derived events are
+deterministic factors on it; (4) as scoped — `FaultTreeCcfGroup` on `FaultTree` with a
+conditional `<CcfGroups>` child, n ≤ 6, plain same-tree basic-event members, compile-time
+expansion into derived variables the exact diagram evaluates unchanged, greenfield family.
+
+**B6 landed:** `FaultTreeCcfGroup` + `FaultTreeCcfModel` (INPC group: name/description
+metadata, model/parameters/members compute content; permissive reads, the factor kernel with
+loud invalid throws, the configuration-error matrix incl. the content-identical
+exchangeability check); the `FaultTree` surface (`CcfGroups`/`AddCcfGroup`/`RemoveCcfGroup`,
+group-edit plan invalidation via PropertyChanged, `FindCcfGroup`/`FindNode`, cross-group
+membership validation, conditional serialization + reading); the compiler expansion
+(per-(group, context) slot sets — one basis via `GetOrCreateVariable` on the first member,
+per-member synthesized Or occurrences over shared derived slots keyed by combination mask,
+derived identities carrying model/parameters/size/multiplicity/member positions + the basis
+source identity; basis ordinals appended after the walk outside the diagram; partial-context
+coverage diagnosed loudly; invalid groups fall back to plain expansion with their errors as
+plan diagnostics); two-pass evaluation at `EvaluateTopCurve` and `EvaluateImportanceSample`
+(derived = factor × basis, order-independent); `SetupSampler`/`Validate` skip derived slots;
+cut sets, node importance, and exact importance report the derived display names, and the
+fault node-importance uncertain flag now reads the slot's own determinism (value-identical
+for every existing model) so a group registers as ONE knowledge quantity.
+
+**B6 verified:** 15 new unit tests (`FaultTreeCcfModelTests`, `FaultTreeCcfGroupTests`,
+`FaultTreeCcfExpansionTests` — exact beta And/Or closed forms through the diagram, the
+one-shared-draw realization pin, hash add/remove symmetry, round trips, cut-set names,
+live-edit invalidation, blocking diagnostics, the split-context refusal) + the kitchen-sink
+CCF registry entry; **`FaultTreeCcfVerification` 4/4 isolated** (3.2 s) — the exhaustive
+derived-product-space enumeration with the independently re-derived alpha split (1e-14), the
+exact Greek-letter union closed form + the 2.825 first-order rare-event coefficient and the
+common-cause union discount at Q = 1e-8, the bit-identical beta/MGL two-member facade
+identity, and the engine-scale exact closed form + the one-knowledge-quantity importance pin
++ full-run byte reproducibility. Fast suite **1,346/1,346**; touched families re-run isolated
+(`FaultTreeVerification` 11/11, `FaultTreeMonteCarloVerification` 7/7,
+`TreeSourceTransformVerification` 6/6); all eight perf gates re-run bit-identical (F7 the
+group-free byte-inertness proof); Release gate + both validators green. **Recorded:** the
+staggered-testing alpha convention is a future append-only model member; published
+worked-example tables can be pinned as constants when a reference document is supplied — the
+exhaustive enumeration and independent closed forms carry the correctness claim; fragments
+and copy/paste do not carry groups (pasted members join no group; deleting a member leaves a
+loud unresolved-member Error).
+
+**Next:** the session-9 prompt.
 
 ## 2026-09-04 — Phase 14A: the REST API + MCP server (stateless round-trip compute), and the v2.0-development branch rename
 

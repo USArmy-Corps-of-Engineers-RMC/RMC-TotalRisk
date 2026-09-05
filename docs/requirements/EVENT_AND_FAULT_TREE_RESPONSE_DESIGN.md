@@ -10,7 +10,11 @@
 > evaluating the source on a derived axis, and a bivariate response surface becomes a legal
 > source when a declared `BivariateSourceAxis` names the tree-driven axis and the chain supplies
 > the other coordinate — retiring the former bivariate-source refusal; §3.2, §8, §9.1, and §10
-> carry the amended rules.
+> carry the amended rules. Amended again 2026-09-05 under the ratified parametric
+> common-cause-failure approval (capability program session 8, B6): fault trees now carry
+> optional `FaultTreeCcfGroup`s expanded at compile time into derived independent and
+> common-cause events over one shared exchangeable basis draw — retiring the former
+> common-cause non-goal for the static parametric models; §3.3 carries the amended rules.
 > **Implementation:** Phase 10A is complete: the controlled event-tree model, recursive sources,
 > independent links, both XML modes, projected identity, expanded graph outputs, immutable compiled
 > plan, fixed-seed property/routing/LHS/thread verification, >90% coverage, and recorded F5 fixture
@@ -57,7 +61,7 @@ Calling a tree a “probability model” in this document always means a conditi
 - Hazard-frequency or risk computation inside either tree.
 - The unused legacy `SecondaryHazardNode` chain.
 - `BivariateResponse` or `WeightedHazardLevel` as tree machinery; the bivariate port is separate Phase 11 work. The separately approved transform-mapped-source capability (ratified 2026-09-05) later made a bivariate response a legal probability source when its `BivariateSourceAxis` is declared and a hazard-transform chain supplies the other surface coordinate — never through the silent weight collapse this exclusion guarded against.
-- Dynamic fault trees, time-to-failure simulation, repair/availability, standby/spare gates, sequence-dependent gates, Markov models, or common-cause failure models.
+- Dynamic fault trees, time-to-failure simulation, repair/availability, standby/spare gates, sequence-dependent gates, or Markov models. Parametric common-cause failure models were originally excluded here; the separately approved capability (ratified 2026-09-05) added static beta-factor, multiple-Greek-letter, and alpha-factor groups expanded into derived events the exact evaluator computes unchanged — dynamic and time-dependent common-cause treatments remain out of scope.
 - Automatically treating repeated event-tree links as shared physical events. Event-tree reuse defaults to an independent clone; the separately approved shared-limb capability (ratified 2026-09-03) makes `SharedLogicalEvent` an explicit, deliberately selected link mode on event trees — never an inferred one.
 - Approximate fault-tree cut-set truncation as a production probability algorithm.
 
@@ -171,6 +175,7 @@ Every terminal node has a stable branch descriptor. A chance or link terminal de
 - `FaultTreeBasicEventNode`: a Boolean basic event driven by a local probability source or a referenced `IResponseFunction`.
 - `FaultTreeHouseEventNode`: a deterministic true/false event.
 - `FaultTreeTransferNode`: an internal or external link to a fault-tree node.
+- `FaultTreeCcfGroup` (ratified 2026-09-05): a named parametric common-cause group over content-identical member basic events. Every model maps onto one per-multiplicity factor kernel satisfying the exact per-member identity Σ C(n−1, k−1)·f_k = 1 — the alpha-factor non-staggered convention is the kernel, with beta-factor and the multiple Greek letter model as parameter facades. The compiler expands each member into the disjunction of its derived events (one independent event per member, one event per member combination of multiplicity ≥ 2, shared per group and independent context), the group samples ONE shared basis stream per context (declaring the group states the members are one exchangeable population; the basis rides the first member's source through the ordinary variable machinery, hazard-transform chains included), and derived events are deterministic factors times the evaluated basis. Groups serialize as a conditional `CcfGroups` child — every group-free tree keeps a byte-identical form, identity, and seed — and configuring, editing, or re-parameterizing a group is deliberate hash content. Group size is capped at six; members must be plain same-tree basic events, each claimed by at most one group; a member set only partially reachable within one independent context is a loud plan diagnostic, and an invalid group falls back to plain expansion with its errors reported.
 
 Two link meanings are supported for fault trees:
 
