@@ -24,15 +24,18 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.Trees
         /// <summary>The empty dependency set used only by transient nested compiler products.</summary>
         internal static TreePlanDependencies Empty { get; } =
             new TreePlanDependencies(Array.Empty<ITreeComputeSource>(),
-                Array.Empty<UncertainOrderedPairedData>(), Array.Empty<IResponseFunction>());
+                Array.Empty<UncertainOrderedPairedData>(), Array.Empty<IResponseFunction>(),
+                Array.Empty<ITransformFunction>());
 
         /// <summary>Initializes and fingerprints one complete dependency set.</summary>
         /// <param name="treeSources">The controlled tree responses tracked by compute revision.</param>
         /// <param name="tables">The mutable local uncertain tables tracked by canonical fingerprint.</param>
         /// <param name="ordinaryResponses">The ordinary live responses tracked by canonical fingerprint.</param>
+        /// <param name="transformFunctions">The live probability-source hazard transforms tracked by canonical fingerprint.</param>
         internal TreePlanDependencies(IReadOnlyList<ITreeComputeSource> treeSources,
             IReadOnlyList<UncertainOrderedPairedData> tables,
-            IReadOnlyList<IResponseFunction> ordinaryResponses)
+            IReadOnlyList<IResponseFunction> ordinaryResponses,
+            IReadOnlyList<ITransformFunction> transformFunctions)
         {
             _treeSources = treeSources
                 .Select(source => new TreeSourceVersion(source, source.ComputeRevision))
@@ -41,6 +44,9 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.Trees
                 .Select(table => new TableVersion(table, HashTable(table)))
                 .ToArray();
             _ordinaryResponses = ordinaryResponses
+                .Select(function => new FunctionVersion(function, function.CanonicalHash()))
+                .ToArray();
+            _transformFunctions = transformFunctions
                 .Select(function => new FunctionVersion(function, function.CanonicalHash()))
                 .ToArray();
         }
@@ -53,6 +59,9 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.Trees
 
         /// <summary>The ordinary live response snapshots.</summary>
         private readonly FunctionVersion[] _ordinaryResponses;
+
+        /// <summary>The live probability-source hazard-transform snapshots.</summary>
+        private readonly FunctionVersion[] _transformFunctions;
 
         /// <summary>Checks whether every compute dependency still matches this plan.</summary>
         /// <returns>True when the plan may be reused.</returns>
@@ -74,6 +83,11 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.Trees
                 {
                     if (!_ordinaryResponses[i].Hash.AsSpan().SequenceEqual(
                         _ordinaryResponses[i].Function.CanonicalHash())) return false;
+                }
+                for (int i = 0; i < _transformFunctions.Length; i++)
+                {
+                    if (!_transformFunctions[i].Hash.AsSpan().SequenceEqual(
+                        _transformFunctions[i].Function.CanonicalHash())) return false;
                 }
             }
             catch (Exception ex) when (ex is ArgumentException
@@ -97,6 +111,8 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.Trees
                 _tables[i].Table.CollectionChanged += owner.DependencyTableCollectionChanged;
             for (int i = 0; i < _ordinaryResponses.Length; i++)
                 _ordinaryResponses[i].Function.PropertyChanged += owner.DependencyFunctionPropertyChanged;
+            for (int i = 0; i < _transformFunctions.Length; i++)
+                _transformFunctions[i].Function.PropertyChanged += owner.DependencyFunctionPropertyChanged;
         }
 
         /// <summary>Removes every dependency subscription held for one cache owner.</summary>
@@ -112,6 +128,8 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.Trees
                 _tables[i].Table.CollectionChanged -= owner.DependencyTableCollectionChanged;
             for (int i = 0; i < _ordinaryResponses.Length; i++)
                 _ordinaryResponses[i].Function.PropertyChanged -= owner.DependencyFunctionPropertyChanged;
+            for (int i = 0; i < _transformFunctions.Length; i++)
+                _transformFunctions[i].Function.PropertyChanged -= owner.DependencyFunctionPropertyChanged;
         }
 
         /// <summary>Hashes the complete mutable table definition.</summary>
@@ -129,7 +147,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.Trees
         /// <summary>One mutable uncertain-table fingerprint.</summary>
         private readonly record struct TableVersion(UncertainOrderedPairedData Table, byte[] Hash);
 
-        /// <summary>One ordinary live response fingerprint.</summary>
-        private readonly record struct FunctionVersion(IResponseFunction Function, byte[] Hash);
+        /// <summary>One live risk-function fingerprint (an ordinary response or a chain transform).</summary>
+        private readonly record struct FunctionVersion(IRiskFunction Function, byte[] Hash);
     }
 }

@@ -239,6 +239,52 @@ public class HashInvarianceKitchenSinkTests
                 limb.ProbabilitySource = new ProbabilitySource(0.2d);
             });
 
+        // The event-tree response with a transformed probability source — the hazard-transform
+        // chain rides the source identity, so chain content edits must move the hash while the
+        // chain transform's metadata stays inert.
+        yield return new RegistryEntry(
+            nameof(EventTreeResponse) + " transformed source",
+            () =>
+            {
+                var table = new UncertainOrderedPairedData(
+                    new[]
+                    {
+                        new UncertainOrdinate(2d, new Uniform(0.1d, 0.3d)),
+                        new UncertainOrdinate(3d, new Uniform(0.4d, 0.8d)),
+                    }, true, SortOrder.Ascending, false, SortOrder.None, UnivariateDistributionType.Uniform);
+                var map = new LinearTransform
+                {
+                    Name = "Duration map",
+                    SpecifiedHazard = "Stage",
+                    HazardUnit = "ft",
+                    TransformedHazard = "Duration",
+                    TransformedHazardUnit = "hr",
+                    Minimum = -100d,
+                    Maximum = 100d,
+                    Alpha = 2d,
+                    Beta = 0.5d,
+                    Sigma = 0.25d,
+                    IsUncertain = true,
+                };
+                var tree = new EventTree();
+                tree.Add(tree.Root.Id, new ChanceNode("Failure",
+                    new ProbabilitySource(table, new ITransformFunction[] { map })));
+                tree.Add(tree.Root.Id, new RemainderNode("No failure"));
+                return new EventTreeResponse(new[] { 0d, 1d }, tree)
+                {
+                    Name = "Transformed-source event tree",
+                    SpecifiedHazard = "Stage",
+                    HazardUnit = "ft",
+                };
+            },
+            f =>
+            {
+                var tree = (EventTreeResponse)f;
+                var chance = (ChanceNode)tree.EventTree.Nodes.First(node => node.Name == "Failure");
+                var map = (LinearTransform)chance.ProbabilitySource.HazardTransforms[0]!;
+                map.Beta = 0.75d;
+            });
+
         // The fault-tree response — repeated shared events behind a threshold gate.
         yield return new RegistryEntry(
             nameof(FaultTreeResponse),

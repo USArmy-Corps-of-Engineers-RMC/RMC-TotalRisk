@@ -1167,12 +1167,15 @@ namespace RMC.TotalRisk.Analyses
         /// <summary>
         /// Reports whether an epistemic-mixture composite is reachable through a tree
         /// probability source anywhere under the given response function. Trees sample their
-        /// referenced sources through isolated self-contained setup clones the walked-cluster
-        /// axis discovery cannot see, so a tree-carried epistemic composite selects branches the
-        /// enumerator cannot force and the mean pass would silently blend — both gates treat it
-        /// explicitly. The containment recursion crosses composite children into nested trees
-        /// and tree sources into nested composites; an epistemic composite reached purely
-        /// through walked composite nesting is a discovered axis, not a tree-carried one.
+        /// referenced sources — and their sources' hazard-transform chains — through isolated
+        /// self-contained setup clones the walked-cluster axis discovery cannot see, so a
+        /// tree-carried epistemic composite (a response composite behind a source, or an
+        /// epistemic composite transform inside a source's chain) selects branches the enumerator
+        /// cannot force and the mean pass would silently blend — both gates treat it explicitly.
+        /// The containment recursion crosses composite children into nested trees, tree sources
+        /// into nested composites, event-tree links, and external fault-tree transfer targets; an
+        /// epistemic composite reached purely through walked composite nesting is a discovered
+        /// axis, not a tree-carried one.
         /// </summary>
         /// <param name="function">The response function to search under.</param>
         /// <param name="insideTreeSource">True once the recursion has crossed a tree probability-source edge.</param>
@@ -1197,9 +1200,10 @@ namespace RMC.TotalRisk.Analyses
                 case EventTreeResponse eventTree:
                     foreach (var node in eventTree.EventTree.Nodes)
                     {
+                        if (node is ChanceNode chance && ChainCarriesEpistemicTransform(chance.ProbabilitySource)) return true;
                         IResponseFunction? source = node switch
                         {
-                            ChanceNode chance => chance.ProbabilitySource?.ResponseFunction,
+                            ChanceNode chanceSource => chanceSource.ProbabilitySource?.ResponseFunction,
                             EventTreeLinkNode link => link.TargetFunction,
                             _ => null,
                         };
@@ -1211,14 +1215,38 @@ namespace RMC.TotalRisk.Analyses
                     {
                         if (node is FaultTreeBasicEventNode basic)
                         {
+                            if (ChainCarriesEpistemicTransform(basic.ProbabilitySource)) return true;
                             var source = basic.ProbabilitySource?.ResponseFunction;
                             if (source != null && TreeCarriesEpistemicComposite(source, true, visited)) return true;
+                        }
+                        else if (node is FaultTreeTransferNode transfer && transfer.TargetFunction != null)
+                        {
+                            if (TreeCarriesEpistemicComposite(transfer.TargetFunction, true, visited)) return true;
                         }
                     }
                     return false;
                 default:
                     return false;
             }
+        }
+
+        /// <summary>
+        /// Reports whether a probability source's hazard-transform chain carries an
+        /// epistemic-mixture composite transform. Chain transforms sample inside the owning
+        /// tree's isolated setup clones, so an epistemic composite there is tree-carried by
+        /// construction.
+        /// </summary>
+        /// <param name="source">The probability source, or null.</param>
+        /// <returns>True when a chain entry uses the epistemic-mixture mode.</returns>
+        private static bool ChainCarriesEpistemicTransform(ProbabilitySource? source)
+        {
+            if (source == null) return false;
+            for (int i = 0; i < source.HazardTransforms.Count; i++)
+            {
+                if (source.HazardTransforms[i] is CompositeTransform composite
+                    && composite.UsesEpistemicMode()) return true;
+            }
+            return false;
         }
 
         /// <summary>

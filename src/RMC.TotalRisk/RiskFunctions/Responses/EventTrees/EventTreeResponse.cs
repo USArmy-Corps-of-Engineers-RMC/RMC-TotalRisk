@@ -187,7 +187,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                 var classBindings = new Dictionary<EventTreeSamplingClass, SamplingBinding?>(
                     ReferenceEqualityComparer.Instance);
                 int dimension = 0;
-                int responseOccurrence = 0;
+                int childStreamOccurrence = 0;
                 foreach (EventTreeOccurrenceNode occurrence in plan.CanonicalPreOrder)
                 {
                     if (occurrence.SourceNode is not ChanceNode chance
@@ -205,22 +205,32 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                     SamplingBinding? createdBinding = null;
                     if (source.Kind == ProbabilitySourceKind.UncertainTabular)
                     {
-                        createdBinding = new SamplingBinding(dimension, null);
-                        nextBindings.Add(occurrence.CanonicalPath, createdBinding);
+                        int localDimension = dimension;
                         dimension++;
+                        IReadOnlyList<ITransformFunction>? tabularTransforms = null;
+                        if (source.HasHazardTransforms)
+                        {
+                            byte[] sourceHash = Convert.FromHexString(
+                                occurrence.ProbabilityIdentityToken);
+                            int chainBaseSeed = SeedHelpers.HashCombine(seed, sourceHash, childStreamOccurrence++);
+                            tabularTransforms = SetupTransformClones(source, occurrence, chainBaseSeed,
+                                sampleSize, scheme, ref dimension);
+                        }
+                        createdBinding = new SamplingBinding(localDimension, null, tabularTransforms);
+                        nextBindings.Add(occurrence.CanonicalPath, createdBinding);
                     }
                     else if (source.Kind == ProbabilitySourceKind.ResponseFunctionReference
                         && source.ResponseFunction != null)
                     {
                         IResponseFunction sampledFunction;
+                        int childStreamSeed;
                         try
                         {
                             sampledFunction = CloneResponseFunction(source.ResponseFunction);
                             byte[] sourceHash = Convert.FromHexString(
                                 occurrence.ProbabilityIdentityToken);
-                            sampledFunction.SetupSampler(sampleSize,
-                                SeedHelpers.HashCombine(seed, sourceHash, responseOccurrence++),
-                                scheme);
+                            childStreamSeed = SeedHelpers.HashCombine(seed, sourceHash, childStreamOccurrence++);
+                            sampledFunction.SetupSampler(sampleSize, childStreamSeed, scheme);
                         }
                         catch (Exception ex) when (ex is ArgumentException
                             || ex is InvalidOperationException
@@ -234,7 +244,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                         }
 
                         int childDimensions = sampledFunction.SamplingDimensions;
-                        if (childDimensions != occurrence.ProbabilitySamplingDimensions)
+                        if (childDimensions != occurrence.ProbabilitySamplingDimensions - source.HazardTransformDimensions)
                         {
                             throw new InvalidOperationException(
                                 $"Event-tree response '{Name}' compiled chance occurrence " +
@@ -255,9 +265,15 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                                     sampledBase!.SampledPercentile(realization, childDimension);
                             }
                         }
-                        createdBinding = new SamplingBinding(-1, sampledFunction);
-                        nextBindings.Add(occurrence.CanonicalPath, createdBinding);
                         dimension += childDimensions;
+                        IReadOnlyList<ITransformFunction>? referenceTransforms = null;
+                        if (source.HasHazardTransforms)
+                        {
+                            referenceTransforms = SetupTransformClones(source, occurrence, childStreamSeed,
+                                sampleSize, scheme, ref dimension);
+                        }
+                        createdBinding = new SamplingBinding(-1, sampledFunction, referenceTransforms);
+                        nextBindings.Add(occurrence.CanonicalPath, createdBinding);
                     }
                     classBindings.Add(occurrence.SamplingClass, createdBinding);
                 }
@@ -336,7 +352,8 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
                 {
                     if (occurrence.SourceNode is not ChanceNode chance) continue;
                     foreach (string message in chance.ProbabilitySource.Validate(
-                        occurrence.SourceFunction.HazardLevels, $"Chance node '{occurrence.DisplayName}'", "event-tree"))
+                        occurrence.SourceFunction.HazardLevels, $"Chance node '{occurrence.DisplayName}'", "event-tree",
+                        occurrence.SourceFunction.SpecifiedHazard))
                         AddUnique(messages, message);
                 }
 
@@ -723,7 +740,37 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
             }
             else if (mode == SampleMode.Realization)
             {
-                if (source.Kind == ProbabilitySourceKind.ResponseFunctionReference)
+                if (source.HasHazardTransforms || source.BivariateAxis != null)
+                {
+                    // Realization-mode chain values come from the class's sampler-bound transform
+                    // clones, so the transformed hazard is computed here and every lookup takes
+                    // the off-axis route — the aligned index is undefined on a transformed axis.
+                    SamplingBinding binding = _samplingBindings[occurrence.CanonicalPath];
+                    IReadOnlyList<ITransformFunction> transforms = binding.Transforms
+                        ?? throw new InvalidOperationException(
+                            "The transformed occurrence has no sampler-bound hazard-transform clones.");
+                    double transformed = ProbabilitySource.ApplyTransformRealizations(
+                        transforms, hazard, realizationIndex);
+                    if (source.BivariateAxis != null)
+                    {
+                        var surface = binding.ResponseFunction as IBivariateResponseFunction
+                            ?? throw new InvalidOperationException(
+                                "The bivariate-surface occurrence has no sampler binding.");
+                        value = source.EvaluateBivariateSurfaceOn(surface, hazard, transformed);
+                    }
+                    else if (source.Kind == ProbabilitySourceKind.ResponseFunctionReference)
+                    {
+                        IResponseFunction sampledFunction = binding.ResponseFunction
+                            ?? throw new InvalidOperationException("The referenced response occurrence has no sampler binding.");
+                        value = sampledFunction.SampleFunction(realizationIndex).CDF(transformed);
+                    }
+                    else
+                    {
+                        double localPercentile = Percentile(realizationIndex, binding.LocalDimension);
+                        value = source.EvaluateRealizationAtHazard(transformed, realizationIndex, localPercentile);
+                    }
+                }
+                else if (source.Kind == ProbabilitySourceKind.ResponseFunctionReference)
                 {
                     IResponseFunction sampledFunction = _samplingBindings[occurrence.CanonicalPath].ResponseFunction
                         ?? throw new InvalidOperationException("The referenced response occurrence has no sampler binding.");
@@ -960,6 +1007,74 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
             return RiskFunctionFactory.CreateResponseFunction(source.ToXElement())
                 ?? throw new InvalidOperationException(
                     $"Referenced response function '{source.Name}' cannot be cloned for an independent occurrence.");
+        }
+
+        /// <summary>
+        /// Clones one source's hazard-transform chain onto isolated self-contained setup
+        /// instances, seeds each clone from the class's child-stream base combined with the
+        /// transform's content hash and chain position, and copies the clones' exact flattened
+        /// percentiles into this sampler after the source's own dimensions.
+        /// </summary>
+        /// <param name="source">The probability source carrying the chain.</param>
+        /// <param name="occurrence">The expanded occurrence, for diagnostics.</param>
+        /// <param name="chainBaseSeed">The class's child-stream seed the clone streams fork from.</param>
+        /// <param name="sampleSize">The realization count.</param>
+        /// <param name="scheme">The sampling scheme.</param>
+        /// <param name="dimension">The running parent-sampler dimension cursor.</param>
+        /// <returns>The sampler-bound transform clones, in chain order.</returns>
+        /// <exception cref="InvalidOperationException">Thrown when a chain entry is unresolved or cannot be set up.</exception>
+        private IReadOnlyList<ITransformFunction> SetupTransformClones(ProbabilitySource source,
+            EventTreeOccurrenceNode occurrence, int chainBaseSeed, int sampleSize, SamplingScheme scheme,
+            ref int dimension)
+        {
+            var clones = new ITransformFunction[source.HazardTransforms.Count];
+            for (int i = 0; i < source.HazardTransforms.Count; i++)
+            {
+                ITransformFunction? transform = source.HazardTransforms[i];
+                if (transform == null)
+                {
+                    throw new InvalidOperationException(
+                        $"Event-tree response '{Name}' cannot set up chance occurrence " +
+                        $"'{occurrence.DisplayName}': the hazard transform at position {i} is missing " +
+                        "or unresolved. Call Validate() and correct the reported errors.");
+                }
+                ITransformFunction clone;
+                try
+                {
+                    clone = RiskFunctionFactory.CreateTransformFunction(transform.ToXElement())
+                        ?? throw new InvalidOperationException(
+                            $"Hazard transform '{transform.Name}' cannot be cloned for an independent occurrence.");
+                    clone.SetupSampler(sampleSize,
+                        SeedHelpers.HashCombine(chainBaseSeed, transform.CanonicalHash(), i), scheme);
+                }
+                catch (Exception ex) when (ex is ArgumentException
+                    || ex is InvalidOperationException
+                    || ex is NotSupportedException)
+                {
+                    throw new InvalidOperationException(
+                        $"Event-tree response '{Name}' could not set up chance occurrence " +
+                        $"'{occurrence.DisplayName}' at canonical path '{occurrence.CanonicalPath}' " +
+                        $"from hazard transform '{transform.Name}': {ex.Message}", ex);
+                }
+
+                int cloneDimensions = clone.SamplingDimensions;
+                RiskFunctionBase? cloneBase = clone as RiskFunctionBase;
+                if (cloneDimensions > 0 && cloneBase == null)
+                    throw new InvalidOperationException(
+                        $"Hazard transform '{transform.Name}' does not expose the established " +
+                        "RiskFunctionBase sampler state.");
+                for (int realization = 0; realization < sampleSize; realization++)
+                {
+                    for (int cloneDimension = 0; cloneDimension < cloneDimensions; cloneDimension++)
+                    {
+                        _percentiles![realization, dimension + cloneDimension] =
+                            cloneBase!.SampledPercentile(realization, cloneDimension);
+                    }
+                }
+                dimension += cloneDimensions;
+                clones[i] = clone;
+            }
+            return clones;
         }
 
         /// <summary>Adds a diagnostic once while preserving first-discovery order.</summary>
@@ -1274,10 +1389,12 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
         private sealed class SamplingBinding
         {
             /// <summary>Initializes a realization-sampling binding.</summary>
-            internal SamplingBinding(int localDimension, IResponseFunction? responseFunction)
+            internal SamplingBinding(int localDimension, IResponseFunction? responseFunction,
+                IReadOnlyList<ITransformFunction>? transforms = null)
             {
                 LocalDimension = localDimension;
                 ResponseFunction = responseFunction;
+                Transforms = transforms;
             }
 
             /// <summary>The tree-local knowledge dimension backing an uncertain-tabular percentile lookup.</summary>
@@ -1285,6 +1402,9 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
 
             /// <summary>The referenced response function, or null for non-response sources.</summary>
             internal IResponseFunction? ResponseFunction { get; }
+
+            /// <summary>The sampler-bound hazard-transform clones, or null for an untransformed source.</summary>
+            internal IReadOnlyList<ITransformFunction>? Transforms { get; }
         }
 
         /// <summary>Associates one expanded terminal occurrence with its public branch descriptor.</summary>

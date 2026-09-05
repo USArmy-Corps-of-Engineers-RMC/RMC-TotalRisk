@@ -12,7 +12,9 @@ using RMC.TotalRisk.RiskFunctions.Consequences;
 using RMC.TotalRisk.RiskFunctions.Hazards;
 using RMC.TotalRisk.RiskFunctions.Responses;
 using RMC.TotalRisk.RiskFunctions.Responses.EventTrees;
+using RMC.TotalRisk.RiskFunctions.Responses.FaultTrees;
 using RMC.TotalRisk.RiskFunctions.Responses.Trees;
+using RMC.TotalRisk.RiskFunctions.Transforms;
 using RMC.TotalRisk.Results;
 using RMC.TotalRisk.Systems.Components;
 
@@ -551,6 +553,147 @@ public class LogicTreeEnumerationTests
         // selects independently, the established sampled reading).
         analysis.Options.EstimateMeanRiskOnly = false;
         Assert.IsTrue(analysis.Validate().IsValid);
+    }
+
+    /// <summary>
+    /// Verifies the chain-carried boundary: an epistemic composite transform inside a tree
+    /// probability source's hazard-transform chain samples in the tree's isolated setup clones
+    /// exactly like a tree-carried response composite, so enumeration and the mean-only blend
+    /// gate both refuse it loudly, while an ordinary deterministic chain stays accepted.
+    /// </summary>
+    [TestMethod]
+    public async Task Test_ChainCarriedEpistemicTransform_RefusedLoudly()
+    {
+        // Arrange — an epistemic transform pair inside a transformed tabular source.
+        var epistemicChain = new CompositeTransform(new[]
+        {
+            new WeightedTransformFunction(DurationMap("Short", 0.4d), 0.5d),
+            new WeightedTransformFunction(DurationMap("Long", 0.6d), 0.5d),
+        })
+        {
+            Name = "Chain",
+            SpecifiedHazard = "Stage",
+            HazardUnit = "ft",
+            TransformedHazard = "Duration",
+            TransformedHazardUnit = "hr",
+            CompositeFunctionType = CompositeFunctionType.EpistemicMixture,
+        };
+        var tree = new EventTree();
+        tree.Add(tree.Root.Id, new ChanceNode("Breach", new ProbabilitySource(
+            DurationTable(), new ITransformFunction[] { epistemicChain })));
+        tree.Add(tree.Root.Id, new RemainderNode("Survival"));
+        var response = new EventTreeResponse(new[] { 0d, 30d }, tree)
+        {
+            Name = "Tree Response",
+            SpecifiedHazard = "Stage",
+            HazardUnit = "ft",
+        };
+        var analysis = new RiskAnalysis(new[] { Component("Dam", response) });
+        analysis.Options.EstimateMeanRiskOnly = false;
+        analysis.LogicTreeEnumerationRealizations = 3;
+
+        // Assert — enumeration refuses at validation and at run start.
+        Assert.IsTrue(analysis.Validate().ValidationMessages.Any(m =>
+            m.StartsWith("Error:", StringComparison.Ordinal) && m.Contains("tree probability source")));
+        await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => analysis.RunAsync());
+
+        // Assert — the mean-only gate catches the same chain-carried composite.
+        analysis.LogicTreeEnumerationRealizations = null;
+        analysis.Options.EstimateMeanRiskOnly = true;
+        Assert.IsTrue(analysis.Validate().ValidationMessages.Any(m =>
+            m.StartsWith("Error:", StringComparison.Ordinal) && m.Contains("analytic blend")));
+
+        // Assert — an ordinary deterministic chain in the same seat stays accepted.
+        ((ChanceNode)response.EventTree.Nodes.First(n => n.Name == "Breach")).ProbabilitySource =
+            new ProbabilitySource(DurationTable(), new ITransformFunction[] { DurationMap("Plain", 0.5d) });
+        Assert.IsTrue(analysis.Validate().IsValid, string.Join(" | ",
+            analysis.Validate().ValidationMessages));
+    }
+
+    /// <summary>
+    /// Verifies the external-transfer boundary: an epistemic composite reachable only through an
+    /// external fault-tree transfer target's basic event is tree-carried — the transfer expands
+    /// into the owner's isolated plan — so enumeration and the mean-only blend gate both refuse
+    /// it loudly.
+    /// </summary>
+    [TestMethod]
+    public async Task Test_TransferCarriedEpistemicComposite_RefusedLoudly()
+    {
+        // Arrange — the epistemic composite sits behind a basic event of an EXTERNAL fault tree
+        // reached only through a transfer node in the component's own fault tree.
+        var nested = new CompositeResponse(new[]
+        {
+            new WeightedResponseFunction(Fragility("Nested Low", 14d), 0.4d),
+            new WeightedResponseFunction(Fragility("Nested High", 24d), 0.6d),
+        })
+        {
+            Name = "Nested Transfer",
+            SpecifiedHazard = "Stage",
+            HazardUnit = "ft",
+            CompositeCombinationType = CompositeCombinationType.EpistemicMixture,
+        };
+        var externalTree = new FaultTree();
+        externalTree.Add(externalTree.Root.Id, new FaultTreeBasicEventNode("Carrier",
+            new ProbabilitySource(nested)));
+        var external = new FaultTreeResponse(new[] { 0d, 30d }, externalTree)
+        {
+            Name = "External Subsystem",
+            SpecifiedHazard = "Stage",
+            HazardUnit = "ft",
+        };
+        var ownerTree = new FaultTree();
+        ownerTree.Add(ownerTree.Root.Id, new FaultTreeTransferNode("Subsystem",
+            new TreeNodeReference(external.Id, externalTree.Root.Id, external.Name, "Top event"),
+            external));
+        var owner = new FaultTreeResponse(new[] { 0d, 30d }, ownerTree)
+        {
+            Name = "Owner Tree",
+            SpecifiedHazard = "Stage",
+            HazardUnit = "ft",
+        };
+        var analysis = new RiskAnalysis(new[] { Component("Dam", owner) });
+        analysis.Options.EstimateMeanRiskOnly = false;
+        analysis.LogicTreeEnumerationRealizations = 3;
+
+        // Assert — enumeration refuses at validation and at run start.
+        Assert.IsTrue(analysis.Validate().ValidationMessages.Any(m =>
+            m.StartsWith("Error:", StringComparison.Ordinal) && m.Contains("tree probability source")));
+        await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => analysis.RunAsync());
+
+        // Assert — the mean-only gate catches the same transfer-carried composite.
+        analysis.LogicTreeEnumerationRealizations = null;
+        analysis.Options.EstimateMeanRiskOnly = true;
+        Assert.IsTrue(analysis.Validate().ValidationMessages.Any(m =>
+            m.StartsWith("Error:", StringComparison.Ordinal) && m.Contains("analytic blend")));
+    }
+
+    /// <summary>Builds a deterministic Stage-to-Duration linear map.</summary>
+    private static LinearTransform DurationMap(string name, double beta)
+    {
+        return new LinearTransform
+        {
+            Name = name,
+            SpecifiedHazard = "Stage",
+            HazardUnit = "ft",
+            TransformedHazard = "Duration",
+            TransformedHazardUnit = "hr",
+            Minimum = -100d,
+            Maximum = 100d,
+            Alpha = 0d,
+            Beta = beta,
+            IsUncertain = false,
+        };
+    }
+
+    /// <summary>Builds a deterministic probability table on the transformed Duration axis.</summary>
+    private static UncertainOrderedPairedData DurationTable()
+    {
+        return new UncertainOrderedPairedData(
+            new[]
+            {
+                new UncertainOrdinate(0d, new Deterministic(0d)),
+                new UncertainOrdinate(18d, new Deterministic(1d)),
+            }, true, SortOrder.Ascending, false, SortOrder.None, UnivariateDistributionType.Deterministic);
     }
 
     /// <summary>

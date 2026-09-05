@@ -31,6 +31,10 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.Trees
         internal HashSet<IResponseFunction> OrdinaryResponses { get; } =
             new HashSet<IResponseFunction>(ReferenceEqualityComparer.Instance);
 
+        /// <summary>Every live hazard transform carried by a probability-source chain in the plan.</summary>
+        internal HashSet<ITransformFunction> TransformFunctions { get; } =
+            new HashSet<ITransformFunction>(ReferenceEqualityComparer.Instance);
+
         /// <summary>Captures the complete dependency state after expansion succeeds.</summary>
         /// <returns>The immutable fingerprinted dependency set.</returns>
         internal TreePlanDependencies CreateDependencies()
@@ -41,7 +45,9 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.Trees
             Tables.CopyTo(tables);
             var ordinary = new IResponseFunction[OrdinaryResponses.Count];
             OrdinaryResponses.CopyTo(ordinary);
-            return new TreePlanDependencies(sources, tables, ordinary);
+            var transforms = new ITransformFunction[TransformFunctions.Count];
+            TransformFunctions.CopyTo(transforms);
+            return new TreePlanDependencies(sources, tables, ordinary, transforms);
         }
     }
 }

@@ -452,22 +452,26 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.EventTrees
 
                 ProbabilitySource source = chance.ProbabilitySource;
                 if (source.Table is not null) _collector.Tables.Add(source.Table);
+                foreach (var transform in source.HazardTransforms)
+                {
+                    if (transform != null) _collector.TransformFunctions.Add(transform);
+                }
                 int samplingDimensions;
                 bool isDeterministic;
                 byte[]? recursiveResponseHash = null;
                 if (source.ResponseFunction is EventTreeResponse nestedResponse)
                 {
                     EventTreeOccurrencePlan nestedPlan = CompileNestedResponse(nestedResponse);
-                    samplingDimensions = nestedPlan.SamplingDimensions;
-                    isDeterministic = nestedPlan.IsDeterministic;
+                    samplingDimensions = nestedPlan.SamplingDimensions + source.HazardTransformDimensions;
+                    isDeterministic = nestedPlan.IsDeterministic && source.HazardTransformsAreDeterministic;
                     recursiveResponseHash = nestedResponse.CanonicalHash(nestedPlan);
                 }
                 else if (source.ResponseFunction is FaultTrees.FaultTreeResponse nestedFault)
                 {
                     FaultTrees.FaultTreeOccurrencePlan nestedPlan =
                         FaultTrees.FaultTreeOccurrencePlan.CompileNested(nestedFault, _collector);
-                    samplingDimensions = nestedPlan.SamplingDimensions;
-                    isDeterministic = nestedPlan.IsDeterministic;
+                    samplingDimensions = nestedPlan.SamplingDimensions + source.HazardTransformDimensions;
+                    isDeterministic = nestedPlan.IsDeterministic && source.HazardTransformsAreDeterministic;
                     recursiveResponseHash = nestedFault.CanonicalHash(nestedPlan);
                 }
                 else
