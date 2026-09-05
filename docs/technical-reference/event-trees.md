@@ -49,6 +49,29 @@ Referenced responses may be held inline (self-contained) or by reference through
 cross-function — are rejected transactionally with the complete deterministic function/node path
 in the diagnostic.
 
+### Hazard-transform chains and the bivariate surface axis
+
+A table or reference source may additionally carry an **ordered hazard-transform chain**
+(`HazardTransforms`) that maps the caller hazard `h` through univariate transforms to `t(h)`
+before the lookup, so a chance node can be keyed on a derived axis — overtopping depth,
+duration, warning time — rather than on the tree's driving hazard. A transformed table is
+authored directly at transformed-axis ordinates: it is freed from tree-axis alignment (any knot
+count) and every lookup interpolates; a transformed reference evaluates its `CDF` at `t(h)`.
+Mean and percentile evaluation applies the live chain (mean curves, or the one consistent
+knowledge percentile); realization evaluation applies sampler-bound transform clones, and each
+chain entry contributes its own sampler dimensions to the owning sampling class. A **bivariate
+response surface** becomes a legal source only in this transformed form: the source declares
+which surface axis the tree hazard drives (`BivariateSourceAxis.Primary` or `.Secondary`) and
+the chain supplies the other coordinate, evaluating the clamped slice `p(h) = S(h, t(h))` or
+`S(t(h), h)` — never the silent weight collapse an undeclared bivariate reference is still
+refused for. The chain and the axis are conditional serialized content and enter the source's
+projected identity as ordered transform content hashes, so a chainless source keeps a
+byte-identical form, hash, and seed, while configuring or editing a chain deliberately re-rolls
+the owning tree's streams. Live chain-transform edits invalidate the compiled plan through
+their own canonical fingerprints, and an epistemic composite transform inside a chain is
+treated exactly like a tree-carried epistemic response composite by the mean-only blend gate
+and the exact logic-tree enumerator.
+
 ## Links and occurrences
 
 `EventTreeLinkNode` references another node's subtree, internal or external, in either

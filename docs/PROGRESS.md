@@ -1,5 +1,114 @@
 # Progress Log
 
+## 2026-09-05 — Capability program session 8: B5 — transform- and axis-mapped tree probability sources
+
+**Goal:** land B5 end to end per the ratified design — an optional ordered hazard-transform
+chain on `ProbabilitySource` so a tree node (event-tree chance, fault-tree basic event) can be
+keyed on a derived hazard axis (overtopping depth, duration, warning time) rather than the
+driving hazard, one landing covering both tree kinds through the shared source seat — plus the
+axis selector retiring the bivariate-tree-source guard. B6 (parametric CCF) as the follow-on
+only if B5 closes clean.
+
+**Baseline (session start):** numerics `7a3f0e4` clean (the tree was dirty at plan time —
+uncommitted `CompetingRisks.cs`; the user committed on request per the protocol's stop-and-ask;
+no v2.2 tag, 4 ahead of origin); TotalRisk `91d52f5` on `v2.0-development` clean; fast suite
+**1,295/1,295** + Api **73/73**; **all eight perf byte gates bit-exact** against their
+RESULTS.md pins — no bisect needed (`7a3f0e4` "Support legacy competing-risks matrix
+placeholders" proved engine-inert).
+
+**User rulings (2026-09-05, batched at plan time, all as recommended):** (1) **seat shape** —
+ctor-injected immutable ordered chain (`IReadOnlyList<ITransformFunction>`) legal on the
+tabular and reference kinds, serialized as a conditional `<HazardTransforms>` child through
+`FunctionEntry` in BOTH modes (resolver-repaired markers), identity = ordered transform
+content hashes; (2) **sampling** — each chain entry contributes its own dimensions,
+content-seeded clone streams (the `FailureMode`/referenced-response convention), realization
+mode reads the clones, percentile mode applies the one consistent percentile, importance
+sweeps keep one draw per class; (3) **bivariate guard retired with the axis selector** —
+`BivariateSourceAxis` (Primary/Secondary, conditional attribute) + a non-empty chain supplying
+the other coordinate evaluates the clamped slice p(h) = S(h, t(h)); an undeclared bivariate
+reference keeps the original Error verbatim; (4) **greenfield family**
+`TreeSourceTransformVerification` AND both discovered epistemic-gate gaps fixed in-session.
+
+**Design-verification findings (three parallel source sweeps before planning):** the
+evaluation surface has **seven** production paths per tree kind, not six — realization-mode
+referenced responses bypass `ProbabilitySource` and read the sampler-bound clone — and the
+aligned/off-axis dispatch is duplicated across four seats (the importance sweeps are separate
+copies); the aligned tabular arm ignores its hazard argument entirely, so no aligned fast path
+can survive a transform; `ProbabilitySource.CanonicalToken()` and the two realization-reference
+sextet arms are dead code (left dead, documented); `LinearTransform` defaults `IsUncertain`
+true (the v1.0 default — a fixture lesson); and **two pre-existing silent gaps**: the C3/B3
+containment walker could not see an epistemic `CompositeTransform` behind a tree source
+(`IResponseFunction`-typed) and skipped external fault-transfer targets that the B8 walk
+follows.
+
+**Landed (`v2.0-development`):**
+
+- **The seat** — `ProbabilitySource` gains `HazardTransforms` + `BivariateAxis` (three new
+  ctors; the reading ctor parses both for every kind so malformed pairings round-trip
+  shape-preserving and fail Validate), conditional-presence serialization and identity (every
+  chainless source's form, hash, and seed byte-identical — gate-proven), dimension/determinism
+  folds (+ `HazardTransformDimensions`, `HazardTransformsAreDeterministic` for the plan
+  compilers' nested-tree special cases), the extended `Validate` matrix (scalar-with-chain,
+  misplaced axis, bivariate-in-chain, axis-without-chain, axis-on-univariate Errors; the
+  transformed table freed from tree-axis alignment; owner→chain→target label-continuity
+  Warnings via a new optional owner-label parameter), and `CloneForFragment` carrying the
+  chain as live references. New `BivariateSourceAxis` enum (Trees-colocated, append-only).
+- **Evaluation** — mean/percentile chain application INSIDE the evaluation sextet (single
+  funnel: the two importance seats and the Validate sweeps ride it with zero edits; the
+  aligned trio redirects to the off-axis route at the transformed hazard, branch-guarded so
+  the transform-free hot path is untouched); realization mode at the two tree dispatch seats
+  through the sampler-bound clones (`ApplyTransformRealizations` shared static; the aligned
+  realization entry THROWS under a chain — the four-seat duplication tripwire); the bivariate
+  slice evaluated through `EvaluateBivariateSurfaceOn` (live function on mean/percentile, the
+  binding's clone surface on realizations).
+- **Sampling** — both `SetupSampler`s clone + content-seed each chain entry from the class's
+  child-stream base (`HashCombine(base, transform.CanonicalHash(), position)`; event base =
+  the `childStreamOccurrence` counter — renamed from `responseOccurrence`, existing
+  consumption byte-unchanged; fault base = the unified-variable ordinal) and flatten the clone
+  percentiles into the parent matrix after the source's own dimensions; the nested-clone
+  dimension checks subtract `HazardTransformDimensions`.
+- **Invalidation** — a fourth `TransformFunctions` bucket (canonical-hash fingerprints +
+  PropertyChanged subscriptions) on `TreeDependencyCollector`/`TreePlanDependencies`,
+  populated by both plan compilers; a live chain-transform edit invalidates the compiled plan
+  (pinned: `IsUncertain` flip moves the plan's dimension count).
+- **The walker fixes** — `TreeCarriesEpistemicComposite` now sees chain-carried epistemic
+  composite transforms (`ChainCarriesEpistemicTransform`) AND follows external fault-transfer
+  targets (the pre-existing gap closed): both shapes now trip the C3 enumeration refusal and
+  the B3 mean-only blend gate loudly, each pinned by a new gate test; verified that no
+  transform type can carry a response or house event, so `ApplyHouseEventStates` needs no new
+  arm (the config reach through a transformed source is family-pinned).
+
+**Verified:** fast suite **1,331/1,331** (36 new: the `ProbabilitySourceTests` seat matrix,
+`BivariateSourceAxisTests` pins, `EventTreeTransformedSourceTests` +
+`FaultTreeTransformedSourceTests` — incl. content-seed expectation tests reconstructing the
+clone streams from the documented recipe — the two `LogicTreeEnumerationTests` gate tests, and
+the kitchen-sink transformed-source registry entry); **`TreeSourceTransformVerification` 6/6
+isolated** (3.5 s) — the two-transform reconstruction bit-oracle at N = 1,024, the dyadic
+pre-transformed equivalence bit-exact at the response surface AND behind mean-only engine
+twins, the fault inclusion–exclusion oracle at 1e-14 with the transformed event
+bit-reconstructed, the bivariate-slice engine twin bit-exact, full-run byte reproducibility +
+the configuration reach through a transformed source, and the conditional-presence pin;
+touched families re-run isolated — `EventTreeVerification` **20/20** (incl. the shared-limb
+partial), `FaultTreeVerification` **11/11**, `FaultTreeMonteCarloVerification` **7/7**;
+**all eight perf byte gates bit-identical** post-implementation (F5/F7 the tree tripwires —
+the zero-overhead proof); Release gate + both validators green.
+
+**Docs:** `EVENT_AND_FAULT_TREE_RESPONSE_DESIGN.md` amended under the ratification (status
+block, §1.2 non-goal annotation, §3.2 source semantics, §8 chain sampling, §9.1 fingerprints,
+§10 serialization/identity); `BIVARIATE_RISK_DESIGN.md` decision-10 tree arm retirement note;
+technical-reference `event-trees.md` (the new chain/axis section) + `fault-trees.md`;
+`docs/verification/tree-source-transform.md` + the README family row; the five Ported Types
+Matrix rows in CLAUDE.md (Trees, both tree responses, RiskAnalysis, BivariateResponse) and
+AGENTS.md regenerated.
+
+**Recorded boundaries:** one chain per source (a surface with both axes independently
+transformed is out of scope); the transformed lookup inherits the established off-axis
+endpoint behavior; the dead sextet arms stay dead; unresolved-reference re-saves keep the
+seat's existing drop precedent.
+
+**Next:** B6 (parametric CCF) under its own mini-ratification if session budget allows,
+per the whole-or-not rule; then the session-9 prompt.
+
 ## 2026-09-04 — Phase 14A: the REST API + MCP server (stateless round-trip compute), and the v2.0-development branch rename
 
 **Goal:** switch gears from the capability program to Phase 14, per the 2026-09-03 user

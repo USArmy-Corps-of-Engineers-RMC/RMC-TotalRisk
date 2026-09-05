@@ -943,10 +943,15 @@ supported (AFP = marginalized Fail total; assurance over primary annualized prob
 uncertainty summary — unchanged. §5.5.8 seed pin — supported (one hazard ordinal pins the subtree).
 EAD/multi-consequence — supported. Cascades/trees — decision-10 guards: BivariateResponse single
 stage only IN JOINT MODE (in collapse mode under a univariate hazard it participates as an ordinary
-deterministic univariate response — stages/cascades legal, decision 12); none inside
-trees/composites in either mode; no CompositeHazard over bivariate; nested copulas rejected;
-tree/composite responses on a secondary-bound mode REMAIN LEGAL (univariate responses on the
-y-chain). CompetingRisks — the D.3 guard. SystemConvolution — unaffected (consequence space).
+deterministic univariate response — stages/cascades legal, decision 12); none inside composites in
+either mode; no CompositeHazard over bivariate; nested copulas rejected; tree/composite responses
+on a secondary-bound mode REMAIN LEGAL (univariate responses on the y-chain). The tree-source arm
+of decision 10 was later retired under the ratified transform-mapped-source approval (2026-09-05,
+EVENT_AND_FAULT_TREE_RESPONSE_DESIGN.md §3.2): a bivariate response is a legal tree probability
+source when a declared `BivariateSourceAxis` names the tree-driven axis and a hazard-transform
+chain supplies the other surface coordinate — the silent weight collapse the guard prevented
+cannot occur there, and an undeclared bivariate reference keeps the original refusal.
+CompetingRisks — the D.3 guard. SystemConvolution — unaffected (consequence space).
 
 **D.7 Performance/allocation:** pre-allocated bin buffers; per-mode staging lists reused; Bilinear
 wrappers built per realization over shared grids (never shared across threads); cost ≈ (bins+1)× per

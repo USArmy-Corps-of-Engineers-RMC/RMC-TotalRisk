@@ -93,6 +93,15 @@ fragility, an `EventTreeResponse`, or another `FaultTreeResponse` at arbitrary a
 depth — evaluated at the owning response's current hazard ordinate. Referenced functions may be
 held inline (self-contained) or re-attached by an `IRiskFunctionResolver`.
 
+A table or reference source may additionally carry an **ordered hazard-transform chain** mapping
+the caller hazard onto a derived axis before the lookup — the same seat, semantics, sampling,
+identity, and validation rules as the event-tree side (see
+[event-tree responses](event-trees.md)): a transformed table is authored at transformed-axis
+ordinates and always interpolates, chain entries contribute their own sampler dimensions to the
+unified variable slot with content-seeded clone streams, a bivariate response surface is legal
+only with a declared `BivariateSourceAxis` and a chain supplying the other coordinate, and the
+chain is conditional serialized and identity content so chainless events are byte-identical.
+
 ## Sampling
 
 Setup discovers sampler dimensions per **unified variable**: a shared-logical event contributes

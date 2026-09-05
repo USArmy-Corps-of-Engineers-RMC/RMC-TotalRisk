@@ -4,7 +4,13 @@
 > fully implemented (Phase 10B complete, 2026-07-31). Amended 2026-09-03 under the ratified
 > shared-limb approval (capability program session 7, B9): event-tree links now support
 > `SharedLogicalEvent` semantics through context-keyed sampling classes, retiring the former
-> independent-clone-only non-goal; the affected sections are marked below.
+> independent-clone-only non-goal; the affected sections are marked below. Amended 2026-09-05
+> under the ratified transform-mapped-source approval (capability program session 8, B5):
+> probability sources on both tree kinds now carry an optional ordered hazard-transform chain
+> evaluating the source on a derived axis, and a bivariate response surface becomes a legal
+> source when a declared `BivariateSourceAxis` names the tree-driven axis and the chain supplies
+> the other coordinate — retiring the former bivariate-source refusal; §3.2, §8, §9.1, and §10
+> carry the amended rules.
 > **Implementation:** Phase 10A is complete: the controlled event-tree model, recursive sources,
 > independent links, both XML modes, projected identity, expanded graph outputs, immutable compiled
 > plan, fixed-seed property/routing/LHS/thread verification, >90% coverage, and recorded F5 fixture
@@ -50,7 +56,7 @@ Calling a tree a “probability model” in this document always means a conditi
 - UI controls, canvas coordinates, commands, clipboard formats, dialogs, project stores, and direct file I/O.
 - Hazard-frequency or risk computation inside either tree.
 - The unused legacy `SecondaryHazardNode` chain.
-- `BivariateResponse` or `WeightedHazardLevel`; those remain separate Phase 11 work.
+- `BivariateResponse` or `WeightedHazardLevel` as tree machinery; the bivariate port is separate Phase 11 work. The separately approved transform-mapped-source capability (ratified 2026-09-05) later made a bivariate response a legal probability source when its `BivariateSourceAxis` is declared and a hazard-transform chain supplies the other surface coordinate — never through the silent weight collapse this exclusion guarded against.
 - Dynamic fault trees, time-to-failure simulation, repair/availability, standby/spare gates, sequence-dependent gates, Markov models, or common-cause failure models.
 - Automatically treating repeated event-tree links as shared physical events. Event-tree reuse defaults to an independent clone; the separately approved shared-limb capability (ratified 2026-09-03) makes `SharedLogicalEvent` an explicit, deliberately selected link mode on event trees — never an inferred one.
 - Approximate fault-tree cut-set truncation as a production probability algorithm.
@@ -153,7 +159,7 @@ The common layer also supplies internal compilation and traversal records, immut
 - `ChanceNode`: an explicit conditional branch whose value comes from a `ProbabilitySource`.
 - `RemainderNode`: the residual sibling branch; at most one per parent and ordered after explicit branches for presentation.
 - `EventTreeLinkNode`: a structural reference to an internal or external event-tree subtree. `IndependentClone` (the default) forks distinct sampling streams per occurrence; `SharedLogicalEvent` (ratified 2026-09-03) unifies every occurrence of the referenced limb reached in one independent context onto shared sampling classes, so the limb draws once per realization and computes identically wherever it appears.
-- `ProbabilitySource`: a discriminated value source: deterministic scalar, uncertain tabular values aligned to the tree hazard levels, or an `IResponseFunction` reference evaluated at the current hazard level.
+- `ProbabilitySource`: a discriminated value source: deterministic scalar, uncertain tabular values, or an `IResponseFunction` reference. Without a hazard-transform chain, a table is aligned ordinate-for-ordinate to the tree hazard levels and a reference is evaluated at the current hazard level. With an ordered chain (ratified 2026-09-05), the caller hazard `h` maps through the transforms to `t(h)` and the table or reference is authored and evaluated on the transformed axis — the table is freed from tree-axis alignment and every lookup interpolates. A bivariate response surface is a legal source only with a declared `BivariateSourceAxis` (the tree-driven axis) and a non-empty chain supplying the other surface coordinate, evaluated as the clamped slice `p(h) = S(h, t(h))` or `S(t(h), h)`; a bivariate reference without the declaration keeps the original refusal. Chain entries are univariate transforms; realization-mode chain values come from sampler-bound clones while mean/percentile evaluation applies the live chain.
 
 Every terminal node has a stable branch descriptor. A chance or link terminal defaults to `IsFailure = true`; a remainder terminal defaults to `false`. Callers may explicitly classify a terminal as failure or non-failure. Classification affects aggregate `P(F|h)` and is compute-relevant. Display labels are metadata.
 
@@ -308,10 +314,10 @@ Tree responses participate in the same engine-owned sampler lifecycle as every o
 
 - `SetupSampler(sampleSize, scheme, seed)` discovers dimensions, allocates strata/posterior indices, compiles the tree, and freezes immutable evaluation state.
 - `SampleFunction(int realizationIndex)` and `SampleBranches(int realizationIndex)` consume the prepared index; they do not draw random numbers.
-- percentile overloads apply one explicit percentile consistently to local uncertain sources and call the referenced function's percentile overload.
-- mean overloads use source means and referenced-function mean curves.
+- percentile overloads apply one explicit percentile consistently to local uncertain sources, hazard-transform chains, and the referenced function's percentile overload.
+- mean overloads use source means, chain mean curves, and referenced-function mean curves.
 
-The sampling dimension graph is compiled across local sources, external referenced response functions, and link occurrences. A direct uncertain scalar/table source contributes one local dimension according to its documented co-monotonic sampling rule. A referenced function contributes its own dimensions; the tree must not flatten it to one guessed dimension. A shared-logical fault event or shared event-tree sampling class is sampled once and reused across its occurrences. An independent link occurrence receives a separate occurrence binding even when its target content is identical.
+The sampling dimension graph is compiled across local sources, external referenced response functions, hazard-transform chains, and link occurrences. A direct uncertain scalar/table source contributes one local dimension according to its documented co-monotonic sampling rule. A referenced function contributes its own dimensions; the tree must not flatten it to one guessed dimension. Each hazard-transform chain entry likewise contributes its own dimensions to the owning sampling class or variable slot: setup clones each entry onto an isolated self-contained instance, seeds it from the class's child-stream base combined with the transform's content hash and chain position, and copies its exact flattened percentiles into the parent sampler, so realization-mode lookups evaluate the clones while the live stored transforms are never mutated. A shared-logical fault event or shared event-tree sampling class is sampled once and reused across its occurrences. An independent link occurrence receives a separate occurrence binding even when its target content is identical.
 
 For LHS, every continuous local dimension receives exactly one deterministic permutation of `N` strata and one within-stratum variate per realization, using the existing Numerics stratification facilities. Posterior-indexed children use the established `realizationIndex` contract and capacity validation. The tree adds no local `Random`, Mersenne Twister, wall-clock seed, or static mutable sampler.
 
@@ -356,9 +362,10 @@ cache.
 
 The occurrence plan captures canonical parent-before-child instructions, primitive child indices,
 expanded leaves, projected identity, sampler dimensions, and every direct or recursive dependency.
-Controlled event-tree responses propagate compute revisions. Local uncertain tables and ordinary
-referenced responses additionally carry canonical fingerprints, so suppressed collection events or
-in-place distribution edits cannot retain a stale plan. Metadata (`Name`, `Description`, IDs, hazard
+Controlled event-tree responses propagate compute revisions. Local uncertain tables, ordinary
+referenced responses, and probability-source hazard transforms additionally carry canonical
+fingerprints, so suppressed collection events or in-place edits — a distribution edit, or a live
+chain-transform edit — cannot retain a stale plan. Metadata (`Name`, `Description`, IDs, hazard
 labels/units, and display-only node edits) remains cache-inert.
 
 Add, insert, move, replace, delete, materialize, paste, and prune invalidate only after expanded
@@ -405,7 +412,7 @@ The canonical v1.1 XML shape is explicit and versioned. Node collections seriali
 </FaultTreeResponse>
 ```
 
-`ProbabilitySource` serializes a stable kind plus exactly one scalar, tabular uncertainty definition, or inline/reference response payload. Link mode, gate type, `K`, topology, terminal failure classification, hazard levels, probability transforms, and referenced canonical content are compute-relevant. Names, descriptions, UI order where mathematically commutative, GUIDs, and diagnostics are metadata/identity-inert. Event child order is presentation-only except where it establishes a stable branch output port; branch identity, not list position, must preserve graph connections across reorder.
+`ProbabilitySource` serializes a stable kind plus exactly one scalar, tabular uncertainty definition, or inline/reference response payload, and conditionally — only when configured — a `HazardTransforms` child of ordered inline/reference transform entries and a `BivariateAxis` attribute, so every source without them keeps a byte-identical serialized form, canonical identity, and seed. Link mode, gate type, `K`, topology, terminal failure classification, hazard levels, probability transforms, hazard-transform chain content and order, the bivariate axis, and referenced canonical content are compute-relevant; the chain enters identity as ordered transform content hashes. Names, descriptions, UI order where mathematically commutative, GUIDs, and diagnostics are metadata/identity-inert. Event child order is presentation-only except where it establishes a stable branch output port; branch identity, not list position, must preserve graph connections across reorder.
 
 Canonical identity is a projected, normalized form analogous to `SystemComponent` and `CompositeConsequence`:
 

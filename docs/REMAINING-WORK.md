@@ -126,16 +126,21 @@ approved and executed (`74af2e95…`, its own commit).
   with an Error until the coupling seat exists (the aleatory Mixture's exposure branches
   already enumerate exactly within every realization).
 - **Enumerating epistemic composites carried by tree probability sources (recorded 2026-09-02,
-  from the exact-enumeration close; not scheduled).** A composite referenced through an event-
-  or fault-tree probability source is sampled by the tree's own self-contained setup clones —
-  invisible to the walked-cluster axis discovery — so the enumerator refuses it loudly
-  (whole-or-not exactness), and the same containment walker now makes the mean-only blend gate
-  fire for tree-carried epistemic composites (previously silent). The forcing mechanism would
-  actually reach the clones (they keep the source function's id and seed inside the walk's
-  ambient scope), so extending enumeration through trees is feasible — but the tree evaluation
-  paths compose branch selection with the percentile-rescale convention for uncertain branch
-  chains, which needs its own ratified verification story before the exactness claim can cover
-  it.
+  from the exact-enumeration close; extended 2026-09-05; not scheduled).** A composite
+  referenced through an event- or fault-tree probability source is sampled by the tree's own
+  self-contained setup clones — invisible to the walked-cluster axis discovery — so the
+  enumerator refuses it loudly (whole-or-not exactness), and the same containment walker now
+  makes the mean-only blend gate fire for tree-carried epistemic composites (previously
+  silent). The 2026-09-05 tree-source-transform landing extended the walker's reach twice: an
+  epistemic `CompositeTransform` inside a probability source's hazard-transform chain is
+  refused the same way (chains sample in the tree's isolated clones), and the walker now
+  follows external fault-tree transfer targets — closing a pre-existing silent gap in which an
+  epistemic composite reachable only through an external transfer's basic event passed both
+  gates undetected. The forcing mechanism would actually reach the clones (they keep the
+  source function's id and seed inside the walk's ambient scope), so extending enumeration
+  through trees is feasible — but the tree evaluation paths compose branch selection with the
+  percentile-rescale convention for uncertain branch chains, which needs its own ratified
+  verification story before the exactness claim can cover it.
 - **The configured-ensemble extension of the configuration-risk query (recorded 2026-09-03,
   from the B8 landing; not scheduled).** `MeasureConfigurationRisk` is deliberately mean-only:
   a house-event state is compute content, so a configured realization ensemble re-rolls every
