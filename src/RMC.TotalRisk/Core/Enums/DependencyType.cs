@@ -11,11 +11,14 @@ namespace RMC.TotalRisk.Core.Enums
     /// </para>
     /// <para>
     /// Ported from v1.0 <c>RiskAnalysis.DependencyType</c> with member names and declared order
-    /// preserved — the names are serialized contract. Dependence is realized as a Gaussian copula:
+    /// preserved — the names are serialized contract, and new members are append-only. Dependence
+    /// is realized as a Gaussian copula:
     /// the perfectly positive and perfectly negative options build the component's multivariate
     /// normal with off-diagonal correlations of <c>1 − √εmach</c> and <c>−1/(D − 1) + √εmach</c>
     /// respectively (the latter is the most negative exchangeable equicorrelation that remains
-    /// positive semi-definite for D failure modes), exactly as v1.0 did.
+    /// positive semi-definite for D failure modes), exactly as v1.0 did. The latent-factors
+    /// option derives its correlation matrix from named factor loadings (ρij = Σf λif·λjf with a
+    /// unit diagonal) and feeds the same machinery as a user matrix.
     /// </para>
     /// </remarks>
     public enum DependencyType
@@ -42,5 +45,13 @@ namespace RMC.TotalRisk.Core.Enums
         /// decomposition).
         /// </summary>
         CorrelationMatrix,
+
+        /// <summary>
+        /// Correlation induced by named latent factors with per-combination-unit loadings:
+        /// ρij = Σf λif·λjf with a unit diagonal (the idiosyncratic remainder makes the matrix
+        /// positive semi-definite by construction). The derived matrix must still pass the
+        /// positive-definiteness gate and feeds the same combination kernels as a user matrix.
+        /// </summary>
+        LatentFactors,
     }
 }

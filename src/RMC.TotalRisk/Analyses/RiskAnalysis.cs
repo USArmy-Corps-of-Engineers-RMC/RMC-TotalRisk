@@ -276,13 +276,6 @@ namespace RMC.TotalRisk.Analyses
         private readonly ReadOnlyCollection<SystemComponent> _authorComponentsView;
 
         /// <summary>
-        /// The correlated component-hazard latent structure for the joint method (v1.0
-        /// off-diagonal constants; identity under independence). Run-scoped runtime state —
-        /// rebuilt by every run, never serialized, never hashed.
-        /// </summary>
-        private MultivariateNormal? _jointMultivariateNormal;
-
-        /// <summary>
         /// The lower Cholesky factor of the joint hazard covariance, extracted once per run so
         /// the VEGAS integrand applies the latent transform in place instead of allocating
         /// through <see cref="MultivariateNormal.InverseCDF(double[])"/> on every evaluation
@@ -4771,7 +4764,6 @@ namespace RMC.TotalRisk.Analyses
         /// </remarks>
         private void PrepareJointSystem(CancellationToken token)
         {
-            _jointMultivariateNormal = null;
             _jointCholeskyLower = null;
             _jointTailTargetProbability = 1e-2;
             if (_components.Count < 2 || _options.SystemRiskMethod != SystemRiskType.JointRiskMethod)
@@ -4780,7 +4772,9 @@ namespace RMC.TotalRisk.Analyses
             }
 
             int d = _components.Count;
-            _jointMultivariateNormal = BuildHazardMultivariateNormal(d, out var covariance);
+            // Only the covariance is retained — the Cholesky factor below drives the integrand's
+            // in-place latent transform, and the multivariate normal itself is never read.
+            BuildHazardMultivariateNormal(d, out var covariance);
 
             // Extract the lower Cholesky factor once — the same construction the multivariate
             // normal performs internally on the same covariance, so the factor bits are

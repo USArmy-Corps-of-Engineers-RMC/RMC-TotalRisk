@@ -181,6 +181,32 @@ approved and executed (`74af2e95…`, its own commit).
   do not carry CCF groups — a pasted member joins no group, and deleting a member leaves the
   group with a loud unresolved-member error.
 
+- **Latent-factor dependence extensions (recorded 2026-09-05, from the B4 landing; not
+  scheduled).** The landed `DependencyType.LatentFactors` mode is component-scope: loadings
+  per combination unit induce the matrix the existing kernels consume. Four extensions are
+  recorded, none blocking: (1) **cross-component capacity factors** — the joint system path
+  is hard-coded conditionally independent given the correlated hazards
+  (`Probability.IndependentExclusiveLazy` at the system combination seat), so factors spanning
+  components need that call replaced, not configured; (2) **the factor-integral evaluation
+  path** — conditional on the factors the units are independent, so the union collapses to a
+  low-dimensional exact integral wrapping the independent kernels
+  (`Probability.UnionSingleFactor` and `SingleFactorConditionalProbabilities` are the shipped
+  upstream seeds); it would lift the enumeration ceilings and replace the PCM approximation
+  with an exact evaluation for factor-structured models — a value-moving ruling when wanted;
+  (3) **Vanmarcke loadings-from-geometry** (segment length + scale of fluctuation deriving
+  the loadings); (4) **Guid-keyed per-mode factor authoring** for cascade layouts (loadings
+  are positional by combination unit today, the correlation-matrix convention). Two adjacent
+  observations from the same landing: `RiskAnalysisOptions.MaxPathwayCombinations` is
+  authored, serialized, and hashed but has no consumer (the per-component lazy enumeration
+  passes no cap; only the system-level call consumes `MaxSystemCombinations`), and
+  `SystemComponent.FailureModeMultivariateNormal` is a public inspection-only member with no
+  production consumer (its tests pin the derived-matrix back-fill) — both left as-is
+  deliberately. Also corrected on the record: dependent common-cause is a SUPPORTED v1.0
+  configuration (the method setter's coercion is a selection-time reset only; the dependency
+  setter is unguarded by design, and `CommonCauseAdjustment` has a dedicated dependent
+  kernel) — the session-9 plan's proposed advisory warning was dropped as mislabeling
+  supported behavior.
+
 - **A first-class shared-epistemic-variable object (recorded 2026-09-02; not scheduled).** The
   landed sharing identity is the name string on each binder — cheap, mode-portable, and exact.
   If authoring UX ever wants one place to declare a variable (description, weight-vector

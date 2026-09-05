@@ -11,13 +11,16 @@ namespace RMC.TotalRisk.Tests.Core.Enums;
 [TestClass]
 public class DependencyTypeTests
 {
-    /// <summary>Pins the v1.0 member names, order, and underlying values.</summary>
+    /// <summary>
+    /// Pins the member names, order, and underlying values — the v1.0 contract plus the
+    /// append-only latent-factors member.
+    /// </summary>
     [TestMethod]
     public void Test_Members_PinnedToV10Contract()
     {
         // Assert — names in declared order.
         CollectionAssert.AreEqual(
-            new[] { "Independent", "PerfectlyPositive", "PerfectlyNegative", "CorrelationMatrix" },
+            new[] { "Independent", "PerfectlyPositive", "PerfectlyNegative", "CorrelationMatrix", "LatentFactors" },
             Enum.GetNames<DependencyType>());
 
         // Underlying values.
@@ -25,5 +28,6 @@ public class DependencyTypeTests
         Assert.AreEqual(1, (int)DependencyType.PerfectlyPositive);
         Assert.AreEqual(2, (int)DependencyType.PerfectlyNegative);
         Assert.AreEqual(3, (int)DependencyType.CorrelationMatrix);
+        Assert.AreEqual(4, (int)DependencyType.LatentFactors);
     }
 }

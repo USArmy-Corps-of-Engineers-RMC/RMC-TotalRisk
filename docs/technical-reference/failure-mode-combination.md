@@ -214,10 +214,11 @@ enumeration).
 
 All dependent options model capacity dependence through the multivariate normal (Gaussian copula):
 each marginal response probability transforms to a standard-normal z-variate, and the MVN with zero
-means and unit variances couples the variates — the marginals themselves need not be normal. Four
+means and unit variances couples the variates — the marginals themselves need not be normal. Five
 options are common to the CCA, competing, and joint models: **independent** (De Morgan / the
 multiplication rule), **perfectly positive** (union = max marginal; intersection = min marginal),
-**perfectly negative**, and a **user-defined correlation matrix** (validated positive definite).
+**perfectly negative**, a **user-defined correlation matrix** (validated positive definite), and
+**latent factors** — a factor-loading construction of the correlation matrix (§5.1).
 
 The correlation matrix must stay positive definite. For a k-variable equicorrelation matrix the
 determinant is
@@ -235,6 +236,42 @@ perfectly negative copula reaches genuine exclusivity, which is why the joint mo
 the capped sum exactly (§3). Above two dimensions the MVN CDF is a randomized lattice rule, seeded
 from the component's content seed so results stay reproducible at any thread count
 ([hashing-and-seeding.md](hashing-and-seeding.md)).
+
+### 5.1 Latent factors: constructing the matrix from shared capacity drivers
+
+Many-mode dependence is rarely known as pairwise correlations; it is known as *shared drivers* — a
+soil unit under several levee segments, one design basis behind several gates, a common
+construction era. The **latent-factors** dependency option authors exactly that structure: named
+factors, each carrying one loading λ_if per combination unit, inducing
+
+```
+ρ_ij = Σ_f λ_if · λ_jf     (i ≠ j),      ρ_ii = 1,
+```
+
+the classic one-factor (and multi-factor) Gaussian capacity model behind the levee **length
+effect** — under a common loading λ the units are conditionally independent given one standard
+normal factor z, with conditional failure probabilities Φ((Φ⁻¹(p_i) − λz)/√(1−λ²)), so joint
+failure probability rises far above independence exactly where shared capacity drivers say it
+should. The induced matrix feeds the same combination kernels a user matrix feeds (the derived
+matrix is written back to the correlation-matrix field like the automatic modes'; it never
+serializes from this mode — the loadings are the persisted, hashed content).
+
+Validation bounds keep the construction honest: loadings lie in [−1, 1]; each unit's
+squared-loading sum Σ_f λ_if² may not exceed one (the remainder 1 − Σ_f λ_if² is the unit's
+idiosyncratic capacity variance, which makes the induced matrix positive semi-definite by
+construction); and the induced matrix must still pass the positive-definiteness gate — a unit
+loaded at Σλ² = 1 has no idiosyncratic variance, and two such units on proportional loading
+vectors induce an exactly singular matrix. Declared factor order is the hashed content order
+(reordering factors is a deliberate compute edit even though ρ is order-invariant), factor names
+and descriptions are display metadata, and a factor set configured under any other dependency mode
+is inert and unpersisted (an advisory warning says so).
+
+What the option does not yet do: derive loadings from geometry. The Vanmarcke variance-function
+step — segment length and a scale of fluctuation producing the correlation structure — is the
+natural companion and remains future work, as does cross-component factor sharing (dependence
+between components still enters only through their hazards) and a conditional-independence
+evaluation path that would exploit the factor structure directly (`Probability.UnionSingleFactor`
+is the upstream seed of that path).
 
 ## 6. Comparison, selection, and portrayal
 
@@ -298,6 +335,7 @@ an else-chain failure state is a validation error under competing). The full con
 | Competing | [competing-failures.md](../verification/competing-failures.md) | Tables 59–60 |
 | Joint | [joint-failures.md](../verification/joint-failures.md) | Tables 61–76 |
 | Cross-method invariants | [combination-method-consistency.md](../verification/combination-method-consistency.md) | — (engine-only property pins) |
+| Latent factors | [latent-factor.md](../verification/latent-factor.md) | — (greenfield: exact factor integrals + Monte Carlo oracles) |
 | Multi-component systems | [system-risk-matrix.md](../verification/system-risk-matrix.md) | Tables 77–103 |
 
 Every family preserves the legacy fixed seeds and documents its k·SE tolerance derivation per

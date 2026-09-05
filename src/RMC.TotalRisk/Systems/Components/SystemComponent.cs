@@ -139,6 +139,17 @@ namespace RMC.TotalRisk.Systems.Components
             _hazardThreshold = SerializationUtilities.ReadDouble(xElement, nameof(HazardThreshold));
             _correlationMatrix = SerializationUtilities.ParseMatrix(SerializationUtilities.ReadString(xElement, nameof(CorrelationMatrix)));
 
+            // Conditional-presence child: absent on every factor-free form (and on every
+            // form persisted outside the latent-factors dependency mode).
+            var factorContainer = xElement.Element(nameof(LatentFactors));
+            if (factorContainer != null)
+            {
+                foreach (XElement factorElement in factorContainer.Elements(nameof(LatentFactor)))
+                {
+                    AddLatentFactor(new LatentFactor(factorElement));
+                }
+            }
+
             // Append-only attribute; absent on earlier payloads, which load
             // forward as the primary-hazard default.
             string profileId = SerializationUtilities.ReadString(xElement, nameof(ProfileHazardElementId));
@@ -179,11 +190,19 @@ namespace RMC.TotalRisk.Systems.Components
         private JointConsequenceType _jointConsequences = JointConsequenceType.Maximum;
 
         /// <summary>
-        /// Backing field for <see cref="CorrelationMatrix"/>. In the automatic dependency modes
-        /// the multivariate-normal update writes the derived matrix here (v1.0 behavior); only
-        /// the <see cref="DependencyType.CorrelationMatrix"/> mode treats it as user content.
+        /// Backing field for <see cref="CorrelationMatrix"/>. In the automatic and latent-factors
+        /// dependency modes the multivariate-normal update writes the derived matrix here (v1.0
+        /// behavior); only the <see cref="DependencyType.CorrelationMatrix"/> mode treats it as
+        /// user content.
         /// </summary>
         private double[,]? _correlationMatrix;
+
+        /// <summary>
+        /// The insertion-ordered latent factors of the
+        /// <see cref="DependencyType.LatentFactors"/> dependency mode (see
+        /// <see cref="LatentFactors"/>).
+        /// </summary>
+        private readonly List<LatentFactor> _latentFactors = new List<LatentFactor>();
 
         /// <summary>
         /// Backing field for <see cref="HazardThreshold"/>.
@@ -392,9 +411,9 @@ namespace RMC.TotalRisk.Systems.Components
         /// <summary>
         /// The failure-mode correlation matrix. User content under
         /// <see cref="DependencyType.CorrelationMatrix"/> (must be positive definite with one row
-        /// per failure path — validated); in the automatic modes it holds the derived effective
-        /// matrix after the multivariate normal is built (v1.0 behavior). Serialized and hashed
-        /// only in the correlation-matrix mode.
+        /// per failure path — validated); in the automatic and latent-factors modes it holds the
+        /// derived effective matrix after the multivariate normal is built (v1.0 behavior).
+        /// Serialized and hashed only in the correlation-matrix mode.
         /// </summary>
         public double[,]? CorrelationMatrix
         {
@@ -405,6 +424,70 @@ namespace RMC.TotalRisk.Systems.Components
                 _mvnStale = true;
                 RaisePropertyChange(nameof(CorrelationMatrix));
             }
+        }
+
+        /// <summary>
+        /// The named latent factors of the <see cref="DependencyType.LatentFactors"/> dependency
+        /// mode, in declared order (order is semantic — it is the hashed content order). Each
+        /// factor carries one loading per combination unit; the induced correlation
+        /// ρij = Σf λif·λjf feeds the same combination kernels as a user matrix. Serialized and
+        /// hashed as a conditional child only in the latent-factors mode, so every other
+        /// component keeps a byte-identical form, canonical identity, and seed.
+        /// </summary>
+        public IReadOnlyList<LatentFactor> LatentFactors
+        {
+            get { return _latentFactors; }
+        }
+
+        /// <summary>
+        /// Adds one latent factor. Configuring factors under the
+        /// <see cref="DependencyType.LatentFactors"/> mode is deliberate compute content — the
+        /// loadings enter the canonical identity and move seeds.
+        /// </summary>
+        /// <param name="factor">The factor.</param>
+        /// <exception cref="ArgumentNullException">Thrown when the factor is null.</exception>
+        /// <exception cref="InvalidOperationException">Thrown when the same factor instance is already attached.</exception>
+        public void AddLatentFactor(LatentFactor factor)
+        {
+            if (factor == null) throw new ArgumentNullException(nameof(factor));
+            for (int i = 0; i < _latentFactors.Count; i++)
+            {
+                if (ReferenceEquals(_latentFactors[i], factor))
+                {
+                    throw new InvalidOperationException($"Latent factor '{factor.Name}' is already attached to this component.");
+                }
+            }
+            _latentFactors.Add(factor);
+            factor.PropertyChanged += LatentFactorPropertyChanged;
+            _mvnStale = true;
+            RaisePropertyChange(nameof(LatentFactors));
+        }
+
+        /// <summary>Removes one attached latent factor.</summary>
+        /// <param name="factor">The attached factor.</param>
+        /// <returns>True when the factor was attached and removed.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when the factor is null.</exception>
+        public bool RemoveLatentFactor(LatentFactor factor)
+        {
+            if (factor == null) throw new ArgumentNullException(nameof(factor));
+            int index = _latentFactors.FindIndex(existing => ReferenceEquals(existing, factor));
+            if (index < 0) return false;
+            _latentFactors.RemoveAt(index);
+            factor.PropertyChanged -= LatentFactorPropertyChanged;
+            _mvnStale = true;
+            RaisePropertyChange(nameof(LatentFactors));
+            return true;
+        }
+
+        /// <summary>
+        /// Invalidates the dependence machinery when an attached factor's content changes.
+        /// </summary>
+        /// <param name="sender">The factor.</param>
+        /// <param name="e">The change.</param>
+        private void LatentFactorPropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            _mvnStale = true;
+            RaisePropertyChange(nameof(LatentFactors));
         }
 
         /// <summary>
@@ -655,7 +738,8 @@ namespace RMC.TotalRisk.Systems.Components
         /// latent distribution), built lazily per the dependency option with the exact v1.0
         /// off-diagonal constants: <c>1 − √εmach</c> (perfectly positive) and
         /// <c>−1/(D − 1) + √εmach</c> (perfectly negative — the most negative exchangeable
-        /// equicorrelation that stays positive semi-definite). Null while the component has no
+        /// equicorrelation that stays positive semi-definite) — or, in the latent-factors mode,
+        /// the loadings-induced matrix. Null while the component has no
         /// failure paths or the correlation matrix is invalid.
         /// </summary>
         public MultivariateNormal? FailureModeMultivariateNormal
@@ -669,13 +753,14 @@ namespace RMC.TotalRisk.Systems.Components
 
         /// <summary>
         /// Ensures the failure-mode dependence machinery is current for the present failure-path
-        /// count: rebuilds the multivariate normal when stale and — in the automatic dependency
-        /// modes — back-fills <see cref="CorrelationMatrix"/> with the derived matrix. v1.0
+        /// count: rebuilds the multivariate normal when stale and — in the automatic and
+        /// latent-factors dependency modes — back-fills <see cref="CorrelationMatrix"/> with the
+        /// derived matrix. v1.0
         /// rebuilt eagerly on every ctor/setter/mode edit, so its compute paths always read a
         /// fresh matrix; v1.1 builds lazily, so the per-run freeze point
-        /// (<see cref="SetupSamplers(int, int, SamplingScheme)"/>) calls this before any sampling. Without this call the
-        /// perfectly-negative mode's derived matrix never materializes on the compute path (the
-        /// sampled component captures the raw <see cref="CorrelationMatrix"/> reference), which
+        /// (<see cref="SetupSamplers(int, int, SamplingScheme)"/>) calls this before any sampling. Without this call a
+        /// derived-mode matrix never materializes on the compute path (the
+        /// sampled component captures <see cref="CorrelationMatrix"/> at construction), which
         /// would silently zero the dependent combination kernels.
         /// </summary>
         internal void EnsureDependencyMatrixCurrent()
@@ -857,9 +942,11 @@ namespace RMC.TotalRisk.Systems.Components
         }
 
         /// <summary>
-        /// Determines whether the correlation matrix is valid for the current failure-path count
-        /// (a matching dimension and positive definiteness via Cholesky decomposition). Always
-        /// true outside the <see cref="DependencyType.CorrelationMatrix"/> mode.
+        /// Determines whether the dependence matrix is valid for the current failure-path count:
+        /// under <see cref="DependencyType.CorrelationMatrix"/> the stored user matrix (a matching
+        /// dimension and positive definiteness via Cholesky decomposition); under
+        /// <see cref="DependencyType.LatentFactors"/> the loadings' structural validity and the
+        /// induced matrix's positive definiteness. Always true in the other modes.
         /// </summary>
         /// <returns>True when the matrix is usable.</returns>
         public bool IsCorrelationMatrixValid()
@@ -921,6 +1008,21 @@ namespace RMC.TotalRisk.Systems.Components
             if (_failureModeDependency == DependencyType.CorrelationMatrix && !IsCorrelationMatrixValid())
             {
                 messages.Add($"Error: The failure mode correlation matrix is not positive definite or does not match the combination dimension (the state-group count) for system component '{Name}'.");
+            }
+
+            if (_failureModeDependency == DependencyType.LatentFactors)
+            {
+                int combinationDimension = CombinationUnitCount();
+                var factorErrors = CollectLatentFactorConfigurationErrors(combinationDimension);
+                messages.AddRange(factorErrors);
+                if (factorErrors.Count == 0 && combinationDimension > 0 && !IsCorrelationMatrixValid())
+                {
+                    messages.Add($"Error: The latent-factor loadings of system component '{Name}' induce a correlation matrix that is not positive definite; reduce a unit's squared-loading sum below 1, or make the units' loading vectors less than proportional.");
+                }
+            }
+            else if (_latentFactors.Count > 0)
+            {
+                messages.Add($"Warning: System component '{Name}' has latent factors configured but the failure-mode dependency is {_failureModeDependency}; the factors have no effect and do not persist outside the latent-factors mode.");
             }
 
             // The profile hazard selection: the id must resolve to a transform element in
@@ -1706,8 +1808,11 @@ namespace RMC.TotalRisk.Systems.Components
         /// the persistence surface; the canonical hash uses the internal identity form instead
         /// (see <see cref="CanonicalHash"/>). The correlation matrix serializes (G17 row-major,
         /// rows ';'-separated, values ','-separated) only under the correlation-matrix dependency
-        /// mode — in the automatic modes the matrix is derived state, and serializing it would
-        /// make the persisted form depend on whether the multivariate normal had been built.
+        /// mode — in the automatic and latent-factors modes the matrix is derived state, and
+        /// serializing it would make the persisted form depend on whether the multivariate
+        /// normal had been built. The latent-factor container likewise serializes only under the
+        /// latent-factors mode (a conditional child, so every other component's form is
+        /// byte-identical to its pre-latent-factor self).
         /// </summary>
         /// <returns>The serialized form.</returns>
         public XElement ToXElement()
@@ -1738,6 +1843,19 @@ namespace RMC.TotalRisk.Systems.Components
             element.SetAttributeValue(nameof(ProfileHazardElementId),
                 _profileHazardElementId.HasValue ? _profileHazardElementId.Value.ToString("D") : string.Empty);
             element.Add(_graph.ToXElement(mode));
+            // Conditional presence: the factor container exists only under the latent-factors
+            // dependency mode with factors configured, so every other component keeps its
+            // byte-identical serialized form (a new always-present attribute or child would
+            // move every existing component's canonical bytes).
+            if (_failureModeDependency == DependencyType.LatentFactors && _latentFactors.Count > 0)
+            {
+                var factors = new XElement(nameof(LatentFactors));
+                for (int i = 0; i < _latentFactors.Count; i++)
+                {
+                    factors.Add(_latentFactors[i].ToXElement());
+                }
+                element.Add(factors);
+            }
             return element;
         }
 
@@ -1841,6 +1959,21 @@ namespace RMC.TotalRisk.Systems.Components
                 modes.Add(modeXml);
             }
             element.Add(modes);
+
+            // Conditional presence mirrors the persisted form: the loadings are compute content
+            // only under the latent-factors mode, and every other component's identity — and
+            // therefore its seeds — is byte-identical to its pre-latent-factor self. Factor
+            // names and descriptions inside are stripped by the hasher; declared factor order
+            // is semantic.
+            if (_failureModeDependency == DependencyType.LatentFactors && _latentFactors.Count > 0)
+            {
+                var factors = new XElement(nameof(LatentFactors));
+                for (int i = 0; i < _latentFactors.Count; i++)
+                {
+                    factors.Add(_latentFactors[i].ToXElement());
+                }
+                element.Add(factors);
+            }
             return element;
         }
 
@@ -2106,9 +2239,10 @@ namespace RMC.TotalRisk.Systems.Components
         /// <summary>
         /// Rebuilds the multivariate normal for the failure-mode dependence — the exact v1.0
         /// construction: zero means; unit diagonal; off-diagonals per the dependency option
-        /// (identity, <c>1 − √εmach</c>, <c>−1/(D − 1) + √εmach</c>, or the user matrix). In the
-        /// automatic modes the derived matrix is written back to the correlation-matrix field
-        /// (v1.0 behavior); it never serializes from those modes.
+        /// (identity, <c>1 − √εmach</c>, <c>−1/(D − 1) + √εmach</c>, the user matrix, or the
+        /// latent-factor-induced matrix). In the automatic and latent-factors modes the derived
+        /// matrix is written back to the correlation-matrix field (v1.0 behavior); it never
+        /// serializes from those modes.
         /// </summary>
         /// <param name="dimension">The combination-unit count D (the failure-path count under a trivial layout).</param>
         private void UpdateMultivariateNormal(int dimension)
@@ -2139,6 +2273,19 @@ namespace RMC.TotalRisk.Systems.Components
                     }
                 }
             }
+            else if (_failureModeDependency == DependencyType.LatentFactors)
+            {
+                // The induced matrix is derived state exactly like the automatic modes'
+                // (back-filled, never serialized from this mode); a structural configuration
+                // error means no trustworthy matrix exists at this dimension.
+                if (CollectLatentFactorConfigurationErrors(dimension).Count > 0)
+                {
+                    _matrixValid = false;
+                    return;
+                }
+                FillLatentFactorMatrix(sigma, dimension);
+                _correlationMatrix = sigma;
+            }
             else
             {
                 // The automatic modes write their derived matrix back to the correlation-matrix
@@ -2155,14 +2302,30 @@ namespace RMC.TotalRisk.Systems.Components
         }
 
         /// <summary>
-        /// Validates the correlation matrix for the correlation-matrix dependency mode: the
-        /// dimension must match the failure-path count and the matrix must be positive definite
-        /// (Cholesky). The automatic modes always pass (their matrices are constructed valid).
+        /// Validates the dependence matrix for the current dependency mode: under the
+        /// correlation-matrix mode the stored user matrix must match the failure-path count and
+        /// be positive definite (Cholesky); under the latent-factors mode the loadings must be
+        /// structurally valid and the induced matrix (derived into a scratch copy — nothing
+        /// stored is touched) must pass the same positive-definiteness gate. The automatic modes
+        /// always pass (their matrices are constructed valid).
         /// </summary>
         /// <param name="dimension">The failure-path count D.</param>
         private void ValidateCorrelationMatrix(int dimension)
         {
             _matrixValid = true;
+            if (_failureModeDependency == DependencyType.LatentFactors)
+            {
+                if (dimension <= 0) return;
+                if (CollectLatentFactorConfigurationErrors(dimension).Count > 0)
+                {
+                    _matrixValid = false;
+                    return;
+                }
+                var induced = new double[dimension, dimension];
+                FillLatentFactorMatrix(induced, dimension);
+                _matrixValid = IsPositiveDefinite(induced);
+                return;
+            }
             if (_failureModeDependency != DependencyType.CorrelationMatrix) return;
 
             if (_correlationMatrix == null || _correlationMatrix.GetLength(0) != dimension || _correlationMatrix.GetLength(1) != dimension)
@@ -2170,16 +2333,108 @@ namespace RMC.TotalRisk.Systems.Components
                 _matrixValid = false;
                 return;
             }
+            _matrixValid = IsPositiveDefinite(_correlationMatrix);
+        }
+
+        /// <summary>
+        /// Determines positive definiteness via Cholesky decomposition, treating a failed
+        /// decomposition as not positive definite — the exact v1.0 treatment of the numerical
+        /// failure path.
+        /// </summary>
+        /// <param name="matrix">The square matrix.</param>
+        /// <returns>True when the decomposition succeeds and reports positive definiteness.</returns>
+        private static bool IsPositiveDefinite(double[,] matrix)
+        {
             try
             {
-                var cholesky = new CholeskyDecomposition(new Matrix(_correlationMatrix));
-                if (!cholesky.IsPositiveDefinite) _matrixValid = false;
+                var cholesky = new CholeskyDecomposition(new Matrix(matrix));
+                return cholesky.IsPositiveDefinite;
             }
             catch (Exception)
             {
-                // A failed decomposition means the matrix is not positive definite — the exact
-                // v1.0 treatment of the numerical failure path.
-                _matrixValid = false;
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Collects the structural configuration errors of the latent-factor loadings at the
+        /// given combination dimension: at least one factor; every factor carrying one finite
+        /// loading in [−1, 1] per combination unit; and every unit's squared-loading sum across
+        /// factors at most one (the idiosyncratic-variance bound — at exactly one the unit has no
+        /// idiosyncratic variance and the induced matrix may fail the positive-definiteness gate).
+        /// </summary>
+        /// <param name="dimension">The combination-unit count D.</param>
+        /// <returns>The error messages; empty when the configuration is structurally valid.</returns>
+        private List<string> CollectLatentFactorConfigurationErrors(int dimension)
+        {
+            var messages = new List<string>();
+            if (_latentFactors.Count == 0)
+            {
+                messages.Add($"Error: The latent-factors dependency mode of system component '{Name}' requires at least one latent factor.");
+                return messages;
+            }
+
+            for (int f = 0; f < _latentFactors.Count; f++)
+            {
+                var factor = _latentFactors[f];
+                string label = string.IsNullOrEmpty(factor.Name) ? $"#{f + 1}" : $"'{factor.Name}'";
+                var loadings = factor.Loadings;
+                if (loadings.Count != dimension)
+                {
+                    messages.Add($"Error: Latent factor {label} of system component '{Name}' has {loadings.Count} loadings but the combination dimension (the state-group count) is {dimension}.");
+                    continue;
+                }
+                for (int i = 0; i < loadings.Count; i++)
+                {
+                    double loading = loadings[i];
+                    if (!Tools.IsFinite(loading) || loading < -1d || loading > 1d)
+                    {
+                        messages.Add($"Error: Latent factor {label} of system component '{Name}' has loading {SerializationUtilities.FormatDouble(loading)} at position {i}; loadings must be finite values within [-1, 1].");
+                    }
+                }
+            }
+            if (messages.Count > 0) return messages;
+
+            for (int i = 0; i < dimension; i++)
+            {
+                double squaredSum = 0d;
+                for (int f = 0; f < _latentFactors.Count; f++)
+                {
+                    double loading = _latentFactors[f].Loadings[i];
+                    squaredSum += loading * loading;
+                }
+                if (squaredSum > 1d)
+                {
+                    messages.Add($"Error: The latent-factor loadings of system component '{Name}' give combination unit {i} a squared-loading sum of {SerializationUtilities.FormatDouble(squaredSum)}, exceeding 1 — the unit's idiosyncratic variance would be negative.");
+                }
+            }
+            return messages;
+        }
+
+        /// <summary>
+        /// Fills the latent-factor-induced correlation matrix: a unit diagonal assigned exactly,
+        /// and off-diagonals ρij = Σf λif·λjf accumulated in declared factor order — the
+        /// summation-order contract the dense-equivalence verification pins bit-exactly. Assumes
+        /// the structural configuration checks have passed.
+        /// </summary>
+        /// <param name="target">The matrix to fill, at least <paramref name="dimension"/> square.</param>
+        /// <param name="dimension">The combination-unit count D.</param>
+        private void FillLatentFactorMatrix(double[,] target, int dimension)
+        {
+            for (int i = 0; i < dimension; i++)
+            {
+                target[i, i] = 1d;
+                for (int j = i + 1; j < dimension; j++)
+                {
+                    double correlation = 0d;
+                    for (int f = 0; f < _latentFactors.Count; f++)
+                    {
+                        var loadings = _latentFactors[f].Loadings;
+                        correlation += loadings[i] * loadings[j];
+                    }
+                    target[i, j] = correlation;
+                    target[j, i] = correlation;
+                }
             }
         }
 

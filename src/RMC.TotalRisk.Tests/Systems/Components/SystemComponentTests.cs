@@ -14,6 +14,7 @@ using RMC.TotalRisk.RiskFunctions.Responses;
 using RMC.TotalRisk.RiskFunctions.Transforms;
 using RMC.TotalRisk.Systems.Components;
 using RMC.TotalRisk.Systems.Components.Graph;
+using RMC.TotalRisk.Tests.Core;
 
 namespace RMC.TotalRisk.Tests.Systems.Components;
 
@@ -605,6 +606,253 @@ public class SystemComponentTests
         component.FailureModeDependency = DependencyType.PerfectlyNegative;
         component.FailureModeMethod = FailureModeMethod.MutuallyExclusive;
         Assert.AreEqual(DependencyType.Independent, component.FailureModeDependency);
+    }
+
+    /// <summary>
+    /// Builds the levee with three failure paths (two extra terminals on the response fan-out)
+    /// for the latent-factor tests — a 3×3 combination dimension.
+    /// </summary>
+    private static SystemComponent ThreePathComponent()
+    {
+        var component = LeveeComponent();
+        var response = component.Graph.GetElements<ResponseElement>().Single();
+        var second = new ConsequenceElement("Second Damages") { Input = new RiskConnection(response) };
+        second.Functions.Add(Damages("Stage", "ft"));
+        component.Graph.AddElement(second);
+        var third = new ConsequenceElement("Third Damages") { Input = new RiskConnection(response) };
+        third.Functions.Add(Damages("Stage", "ft"));
+        component.Graph.AddElement(third);
+        return component;
+    }
+
+    /// <summary>
+    /// Verifies the latent-factor-induced matrix: a unit diagonal assigned exactly and
+    /// off-diagonals ρij = Σf λif·λjf accumulated in declared factor order, bit-identical to the
+    /// hand computation and to a correlation-matrix-mode twin authored with the same values —
+    /// the dense-equivalence contract the verification family extends to the engine.
+    /// </summary>
+    [TestMethod]
+    public void Test_LatentFactors_InducedMatrixMatchesHandComputed()
+    {
+        // Arrange — two factors over three combination units.
+        var component = ThreePathComponent();
+        component.FailureModeDependency = DependencyType.LatentFactors;
+        var first = new double[] { 0.8d, 0.6d, 0.5d };
+        var secondLoadings = new double[] { 0.3d, -0.4d, 0.2d };
+        component.AddLatentFactor(new LatentFactor("Soil Unit", first));
+        component.AddLatentFactor(new LatentFactor("Design Era", secondLoadings));
+
+        // The hand computation, in the same declared factor order.
+        var expected = new double[3, 3];
+        for (int i = 0; i < 3; i++)
+        {
+            expected[i, i] = 1d;
+            for (int j = i + 1; j < 3; j++)
+            {
+                double correlation = 0d;
+                correlation += first[i] * first[j];
+                correlation += secondLoadings[i] * secondLoadings[j];
+                expected[i, j] = correlation;
+                expected[j, i] = correlation;
+            }
+        }
+
+        // Act
+        Assert.IsTrue(component.IsCorrelationMatrixValid());
+        Assert.IsNotNull(component.FailureModeMultivariateNormal, "The induced matrix must build the dependence MVN.");
+        var derived = component.CorrelationMatrix;
+
+        // Assert — the back-filled derived matrix is bit-identical to the hand computation.
+        Assert.IsNotNull(derived);
+        for (int i = 0; i < 3; i++)
+        {
+            for (int j = 0; j < 3; j++)
+            {
+                Assert.AreEqual(expected[i, j], derived![i, j], 0d, $"Induced [{i},{j}] must match bit-exactly.");
+            }
+        }
+
+        // And a correlation-matrix-mode twin authored with the same values validates identically.
+        var twin = ThreePathComponent();
+        twin.FailureModeDependency = DependencyType.CorrelationMatrix;
+        twin.CorrelationMatrix = expected;
+        Assert.IsTrue(twin.IsCorrelationMatrixValid());
+        var authored = twin.CorrelationMatrix;
+        for (int i = 0; i < 3; i++)
+        {
+            for (int j = 0; j < 3; j++)
+            {
+                Assert.AreEqual(authored![i, j], derived![i, j], 0d, $"Derived [{i},{j}] must equal the authored twin bit-exactly.");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Verifies the latent-factor validation matrix: no factors, a loadings-length mismatch, an
+    /// out-of-range loading, a non-finite loading, a squared-loading sum above one, and a
+    /// singular induced matrix all invalidate with specific messages, while factors configured
+    /// under another dependency mode draw only an advisory warning.
+    /// </summary>
+    [TestMethod]
+    public void Test_LatentFactors_ValidationMatrix()
+    {
+        // No factors under the mode is an error.
+        var component = ThreePathComponent();
+        component.FailureModeDependency = DependencyType.LatentFactors;
+        Assert.IsFalse(component.IsCorrelationMatrixValid());
+        var result = component.Validate();
+        Assert.IsFalse(result.IsValid);
+        Assert.IsTrue(result.ValidationMessages.Exists(m => m.Contains("requires at least one latent factor")));
+
+        // A loadings-length mismatch names the factor and the dimension.
+        component.AddLatentFactor(new LatentFactor("Short", new[] { 0.5d }));
+        result = component.Validate();
+        Assert.IsFalse(result.IsValid);
+        Assert.IsTrue(result.ValidationMessages.Exists(m => m.Contains("has 1 loadings but the combination dimension")));
+
+        // An out-of-range loading and a non-finite loading are named per position.
+        component.LatentFactors[0].Loadings = new[] { 1.5d, 0d, 0d };
+        result = component.Validate();
+        Assert.IsTrue(result.ValidationMessages.Exists(m => m.Contains("must be finite values within [-1, 1]")));
+        component.LatentFactors[0].Loadings = new[] { double.NaN, 0d, 0d };
+        result = component.Validate();
+        Assert.IsTrue(result.ValidationMessages.Exists(m => m.Contains("must be finite values within [-1, 1]")));
+
+        // A squared-loading sum above one names the offending unit.
+        component.LatentFactors[0].Loadings = new[] { 0.9d, 0.2d, 0.2d };
+        component.AddLatentFactor(new LatentFactor("Second", new[] { 0.9d, 0.2d, 0.2d }));
+        result = component.Validate();
+        Assert.IsFalse(result.IsValid);
+        Assert.IsTrue(result.ValidationMessages.Exists(m => m.Contains("squared-loading sum")));
+
+        // Proportional full-loading units induce an exactly singular matrix — structurally legal,
+        // rejected by the positive-definiteness gate.
+        component.RemoveLatentFactor(component.LatentFactors[1]);
+        component.LatentFactors[0].Loadings = new[] { 1d, 1d, 0.5d };
+        Assert.IsFalse(component.IsCorrelationMatrixValid());
+        result = component.Validate();
+        Assert.IsFalse(result.IsValid);
+        Assert.IsTrue(result.ValidationMessages.Exists(m => m.Contains("not positive definite")));
+
+        // A valid configuration clears every error.
+        component.LatentFactors[0].Loadings = new[] { 0.8d, 0.6d, 0.5d };
+        Assert.IsTrue(component.IsCorrelationMatrixValid());
+        result = component.Validate();
+        Assert.IsTrue(result.IsValid);
+
+        // Factors under another mode are inert — advisory only, never invalidating.
+        component.FailureModeDependency = DependencyType.Independent;
+        result = component.Validate();
+        Assert.IsTrue(result.IsValid);
+        Assert.IsTrue(result.ValidationMessages.Exists(m => m.StartsWith("Warning:") && m.Contains("have no effect")));
+    }
+
+    /// <summary>
+    /// Verifies the conditional-presence serialization contract: the factor container exists
+    /// only under the latent-factors mode with factors configured, round-trips bit-exactly
+    /// (names, descriptions, G17 loadings, hash, and the full serialized string), and is dropped
+    /// — like the correlation matrix — when persisted from any other mode.
+    /// </summary>
+    [TestMethod]
+    public void Test_LatentFactors_SerializationConditionalPresence()
+    {
+        // A factor-free component writes no container.
+        var bare = ThreePathComponent();
+        Assert.IsNull(bare.ToXElement().Element(nameof(SystemComponent.LatentFactors)));
+
+        // Factors under another mode write no container either (the matrix precedent).
+        var inert = ThreePathComponent();
+        inert.AddLatentFactor(new LatentFactor("Soil Unit", new[] { 0.8d, 0.6d, 0.5d }));
+        Assert.IsNull(inert.ToXElement().Element(nameof(SystemComponent.LatentFactors)));
+        Assert.AreEqual(0, new SystemComponent(inert.ToXElement()).LatentFactors.Count);
+
+        // The latent-factors mode persists and restores the factors bit-exactly.
+        var component = ThreePathComponent();
+        component.FailureModeDependency = DependencyType.LatentFactors;
+        component.AddLatentFactor(new LatentFactor("Soil Unit", new[] { 1d / 3d, 0.6d, 0.5d }) { Description = "Shared stratum" });
+        component.AddLatentFactor(new LatentFactor("Design Era", new[] { 0.3d, -0.4d, 0.2d }));
+        var element = component.ToXElement();
+        Assert.IsNotNull(element.Element(nameof(SystemComponent.LatentFactors)));
+
+        var restored = new SystemComponent(element);
+        Assert.AreEqual(2, restored.LatentFactors.Count);
+        Assert.AreEqual("Soil Unit", restored.LatentFactors[0].Name);
+        Assert.AreEqual("Shared stratum", restored.LatentFactors[0].Description);
+        Assert.AreEqual(1d / 3d, restored.LatentFactors[0].Loadings[0], 0d, "Loadings must round-trip bit-exactly (G17).");
+        Assert.AreEqual(-0.4d, restored.LatentFactors[1].Loadings[1], 0d);
+        CollectionAssert.AreEqual(component.CanonicalHash(), restored.CanonicalHash(),
+            "Round-trip must preserve the canonical hash.");
+        Assert.AreEqual(component.ToXElement().ToString(), restored.ToXElement().ToString());
+    }
+
+    /// <summary>
+    /// Verifies the latent-factor hash semantics: factors attached outside the mode are
+    /// hash-inert; selecting the mode, editing loadings, and reordering factors are deliberate
+    /// hash events; factor names and descriptions are metadata; and returning to the original
+    /// mode restores the original hash bit-exactly.
+    /// </summary>
+    [TestMethod]
+    public void Test_LatentFactors_HashSemantics()
+    {
+        // Arrange
+        var component = ThreePathComponent();
+        var baseline = component.CanonicalHash();
+
+        // Factors attached under the independent mode never enter the identity.
+        var soil = new LatentFactor("Soil Unit", new[] { 0.8d, 0.6d, 0.5d });
+        var era = new LatentFactor("Design Era", new[] { 0.3d, -0.4d, 0.2d });
+        component.AddLatentFactor(soil);
+        component.AddLatentFactor(era);
+        CollectionAssert.AreEqual(baseline, component.CanonicalHash(),
+            "Factors outside the latent-factors mode must be hash-inert.");
+
+        // Selecting the mode is the deliberate hash event; loadings edits move it further.
+        HashInvariance.AssertComputeSensitive(component.CanonicalHash,
+            () => component.FailureModeDependency = DependencyType.LatentFactors);
+        HashInvariance.AssertComputeSensitive(component.CanonicalHash,
+            () => soil.Loadings = new[] { 0.7d, 0.6d, 0.5d });
+
+        // Names and descriptions are metadata.
+        var configured = component.CanonicalHash();
+        soil.Name = "Renamed Stratum";
+        era.Description = "New description";
+        CollectionAssert.AreEqual(configured, component.CanonicalHash(),
+            "Factor names and descriptions must be hash-inert.");
+
+        // Declared factor order is semantic even though the induced matrix is order-invariant.
+        HashInvariance.AssertComputeSensitive(component.CanonicalHash, () =>
+        {
+            component.RemoveLatentFactor(soil);
+            component.AddLatentFactor(soil);
+        });
+
+        // Returning to the original mode restores the original hash bit-exactly.
+        component.FailureModeDependency = DependencyType.Independent;
+        CollectionAssert.AreEqual(baseline, component.CanonicalHash(),
+            "Leaving the latent-factors mode must restore the pre-factor hash.");
+    }
+
+    /// <summary>
+    /// Verifies a factor edit invalidates the derived dependence machinery: after the induced
+    /// matrix materializes, changing a loading rebuilds it on the next read.
+    /// </summary>
+    [TestMethod]
+    public void Test_LatentFactors_EditInvalidatesDerivedMatrix()
+    {
+        // Arrange — materialize the induced matrix.
+        var component = ThreePathComponent();
+        component.FailureModeDependency = DependencyType.LatentFactors;
+        var factor = new LatentFactor("Soil Unit", new[] { 0.8d, 0.6d, 0.5d });
+        component.AddLatentFactor(factor);
+        Assert.IsNotNull(component.FailureModeMultivariateNormal);
+        Assert.AreEqual(0.8d * 0.6d, component.CorrelationMatrix![0, 1], 0d);
+
+        // Act — edit a loading through the live factor.
+        factor.Loadings = new[] { 0.4d, 0.6d, 0.5d };
+
+        // Assert — the next read reflects the edit (the staleness contract).
+        Assert.IsNotNull(component.FailureModeMultivariateNormal);
+        Assert.AreEqual(0.4d * 0.6d, component.CorrelationMatrix![0, 1], 0d);
     }
 
     /// <summary>
