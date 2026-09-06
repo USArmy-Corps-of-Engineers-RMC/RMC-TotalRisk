@@ -490,6 +490,37 @@ public class HashInvarianceKitchenSinkTests
                 return response;
             },
             f => ((BivariateResponse)f).ProbabilityValues = new[,] { { 0d, 0.1d }, { 0.2d, 0.5d }, { 0.4d, 0.9d } });
+
+        // The deteriorating response — a tabular base behind an age→shift law. The first entry's
+        // mutation edits the law; the second proves base CONTENT edits move the wrapper hash
+        // through its projected identity. EvaluationAge inertness and the provenance rows are
+        // covered in DeterioratingResponseTests.
+        yield return new RegistryEntry(
+            nameof(DeterioratingResponse),
+            () => new DeterioratingResponse
+            {
+                Name = "Aging Fragility",
+                SpecifiedHazard = "Stage",
+                HazardUnit = "ft",
+                BaseResponse = new TabularResponse { Name = "Fragility", SpecifiedHazard = "Stage", HazardUnit = "ft" },
+                DeteriorationLaw = new UncertainOrderedPairedData(
+                    new[] { new UncertainOrdinate(0d, new Deterministic(0d)), new UncertainOrdinate(50d, new Deterministic(0.5d)) },
+                    true, SortOrder.Ascending, false, SortOrder.None, UnivariateDistributionType.Deterministic),
+            },
+            f => ((DeterioratingResponse)f).DeteriorationLaw = new UncertainOrderedPairedData(
+                new[] { new UncertainOrdinate(0d, new Deterministic(0d)), new UncertainOrdinate(50d, new Deterministic(0.8d)) },
+                true, SortOrder.Ascending, false, SortOrder.None, UnivariateDistributionType.Deterministic));
+
+        yield return new RegistryEntry(
+            nameof(DeterioratingResponse) + " base edit",
+            () => new DeterioratingResponse
+            {
+                Name = "Aging Fragility",
+                SpecifiedHazard = "Stage",
+                HazardUnit = "ft",
+                BaseResponse = new TabularResponse { Name = "Fragility", SpecifiedHazard = "Stage", HazardUnit = "ft" },
+            },
+            f => ((TabularResponse)((DeterioratingResponse)f).BaseResponse!).ProbabilityTransform = Transform.NormalZ);
     }
 
     /// <summary>Verifies metadata edits (rename/re-describe/relabel) never move any registered type's hash.</summary>

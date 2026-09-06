@@ -900,6 +900,88 @@ public class FailureModeTests
             .Any(m => m.Contains("requires an explicit consequence hazard position")));
     }
 
+    /// <summary>Builds a valid labeled deteriorating response wrapping a tabular base.</summary>
+    /// <param name="hazard">The hazard-axis label.</param>
+    /// <param name="unit">The hazard-axis unit.</param>
+    /// <returns>The wrapper.</returns>
+    private static DeterioratingResponse Deteriorating(string hazard, string unit)
+    {
+        return new DeterioratingResponse
+        {
+            Name = "Aging Fragility",
+            SpecifiedHazard = hazard,
+            HazardUnit = unit,
+            BaseResponse = Response(hazard, unit),
+        };
+    }
+
+    /// <summary>
+    /// Verifies the deteriorating seat rule's legal row: the single response stage of an
+    /// ordinary univariate-parent failure mode accepts the wrapper.
+    /// </summary>
+    [TestMethod]
+    public void Test_Validate_SingleStage_DeterioratingResponse_Legal()
+    {
+        // Arrange
+        var mode = new FailureMode(
+            new List<ITransformFunction>(),
+            new List<ITransformFunction>(),
+            Deteriorating("Stage", "ft"),
+            Consequence("Stage", "ft"));
+
+        // Act
+        var (isValid, messages) = mode.Validate();
+
+        // Assert
+        Assert.IsTrue(isValid, string.Join("; ", messages));
+    }
+
+    /// <summary>
+    /// Verifies the deteriorating seat refusal in multi-stage chains: a wrapper inside a
+    /// response chain errors (the chain seats have no age surface to drive per stage).
+    /// </summary>
+    [TestMethod]
+    public void Test_Validate_MultiStage_DeterioratingResponse_Error()
+    {
+        // Arrange
+        var mode = ChainMode();
+        mode.ResponseStages.Add(new ResponseStage(new List<ITransformFunction>(), Deteriorating("Stage", "ft")));
+
+        // Act
+        var (isValid, messages) = mode.Validate();
+
+        // Assert
+        Assert.IsFalse(isValid);
+        Assert.IsTrue(messages.Any(m => m.Contains("cannot appear in a response chain")
+            && m.Contains("deteriorating response")), string.Join("; ", messages));
+    }
+
+    /// <summary>
+    /// Verifies the deteriorating seat refusal under a bivariate parent: joint mode has no age
+    /// surface to drive, so the wrapper errors there.
+    /// </summary>
+    [TestMethod]
+    public void Test_Validate_BivariateParent_DeterioratingResponse_Error()
+    {
+        // Arrange
+        var mode = new FailureMode(
+            new List<ITransformFunction>(),
+            new List<ITransformFunction>(),
+            Deteriorating("Surge", "ft"),
+            Consequence("Surge", "ft"))
+        {
+            Parent = JointParent(),
+        };
+
+        // Act
+        var (isValid, messages) = mode.Validate();
+
+        // Assert
+        Assert.IsFalse(isValid);
+        Assert.IsTrue(messages.Any(m => m.Contains("not supported under a bivariate component hazard")),
+            string.Join("; ", messages));
+    }
+
     /// <summary>
     /// Verifies the joint-mode response rows under a bivariate parent: single-stage only, and
     /// the surface needs at least two secondary levels for an interpolable axis.

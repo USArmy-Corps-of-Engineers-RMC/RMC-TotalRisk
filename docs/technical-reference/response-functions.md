@@ -145,6 +145,18 @@ Monotonicity is advisory on this type: `IsMonotonic()` reports the collapsed cur
 
 **Choosing the mode is an accuracy decision, not just a modeling-convenience one.** Collapse mode puts the secondary variable on the response's own weighted levels and leaves the primary axis to the engine's exact quadrature; joint mode integrates the secondary through conditional bins. When the secondary variable's frequency curve concentrates its mass where the surface barely varies — the common case for a coincident conditioning variable — the collapse is the *better-conditioned* arrangement: on the verification family's seismic scenario it reproduces the exact answer to 0.241% while the same scenario driven from the other axis carries 35.4% error at the default bin count. Reach for joint mode when the dependence is genuine (a non-independence copula), when both axes vary materially, or when the secondary signal must feed transforms or consequences downstream. See [bivariate-hazards](bivariate-hazards.md) for the measured comparison.
 
+## DeterioratingResponse
+
+An age-indexed wrapper over a tabular or estimated parametric base: an owned tabular
+deterioration law maps age in years to a capacity-axis shift Δ(t), and the wrapper evaluates
+the base at the shifted hazard, P_f(h, t) = F_base(h + Δ(t)) — a positive shift weakens. The
+evaluation age is external runtime state (never serialized, hashed, or seed-affecting), so one
+content-seeded stream serves every age and epistemic realizations stay coherent across a
+planning horizon. The wrapper is legal as the single response stage of an ordinary failure
+mode under a univariate hazard; composites, tree probability sources, multi-stage chains, and
+bivariate parents refuse it at validation. Full contracts, the seat matrix, and the
+transform-equivalence identity: [life-cycle-analysis.md](life-cycle-analysis.md).
+
 ## v1.1 changes vs. the v1.0 report
 
 - The integer sampling overloads take a **realization index** into the pre-allocated percentile matrix (`SetupSampler`, Latin hypercube default); v1.0's `SampleResponseFunction(int)` treated the integer as a PRNG seed.

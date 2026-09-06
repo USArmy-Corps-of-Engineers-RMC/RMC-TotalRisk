@@ -54,5 +54,12 @@ namespace RMC.TotalRisk.Core.Enums
         /// (<c>BivariateResponse</c>).
         /// </summary>
         Bivariate,
+
+        /// <summary>
+        /// An age-indexed wrapper shifting a base response's capacity axis by a tabular
+        /// deterioration law, with the evaluation age as external runtime state
+        /// (<c>DeterioratingResponse</c>).
+        /// </summary>
+        Deteriorating,
     }
 }

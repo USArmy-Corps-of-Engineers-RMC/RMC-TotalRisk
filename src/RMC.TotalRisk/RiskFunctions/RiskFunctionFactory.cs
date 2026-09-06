@@ -86,6 +86,7 @@ namespace RMC.TotalRisk.RiskFunctions
                     new EventTreeResponse(xElement, resolver),
                 nameof(FaultTreeResponse) => new FaultTreeResponse(xElement, resolver),
                 nameof(BivariateResponse) => new BivariateResponse(xElement, resolver),
+                nameof(DeterioratingResponse) => new DeterioratingResponse(xElement, resolver),
                 nameof(TabularConsequence) => new TabularConsequence(xElement),
                 nameof(ParametricConsequence) => new ParametricConsequence(xElement),
                 nameof(CompositeConsequence) => new CompositeConsequence(xElement, resolver),

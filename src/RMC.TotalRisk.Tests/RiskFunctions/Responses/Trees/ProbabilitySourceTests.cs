@@ -64,6 +64,25 @@ public class ProbabilitySourceTests
             m.StartsWith("Error:") && m.Contains("bivariate response function")));
     }
 
+    /// <summary>
+    /// Verifies the deteriorating scope guard: a source referencing a deteriorating response
+    /// reports an error (a tree source has no age surface to drive, so the reference would
+    /// silently evaluate the wrapper at its current evaluation age).
+    /// </summary>
+    [TestMethod]
+    public void Test_Validate_DeterioratingReferencedResponse_Error()
+    {
+        // Arrange
+        var source = new ProbabilitySource(new DeterioratingResponse { Name = "Aging" });
+
+        // Act
+        var messages = source.Validate(new[] { 0d, 1d }, "Chance node 'Breach'", "event-tree");
+
+        // Assert
+        Assert.IsTrue(messages.Any(m =>
+            m.StartsWith("Error:") && m.Contains("deteriorating response function")));
+    }
+
     /// <summary>Verifies the chain constructors store an ordered defensive copy and the axis.</summary>
     [TestMethod]
     public void Test_ChainConstructors_StoreOrderedChainAndAxis()

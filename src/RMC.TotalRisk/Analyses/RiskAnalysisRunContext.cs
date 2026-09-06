@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using RMC.TotalRisk.Core;
+using RMC.TotalRisk.RiskFunctions.Responses;
 using RMC.TotalRisk.Systems.Components;
 
 namespace RMC.TotalRisk.Analyses;
@@ -100,6 +101,7 @@ internal sealed class RiskAnalysisRunContext
         for (int i = 0; i < components.Count; i++)
         {
             componentSnapshot.Add(components[i].Clone());
+            TransferEvaluationAges(components[i], componentSnapshot[i]);
         }
 
         var optionsSnapshot = new RiskAnalysisOptions(options.ToXElement());
@@ -118,6 +120,36 @@ internal sealed class RiskAnalysisRunContext
             specifiedConsequence,
             consequenceUnit,
             pinned);
+    }
+
+    /// <summary>
+    /// Carries deteriorating responses' external evaluation ages onto the run's cloned
+    /// instances, matched by function id. The age is runtime-only state — never serialized —
+    /// so the snapshot clone alone would reset it; copying it here makes the configured age
+    /// govern the run it precedes. A component without deteriorating responses is untouched.
+    /// </summary>
+    /// <param name="author">The authoring component.</param>
+    /// <param name="clone">The run-owned clone.</param>
+    private static void TransferEvaluationAges(SystemComponent author, SystemComponent clone)
+    {
+        Dictionary<Guid, double>? ages = null;
+        foreach (var function in author.GetReferencedFunctions())
+        {
+            if (function is DeterioratingResponse aging)
+            {
+                ages ??= new Dictionary<Guid, double>();
+                ages[aging.Id] = aging.EvaluationAge;
+            }
+        }
+        if (ages == null) return;
+
+        foreach (var function in clone.GetReferencedFunctions())
+        {
+            if (function is DeterioratingResponse aging && ages.TryGetValue(aging.Id, out double age))
+            {
+                aging.EvaluationAge = age;
+            }
+        }
     }
 
     /// <summary>Creates an isolated copy of a sampler seed map.</summary>

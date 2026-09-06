@@ -660,6 +660,10 @@ namespace RMC.TotalRisk.Systems.Components
                 {
                     messages.Add($"Error: The non-failure response sentinel cannot appear in a response chain (stage index {i}); it identifies the sole stage of the non-failure mode.");
                 }
+                if (_responseStages.Count > 1 && _responseStages[i].Response is DeterioratingResponse)
+                {
+                    messages.Add($"Error: The deteriorating response '{_responseStages[i].Response.Name}' cannot appear in a response chain (stage index {i}); a deteriorating response is supported on the single response stage of an ordinary failure mode.");
+                }
             }
 
             for (int i = 0; i < _responseToConsequence.Count; i++)
@@ -787,6 +791,10 @@ namespace RMC.TotalRisk.Systems.Components
                         {
                             messages.Add($"Error: The bivariate response '{stage.Response.Name}' has {jointResponse.SecondaryLevelCount} secondary hazard level(s); joint evaluation under a bivariate hazard requires at least two for an interpolable secondary axis.");
                         }
+                    }
+                    if (stage?.Response is DeterioratingResponse)
+                    {
+                        messages.Add($"Error: The deteriorating response '{stage.Response.Name}' is not supported under a bivariate component hazard.");
                     }
                 }
                 if (anyBivariateResponse && _responseStages.Count > 1)

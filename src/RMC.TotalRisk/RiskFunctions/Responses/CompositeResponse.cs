@@ -529,6 +529,10 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
                 // hazard twice, so bivariate responses are rejected from composites outright.
                 if (entry.ResponseFunction is IBivariateResponseFunction)
                     messages.Add($"Error: The response function '{entry.ResponseFunction.Name}' is bivariate; a composite response function cannot combine bivariate response functions.");
+                // A deteriorating child would silently combine at its current evaluation age —
+                // a composite has no age surface to drive, so the wrapper is rejected outright.
+                if (entry.ResponseFunction is DeterioratingResponse)
+                    messages.Add($"Error: The response function '{entry.ResponseFunction.Name}' is a deteriorating response; a composite response function cannot combine deteriorating response functions.");
                 if (weightsApply && (entry.Weight < 0d || entry.Weight > 1d)) anyWeightOutOfRange = true;
                 weightSum += entry.Weight;
             }
@@ -1245,6 +1249,7 @@ namespace RMC.TotalRisk.RiskFunctions.Responses
                     var entry = _responseFunctions[i];
                     if (entry.ResponseFunction == null || entry.ResponseFunction is NonFailResponse
                         || entry.ResponseFunction is IBivariateResponseFunction
+                        || entry.ResponseFunction is DeterioratingResponse
                         || (weightsApply && (entry.Weight < 0d || entry.Weight > 1d)))
                     {
                         usable = false;

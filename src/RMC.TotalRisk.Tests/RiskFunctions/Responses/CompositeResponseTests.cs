@@ -101,6 +101,23 @@ public class CompositeResponseTests
         Assert.ThrowsException<InvalidOperationException>(() => composite.SampleFunction());
     }
 
+    /// <summary>Verifies the deteriorating scope guard: a deteriorating child is rejected loudly by validation and by the sampling gate (a composite has no age surface to drive).</summary>
+    [TestMethod]
+    public void Test_Validate_DeterioratingChild_Error()
+    {
+        // Arrange — an otherwise valid Mixture composite carrying a deteriorating child.
+        var composite = Composite(CompositeCombinationType.Mixture,
+            (NormalChild("Curve", 150d, 10d), 0.5d), (new DeterioratingResponse { Name = "Aging" }, 0.5d));
+
+        // Act
+        var (isValid, messages) = composite.Validate();
+
+        // Assert — the loud scope guard, and sampling refuses too.
+        Assert.IsFalse(isValid);
+        Assert.IsTrue(messages.Any(m => m.Contains("'Aging' is a deteriorating response")));
+        Assert.ThrowsException<InvalidOperationException>(() => composite.SampleFunction());
+    }
+
     /// <summary>Verifies the v1.0 default construction state (Mixture, independent, empty).</summary>
     [TestMethod]
     public void Test_Defaults_MatchV10()

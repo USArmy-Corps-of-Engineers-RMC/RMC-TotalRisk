@@ -40,6 +40,7 @@ public class RiskFunctionFactoryTests
             new EventTreeResponse(),
             new FaultTreeResponse(),
             new BivariateResponse(),
+            new DeterioratingResponse(),
             new TabularConsequence(),
             new ParametricConsequence(),
             new CompositeConsequence(),
@@ -131,6 +132,8 @@ public class RiskFunctionFactoryTests
         Assert.IsNull(RiskFunctionFactory.CreateTransformFunction(new BivariateConsequence().ToXElement()));
         Assert.IsNotNull(RiskFunctionFactory.CreateResponseFunction(new BivariateResponse().ToXElement()));
         Assert.IsNull(RiskFunctionFactory.CreateHazardFunction(new BivariateResponse().ToXElement()));
+        Assert.IsNotNull(RiskFunctionFactory.CreateResponseFunction(new DeterioratingResponse().ToXElement()));
+        Assert.IsNull(RiskFunctionFactory.CreateHazardFunction(new DeterioratingResponse().ToXElement()));
 
         // Cross-cluster mismatches return null.
         Assert.IsNull(RiskFunctionFactory.CreateHazardFunction(transformXml));

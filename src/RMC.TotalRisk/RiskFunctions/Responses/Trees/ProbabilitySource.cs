@@ -379,6 +379,12 @@ namespace RMC.TotalRisk.RiskFunctions.Responses.Trees
                         ownerHazard, drivenLabel);
                 }
             }
+            else if (ResponseFunction is DeterioratingResponse)
+            {
+                // The scope guard: a tree source has no age surface to drive, so the reference
+                // would silently evaluate the wrapper at its current evaluation age.
+                messages.Add($"Error: {nodeLabel} references deteriorating response function '{ResponseFunction.Name}'; tree probability sources cannot reference deteriorating response functions.");
+            }
             else if (ResponseFunction != null)
             {
                 if (BivariateAxis != null)
