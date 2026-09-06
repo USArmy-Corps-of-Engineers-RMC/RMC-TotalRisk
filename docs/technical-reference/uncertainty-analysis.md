@@ -292,7 +292,7 @@ P_T = 1 − (1 − p)^T per realization (the Poisson rate form differs by ≈ p�
 with cumulative, discounted, and equivalent-annual expected consequences, reduced with the
 stored realization weights ([results-catalog.md](results-catalog.md)). Stationarity and
 inter-year independence are assumed — the caveat that motivates a genuine time axis rather than
-a conversion.
+a conversion; the epoch-sequence life-cycle query (§6.7) is that axis.
 
 ### 6.6 Exact logic-tree enumeration
 
@@ -331,6 +331,42 @@ or fault-tree probability source (the tree samples it in isolated setup clones t
 scope's discovery cannot see) — every refusal loud, never a silently part-sampled "exact"
 result. Combination and realization counts are guarded (warnings at 4,096 combinations and
 10,000 realizations; errors at 65,536 and 1,000,000).
+
+### 6.7 The life-cycle time axis
+
+`MeasureLifeCycleRisk(definition)` walks one authored system through a planning horizon as an
+**epoch sequence**: the epoch boundaries are the sorted distinct union of year zero, the
+definition's evaluation years, and its intervention years, and each epoch quantifies the
+system mean-only on throwaway self-contained clones — the per-epoch engine is the ordinary
+annual integral, untouched. Annual risk is stepwise-constant within an epoch; refinement is
+more evaluation years. Three things distinguish an epoch's clones from the authored system:
+
+- **Cumulative interventions.** House-event states accumulate last-wins across the schedule
+  (re-exercise, including reversal, is legal across years), and **hazard replacements** chain
+  against the live assignment at their year — every hazard element carrying the target
+  function id is reassigned a factory clone of the replacement (same arity only: univariate
+  for univariate, bivariate for bivariate). Unreachable targets and arity mismatches refuse
+  loudly, wrapped with the epoch's start year.
+- **Deterioration ages.** Every deteriorating response evaluates at the epoch's start year
+  ([life-cycle-analysis.md](life-cycle-analysis.md)) — the same content-seeded stream at every
+  age, so knowledge stays coherent across the horizon.
+- **Mean-only quantification** (the configuration-risk discipline): a configured state is
+  compute content, so a full-uncertainty trajectory would re-roll every configured function's
+  stream per epoch; the mean trajectory sidesteps that. Runtime-only author state (weights,
+  pins, retention) does not transfer to the epoch runs.
+
+The horizon aggregates follow §6.5's exact conventions — the probability of at least one
+failure by the horizon accumulated in log space over the per-epoch annualized probabilities,
+cumulative and per-epoch-annuity discounted expected consequences, and the equivalent-annual
+amounts — so a stationary trajectory (one epoch, no schedule, no deterioration) reproduces
+`MeasureExposurePeriodRisk` exactly. The **absorbing** variants weight each year by the
+probability every earlier year survived (the first-failure-terminates reading real options
+ask for); the absorbing probability of failure by the horizon is algebraically the
+non-absorbing one. Each epoch is a full mean-only quantification, so a trajectory's cost is
+linear in its distinct boundary years. Intervention entries are unconditional exercise plans;
+a future condition member gating exercise on the state observed at the entry's year — the
+decision-rule reading, estimated by techniques such as least-squares Monte Carlo — is the
+named extension seat.
 
 ## 7. Diagnostics
 

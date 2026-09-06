@@ -1,14 +1,17 @@
 # Life cycle
 
-**Test class:** `LifeCycleVerification` · **Tests:** 5 · **Run of record:** 2026-09-06, isolated run, ✅ all passed
+**Test class:** `LifeCycleVerification` · **Tests:** 10 · **Run of record:** 2026-09-06, isolated run, ✅ all passed
 
 ## Scope and status
 
-The greenfield family for the life-cycle foundations. This slice verifies the age-indexed
-deteriorating response: the transform-equivalence bit-oracle across ages, realization-for-
-realization knowledge parity on one content-seeded stream, the age-zero base identity, an
-engine-level mean-only twin against the re-authored base-plus-shift-transform model, and the
-full-uncertainty reproducibility pin.
+The greenfield family for the life-cycle foundations, in two halves. The deteriorating
+response: the transform-equivalence bit-oracle across ages, realization-for-realization
+knowledge parity on one content-seeded stream, the age-zero base identity, an engine-level
+mean-only twin against the re-authored base-plus-shift-transform model, and the
+full-uncertainty reproducibility pin. The trajectory query: the stationary bridge onto the
+exposure-period conversions, the two-epoch closed form with independent annuity and survival
+arithmetic, per-epoch re-authored configuration twins, the deterioration-monotone/
+intervention-drop trajectory shape, and the author byte pin.
 
 Run in isolation:
 
@@ -16,7 +19,7 @@ Run in isolation:
 dotnet test src/RMC.TotalRisk.Verification -- --filter "ClassName~LifeCycleVerification"
 ```
 
-Observed 2026-09-06: **5/5 passed** (≈ 2 s).
+Observed 2026-09-06: **10/10 passed** (≈ 12 s).
 
 ## The equivalence oracle
 
@@ -44,6 +47,11 @@ failure mode plus the non-failure complement.
 | `Test_FunctionLevel_AgeZero_EquivalentToBase` | With a zero shift at age zero, the wrapper reproduces its base realization for realization | ✅ bit-exact |
 | `Test_Engine_MeanOnlyTwin_BitExact` | The wrapper model at age 50 reproduces the re-authored base-plus-stage-transform twin — annual failure probability, expected annual consequence, and the loss-exceedance ordinate arrays — with no delta; the aged model strictly exceeds the undegraded baseline | ✅ bit-exact |
 | `Test_Engine_Reproducibility_SameSeedBitIdentical` | The full-uncertainty wrapper scenario run twice from independently built models publishes byte-identical ensemble and mean JSON | ✅ byte-identical |
+| `Test_LifeCycle_StationaryMatchesExposurePeriod_BitExact` | A stationary trajectory on an all-deterministic model (discipline pinned, the smallest legal ensemble) collapses every `MeasureExposurePeriodRisk` percentile slot onto the life-cycle aggregates with no delta, the mean slot within its documented summation-rounding bound, at 3.5% and 0% discounting | ✅ bit-exact (percentiles) / 1e-13 rel (means) |
+| `Test_LifeCycle_TwoEpochClosedForm_Exact` | The flat OR(AND(house, 0.375), 0.2) tree configured at year 10 of 20: probabilities 0.2 and exactly 0.5 (1e-10), the factored consequence ratio 2.5 (1e-10), the horizon aggregates against independent power-form annuities and a per-year survival loop (1e-12 rel), and the undiscounted PV ≡ cumulative identity with no delta | ✅ within documented tolerances |
+| `Test_LifeCycle_EpochsMatchReauthoredTwins_BitExact` | Baseline, configured-house, and configured-house-plus-replacement epochs each equal a directly re-authored mean-only model of that cumulative state — system and component scope, no delta | ✅ bit-exact |
+| `Test_LifeCycle_DeteriorationMonotone_InterventionDrops` | Under the monotone weakening law the epoch failure probabilities never decrease (strictly rising into the first aged epoch); a milder replacement hazard at year 20 leaves earlier epochs bit-untouched and strictly drops every later one | ✅ shape verified |
+| `Test_LifeCycle_AuthorFullRun_ByteUntouched` | A 200-realization published run's ensemble JSON, component hashes, authored references, ages, and house states are byte-identical after a trajectory query exercising a house event, a hazard replacement, and per-epoch ages | ✅ byte-identical |
 
 ## Conventions and limitations
 
@@ -59,3 +67,12 @@ failure mode plus the non-failure complement.
 - The uncertain law pins age zero with the degenerate `Uniform(0, 0)` ordinate so the age-zero
   identity holds realization for realization while the table stays homogeneous in its declared
   distribution type.
+- The stationary bridge cannot use fewer than one hundred realizations (the engine's floor),
+  so its mean slots reduce one hundred bit-identical values: the percentile slots interpolate
+  identical order statistics exactly, while the mean's sequential summation admits rounding of
+  order the count times machine epsilon — asserted at 1e-13 relative and documented in the
+  family remarks.
+- The trajectory query is deliberately mean-only (the configuration-risk discipline): a
+  configured state is compute content, so per-epoch full-uncertainty ensembles would re-roll
+  every configured function's stream; the closed forms and twins here are exact because every
+  engine fixture function is deterministic.

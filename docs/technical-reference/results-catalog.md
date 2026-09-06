@@ -161,6 +161,21 @@ identity is the point — the base-versus-future composition belongs to the futu
 layer), and every conversion assumes stationarity and inter-year independence, the caveat that
 motivates a genuine time axis.
 
+## Life-cycle risk trajectories (runtime-only)
+
+`RiskAnalysis.MeasureLifeCycleRisk(definition)` returns `LifeCycleRiskResults`: the per-epoch
+rows (`LifeCycleEpochRisk` — start year, span, evaluation age, the cumulative failure
+probability through the epoch's end, a system `LifeCycleEpochEntry` plus one per component,
+and the configuration labels in effect) and the horizon aggregates — the probability of at
+least one failure by the horizon, cumulative/discounted/equivalent-annual expected
+consequences per declared type under the non-absorbing (annual-renewal) convention of the
+exposure-period conversions, and the absorbing (first-failure-terminates) survival-weighted
+cumulative and discounted variants. Inputs are the runtime-only records `LifeCycleDefinition`,
+`LifeCycleIntervention` (house events + hazard replacements per year), and
+`HazardReplacement`. Plain query results and inputs: nothing serialized, hashed, or
+seed-affecting; every epoch quantifies mean-only on throwaway clones and the authored model
+is never touched. See [uncertainty-analysis.md](uncertainty-analysis.md) §6.7.
+
 ## The multi-consequence axis
 
 An analysis declares its consequence types once (`ConsequenceTypeDescriptor` — label, unit, and

@@ -6,9 +6,12 @@ using Numerics.Distributions;
 using RMC.TotalRisk.Analyses;
 using RMC.TotalRisk.Core.Enums;
 using RMC.TotalRisk.Core.Interfaces;
+using RMC.TotalRisk.Results;
 using RMC.TotalRisk.RiskFunctions.Consequences;
 using RMC.TotalRisk.RiskFunctions.Hazards;
 using RMC.TotalRisk.RiskFunctions.Responses;
+using RMC.TotalRisk.RiskFunctions.Responses.FaultTrees;
+using RMC.TotalRisk.RiskFunctions.Responses.Trees;
 using RMC.TotalRisk.RiskFunctions.Transforms;
 using RMC.TotalRisk.Systems.Components;
 
@@ -18,7 +21,10 @@ namespace RMC.TotalRisk.Verification.Analyses;
 /// Life-cycle verification, greenfield: the deteriorating response's transform-equivalence
 /// bit-oracle across ages, realization-for-realization knowledge parity on one content-seeded
 /// stream, the age-zero base identity, an engine-level mean-only twin against the re-authored
-/// base-plus-shift-transform model, and the family reproducibility pin.
+/// base-plus-shift-transform model, the family reproducibility pin, and the trajectory query's
+/// anchors — the stationary bridge onto the exposure-period conversions, the two-epoch closed
+/// form with independent annuity and survival arithmetic, per-epoch re-authored configuration
+/// twins, the deterioration-monotone/intervention-drop trajectory, and the author byte pin.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -57,9 +63,27 @@ namespace RMC.TotalRisk.Verification.Analyses;
 /// streams.
 /// </para>
 /// <para>
-/// <b>Tolerances.</b> Every assert in this family is bit-exact (no-delta equality): the oracles
-/// are algebraic identities of the same floating-point operations, so any deviation is a defect,
-/// never statistical noise.
+/// <b>The trajectory anchors.</b> The stationary bridge pins the life-cycle aggregates against
+/// the exposure-period conversions on an all-deterministic model with the integration
+/// discipline pinned in-test at the smallest legal ensemble (one hundred realizations):
+/// deterministic functions make every realization bit-equal to the mean pass, so the
+/// conversions reduce one hundred identical values — every percentile slot interpolates
+/// identical order statistics (x + f·(x − x) = x, exact) and asserts with no delta, while the
+/// mean slot sums one hundred identical doubles, whose partial-sum rounding admits a relative
+/// error of order the count times machine epsilon; it asserts at 1e-13 relative, documented.
+/// The two-epoch closed form drives the flat OR(AND(house, 0.375), 0.2)
+/// tree — baseline probability 0.2, configured exactly 0.5 — and recomputes the horizon
+/// aggregates with independent power-form annuities and a per-year survival loop. The
+/// configuration twins re-author each epoch's cumulative state directly (the
+/// configuration-risk family's twin discipline). The trajectory test drives the deteriorating
+/// wrapper through ages {0, 10, 20, 30} and drops the load with a milder replacement hazard.
+/// </para>
+/// <para>
+/// <b>Tolerances.</b> Deterministic identities assert bit-exact (no-delta equality). The
+/// two-epoch closed form allows 1e-10 absolute on probabilities (quadrature exactness of the
+/// flat fixture compounded through tenth powers), 1e-10 on the factored consequence ratio, and
+/// 1e-12 relative against the independent annuity and survival arithmetic; each derivation is
+/// documented on its assert.
 /// </para>
 /// </remarks>
 [TestClass]
@@ -409,5 +433,355 @@ public class LifeCycleVerification
         // Assert — byte-identical published results.
         Assert.AreEqual(first.RiskResults!.ToJson(), second.RiskResults!.ToJson());
         Assert.AreEqual(first.MeanRiskResults!.ToJson(), second.MeanRiskResults!.ToJson());
+    }
+
+    #region Trajectory fixtures
+
+    /// <summary>
+    /// Builds the flat OR(AND(house, 0.375), 0.2) fault-tree response: baseline failure
+    /// probability 0.2, configured exactly 1 − 0.8 · 0.625 = 0.5.
+    /// </summary>
+    /// <param name="houseState">The authored house state.</param>
+    /// <param name="houseId">The house-event node id.</param>
+    /// <returns>The response.</returns>
+    private static FaultTreeResponse FlatFaultResponse(bool houseState, out Guid houseId)
+    {
+        var faultTree = new FaultTree();
+        Guid gateId = faultTree.Add(faultTree.Root.Id,
+            new FaultTreeGateNode("Outage impact", FaultTreeGateType.And));
+        houseId = faultTree.Add(gateId, new FaultTreeHouseEventNode("Gate out of service", houseState));
+        faultTree.Add(gateId, new FaultTreeBasicEventNode("Load exceedance", new ProbabilitySource(0.375d)));
+        faultTree.Add(faultTree.Root.Id,
+            new FaultTreeBasicEventNode("Structural failure", new ProbabilitySource(0.2d)));
+        return new FaultTreeResponse(new[] { 0d, 1d }, faultTree)
+        {
+            Name = "Spillway fault tree",
+            SpecifiedHazard = "Stage",
+            HazardUnit = "ft",
+        };
+    }
+
+    /// <summary>Builds a milder stage-frequency hazard: every stage shifted down twenty feet.</summary>
+    /// <returns>The hazard.</returns>
+    private static TabularHazard MilderStageFrequency()
+    {
+        return new TabularHazard
+        {
+            Name = "Mitigated stage frequency",
+            SpecifiedHazard = "Stage",
+            HazardUnit = "ft",
+            NoUncertaintyFunction = new UncertainOrderedPairedData(
+                new[]
+                {
+                    new UncertainOrdinate(0.999d, new Deterministic(40d)),
+                    new UncertainOrdinate(0.5d, new Deterministic(100d)),
+                    new UncertainOrdinate(0.1d, new Deterministic(140d)),
+                    new UncertainOrdinate(0.01d, new Deterministic(180d)),
+                    new UncertainOrdinate(0.001d, new Deterministic(240d)),
+                },
+                true, SortOrder.Descending, true, SortOrder.Ascending,
+                UnivariateDistributionType.Deterministic),
+        };
+    }
+
+    #endregion
+
+    /// <summary>
+    /// The stationary bridge: on an all-deterministic model with the integration discipline
+    /// pinned in-test at the smallest legal ensemble (one hundred realizations), every
+    /// realization is bit-equal to the mean pass, so the exposure-period conversions'
+    /// percentile slots collapse onto the life-cycle aggregates with no delta — while the mean
+    /// slot, a sum of one hundred identical doubles, agrees within its documented
+    /// summation-rounding bound (1e-13 relative over the count-times-epsilon estimate) —
+    /// discounted and undiscounted.
+    /// </summary>
+    [TestMethod]
+    public void Test_LifeCycle_StationaryMatchesExposurePeriod_BitExact()
+    {
+        // Arrange — the discipline pin makes ensemble realizations integrate exactly like the
+        // mean pass, so the conversions reduce one hundred identical values.
+        var author = BuildAnalysis(null, FragilityTable(uncertain: false));
+        author.Options.UseDefaults = false;
+        author.Options.Tolerance = 1e-8d;
+        author.Options.EnsembleTolerance = 1e-8d;
+        author.Options.EnsembleMinDepth = 2;
+        author.Options.EstimateMeanRiskOnly = false;
+        author.Options.Realizations = 100;
+        author.RunAsync().GetAwaiter().GetResult();
+
+        // Every slot of one conversion interval against one life-cycle aggregate: the three
+        // percentile slots interpolate identical order statistics (x + f·(x − x) = x) and
+        // assert with no delta; the mean slot allows the summation-rounding bound.
+        static void AssertInterval(ExposurePeriodInterval interval, double aggregate, string label)
+        {
+            Assert.AreEqual(interval.Lower, aggregate, $"{label} lower");
+            Assert.AreEqual(interval.Median, aggregate, $"{label} median");
+            Assert.AreEqual(interval.Upper, aggregate, $"{label} upper");
+            Assert.AreEqual(interval.Mean, aggregate, Math.Abs(aggregate) * 1e-13d, $"{label} mean");
+        }
+
+        foreach (double rate in new[] { 0.035d, 0d })
+        {
+            // Act
+            ExposurePeriodRiskResults? conversions = author.MeasureExposurePeriodRisk(50, rate);
+            LifeCycleRiskResults trajectory = author.MeasureLifeCycleRisk(new LifeCycleDefinition(50, rate));
+
+            // Assert — the shared exact expression shapes, one epoch spanning the horizon.
+            Assert.IsNotNull(conversions);
+            Assert.AreEqual(1, trajectory.Epochs.Count);
+            AssertInterval(conversions!.PeriodFailureProbability,
+                trajectory.FailureProbabilityByHorizon, $"rate {rate} probability");
+            AssertInterval(conversions.CumulativeExpectedConsequence,
+                trajectory.CumulativeExpectedConsequences[0], $"rate {rate} cumulative");
+            AssertInterval(conversions.PresentValueOfExpectedConsequences,
+                trajectory.PresentValueOfExpectedConsequences[0], $"rate {rate} present value");
+            AssertInterval(conversions.EquivalentAnnualConsequence,
+                trajectory.EquivalentAnnualConsequences[0], $"rate {rate} equivalent annual");
+        }
+    }
+
+    /// <summary>
+    /// The two-epoch closed form: the flat tree's exact probabilities (0.2 baseline, 0.5
+    /// configured at year ten of twenty), the factored consequence ratio, and the horizon
+    /// aggregates recomputed with independent power-form annuities and a per-year survival
+    /// loop, discounted at five percent and undiscounted.
+    /// </summary>
+    [TestMethod]
+    public void Test_LifeCycle_TwoEpochClosedForm_Exact()
+    {
+        // Arrange
+        var response = FlatFaultResponse(houseState: false, out Guid houseId);
+        var component = new SystemComponent { Name = "Dam" };
+        component.HazardFunction = StageFrequency();
+        component.AddFailureMode(new FailureMode(null, null, response, StageDamages()));
+        var author = new RiskAnalysis(new[] { component })
+        {
+            SpecifiedConsequence = "Damages",
+            ConsequenceUnit = "$",
+        };
+        var schedule = new[]
+        {
+            new LifeCycleIntervention(10,
+                new[] { new HouseEventState(response.Id, houseId, true) }),
+        };
+
+        foreach (double rate in new[] { 0.05d, 0d })
+        {
+            // Act
+            LifeCycleRiskResults trajectory = author.MeasureLifeCycleRisk(
+                new LifeCycleDefinition(20, rate, null, schedule));
+
+            // Assert — the flat probabilities are quadrature-exact: 1e-10 absolute absorbs the
+            // integrator's 1e-8 relative discipline compounded through the tenth powers.
+            double p1 = trajectory.Epochs[0].System.FailureProbability;
+            double p2 = trajectory.Epochs[1].System.FailureProbability;
+            Assert.AreEqual(0.2d, p1, 1e-10d);
+            Assert.AreEqual(0.5d, p2, 1e-10d);
+            Assert.AreEqual(1d - Math.Pow(0.8d, 10) * Math.Pow(0.5d, 10),
+                trajectory.FailureProbabilityByHorizon, 1e-10d);
+
+            // The flat response factors out of the consequence integral: m2/m1 = 0.5/0.2.
+            double m1 = trajectory.Epochs[0].System.ExpectedConsequences[0];
+            double m2 = trajectory.Epochs[1].System.ExpectedConsequences[0];
+            Assert.AreEqual(2.5d, m2 / m1, 1e-10d);
+
+            // Independent annuity arithmetic (power form, 1e-12 relative).
+            double annuity10 = rate > 0d ? (1d - Math.Pow(1d + rate, -10)) / rate : 10d;
+            double annuity20 = rate > 0d ? (1d - Math.Pow(1d + rate, -20)) / rate : 20d;
+            Assert.AreEqual(10d * m1 + 10d * m2, trajectory.CumulativeExpectedConsequences[0],
+                Math.Abs(trajectory.CumulativeExpectedConsequences[0]) * 1e-12d);
+            Assert.AreEqual(m1 * annuity10 + m2 * (annuity20 - annuity10),
+                trajectory.PresentValueOfExpectedConsequences[0],
+                Math.Abs(trajectory.PresentValueOfExpectedConsequences[0]) * 1e-12d);
+            Assert.AreEqual(trajectory.PresentValueOfExpectedConsequences[0] / annuity20,
+                trajectory.EquivalentAnnualConsequences[0],
+                Math.Abs(trajectory.EquivalentAnnualConsequences[0]) * 1e-12d);
+
+            // The absorbing aggregates against an independent per-year survival loop.
+            double survival = 1d;
+            double absorbingCumulative = 0d;
+            double absorbingPresent = 0d;
+            for (int year = 1; year <= 20; year++)
+            {
+                double p = year <= 10 ? p1 : p2;
+                double mean = year <= 10 ? m1 : m2;
+                absorbingCumulative += survival * mean;
+                absorbingPresent += survival * mean * Math.Pow(1d + rate, -year);
+                survival *= 1d - p;
+            }
+            Assert.AreEqual(absorbingCumulative, trajectory.AbsorbingCumulativeExpectedConsequences[0],
+                Math.Abs(absorbingCumulative) * 1e-12d);
+            Assert.AreEqual(absorbingPresent, trajectory.AbsorbingPresentValueOfExpectedConsequences[0],
+                Math.Abs(absorbingPresent) * 1e-12d);
+
+            // Undiscounted, the present value is the cumulative — with no delta.
+            if (rate == 0d)
+            {
+                Assert.AreEqual(trajectory.CumulativeExpectedConsequences[0],
+                    trajectory.PresentValueOfExpectedConsequences[0]);
+            }
+        }
+    }
+
+    /// <summary>
+    /// The per-epoch configuration twins: each scheduled epoch — the baseline, the configured
+    /// house event, and the configured house event compounded with a hazard replacement — is
+    /// bit-equal to a directly re-authored mean-only model of that cumulative state.
+    /// </summary>
+    [TestMethod]
+    public void Test_LifeCycle_EpochsMatchReauthoredTwins_BitExact()
+    {
+        // Arrange — the authored model plus one twin per cumulative epoch state.
+        var authorHazard = StageFrequency();
+        var response = FlatFaultResponse(houseState: false, out Guid houseId);
+        var component = new SystemComponent { Name = "Dam" };
+        component.HazardFunction = authorHazard;
+        component.AddFailureMode(new FailureMode(null, null, response, StageDamages()));
+        var author = new RiskAnalysis(new[] { component })
+        {
+            SpecifiedConsequence = "Damages",
+            ConsequenceUnit = "$",
+        };
+
+        static RiskAnalysis Twin(bool houseState, bool milderHazard)
+        {
+            var twinComponent = new SystemComponent { Name = "Dam" };
+            twinComponent.HazardFunction = milderHazard ? MilderStageFrequency() : StageFrequency();
+            twinComponent.AddFailureMode(new FailureMode(null, null,
+                FlatFaultResponse(houseState, out _), StageDamages()));
+            return new RiskAnalysis(new[] { twinComponent })
+            {
+                SpecifiedConsequence = "Damages",
+                ConsequenceUnit = "$",
+            };
+        }
+        var twins = new[] { Twin(false, false), Twin(true, false), Twin(true, true) };
+        foreach (RiskAnalysis twin in twins) twin.RunAsync().GetAwaiter().GetResult();
+
+        // Act — the house event at year ten, the replacement compounding at year twenty.
+        LifeCycleRiskResults trajectory = author.MeasureLifeCycleRisk(new LifeCycleDefinition(30, 0d, null,
+            new[]
+            {
+                new LifeCycleIntervention(10, new[] { new HouseEventState(response.Id, houseId, true) }),
+                new LifeCycleIntervention(20, null,
+                    new[] { new HazardReplacement(authorHazard.Id, MilderStageFrequency()) }),
+            }));
+
+        // Assert — every epoch row equals its re-authored twin bit-for-bit (deterministic
+        // functions make the twins' differing seeds inert).
+        for (int k = 0; k < 3; k++)
+        {
+            var meanResults = twins[k].MeanRiskResults!;
+            Assert.AreEqual(meanResults.Curves.Fail.TotalProbability,
+                trajectory.Epochs[k].System.FailureProbability, $"epoch {k}");
+            Assert.AreEqual(meanResults.Curves.Total.Mean,
+                trajectory.Epochs[k].System.ExpectedConsequences[0], $"epoch {k}");
+            Assert.AreEqual(meanResults.Components[0].Curves.Fail.TotalProbability,
+                trajectory.Epochs[k].Components[0].FailureProbability, $"epoch {k}");
+            Assert.AreEqual(meanResults.Components[0].Curves.Total.Mean,
+                trajectory.Epochs[k].Components[0].ExpectedConsequences[0], $"epoch {k}");
+        }
+    }
+
+    /// <summary>
+    /// The trajectory shape: under a monotone deterioration law the epoch failure
+    /// probabilities never decrease, and a milder replacement hazard at year twenty drops the
+    /// intervened trajectory strictly below the unintervened one from that year on.
+    /// </summary>
+    [TestMethod]
+    public void Test_LifeCycle_DeteriorationMonotone_InterventionDrops()
+    {
+        // Arrange — the deteriorating wrapper behind the engine fixture.
+        var authorHazard = StageFrequency();
+        var wrapper = Wrapper(FragilityTable(uncertain: false), StandardLaw());
+        var component = new SystemComponent { Name = "Dam" };
+        component.HazardFunction = authorHazard;
+        component.AddFailureMode(new FailureMode(null, null, wrapper, StageDamages()));
+        var author = new RiskAnalysis(new[] { component })
+        {
+            SpecifiedConsequence = "Damages",
+            ConsequenceUnit = "$",
+        };
+        var evaluationYears = new[] { 10, 20, 30 };
+
+        // Act
+        LifeCycleRiskResults aging = author.MeasureLifeCycleRisk(
+            new LifeCycleDefinition(40, 0d, evaluationYears));
+        LifeCycleRiskResults intervened = author.MeasureLifeCycleRisk(
+            new LifeCycleDefinition(40, 0d, evaluationYears, new[]
+            {
+                new LifeCycleIntervention(20, null,
+                    new[] { new HazardReplacement(authorHazard.Id, MilderStageFrequency()) }),
+            }));
+
+        // Assert — monotone aging, and the intervention drops the aged trajectory.
+        for (int k = 1; k < aging.Epochs.Count; k++)
+        {
+            Assert.IsTrue(aging.Epochs[k].System.FailureProbability
+                >= aging.Epochs[k - 1].System.FailureProbability, $"epoch {k}");
+        }
+        Assert.IsTrue(aging.Epochs[1].System.FailureProbability
+            > aging.Epochs[0].System.FailureProbability,
+            "The weakening law must raise the failure probability with age.");
+        for (int k = 0; k < 2; k++)
+        {
+            Assert.AreEqual(aging.Epochs[k].System.FailureProbability,
+                intervened.Epochs[k].System.FailureProbability,
+                $"epoch {k} precedes the intervention and must be untouched");
+        }
+        for (int k = 2; k < 4; k++)
+        {
+            Assert.IsTrue(intervened.Epochs[k].System.FailureProbability
+                < aging.Epochs[k].System.FailureProbability,
+                $"epoch {k} must drop under the milder hazard");
+        }
+    }
+
+    /// <summary>
+    /// The author byte pin: a full-uncertainty run's published results, the component hash, and
+    /// the authored references are byte-identical after a trajectory query exercising a house
+    /// event, a hazard replacement, and per-epoch deterioration ages.
+    /// </summary>
+    [TestMethod]
+    public void Test_LifeCycle_AuthorFullRun_ByteUntouched()
+    {
+        // Arrange — an uncertain wrapper model published at two hundred realizations.
+        var authorHazard = StageFrequency();
+        var wrapper = Wrapper(FragilityTable(uncertain: true), UncertainLaw());
+        var response = FlatFaultResponse(houseState: false, out Guid houseId);
+        var damComponent = new SystemComponent { Name = "Dam" };
+        damComponent.HazardFunction = authorHazard;
+        damComponent.AddFailureMode(new FailureMode(null, null, wrapper, StageDamages()));
+        var gateComponent = new SystemComponent { Name = "Gate" };
+        gateComponent.HazardFunction = authorHazard;
+        gateComponent.AddFailureMode(new FailureMode(null, null, response, StageDamages()));
+        var author = new RiskAnalysis(new[] { damComponent, gateComponent })
+        {
+            SpecifiedConsequence = "Damages",
+            ConsequenceUnit = "$",
+        };
+        author.Options.EstimateMeanRiskOnly = false;
+        author.Options.Realizations = 200;
+        author.RunAsync().GetAwaiter().GetResult();
+        string publishedJson = author.RiskResults!.ToJson();
+        string damHash = Convert.ToHexString(author.Components[0].CanonicalHash());
+        string gateHash = Convert.ToHexString(author.Components[1].CanonicalHash());
+
+        // Act
+        author.MeasureLifeCycleRisk(new LifeCycleDefinition(30, 0.035d, new[] { 5 }, new[]
+        {
+            new LifeCycleIntervention(10, new[] { new HouseEventState(response.Id, houseId, true) }),
+            new LifeCycleIntervention(20, null,
+                new[] { new HazardReplacement(authorHazard.Id, MilderStageFrequency()) }),
+        }));
+
+        // Assert — nothing authored or published moves a byte.
+        Assert.IsTrue(author.IsEstimated, "The query must not invalidate the published results.");
+        Assert.AreEqual(publishedJson, author.RiskResults!.ToJson());
+        Assert.AreEqual(damHash, Convert.ToHexString(author.Components[0].CanonicalHash()));
+        Assert.AreEqual(gateHash, Convert.ToHexString(author.Components[1].CanonicalHash()));
+        Assert.IsTrue(ReferenceEquals(authorHazard, author.Components[0].HazardFunction));
+        Assert.AreEqual(0d, wrapper.EvaluationAge, "The authored wrapper must keep its age.");
+        Assert.IsFalse(((FaultTreeHouseEventNode)response.FaultTree.FindById(houseId)!).State);
     }
 }

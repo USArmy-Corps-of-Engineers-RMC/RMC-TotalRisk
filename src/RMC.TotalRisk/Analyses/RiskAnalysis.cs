@@ -23,6 +23,7 @@ using RMC.TotalRisk.Core;
 using RMC.TotalRisk.Core.Enums;
 using RMC.TotalRisk.Core.Interfaces;
 using RMC.TotalRisk.Results;
+using RMC.TotalRisk.RiskFunctions;
 using RMC.TotalRisk.RiskFunctions.Consequences;
 using RMC.TotalRisk.RiskFunctions.Hazards;
 using RMC.TotalRisk.RiskFunctions.Responses;
@@ -31,6 +32,7 @@ using RMC.TotalRisk.RiskFunctions.Responses.FaultTrees;
 using RMC.TotalRisk.RiskFunctions.Responses.Trees;
 using RMC.TotalRisk.RiskFunctions.Transforms;
 using RMC.TotalRisk.Systems.Components;
+using RMC.TotalRisk.Systems.Components.Graph;
 
 namespace RMC.TotalRisk.Analyses
 {
@@ -3866,6 +3868,409 @@ namespace RMC.TotalRisk.Analyses
                 : Statistics.Percentile(values, levels, weights);
             double mean = weights == null ? Statistics.Mean(values) : Statistics.Mean(values, weights);
             return new ExposurePeriodInterval(percentiles[0], percentiles[1], mean, percentiles[2]);
+        }
+
+        /// <summary>
+        /// Evaluates a life-cycle trajectory over the planning horizon: the epoch boundaries are
+        /// the sorted distinct union of year zero, the definition's evaluation years, and its
+        /// intervention years; each epoch quantifies the system mean-only on throwaway
+        /// self-contained clones carrying the cumulative intervention state (house events
+        /// last-wins, hazard replacements chained against the live assignment) with every
+        /// deteriorating response evaluated at the epoch's start age. Annual risk is
+        /// stepwise-constant within an epoch. The horizon aggregates follow the exposure-period
+        /// conversions' exact conventions — the probability of at least one failure accumulated
+        /// in log space, cumulative and per-epoch-annuity discounted expected consequences, the
+        /// equivalent-annual amounts — plus the absorbing (first-failure-terminates)
+        /// survival-weighted variants. Deliberately mean-only, like the configuration-risk
+        /// query: a configured state is compute content, so a full-uncertainty trajectory would
+        /// re-roll every configured function's stream per epoch. Runtime-only: nothing is
+        /// serialized, hashed, or seed-affecting, and the authored model is never touched.
+        /// A future condition on intervention entries — exercise gated on the state observed at
+        /// the entry's year — is the named extension seat for real-options decision rules.
+        /// </summary>
+        /// <param name="definition">The life-cycle definition (horizon, discount rate, evaluation years, schedule).</param>
+        /// <returns>The trajectory.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when the definition is null.</exception>
+        /// <exception cref="InvalidOperationException">
+        /// Thrown when a house-event override or hazard-replacement target matches nothing the
+        /// system can reach, when a replacement's arity mismatches the replaced hazard, or when
+        /// an epoch's configured quantification fails — each wrapped with the epoch's start year.
+        /// </exception>
+        public LifeCycleRiskResults MeasureLifeCycleRisk(LifeCycleDefinition definition)
+        {
+            if (definition == null) throw new ArgumentNullException(nameof(definition));
+
+            int[] startYears = DeriveEpochStartYears(definition);
+            var schedule = new List<LifeCycleIntervention>(definition.Interventions);
+            schedule.Sort((a, b) => a.Year.CompareTo(b.Year));
+
+            int typeCount = 1 + _additionalConsequenceTypes.Count;
+            double discountRate = definition.DiscountRate;
+            double discountBase = 1d / (1d + discountRate);
+            double horizonAnnuity = AnnuityFactor(definition.PeriodYears, discountRate);
+
+            var epochs = new List<LifeCycleEpochRisk>(startYears.Length);
+            var cumulative = new double[typeCount];
+            var presentValue = new double[typeCount];
+            var absorbingCumulative = new double[typeCount];
+            var absorbingPresentValue = new double[typeCount];
+            var interventionLabels = new List<string>(schedule.Count);
+            double logSurvival = 0d;
+
+            for (int k = 0; k < startYears.Length; k++)
+            {
+                int startYear = startYears[k];
+                int endYear = k + 1 < startYears.Length ? startYears[k + 1] : definition.PeriodYears;
+                int span = endYear - startYear;
+
+                var epoch = RunLifeCycleEpoch(schedule, startYear);
+                var systemEntry = CreateLifeCycleEntry("System",
+                    epoch.Realization.Curves, epoch.Realization.AdditionalCurves, typeCount);
+                var componentEntries = new List<LifeCycleEpochEntry>(_authorComponents.Count);
+                for (int i = 0; i < _authorComponents.Count; i++)
+                {
+                    componentEntries.Add(CreateLifeCycleEntry(_authorComponents[i].Name,
+                        epoch.Realization.Components[i].Curves,
+                        epoch.Realization.Components[i].AdditionalCurves, typeCount));
+                }
+
+                double p = systemEntry.FailureProbability;
+                double logSurvivalAtStart = logSurvival;
+
+                // The non-absorbing aggregates: every year exposed (the exposure-period
+                // conversions' conventions, per-epoch and in ascending-epoch order).
+                double annuitySegment = AnnuityFactor(endYear, discountRate) - AnnuityFactor(startYear, discountRate);
+                for (int t = 0; t < typeCount; t++)
+                {
+                    double mean = systemEntry.ExpectedConsequences[t];
+                    cumulative[t] += span * mean;
+                    presentValue[t] += mean * annuitySegment;
+                }
+
+                // The absorbing aggregates: each year weighted by the probability every earlier
+                // year survived, via the per-epoch geometric closed forms.
+                double survivalAtStart = Math.Exp(logSurvivalAtStart);
+                double annualSurvival = 1d - p;
+                double survivalYears = p > 0d ? -Tools.Expm1(span * Tools.Log1p(-p)) / p : span;
+                double x = annualSurvival * discountBase;
+                double geometric = x == 1d ? span : (1d - Math.Pow(x, span)) / (1d - x);
+                double firstYearDiscount = Math.Exp(-(startYear + 1) * Tools.Log1p(discountRate));
+                for (int t = 0; t < typeCount; t++)
+                {
+                    double mean = systemEntry.ExpectedConsequences[t];
+                    absorbingCumulative[t] += mean * survivalAtStart * survivalYears;
+                    absorbingPresentValue[t] += mean * survivalAtStart * firstYearDiscount * geometric;
+                }
+
+                logSurvival += span * Tools.Log1p(-p);
+                double cumulativeFailure = -Tools.Expm1(logSurvival);
+                epochs.Add(new LifeCycleEpochRisk(startYear, span, startYear, cumulativeFailure,
+                    systemEntry, componentEntries, epoch.ActionLabels));
+
+                // The entry whose year opens this epoch echoes its own action labels.
+                for (int s = 0; s < schedule.Count; s++)
+                {
+                    if (schedule[s].Year != startYear) continue;
+                    interventionLabels.Add(DescribeIntervention(schedule[s], epoch));
+                }
+            }
+
+            var equivalentAnnual = new double[typeCount];
+            for (int t = 0; t < typeCount; t++)
+            {
+                equivalentAnnual[t] = presentValue[t] / horizonAnnuity;
+            }
+
+            var labels = new List<string>(typeCount) { SpecifiedConsequence };
+            var units = new List<string>(typeCount) { ConsequenceUnit };
+            for (int i = 0; i < _additionalConsequenceTypes.Count; i++)
+            {
+                labels.Add(_additionalConsequenceTypes[i].SpecifiedConsequence);
+                units.Add(_additionalConsequenceTypes[i].ConsequenceUnit);
+            }
+
+            return new LifeCycleRiskResults(definition.PeriodYears, discountRate, labels, units,
+                epochs, -Tools.Expm1(logSurvival), cumulative, presentValue, equivalentAnnual,
+                absorbingCumulative, absorbingPresentValue, interventionLabels);
+        }
+
+        /// <summary>
+        /// One epoch's configured quantification and its label bookkeeping.
+        /// </summary>
+        /// <param name="Realization">The epoch's published mean realization.</param>
+        /// <param name="ActionLabels">Every applied action label, in application order.</param>
+        /// <param name="EffectiveHouseEvents">The last-wins effective house states, parallel to their labels.</param>
+        /// <param name="HouseLabels">The house-event labels, parallel to the effective states.</param>
+        /// <param name="AppliedReplacements">The chained replacement actions, parallel to their labels.</param>
+        /// <param name="ReplacementLabels">The replacement labels, parallel to the applied replacements.</param>
+        private sealed record LifeCycleEpochRun(SystemRealization Realization,
+            IReadOnlyList<string> ActionLabels,
+            IReadOnlyList<HouseEventState> EffectiveHouseEvents,
+            IReadOnlyList<string> HouseLabels,
+            IReadOnlyList<HazardReplacement> AppliedReplacements,
+            IReadOnlyList<string> ReplacementLabels);
+
+        /// <summary>
+        /// Derives the epoch start years: the sorted distinct union of year zero, the evaluation
+        /// years, and the intervention years.
+        /// </summary>
+        /// <param name="definition">The life-cycle definition.</param>
+        /// <returns>The ascending epoch start years, beginning at zero.</returns>
+        private static int[] DeriveEpochStartYears(LifeCycleDefinition definition)
+        {
+            var years = new SortedSet<int> { 0 };
+            for (int i = 0; i < definition.EvaluationYears.Count; i++)
+            {
+                years.Add(definition.EvaluationYears[i]);
+            }
+            for (int i = 0; i < definition.Interventions.Count; i++)
+            {
+                years.Add(definition.Interventions[i].Year);
+            }
+            var result = new int[years.Count];
+            years.CopyTo(result);
+            return result;
+        }
+
+        /// <summary>
+        /// Flattens the schedule into the effective house-event states at an epoch start:
+        /// entries with earlier or equal years apply in ascending order, a later state
+        /// overriding an earlier one for the same house event (first-appearance order kept).
+        /// </summary>
+        /// <param name="schedule">The interventions in ascending year order.</param>
+        /// <param name="epochStartYear">The epoch's start year.</param>
+        /// <returns>The effective states.</returns>
+        private static List<HouseEventState> AssembleEffectiveHouseEvents(
+            IReadOnlyList<LifeCycleIntervention> schedule, int epochStartYear)
+        {
+            var order = new List<(Guid FunctionId, Guid NodeId)>();
+            var effective = new Dictionary<(Guid FunctionId, Guid NodeId), HouseEventState>();
+            for (int i = 0; i < schedule.Count; i++)
+            {
+                if (schedule[i].Year > epochStartYear) break;
+                var states = schedule[i].HouseEvents;
+                for (int j = 0; j < states.Count; j++)
+                {
+                    var key = (states[j].FunctionId, states[j].NodeId);
+                    if (!effective.ContainsKey(key)) order.Add(key);
+                    effective[key] = states[j];
+                }
+            }
+            var result = new List<HouseEventState>(order.Count);
+            for (int i = 0; i < order.Count; i++)
+            {
+                result.Add(effective[order[i]]);
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Collects the hazard replacements in service at an epoch start, in ascending year
+        /// order — the order they chain in, each matching the live assignment its predecessors
+        /// left.
+        /// </summary>
+        /// <param name="schedule">The interventions in ascending year order.</param>
+        /// <param name="epochStartYear">The epoch's start year.</param>
+        /// <returns>The chained replacement actions.</returns>
+        private static List<HazardReplacement> CollectHazardReplacements(
+            IReadOnlyList<LifeCycleIntervention> schedule, int epochStartYear)
+        {
+            var result = new List<HazardReplacement>();
+            for (int i = 0; i < schedule.Count; i++)
+            {
+                if (schedule[i].Year > epochStartYear) break;
+                var replacements = schedule[i].HazardReplacements;
+                for (int j = 0; j < replacements.Count; j++)
+                {
+                    result.Add(replacements[j]);
+                }
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Applies chained hazard replacements to the epoch's cloned components: each action
+        /// factory-clones its replacement once (the authored instance is never wired into query
+        /// structures) and reassigns every hazard element whose live function carries the target
+        /// id, refusing arity mismatches and unmatched targets loudly.
+        /// </summary>
+        /// <param name="components">The cloned components.</param>
+        /// <param name="replacements">The chained replacement actions.</param>
+        /// <returns>The applied labels, parallel to the actions (first match each).</returns>
+        /// <exception cref="InvalidOperationException">Thrown for an arity mismatch or an unmatched target.</exception>
+        private static IReadOnlyList<string> ApplyHazardReplacements(
+            IReadOnlyList<SystemComponent> components, IReadOnlyList<HazardReplacement> replacements)
+        {
+            if (replacements.Count == 0) return Array.Empty<string>();
+
+            var labels = new string?[replacements.Count];
+            for (int r = 0; r < replacements.Count; r++)
+            {
+                var replacement = replacements[r];
+                var clone = RiskFunctionFactory.CreateHazardFunction(replacement.Replacement.ToXElement())
+                    ?? throw new InvalidOperationException(
+                        $"The replacement hazard function '{replacement.Replacement.Name}' could not be reconstructed from its serialized form.");
+                for (int i = 0; i < components.Count; i++)
+                {
+                    foreach (HazardElement element in components[i].Graph.GetElements<HazardElement>())
+                    {
+                        if (element.Function == null || element.Function.Id != replacement.TargetFunctionId) continue;
+                        if (element.Function is IBivariateHazardFunction != clone is IBivariateHazardFunction)
+                        {
+                            throw new InvalidOperationException(
+                                $"The replacement hazard function '{clone.Name}' does not match the arity of the replaced hazard '{element.Function.Name}'; a univariate hazard replaces a univariate hazard and a bivariate hazard replaces a bivariate one.");
+                        }
+                        labels[r] ??= $"'{components[i].Name}' hazard '{element.Function.Name}' replaced by '{clone.Name}'";
+                        element.Function = clone;
+                    }
+                }
+            }
+
+            var unmatched = new List<string>();
+            for (int r = 0; r < replacements.Count; r++)
+            {
+                if (labels[r] == null)
+                    unmatched.Add($"function '{replacements[r].TargetFunctionId:D}'");
+            }
+            if (unmatched.Count > 0)
+            {
+                throw new InvalidOperationException(
+                    "The life-cycle query addresses hazard functions the system cannot reach: " +
+                    $"{string.Join("; ", unmatched)}. Replacements are refused rather than silently ignored.");
+            }
+            var applied = new string[replacements.Count];
+            for (int r = 0; r < replacements.Count; r++) applied[r] = labels[r]!;
+            return applied;
+        }
+
+        /// <summary>
+        /// Sets every deteriorating response's evaluation age on the epoch's cloned components.
+        /// The wrapper's legal seat is element-assigned, so the referenced-function roots reach
+        /// every instance.
+        /// </summary>
+        /// <param name="components">The cloned components.</param>
+        /// <param name="evaluationAge">The epoch's evaluation age.</param>
+        private static void ApplyEvaluationAges(IReadOnlyList<SystemComponent> components, double evaluationAge)
+        {
+            for (int i = 0; i < components.Count; i++)
+            {
+                foreach (IRiskFunction function in components[i].GetReferencedFunctions())
+                {
+                    if (function is DeterioratingResponse aging)
+                    {
+                        aging.EvaluationAge = evaluationAge;
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Runs one epoch: fresh self-contained clones, the cumulative house states, the chained
+        /// replacements, the epoch's evaluation age, and a mean-only quantification. Any failure
+        /// is wrapped with the epoch's start year — the one fact the run's own diagnostics
+        /// cannot know.
+        /// </summary>
+        /// <param name="schedule">The interventions in ascending year order.</param>
+        /// <param name="epochStartYear">The epoch's start year.</param>
+        /// <returns>The epoch run.</returns>
+        /// <exception cref="InvalidOperationException">Thrown when the epoch cannot be configured or quantified.</exception>
+        private LifeCycleEpochRun RunLifeCycleEpoch(IReadOnlyList<LifeCycleIntervention> schedule, int epochStartYear)
+        {
+            try
+            {
+                List<SystemComponent> clones = CloneComponentsForConfiguration();
+                List<HouseEventState> effectiveHouse = AssembleEffectiveHouseEvents(schedule, epochStartYear);
+                IReadOnlyList<string> houseLabels = effectiveHouse.Count > 0
+                    ? ApplyHouseEventStates(clones, effectiveHouse)
+                    : Array.Empty<string>();
+                List<HazardReplacement> replacements = CollectHazardReplacements(schedule, epochStartYear);
+                IReadOnlyList<string> replacementLabels = ApplyHazardReplacements(clones, replacements);
+                ApplyEvaluationAges(clones, epochStartYear);
+                SystemRealization realization = RunConfigurationQuery(clones);
+
+                var actionLabels = new List<string>(houseLabels.Count + replacementLabels.Count);
+                actionLabels.AddRange(houseLabels);
+                actionLabels.AddRange(replacementLabels);
+                return new LifeCycleEpochRun(realization, actionLabels, effectiveHouse, houseLabels,
+                    replacements, replacementLabels);
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException(
+                    $"The life-cycle query epoch starting at year {epochStartYear} failed. {ex.Message}", ex);
+            }
+        }
+
+        /// <summary>
+        /// Describes one intervention entry from the labels of the epoch its year opens: the
+        /// entry's own states are the last-wins winners at that year, so its labels are read off
+        /// the epoch's parallel label lists by reference.
+        /// </summary>
+        /// <param name="intervention">The intervention entry.</param>
+        /// <param name="epoch">The epoch run its year opens.</param>
+        /// <returns>The entry label.</returns>
+        private static string DescribeIntervention(LifeCycleIntervention intervention, LifeCycleEpochRun epoch)
+        {
+            var parts = new List<string>(intervention.HouseEvents.Count + intervention.HazardReplacements.Count);
+            for (int i = 0; i < intervention.HouseEvents.Count; i++)
+            {
+                for (int j = 0; j < epoch.EffectiveHouseEvents.Count; j++)
+                {
+                    if (ReferenceEquals(epoch.EffectiveHouseEvents[j], intervention.HouseEvents[i]))
+                    {
+                        parts.Add(epoch.HouseLabels[j]);
+                        break;
+                    }
+                }
+            }
+            for (int i = 0; i < intervention.HazardReplacements.Count; i++)
+            {
+                for (int j = 0; j < epoch.AppliedReplacements.Count; j++)
+                {
+                    if (ReferenceEquals(epoch.AppliedReplacements[j], intervention.HazardReplacements[i]))
+                    {
+                        parts.Add(epoch.ReplacementLabels[j]);
+                        break;
+                    }
+                }
+            }
+            return $"Year {intervention.Year}: {string.Join("; ", parts)}";
+        }
+
+        /// <summary>
+        /// Builds one life-cycle scope row from an epoch's mean curve sets.
+        /// </summary>
+        /// <param name="name">The scope display label.</param>
+        /// <param name="curves">The primary curve set.</param>
+        /// <param name="additionalCurves">The additional-type curve sets.</param>
+        /// <param name="typeCount">The declared consequence-type count.</param>
+        /// <returns>The scope row.</returns>
+        private static LifeCycleEpochEntry CreateLifeCycleEntry(string name, Curves curves,
+            IReadOnlyList<Curves> additionalCurves, int typeCount)
+        {
+            var means = new double[typeCount];
+            means[0] = curves.Total.Mean;
+            for (int t = 1; t < typeCount; t++)
+            {
+                means[t] = additionalCurves[t - 1].Total.Mean;
+            }
+            return new LifeCycleEpochEntry(name, curves.Fail.TotalProbability, means);
+        }
+
+        /// <summary>
+        /// The annuity present-value factor for one unit per year over the given horizon —
+        /// (1 − (1 + r)^−n)/r with the exact r → 0 limit n, evaluated in log space (the
+        /// exposure-period conversions' exact expression shape, so stationary life-cycle
+        /// aggregates reproduce them bit-for-bit).
+        /// </summary>
+        /// <param name="years">The horizon in years.</param>
+        /// <param name="discountRate">The annual discount rate.</param>
+        /// <returns>The annuity factor.</returns>
+        private static double AnnuityFactor(int years, double discountRate)
+        {
+            return discountRate > 0d
+                ? -Tools.Expm1(-years * Tools.Log1p(discountRate)) / discountRate
+                : years;
         }
 
         /// <summary>

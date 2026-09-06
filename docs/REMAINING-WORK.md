@@ -2,8 +2,8 @@
 
 > The authoritative map of what stands between the current state and full v1.1, maintained
 > alongside [ROADMAP.md](ROADMAP.md) (phases and exit gates) and [PROGRESS.md](PROGRESS.md)
-> (session log). Updated 2026-08-28 after v2.0-program session 3; update whenever an item lands or
-> a ruling changes scope.
+> (session log). Updated 2026-09-06 after v2.0-program session 10 (C2 + C1, the life-cycle
+> foundations); update whenever an item lands or a ruling changes scope.
 
 > **Program decision (2026-08-27):** the capability roadmap beyond v1.1 is approved; the final
 > TotalRisk release is **v2.0.0** — all tier A–C work ships in it (the old v1.2/v1.3 mapping is
@@ -99,6 +99,41 @@ weighted statistics landed for 2.2.0. Closed 2026-08-27 (session 2): the F6 re-p
 approved and executed (`74af2e95…`, its own commit).
 
 ## Unscheduled items needing future ratification (not blocking alpha)
+
+- **Life-cycle foundation extensions (recorded 2026-09-06, from the C2 + C1 landing; not
+  scheduled).** The landed foundations are the `DeterioratingResponse` wrapper (the tabular
+  age→shift law, the evaluation age as external never-hashed state carried onto run clones by
+  function id) and the runtime-only epoch-sequence `MeasureLifeCycleRisk` query (cumulative
+  house events, chained same-arity hazard replacements, mean-only epochs, the
+  exposure-period-consistent plus absorbing aggregates). Recorded extensions, none blocking:
+  (1) **parametric deterioration laws** mirroring the RMC-BestFit `TrendFunctions` vocabulary
+  (constant/linear/…/logistic/step) as an alternative law representation — the tabular law
+  subsumes the first shapes practitioners reach for; (2) **composite/tree bases and wider
+  seats for the wrapper** — widening the base allow-list must extend
+  `TreeCarriesEpistemicComposite`, `CollectLogicTreeAxes`, `CollectEpistemicVariables`, and
+  the sensitivity enumeration in the same change (the epistemic-walker containment rationale),
+  and surfacing the wrapped base through `GetReferencedFunctions` is recorded alongside (the
+  composite-child parity reading keeps a fractile pin on the base id failing loudly at
+  classification today); (3) **conditional intervention exercise** — the named seat on
+  `LifeCycleIntervention`: a condition member gating exercise on the state observed at the
+  entry's year (the real-options decision rule; least-squares Monte Carlo and its relatives),
+  which turns deterministic schedules into policies; (4) **full-uncertainty trajectories** —
+  with the age external, an unconfigured epoch's ensemble is already realization-aligned with
+  the authored run, while epochs that flip house events or swap hazards change content and
+  re-roll those functions' streams (the established content-seed reading; the B8
+  configured-ensemble extension entry covers the same discipline per epoch); (5) **a
+  serialized `LifeCycleAnalysis`** (the `AnalysisBase`/cost-benefit-driver shape) once the
+  runtime contract stabilizes through use — serialized shapes are append-only forever, so the
+  definition stays runtime-only until then; (6) **cross-arity and marginal-target hazard
+  replacement** — replacing a univariate hazard with a bivariate one (or a linked marginal
+  inside a bivariate hazard) needs binding-migration rules the same-arity rule deliberately
+  refuses today; (7) **function-swap and added-failure-mode intervention actions** beyond
+  house events and hazard replacement. The BestFit artifact mapping for nonstationary
+  per-epoch hazards (a parent `UnivariateDistributionBase` at year t via
+  `GetParameterValues(t)` on a clone; a per-year posterior `ParameterSet[]` mapped from
+  `MCMCResults.Output` through the trend evaluation, feeding
+  `ParametricUnivariateHazard.Estimate(IList<ParameterSet>)` named by `HazardReplacement`
+  entries) is recorded for the import sessions — zero new hazard types needed.
 
 - **KernelDensity extrapolation surface (observation recorded 2026-08-28, from the A10 close;
   not scheduled).** A10 landed end to end on 2026-08-28 — the upstream `Extrapolation` property

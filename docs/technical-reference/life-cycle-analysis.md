@@ -1,11 +1,12 @@
 # Life-Cycle Analysis
 
 Time enters the risk model in two places: a response that weakens with age, and an evaluation
-that walks a system through the years of a planning horizon. This page documents the first —
-the age-indexed deteriorating response function — and the conventions every time-dependent
-evaluation builds on. The annual risk integral itself is untouched: a deteriorating response
-evaluated at a fixed age is an ordinary response function, so every capability of the engine
-composes with it unchanged.
+that walks a system through the years of a planning horizon. This page documents both — the
+age-indexed deteriorating response function, and the epoch-sequence life-cycle query that
+drives it through a schedule of interventions. The annual risk integral itself is untouched: a
+deteriorating response evaluated at a fixed age is an ordinary response function, each epoch
+of a life-cycle evaluation is an ordinary mean-only quantification, and every capability of
+the engine composes with them unchanged.
 
 ## The capacity-shift deterioration law
 
@@ -126,6 +127,61 @@ var pure = wrapper.SampleFunctionAtAge(0.5d, 30d);  // explicit-age overloads ne
 
 `DeterioratingResponse` registers as `ResponseFunctionType.Deteriorating` and reconstructs
 through `RiskFunctionFactory` like every concrete function type.
+
+## The epoch-sequence life-cycle query
+
+`RiskAnalysis.MeasureLifeCycleRisk(definition)` evaluates "fix failure mode A now, replace the
+hazard in year 20" as a trajectory over one authored system. The definition — a planning
+horizon, a discount rate, optional evaluation years, and an ordered intervention schedule — is
+runtime-only input; the result is a runtime-only trajectory. Epoch boundaries are the sorted
+distinct union of year zero, the evaluation years, and the intervention years; each epoch runs
+the ordinary engine mean-only on throwaway self-contained clones carrying:
+
+1. the **cumulative house-event states** (last-wins across years — re-exercise and reversal
+   are legal; the same containment walk as the configuration-risk query, so fault-tree house
+   events are reached through element assignments, external transfers, tree-referenced
+   sources, and composite children);
+2. the **hazard replacements in service** — each hazard element whose live function carries a
+   target id is reassigned a factory clone of the already-authored replacement (the seat a
+   nonstationary per-epoch hazard fit occupies; same arity only; chained replacements target
+   the function in service, so A→B in year 5 followed by B→C in year 20 composes);
+3. every deteriorating response's **evaluation age = the epoch's start year** (stepwise-
+   constant deterioration; the run snapshot carries the age onto its clones).
+
+Aggregates follow the exposure-period conversions' exact expression shapes, so the stationary
+case reproduces `MeasureExposurePeriodRisk`: P(≥ 1 failure by T) accumulates in log space,
+present values discount by exact per-epoch annuity segments, and the equivalent-annual amounts
+divide by the horizon annuity. The absorbing variants weight each year by the survival of
+every earlier year. Unreachable targets, arity mismatches, and failed epoch quantifications
+refuse loudly, wrapped with the epoch's start year. Full conventions:
+[uncertainty-analysis.md](uncertainty-analysis.md) §6.7; the result surface:
+[results-catalog.md](results-catalog.md).
+
+```csharp
+var trajectory = analysis.MeasureLifeCycleRisk(new LifeCycleDefinition(
+    periodYears: 50,
+    discountRate: 0.025d,
+    evaluationYears: new[] { 10, 30 },                     // extra epochs refine the aging curve
+    interventions: new[]
+    {
+        new LifeCycleIntervention(0,                        // fix failure mode A now
+            new[] { new HouseEventState(spillwayTree.Id, gateOutId, false) }),
+        new LifeCycleIntervention(20, null,                 // the year-20 hazard in service
+            new[] { new HazardReplacement(stageFrequency.Id, futureStageFrequency) }),
+    }));
+
+double pByHorizon = trajectory.FailureProbabilityByHorizon;
+double annualized = trajectory.EquivalentAnnualConsequences[0];
+foreach (var epoch in trajectory.Epochs)
+{
+    // epoch.StartYear, epoch.System.FailureProbability, epoch.CumulativeFailureProbability…
+}
+```
+
+Intervention entries are unconditional exercise plans, so alternatives compare as
+deterministic schedules; the condition member gating exercise on observed state (the
+decision-rule reading, least-squares Monte Carlo and its relatives) is the named extension
+seat on `LifeCycleIntervention`.
 
 ## Related chapters
 
