@@ -29,7 +29,7 @@ below are the measurement history and pin provenance (superseded pins remain as 
 | F5 | `2ae3925bfb7488cbfa4bd516cc2d4eb7d71c6f84bfff9f4891873a2bfd811349` |
 | F6 | `bd4a26e80972540f5247effb4521c26b94bfeb8998f99817cf7f352ca13d044b` |
 | F7 | `f985ca0228952ac0ba66cc29b39cf9006247ea3965264b966ab785fa74317084` |
-| F8 | `7833ad5f9db34f57fbf71c1cd0d3b6adecb2391e903beda8101fd10ed3d01350` |
+| F8 | `c9599e0a057ff511020d38a585669a56e8a13c8cf73fbfb4eed147f0ad184e2b` |
 
 Fixtures:
 
@@ -67,13 +67,15 @@ Fixtures:
   unifies 60 Boolean variables and freezes a 23,344-node exact decision diagram. It measures
   sampler setup plus 32 indexed top-event curve reads at N = 64; the byte gate hashes every
   hazard/probability ordinate of the final indexed curve in G17/invariant form.
-- **F8** (added 2026-08-06) — a single bivariate component: an independence-copula
-  `BivariateHazard` over uncertain tabular marginals at the default 20 conditional bins,
-  carrying a Secondary-bound uncertain pool-fragility failure mode and a joint
-  `BivariateResponse` surface failure mode plus a primary background path, N = 1000. The shape
-  whose per-evaluation cost is the conditional-bin sweep: every hazard evaluation fills the 21
-  trapezoid nodes and runs the failure-mode combination kernels once per node — the
-  (bins + 1)× factor the conditional-trapezoid design prices.
+- **F8** (added 2026-08-06; re-pinned 2026-09-05) — a single bivariate component: an
+  independence-copula `BivariateHazard` over uncertain tabular marginals at the default 20
+  conditional bins, carrying a Secondary-bound uncertain pool-fragility failure mode and a
+  joint `BivariateResponse` surface failure mode plus a primary background path, N = 1000.
+  The shape whose per-realization cost is the two-dimensional adaptive conditional interior:
+  each realization runs one `AdaptiveGaussKronrod2D` pass per stratification strip over
+  (u, probit z) steered by the balanced surrogate, then replays one staged combination-kernel
+  evaluation per distinct committed abscissa over its merged conditional column, with the
+  fixed-slice adaptive sweep serving the endpoint columns.
 
 Each fixture also reports the process-wide allocated-bytes delta and GC collection counts of
 the final full run (`GC.GetTotalAllocatedBytes(precise)`) — the direct signal for the
@@ -666,3 +668,40 @@ surface), and the fast suite 1,225/1,225 — the movement sits inside every stat
 tolerance and breaks no pinned oracle constant. Re-pinned with approval 2026-09-02:
 
 - F6 `bd4a26e80972540f5247effb4521c26b94bfeb8998f99817cf7f352ca13d044b` (3.12 GB)
+
+## F8 re-pin — the two-dimensional adaptive conditional interior (2026-09-05)
+
+The ruled value-moving landing: all bivariate hazards integrate their conditional axis
+adaptively (Haden's ruling, 2026-09-05 — `AdaptiveGaussKronrod2D` over (u, z = Φ⁻¹(t)) for the
+additive interior, per-slice adaptive sweeps at every fixed-u seat, no compatibility knob; the
+fixed conditional trapezoid survives only as the discretization diagnostic's quarantined
+instrument). Nothing new is serialized or hashed and no seed moves — **F1–F7 reproduced their
+pins bit-exactly in the same close-out round**, F1 remaining the univariate zero-overhead proof
+— while F8's recorded values move deliberately with the integration rule and re-pin. Accuracy
+evidence at the landing (families isolated): `BivariateRiskVerification` 5/5 — the legacy
+seismic SRP probe lands ≈ 3.7e-6 relative from the exact union-grid closed form at BOTH the
+default and the 1000-bin configuration (the fixed grid measured 0.353 at the default and
+1.98e-3 at 1000 bins), the per-slice sweep reproduces the closed form to ≈ 5.3e-12, and the
+default-configuration engine now agrees with the 1000-bin configuration within 0.5% on the
+full seismic run (the historical 2.42×/1.35× 20-bin overshoot regime is gone);
+`CopulaDependenceVerification` 8/8 — all three convergence-study fixtures at quadrature scale
+at every configured budget, the Gumbel/Joe θ = 8 robustness probe within ≈ 5e-12 of dense
+closed forms; `EngineReproducibilityVerification` 7/7 — bit-identical repeats, metadata/mode
+inertness, thread-count bit-identity, and pinned-seed perturbation all hold on the adaptive
+path. The committed row (isolated invocation, Release, `--reps 3`):
+
+| Fixture | Mean-only median (s) | Full median (s) | Full alloc (GB) | SHA-256 |
+|---|---:|---:|---:|---|
+| F8 | 3.152 | 121.776 | 154.79 | `c9599e0a057ff511020d38a585669a56e8a13c8cf73fbfb4eed147f0ad184e2b` |
+
+Against the 2026-08-06 fixed-grid row (2.652 / 76.001 / 38.25, pin `7833ad5f…` retained above
+as audit trail): mean-only +19%, full-run +60%, allocations 4.0×. The wall cost buys the
+accuracy table above — the fixed default was 35% wrong on the seismic class this fixture
+represents. The allocation growth rides the committed structure: the adaptive interior commits
+more distinct primary abscissas per realization than the fixed grid's evaluation set, and each
+committed point stages and adopts its entry lists (the allocate-what-the-point-adopts
+contract); the surrogate evaluation path itself is allocation-free (reused per-type scratch
+buffers, cached slice state). Recorded for the future dedicated perf session per the
+no-preoptimization rule: candidate reductions are pooling the per-abscissa staging objects and
+reusing tensor-region storage upstream. The single-rep hash reproduced the `--reps 3` hash
+bit-exactly.
