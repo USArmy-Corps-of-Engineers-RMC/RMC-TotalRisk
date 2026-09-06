@@ -1,5 +1,112 @@
 # Progress Log
 
+## 2026-09-06 — Capability program session 10: C2 deteriorating responses AND C1 the epoch-sequence life-cycle axis (the life-cycle foundations)
+
+**Goal:** the life-cycle/real-options FOUNDATIONS under the ruled scope discipline — C2 (the
+age-indexed deteriorating response wrapper with the evaluation year as external never-hashed
+state) closed completely before C1 (the ratified epoch-sequence architecture with the
+runtime-only trajectory query) opened; everything beyond the foundations recorded, not built;
+every existing model byte-identical with all eight gates proving it at every close. The
+session supersedes the imports prompt, which re-baselines to session 11.
+
+**Baseline (session start):** numerics `43a6927` clean (no v2.2 tag, 5 ahead — the session-9
+hand-off exactly; sibling Debug DLL rebuilt and frozen); TotalRisk on `v2.0-development`
+clean at the 2026-09-06 scope-rulings commit — read as `b30ee7b` at pre-flight, relabeled
+`e91d00d` when the concurrent history-excision session (the VerificationModels data-commit
+removal + the first push of the branch) rewrote the lineage mid-session; the rewrite is
+content-identical for everything tracked, the post-rewrite `.gitignore` commit `5acd24e`
+became the effective session base, and Haden's interleaved docs-only `83ebe53` (the
+AdaptiveGaussKronrod file-rename gotcha note, CLAUDE/AGENTS 2 lines) landed on it with zero
+compute impact — both session landings build on that lineage. B1 relocated to
+`C:\GIT\System-Response` and B7 deferred indefinitely per the rulings commit (REMAINING-WORK
+carries the text). Fast suite **1,369/1,369** + Api **73/73**; **all eight perf byte gates
+bit-exact** against their RESULTS.md pins (F8 on the adaptive-interior pin `c9599e0a…`) — the
+pins are results-content hashes, indifferent to the relabeling and proving the rewrite
+compute-inert here too.
+
+**User rulings (2026-09-06, batched at plan time):** (1) C2 as specced — `DeterioratingResponse`
+wrapping a base response plus an OWNED tabular age→shift law (`UncertainOrderedPairedData`,
+strictly ascending ages ≥ 0, optional per-ordinate uncertainty under the co-monotonic
+single-percentile convention, linear in age with boundary hold, Δ(0) ≠ 0 a Warning), positive
+shift weakening (base evaluated at h + Δ(age)), the evaluation age runtime-only, the base
+through `FunctionEntry` in both modes with verbatim pending-marker re-write, projected-identity
+hash; parametric trend laws mirroring the BestFit `TrendFunctions` vocabulary recorded. (2) v1
+bases restricted to `TabularResponse`/`ParametricResponse` with Validate-Error refusals for
+every other base kind and for the wrapper as composite child (dual guard), tree probability
+source, multi-stage stage, or under a bivariate parent — the single-stage univariate seat
+legal; each refusal a recorded extension carrying the epistemic-walker checklist. (3) C1 as
+the epoch-sequence reading with a runtime-only definition/query (`MeasureLifeCycleRisk`); the
+serialized `LifeCycleAnalysis` recorded; v1 actions = house events (the configuration walk
+reused directly — zero extraction) + same-arity chained hazard replacements; conditional
+exercise a NAMED seat only. (4) BOTH aggregation conventions from one mean-only trajectory —
+the exposure-period-consistent non-absorbing block (stationary case reproducing
+`MeasureExposurePeriodRisk`) plus the absorbing survival-weighted variants; full-uncertainty
+trajectories recorded. Folded micro-rulings presented with the plan: pending-base re-write
+YES; the wrapped base NOT surfaced through `GetReferencedFunctions` (composite-child parity —
+a fractile pin on the base id fails loudly at classification); the age setter throws on
+NaN/negative; the default law is the single zero ordinate.
+
+**Landed — C2 (`9949d24`):** `DeterioratingResponse` + the internal shifted-axis
+`ShiftedUnivariateDistribution` (the range-guard template: CDF(x) = base.CDF(x + Δ), location
+measures shifted, dispersion delegated, zero shift bit-reproducing the base); D = 1 (the law
+column) with the base re-seeded `HashCombine(seed, base.CanonicalHash(), 0)` and the
+parametric posterior-capacity gate; the full landing checklist (`ResponseFunctionType.
+Deteriorating`, the factory case, TWO kitchen-sink registry entries, the discriminator pins);
+the seat refusals in `CompositeResponse` (dual guard), `ProbabilitySource`, and `FailureMode`
+(multi-stage + bivariate-parent); both serialization modes with resolver repair and the
+verbatim pending re-write; and the session's structural discovery — **`RiskAnalysisRunContext.
+Capture` now carries authored evaluation ages onto the run's cloned instances by function id**
+(the snapshot clone alone resets never-serialized state; found by the engine twin diverging
+0.2145 vs 0.3256, fixed at the one seat, a no-op for wrapper-free models, unit- and
+twin-pinned). The engine twin also surfaced the consequence-binding subtlety: the re-authored
+twin must pin `ConsequenceHazardPosition = 0` because the capacity shift is response-internal
+while the last-response-input default binds consequences to the transformed signal. 43 unit
+tests in `DeterioratingResponseTests` + 8 across six existing classes; docs
+(`life-cycle-analysis.md` + `response-functions.md` + the index rows) and the CLAUDE.md
+matrix/namespace rows (plus the stale "F1–F7" perf note corrected to F1–F8).
+
+**Landed — C1 (`32ef74b`):** the runtime-only records `LifeCycleDefinition` /
+`LifeCycleIntervention` (the named conditional-exercise seat in its remarks) /
+`HazardReplacement`; the unpersisted containers `LifeCycleRiskResults` / `LifeCycleEpochRisk`
+/ `LifeCycleEpochEntry`; and `RiskAnalysis.MeasureLifeCycleRisk` — epoch boundaries =
+sortedDistinct({0} ∪ evaluation years ∪ intervention years) with every year in [0, T−1] (a
+horizon-year epoch would be zero-span, refused) and one intervention entry per year; each
+epoch a mean-only quantification on fresh self-contained clones via the configuration-risk
+machinery called directly, carrying the cumulative last-wins house states, the chained
+same-arity hazard replacements matched against the LIVE element assignment (factory-cloned
+once per epoch so authored instances are never event-wired; A→B@5 then B→C@20 composes while
+re-targeting A refuses as unreachable; arity mismatches loud), and every deteriorating
+response at the epoch's start age; every epoch failure wrapped with its start year; aggregates
+in the exact exposure-period expression shapes plus the absorbing survival-weighted
+cumulative/PV (absorbing P_T ≡ P_T documented, not duplicated); label echoes per entry and per
+epoch; the authored model byte-untouched. 46 unit tests across seven new files; docs
+(uncertainty-analysis §6.7, the results-catalog block, the life-cycle page's query half, the
+REMAINING-WORK extension bullet incl. the BestFit nonstationary artifact mapping for the
+import sessions).
+
+**Verified (families isolated):** `LifeCycleVerification` **10/10** (≈ 12 s) — the unit-slope
+transform-equivalence bit-oracle across ages, realization-for-realization one-stream knowledge
+parity, the age-zero base identity, the engine mean-only twin bit-exact including the
+loss-exceedance ordinates, full-uncertainty two-run byte reproducibility, the stationary
+bridge collapsing every `MeasureExposurePeriodRisk` percentile slot with no delta at 3.5% and
+0% discounting (run at the engine's 100-realization floor — the N = 2 exact-mean design is
+below it, so the mean slots carry the documented count-times-epsilon summation rounding,
+asserted 1e-13 relative), the exact two-epoch closed form (the 0.375-AND tree configuring
+0.2 → exactly 0.5; independent power-form annuities and a per-year survival loop at 1e-12
+relative; undiscounted PV ≡ cumulative with no delta), per-epoch re-authored configuration
+twins bit-exact at both scopes, the deterioration-monotone/intervention-drop trajectory shape,
+and the 200-realization author byte pin. Fast suite **1,463/1,463** + Api **73/73** at both
+closes (1,369 + 48 C2 + 46 C1); **all eight perf byte gates bit-exact at the baseline and at
+both closes** (three full rounds this session; nothing moved, nothing re-pinned).
+
+**Next:** session 11 = the external-import surface (the re-baselined imports prompt at
+`~/.claude/plans/session-11-totalrisk-imports.md`, now carrying the nonstationary
+artifact→per-epoch-hazard mapping recorded this session); C4/C5 design rounds whenever called
+(C5 consumes the C1 trajectories for NPV/BCR/real-option economics and the A5
+equivalent-annual identity); N4/T8 whenever Haden re-packs, tags, and pushes 2.2.0 (the packed
+nupkg remains stale); then Phase 12 hardening (the F8 allocation profile stays queued there) →
+Phase 13 release prep → Phase 14B → the publish session.
+
 ## 2026-09-05 — Capability program session 9: B4 latent-factor dependence AND B10 two-dimensional adaptive bivariate quadrature (B7 deferred by ruling)
 
 **Goal:** the session-9 slate in ruled order — B4 (latent-factor capacity dependence at
