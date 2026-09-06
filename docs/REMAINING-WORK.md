@@ -79,6 +79,15 @@
 2. **B7 (tail-dependent capacity coupling) is deferred indefinitely**: it is not a near-term
    practitioner need and will not be scheduled; the complete prepared plan below stays as the
    archive so a future ruling can reopen it without re-derivation.
+3. **C4 (PortfolioAnalysis) is deferred off the critical path**: it stays in the v2.0.0
+   scope but is not scheduled — it slots at Haden's convenience before release prep, with
+   its own design round when called.
+4. **The critical path after C5 is the exhaustive testing campaign**: once C5
+   (CostBenefitAnalysis) lands, the program spends a multi-week campaign developing
+   exhaustive unit AND verification testing across every feature already developed, before
+   anything else on the critical path (the import surface, hardening, and release prep
+   follow the campaign). C5 itself runs design-first: a dedicated design session produces
+   the ratified normative design document, then implementation sessions execute it.
 
 ## Open questions that resolve inside the items above
 
