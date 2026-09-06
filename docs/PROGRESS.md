@@ -1,6 +1,132 @@
 # Progress Log
 
-## 2026-09-05 — Capability program session 8: B5 transform-mapped tree sources AND B6 parametric common-cause failure
+## 2026-09-05 — Capability program session 9: B4 latent-factor dependence AND B10 two-dimensional adaptive bivariate quadrature (B7 deferred by ruling)
+
+**Goal:** the session-9 slate in ruled order — B4 (latent-factor capacity dependence at
+component scope), B10 (the adaptive secondary-axis quadrature), B7 (tail-dependent capacity
+copulas) — whole-or-not per item, all ratification questions batched at plan time, the
+session-start protocol (git states, sibling Debug rebuild, suite, eight gates, fresh A2
+evidence sweep) mandatory before any code.
+
+**Baseline (session start):** numerics `7a3f0e4` clean (no v2.2 tag, 4 ahead — the session-8
+hand-off exactly); TotalRisk `7f7aca6` on `v2.0-development` clean; fast suite **1,346/1,346**
++ Api **73/73**; **all eight perf byte gates bit-exact** against their RESULTS.md pins; the
+fresh A2 evidence sweep reproduced the recorded convergence study without contradiction
+(smooth {1.104e-3, 4.418e-5, 4.418e-7}; cusp {6.93e-4, 8.22e-5, 3.81e-6}; legacy seismic
+{0.353, 0.0491, 1.98e-3} at bins {20, 100, 1000}).
+
+**User rulings (2026-09-05, batched at plan time + two in-flight):** (1) **B4 approved as
+designed** — component-scope `DependencyType.LatentFactors`, conditional-presence loadings,
+derived matrix into the existing kernels, zero upstream; (2) **B10 route** — "No reason for
+backwards compatibility here. Just make all bivariate hazards use 2d adaptive AGK," clarified
+"The whole reason we added 2d agk to numerics was for bivariate hazards in totalrisk. Review
+Numerics and TR and design it to use 2d agk" ⇒ `AdaptiveGaussKronrod2D` unconditionally, no
+knob, hashes/seeds hold, values move, F8 re-pins, re-anchors cite the ruling; (3) **the A2
+diagnostic stays** as the quarantined fixed-grid instrument whose Richardson limit is the
+standing independent cross-check; (4) **the fixed-u seats** — "2D+ component systems with
+joint rule use vegas. 2D bivariate hazards in a single component use AGK2D … what if 2D
+bivariate hazard is in a multiD joint risk compute with Vegas? In that case, it needs a
+secondary axis adaptive conditional sweep given the vegas evaluation on the primary hazard
+axis. This is a must have, so we need to just go ahead and do it now" ⇒ the per-slice adaptive
+sweep shipped at every fixed-u seat; (5) **the two upstream AGK2D recorder regression pins**
+added to Test_Numerics, riding 2.2.0; (6) **B7 DEFERRED** — nothing implemented, the complete
+prepared plan recorded in REMAINING-WORK; (7) **release train** — B7's future upstream items
+ride 2.2.0 (standing answer). In-flight: **the probit coordinate** ("Probit coordinate
+(Recommended)") — the conditional axis integrates in z = Φ⁻¹(t) with the φ(z) Jacobian folded
+into recorded masses; and the plan's proposed dependent-common-cause advisory Warning was
+dropped on evidence (a SUPPORTED v1.0 configuration — the correction is recorded in
+REMAINING-WORK).
+
+**Landed — B4 (`fc3d2b2`):** `DependencyType.LatentFactors = 4` (append-only); new
+`Systems/Components/LatentFactor` (Name/Description metadata, pipe-G17 `Loadings`, factor
+ORDER semantic); `SystemComponent.LatentFactors` + `AddLatentFactor`/`RemoveLatentFactor`
+with item-PropertyChanged staleness, the conditional `<LatentFactors>` child persisted AND
+hashed only under the mode with count > 0 (factor-free and non-mode components byte/seed
+identical — pinned), the `UpdateMultivariateNormal` derivation branch (ρᵢᵢ = 1 assigned,
+ρᵢⱼ = Σf λᵢf·λⱼf in declared factor order, back-filled), the PD gate on the derived matrix,
+the configuration Validate matrix (≥ 1 factor, length = combination-unit count, λ ∈ [−1, 1]
+finite, Σλ² ≤ 1), coercion parity with the matrix mode, and the riding hygiene (the
+`FailureModeMethod` doc falsehood fixed — coupling is analytic, no draws; the dead
+`RiskAnalysis._jointMultivariateNormal` removed). Verified: `LatentFactorVerification` 5/5
+isolated — dense-equivalence bit pins (derived ≡ λλᵀ; PCM decomposition bit-identical between
+LatentFactors and CorrelationMatrix twins; engine mean-only bit pin on a deterministic
+fixture; competing twins at D = 3 within lattice tolerance), the exchangeable Simpson factor
+integral cross-anchored to `Probability.UnionSingleFactor` at 5e-8 with the measured 8.4e-4
+PCM approximation error asserted at 2.5e-3, 1M two-factor and 1M competing MC oracles, and
+full-run reproducibility (a lesson recorded: `EstimateMeanRiskOnly` defaults TRUE and
+full-run `RiskResults[i]` is realization i — published means live on `MeanRiskResults`).
+Docs: `failure-mode-combination.md` §5.1, `docs/verification/latent-factor.md`, README row,
+matrix rows. Extensions recorded in REMAINING-WORK (cross-component factors, the
+factor-integral evaluation path, Vanmarcke loadings, per-mode authoring;
+`MaxPathwayCombinations` authored-but-unconsumed and the inspection-only
+`FailureModeMultivariateNormal` left as-is on the record).
+
+**Landed — the numerics pins (numerics `43a6927`):** two Test_Numerics regressions on
+`AdaptiveGaussKronrod2D` — the recorder flushes the frozen composite on budget/iteration
+exhaustion, and Σ recorded weights = domain area on every non-Failure status (25/25
+net10.0+net481); proven engine-inert by gate re-run.
+
+**Landed — B10 (the ruled value-moving package):** the two-dimensional adaptive conditional
+interior. α (additive/single-component): `IntegrateComponentAdaptive2D` — one
+`AdaptiveGaussKronrod2D` pass per stratification strip over (u, z = Φ⁻¹(t)), steered by the
+balanced probability+consequence surrogate (3-slice deterministic scale probe; reliability =
+probability-only), fair-share strip budgets max(441, MaxEvaluations/activeStrips), per-strip
+Jacobian-folded mass rescale to the exact strip width (sanity 1e-3), `ConditionalColumnLedger`
+grouping flushed nodes by exact abscissa, ONE staged `ComputeRiskBivariateColumns` replay per
+distinct x (every downstream one-point-per-abscissa gate verbatim), endpoint columns +
+`SealExhaustive` unchanged; the S6 body survives renamed `IntegrateComponentConditionalGrid`
+(univariate + the A2 instrument, which keeps the fixed grid structurally via the
+conditional-override ctor slot). β (every fixed-u seat — joint VEGAS, AFP probe,
+`HazardLevelSensitivity`, endpoint columns): the per-slice 1-D adaptive probit sweep
+(`BuildAdaptiveConditionalMesh` + `ConditionalQuadratureMesh.AdoptProbitExhaustive`,
+budget 21×bins, endpoint sweeps granted the strip fair share). Disciplines: mean/probes
+Tolerance + MinDepth 2, ensemble EnsembleTolerance + EnsembleMinDepth, Abs 1e-15 pinned.
+Nothing new serialized/hashed; `RiskAnalysisOptions` gains no field; `SecondaryIntegrationBins`
+keeps its place as the instrument ladder + sweep-budget price. **The three-fix convergence
+chain, each measured:** the K−G estimator was blind to the t ∈ [0.999, 1] layer in t-space
+(+0.586% budget-insensitive) ⇒ the probit-coordinate ruling; sequential budgeting starved
+tail strips at the 441 floor (+12% → pofMax +15% localized by the A9 retained-detail probe) ⇒
+fair-share strips (3.7e-6); endpoint columns at 21×bins carried 64% of the mass under-refined
+(±1% default-vs-1000 ratios) ⇒ the sweep-budget grant (5/5). **And the ensemble-scale
+carrier fix:** residual-last unit-sum normalization rounds NEGATIVE when a probit-edge node's
+mass (w·φ(z) ~ 1e-16) sits below the summation's rounding noise — found by the 4 bivariate
+`EngineReproducibilityVerification` fixtures crashing at ensemble scale; both adopters now
+carry the residual on the LARGEST-mass node (first on ties; unreachable-negative from
+rounding), unit-pinned tail-node regressions added.
+
+**Verified (families isolated):** `BivariateRiskVerification` 5/5 re-anchored citing the
+ruling — the SRP probe ≈ 3.7e-6 relative from the exact union-grid closed form at BOTH bin
+configurations (fixed grid: 0.353 default / 1.98e-3 at 1000), the per-slice sweep ≈ 5.3e-12
+(pinned 1e-9), oracle bands re-derived k·SE + 1e-4, the historical overshoot regimes replaced
+by |ratio − 1| consistency pins, the v1.0-arrangement >50× superiority assert replaced by
+both-arrangements-within-0.5% (the axis-choice guidance RELAXED), the collapse-vs-joint
+joint-side strict-shrink retired (both configurations adaptive; collapse-side shrink kept);
+`CopulaDependenceVerification` 8/8 — the convergence study re-routed (fixed series through
+the instrument via `InstrumentFailureProbability`, doubled-twin ladder parity bit-exact), the
+NEW adaptive adequacy layer (all three fixtures at quadrature scale at every budget), the NEW
+Gumbel/Joe θ = 8 extreme-dependence robustness probe (measured 4.6e-12/3.3e-12 vs dense
+closed forms, pinned 1e-9), retained bands re-documented as upper bounds;
+`EngineReproducibilityVerification` 7/7 (bit-identical repeats, metadata/mode inertness,
+thread counts, pinned seeds — all on the adaptive path). Fast suite **1,369/1,369** (+
+`LatentFactorTests` 5, +2 carrier regressions, re-anchored adaptive twins/instrument
+contracts) + Api **73/73**, Release gate green, validation script green, zero warnings.
+**Gates: F1–F7 bit-exact** (the inertness proof; F1 the univariate zero-overhead pin);
+**F8 re-pinned** `c9599e0a…` (single-rep ≡ `--reps 3` bit-exact) with the dated value-moving
+section in RESULTS.md — mean-only 3.152 s (+19%), full 121.776 s (+60%), alloc 154.79 GB
+(4.0×, the committed-structure driver recorded for the dedicated perf session; the old pin
+`7833ad5f…` retained as audit trail). Docs: bivariate-hazards.md rewritten (probit adaptive
+interior, accuracy table, instrument section, axis guidance relaxed), risk-integration.md
+bivariate subsection, BIVARIATE_RISK_DESIGN decision-7 superseded-annotation, both
+verification pages' new runs of record, README rows.
+
+**B7:** deferred by ruling — nothing implemented; the complete prepared plan (verified
+consumption map, upstream inventory, genuine gaps, the N1→N3/T1→T3 shape with the N1→T1→T2
+truncation boundary) recorded in REMAINING-WORK with the ride-2.2.0 standing answer.
+
+**Next:** session 10 per the re-baselined prompt (`session-9-totalrisk-imports.md` →
+session-10, new HEAD + counts + the new F8 pin) — the imports slate; B1/C1/C4/C5 remain
+design-session gated; N4/T8 ask-first (the packed 2.2.0 nupkg remains stale pending Haden's
+re-pack).
 
 **Goal:** land B5 end to end per the ratified design — an optional ordered hazard-transform
 chain on `ProbabilitySource` so a tree node (event-tree chance, fault-tree basic event) can be

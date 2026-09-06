@@ -1,9 +1,9 @@
 # Copula Dependence Verification
 
-**Test class:** `CopulaDependenceVerification` · **Tests:** 7 · **Run of record:** 2026-08-28, isolated run, ✅ all passed
+**Test class:** `CopulaDependenceVerification` · **Tests:** 8 · **Run of record:** 2026-09-05, isolated run, ✅ all passed (re-anchored for the two-dimensional adaptive conditional interior; prior run of record 2026-08-28 at 7 tests on the fixed conditional grid)
 
-> Family: the conditional-bin integration of `BivariateHazard` under dependence (greenfield — no legacy counterpart)
-> Anchors: exactness identities, analytic copula closed forms independently transcribed, a dense analytic-CDF moment re-derivation, and the bin-count convergence study whose measured figures are the pinned tolerance source for [bivariate-risk](bivariate-risk.md)
+> Family: the conditional integration of `BivariateHazard` under dependence (greenfield — no legacy counterpart): the adaptive probit-coordinate production interior and the quarantined fixed-grid instrument
+> Anchors: exactness identities, analytic copula closed forms independently transcribed, a dense analytic-CDF moment re-derivation, and the bin-count convergence study — the fixed series reached through the discretization instrument, the adaptive series through production runs
 > Exactness identities at 1e-10 relative; copula-conditioned engine comparisons at measured-and-documented allowances
 
 ## Fixture design
@@ -18,16 +18,17 @@ The marginals are two-knot tabular curves with probability knots at 1e-15 and 1 
 
 | Test | Anchor | Result |
 |---|---|---|
-| Independence exactness | surface linear in the secondary × uniform secondary ⇒ the conditional trapezoid is exact at ANY bin count | engine = 0.4125 exactly at 3 AND 20 bins (1e-10 relative) |
-| Normal copula | h-function vs the analytic Φ((Φ⁻¹(v) − ρΦ⁻¹(u))/√(1−ρ²)) at 1e-12 (ρ = 0.7 and −0.4); engine vs the analytic mean | measured 3.8e-6 relative at 1000 bins; asserted at 1.5e-5 (≈ 4× head-room) |
-| Convergence study | three fixtures at N ∈ {20, 100, 1000} — see below | pinned |
-| Clayton | h-function u^(−θ−1)·(u^(−θ)+v^(−θ)−1)^(−(θ+1)/θ), the analytic inverse conditional, and the 1e-12 round trip; engine vs the dense ∫∫C re-derivation | asserted at 4e-5 relative (the θ = 2 lower-tail t^{1/(θ+1)} endpoint cusp bounds the 1000-bin trapezoid) |
-| Gumbel orientation | h-function vs a central finite difference of the independently transcribed CDF (1e-8); engine: upper-tail dependence must RAISE joint-extreme failure probability over independence (analytic ratio ≈ 1.23 at θ = 2) | passes; the independence baseline is the exact corner mean 0.225 |
-| Marginal-uncertainty propagation | a deterministically injected Normal posterior on the secondary marginal (a fixed formula, no randomness) ⇒ each of 120 ensemble realizations compares against a hand-rolled dense conditional integral of the same parameter set | every realization within 0.1% relative (the bound covers the ensemble-pass quadrature discipline at 1e-4, the 200-bin trapezoid residual, and the oracle's own density) |
+| Independence exactness | surface linear in the secondary × uniform secondary ⇒ the engine reproduces the iterated closed form at any configured bin count (re-anchored: the adaptive probit interior is bins-inert on this fixture — the historical mechanism was the trapezoid's y-linear exactness) | engine = 0.4125 at 3 AND 20 configured bins (1e-10 relative) |
+| Normal copula | h-function vs the analytic Φ((Φ⁻¹(v) − ρΦ⁻¹(u))/√(1−ρ²)) at 1e-12 (ρ = 0.7 and −0.4); engine vs the analytic mean | asserted at 1.5e-5 — the retained fixed-grid study band, now a deliberate upper bound (the adaptive production error sits far below; the study's adaptive layer pins the tighter figures) |
+| Convergence study | three fixtures at N ∈ {20, 100, 1000}: the fixed series through the instrument, the adaptive series through production — see below | pinned |
+| Clayton | h-function u^(−θ−1)·(u^(−θ)+v^(−θ)−1)^(−(θ+1)/θ), the analytic inverse conditional, and the 1e-12 round trip; engine vs the dense ∫∫C re-derivation | asserted at 4e-5 relative — the retained fixed-grid band as a deliberate upper bound |
+| Gumbel orientation | h-function vs a central finite difference of the independently transcribed CDF (1e-8); engine: upper-tail dependence must RAISE joint-extreme failure probability over independence (analytic ratio ≈ 1.23 at θ = 2) | passes; the independence baseline is the exact corner mean 0.225 (1e-9) |
+| Extreme-dependence robustness (added 2026-09-05) | full engine runs at θ = 8 through the two numerically inverted families (Gumbel, Joe — Brent conditional inverses; the adaptive mesh queries the saturation band down to the 1e-16 clamp), each vs a dense analytic-CDF re-derivation self-checked by refinement doubling | measured ≈ 4.6e-12 (Gumbel) and ≈ 3.3e-12 (Joe) relative; pinned at 1e-9 with over two orders of head-room |
+| Marginal-uncertainty propagation | a deterministically injected Normal posterior on the secondary marginal (a fixed formula, no randomness) ⇒ each of 120 ensemble realizations compares against a hand-rolled dense conditional integral of the same parameter set | every realization within 0.1% relative (the bound covers the ensemble-pass quadrature discipline at 1e-4, the adaptive conditional-sweep residual at that discipline, and the oracle's own density) |
 
 ## The bin-count convergence study
 
-The derivation source for every trapezoid allowance in the bivariate families. Three fixtures at N ∈ {20, 100, 1000}, all measurements from the run of record:
+The derivation source for every fixed-grid discretization allowance in the bivariate families. Under the two-dimensional adaptive interior ruling (2026-09-05) the production mean run no longer integrates the fixed conditional trapezoid, so the fixed series is reached through the quarantined discretization instrument (`EstimateSecondaryDiscretizationError`'s configured level IS the fixed grid at the configured count — bit-identical from either ladder, pinned by the diagnostic test below) while the adaptive production series is measured at the same configurations. Three fixtures at N ∈ {20, 100, 1000}, fixed-series measurements from the 2026-08-28 run of record and reproduced by the instrument on 2026-09-05:
 
 | Fixture | Relative errors {20, 100, 1000} | Decay |
 |---|---|---|
@@ -35,25 +36,30 @@ The derivation source for every trapezoid allowance in the bivariate families. T
 | (ii) Normal-copula cusp series (ρ = 0.7, the analytic-mean fixture) | {6.93e-4, 8.22e-5, 3.81e-6} | ratios 8.4 and 21.6 — the conditional map v(t) = Φ(√(1−ρ²)Φ⁻¹(t) + ρΦ⁻¹(u)) has one-sided endpoint cusps (dv/dt ~ t^(−ρ²) as t → 0), reducing the order to ≈ O(N^{−(2−ρ²)}) |
 | (iii) The legacy seismic SRP probe (E_Y[P(0.8, Y)] against the exact union-grid closed form 0.029670393164335482) | {0.353, 0.0491, 1.98e-3} | rate-limited by the stage marginal's normal-Z tail: P ~ e^{c·Φ⁻¹(t)} concentrates the integrand in the top bins (the surface probability swings 0.35 → 0.81 inside t ∈ [0.999, 1]) before saturation flattens them |
 
-**Pinned figures** (consumed by the legacy-oracle family's tolerances, with head-room over the measured values): the legacy fixture's bins = 20 relative error is pinned at 0.5 and its bins = 1000 error at 4e-3.
+**Pinned figures** (consumed by the legacy-oracle family's historical context, with head-room over the measured values): the legacy fixture's bins = 20 relative error is pinned at 0.5 and its bins = 1000 error at 4e-3.
 
-**Default-20 adequacy, stated honestly:** the default bin count is adequate for smooth, moderate-variation surfaces (≈ 0.1% relative) and INADEQUATE for tail-concentrated log-scale surfaces under normal-Z-tailed marginals (≈ 35% relative on the legacy seismic fixture, and still ≈ 0.2% at 1000 bins). Practitioner guidance is in [bivariate-hazards](../technical-reference/bivariate-hazards.md).
+**The adaptive adequacy layer (added 2026-09-05):** at every configuration the production interior must resolve all three fixtures to quadrature scale — pinned below 1e-5 (smooth) and 1e-4 (cusp and legacy) at each of the three configured budgets — and the default-budget adaptive answer must beat the fixed default by well over two orders on the legacy fixture (measured ≈ 4e-6 against the fixed grid's ≈ 0.353). The tail-concentrated class that rate-limited the uniform-t grid sits at quadrature scale under the probit coordinate, because z = Φ⁻¹(t) linearizes exactly the Φ⁻¹ blow-up that concentrated the mass; the fixed-grid inadequacy figures above are retained as the instrument's documented behavior and the historical record of why the interior is adaptive. Practitioner guidance is in [bivariate-hazards](../technical-reference/bivariate-hazards.md).
 
 ## The discretization diagnostic against the measured truth
 
-`Test_DiscretizationDiagnostic_TracksMeasuredErrors` (added 2026-08-28) anchors
-`RiskAnalysis.EstimateSecondaryDiscretizationError` — the a-posteriori Richardson estimate over
-mean evaluations at the configured, halved, and quartered bin counts — to this family's own
-measured errors. Three layers: the diagnostic's halved and quartered levels must be
-**bit-identical** to mean runs of the same fixture configured at those counts (the levels are
-the engine at reduced grids, never a re-implementation; asserted at 0); on the smooth
-separable-log fixture the estimate must land within a factor of two of the true bins = 20 error
-(in-regime the Richardson estimate is e₂₀·(1 + O(N⁻²)) exactly) with the observed ratio inside
-[3, 5.5] around the second-order four and the extrapolation beating the raw value against the
-closed form; and on the legacy tail-concentrated fixture the estimate must stay within one
-order of the true ≈ 0.35 error — indicative only, documented — while the observed ratio falls
-below 3.5, the regime check flagging exactly the fixture whose pre-asymptotic series this study
-measured.
+`Test_DiscretizationDiagnostic_TracksMeasuredErrors` (added 2026-08-28; layer (i) re-anchored
+2026-09-05 under the adaptive interior ruling) anchors
+`RiskAnalysis.EstimateSecondaryDiscretizationError` — the quarantined fixed-grid instrument's
+Richardson estimate over fixed-trapezoid evaluations at the configured, halved, and quartered
+bin counts — to this family's own measured errors. Three layers: the diagnostic's levels must
+be **bit-identical from either ladder** — a doubled-count twin instrument's halved and
+quartered levels reproduce this ladder's configured and halved levels exactly (asserted at 0;
+the levels are the instrument itself at reduced grids, never a re-implementation — the
+production mean run no longer computes the fixed grid, so the cross-pin is instrument-against-
+instrument by construction); on the smooth separable-log fixture the estimate must land within
+a factor of two of the true bins = 20 error (in-regime the Richardson estimate is
+e₂₀·(1 + O(N⁻²)) exactly) with the observed ratio inside [3, 5.5] around the second-order four
+and the extrapolation beating the raw value against the closed form; and on the legacy
+tail-concentrated fixture the estimate must stay within one order of the true ≈ 0.35 error —
+indicative only, documented — while the observed ratio falls below 3.5, the regime check
+flagging exactly the fixture whose pre-asymptotic series this study measured. The instrument's
+extrapolated limit is the standing independent cross-check of the adaptive production answer
+([bivariate-risk](bivariate-risk.md) carries the engine-side pins).
 
 ## Upstream defect found and fixed by this family
 

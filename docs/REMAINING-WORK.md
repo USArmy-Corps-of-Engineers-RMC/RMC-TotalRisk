@@ -207,6 +207,51 @@ approved and executed (`74af2e95…`, its own commit).
   kernel) — the session-9 plan's proposed advisory warning was dropped as mislabeling
   supported behavior.
 
+- **B7 — tail-dependent (Student-t) capacity coupling: DEFERRED by ruling 2026-09-05, complete
+  prepared plan recorded.** Nothing was implemented; the design survey is preserved so the item
+  can start without re-derivation. *Verified consumption map:* failure-mode coupling is consumed
+  analytically, never as draws — JointFailures dependent = `Probability.ExclusivePCMLazy` → HPCM
+  over closed-form `MultivariateNormal.BivariateCDF` (deterministic at any dimension);
+  CompetingFailures dependent = the seeded Genz lattice inside
+  `CompetingRisks.CumulativeIncidenceFunctions` (the only lattice consumer);
+  CommonCause/MutuallyExclusive coerced or none. No draw site exists, so a "cheap draws-only
+  t-scope" is vacuous. *Upstream inventory:* `MultivariateStudentT` already ships (CDF = K = 200
+  χ²-midpoint mixing over the MVN CDF, scipy-validated 1D–4D, deterministic at D = 2, full draw
+  APIs including the D+1-coordinate InverseCDF); `StudentTCopula` + `CopulaType.StudentT` ship
+  with closed-form tail coefficients; no Genz BVTL/MVTDST port is needed. *Genuine gaps:* a
+  t-joint kernel beside HPCM (the χ²-mixture over the UNCHANGED Gaussian HPCM — an exact
+  identity, no new conditioning math, deterministic at any dimension; singleton bypass;
+  ν ≥ 1e8 bit-exact Gaussian delegation), `MultivariateStudentT.Interval` (≈ 40-line mixing
+  loop) plus `MixingStrata` and the value-inert inner-MVN hoist, and
+  `CompetingRisks.StudentTDegreesOfFreedom` (null default byte-identical — the F4 protection).
+  *Ratified-shape plan:* upstream N1 (Probability kernels + the delegate-core walker refactor,
+  value-inert with a pre-captured delta-0 pin; fallback = body duplication) → N2 (the MVT
+  surface) → N3 (CompetingRisks); TotalRisk T1 (`CapacityCouplingType` +
+  `CapacityCouplingDegreesOfFreedom`, conditional presence, the Validate matrix — ν < 1 Error,
+  [1, 2) and > 100 Warnings — and the one t branch in `ComputePathwayDecomposition`) → T2
+  (`TailDependenceVerification`: 1M MC oracles with the measured Gaussian-PCM baseline in the
+  tolerance discipline, the deterministic ν = 1e8 bit-identical recovery, the tail-coefficient
+  pin vs `StudentTCopula.UpperTailDependence`, the t-vs-Gaussian amplification pin) → T3 (the
+  competing half). N1 → T1 → T2 is the clean truncation boundary. Release train: the upstream
+  items ride the 2.2.0 slate (standing answer, 2026-09-05).
+
+- **Bivariate adaptive-interior follow-ups (recorded 2026-09-05, from the B10 landing; not
+  scheduled).** Three items from the two-dimensional adaptive conditional quadrature landing:
+  (1) **the F8 allocation profile** — the adaptive interior commits more distinct primary
+  abscissas per realization than the fixed grid's evaluation set, and each committed point
+  stages and adopts its entry lists, measuring 154.79 GB against the fixed grid's 38.25 GB on
+  the F8 fixture (wall +60% full-run, +19% mean-only — the price of the accuracy table in
+  `scripts/perf/RESULTS.md`); candidate reductions for the dedicated perf session are pooling
+  the per-abscissa staging objects and reusing tensor-region storage upstream, both value-inert
+  by construction; (2) **residual bin-count sensitivity through the surrogate probe** — the
+  refinement surrogate's normalization scales probe the sampled hazard's fixed conditional grid
+  at the configured count, so two bin configurations of one model can adopt slightly different
+  (equally converged) meshes; harmless within tolerance and pinned by the consistency asserts,
+  but a bins-free probe (e.g. a fixed 21-node probit sweep) would make the adaptive answer
+  fully bins-inert if ever wanted; (3) **upstream tensor-region reuse** — `AdaptiveGaussKronrod2D`
+  allocates per-region storage per pass; a pooled-region variant is a numerics item for the
+  same perf session.
+
 - **A first-class shared-epistemic-variable object (recorded 2026-09-02; not scheduled).** The
   landed sharing identity is the name string on each binder — cheap, mode-portable, and exact.
   If authoring UX ever wants one place to declare a variable (description, weight-vector

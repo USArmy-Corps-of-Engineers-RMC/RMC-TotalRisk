@@ -1,10 +1,10 @@
 # Bivariate Risk Verification
 
-**Test class:** `BivariateRiskVerification` · **Tests:** 5 · **Run of record:** 2026-08-07, isolated run, ✅ all passed
+**Test class:** `BivariateRiskVerification` · **Tests:** 5 · **Run of record:** 2026-09-05, isolated run, ✅ all passed (re-anchored for the two-dimensional adaptive conditional interior; prior run of record 2026-08-07 on the fixed conditional grid — its measured figures are retained below as the historical record)
 
-> Family: the conditional-bin bivariate engine end to end (`BivariateHazard` + `BivariateTransform` + `BivariateResponse` + `BivariateConsequence` through `RiskAnalysis`)
+> Family: the bivariate engine end to end (`BivariateHazard` + `BivariateTransform` + `BivariateResponse` + `BivariateConsequence` through `RiskAnalysis`) under the adaptive probit conditional interior
 > Anchors: the ported legacy `Test_Bivariate_Risk` Monte Carlo oracle, an exact union-grid closed form with the re-captured legacy 100M cross-check, a re-anchored chained-bilinear oracle, and the collapse-versus-joint consistency cross-anchor
-> Engine-versus-oracle comparisons are statistical (k·SE, k = 4) plus the measured discretization allowances pinned by [copula-dependence](copula-dependence.md)
+> Engine-versus-oracle comparisons are statistical (k·SE, k = 4) plus the adaptive conditional figure (1e-4 relative, measured ≈ 3.7e-6 on the seismic fixture class); every re-anchor cites the 2026-09-05 ruling in its test docs
 
 ## Fixture provenance
 
@@ -14,16 +14,16 @@ The ported oracles preserve `MersenneTwister(45678)` and the exact per-realizati
 
 ## Test_BivariateRisk_EngineVsLegacyOracle
 
-The legacy oracle draws (pga, stage, rnd) each realization — rnd unconditionally, matching the legacy loop — and records the stage-interpolated life loss on failure. Run of record: EAD 0.035252 (SE 2.24e-3), failure probability 2.98e-4 (298 failures).
+The legacy oracle draws (pga, stage, rnd) each realization — rnd unconditionally, matching the legacy loop — and records the stage-interpolated life loss on failure. Oracle run of record: EAD 0.035252 (SE 2.24e-3), failure probability 2.98e-4 (298 failures).
 
-| Assert | Engine | Tolerance derivation |
-|---|---|---|
-| EAD, 1000 bins | 0.038446 | k·σ̂/√N (k = 4, σ̂ in-run Welford) + the pinned 4e-3 near-exact discretization figure — measured agreement 1.4σ |
-| Failure probability, 1000 bins | 3.0221e-4 | binomial k·√(p(1−p)/N) + the pinned figure — measured 0.24σ |
-| FN ordinates at {1, 25, 50, 100, 150} lives | log-log LEC reads | binomial k·SE per probe + the pinned figure; expected exceedance counts {298, 298, 271, 179, 102}; the 200-lives probe is excluded at 12 expected (< ~100 per the family policy) |
-| 20-bin overshoot regime | EAD ratio 2.418, probability ratio 1.351 vs the 1000-bin run | deterministic measured-regime bands [2.0, 2.9] and [1.2, 1.5] |
+| Assert | Tolerance derivation |
+|---|---|
+| EAD vs the oracle (1000-bin configuration) | k·σ̂/√N (k = 4, σ̂ in-run Welford) + the adaptive conditional figure (1e-4 relative, measured ≈ 3.7e-6 on this fixture class — the study's adaptive layer) |
+| Failure probability vs the oracle | binomial k·√(p(1−p)/N) + the adaptive figure |
+| FN ordinates at {1, 25, 50, 100, 150} lives | log-log LEC reads; binomial k·SE per probe + the adaptive figure; expected exceedance counts {298, 298, 271, 179, 102}; the 200-lives probe is excluded at 12 expected (< ~100 per the family policy) |
+| Default-vs-1000-bin consistency | both configurations integrate adaptively, so their answers must agree: \|ratio − 1\| < 5e-3 on both the probability and EAD axes |
 
-The 20-bin EAD overshoot exceeds the probability overshoot because the consequence weighting compounds the tail concentration: the life loss also rises with stage, so the conditional integrand P(x, y)·C(y) hides even more of its mass in the top bins than P alone. The mechanism and the measured convergence series are the study's ([copula-dependence](copula-dependence.md)).
+The historical fixed-grid overshoot regime — EAD ratio 2.418 and probability ratio 1.351 between the 20- and 1000-bin runs, the consequence weighting compounding the tail concentration — is retired by the re-anchor: the bin count no longer selects the production grid, and the consistency pin above is its replacement. The fixed grid's convergence series remains measured by the discretization instrument ([copula-dependence](copula-dependence.md)).
 
 ## Test_BivariateSRP_ClosedForm
 
@@ -33,8 +33,10 @@ The legacy `Test_Bivariate_SRP` target E_Y[CDF(0.8, Y)] is computed **exactly**:
 |---|---|
 | Exact closed form | 0.029670393164335482 |
 | Legacy 100M re-capture (`MersenneTwister(45678)`, both legacy draws per realization) | 0.029662826999636242 (σ̂ = 0.0794859, SE = 7.95e-6) — 0.95·SE from the closed form; asserted at k·SE |
-| Engine probe, 1000 bins | 1.98e-3 relative from exact — inside the pinned 4e-3 figure |
-| Engine probe, 20 bins | 0.353 relative — inside the pinned 0.5 figure |
+| Engine probe, default (20-bin) configuration | measured ≈ 3.7e-6 relative from exact; pinned at 1e-4 |
+| Engine probe, 1000-bin configuration | measured ≈ 3.7e-6 relative; pinned at 1e-4 — the bin knob bounds the fixed-slice sweep budget, it no longer sets a grid |
+| Per-slice adaptive conditional sweep at the exact slice | measured ≈ 5.3e-12 relative; pinned at 1e-9 |
+| The fixed-grid instrument at 1000 bins | inside the pinned 4e-3 figure — the instrument reproduces the historical fixed-grid series (0.353 at 20 bins, 1.98e-3 at 1000 on the 2026-08-07 run of record) |
 
 The legacy test printed to the debugger and recorded nothing, so the 100M constant pinned in the test IS the run of record, captured once from the ported oracle at the legacy seed and count. The engine probe evaluates through a degenerate primary marginal bracketing PGA 0.8 at ±1e-6 (the symmetric bracket cancels the linear error terms, leaving an O(1e-12) residual).
 
@@ -51,9 +53,9 @@ The pool curve's endpoint exceedances trim from {1, 0} to {0.9999, 0.00001} (the
 
 | Assert | Values | Tolerance derivation |
 |---|---|---|
-| EAD, 1000 bins | oracle 5.8385 (SE 0.0471), engine 5.9319 | k·SE + a 2.5% measured-residual allowance: a deterministic +1.60% overshoot remains at 1000 bins on this fixture (the pool marginal's normal-Z tail), sitting at 2.0σ of the Monte Carlo error — the explicit allowance keeps the head-room honest instead of letting the k·SE band absorb a known bias |
-| Failure probability, 1000 bins | oracle 0.018498 (18,498 failures), engine 0.018724 | binomial k·SE + 2.5% (measured +1.22%, 1.7σ) |
-| 20-bin overshoot regime | EAD ratio 1.643, probability ratio 1.460 | measured-regime bands [1.4, 1.9] and [1.25, 1.7] |
+| EAD vs the oracle | oracle 5.8385 (SE 0.0471) | k·SE + the retained 2.5% allowance as a deliberate upper bound (under the fixed grid a deterministic +1.60% overshoot remained at 1000 bins — the pool marginal's normal-Z tail; the adaptive interior sits far inside it) |
+| Failure probability vs the oracle | oracle 0.018498 (18,498 failures) | binomial k·SE + 2.5% (the same retained bound; fixed-grid measurement was +1.22%) |
+| Default-vs-1000-bin consistency | — | \|ratio − 1\| < 0.01 on both axes (replacing the historical fixed-grid overshoot regime, EAD ratio 1.643 / probability ratio 1.460 on the 2026-08-07 run of record) |
 
 ## Test_CollapseVsJoint_Consistency
 
@@ -61,25 +63,15 @@ The deliberate cross-anchor between the preserved v1.0 collapse method and the n
 
 | Path | Distance to the exact reference (probability axis) |
 |---|---|
-| Collapse, verbatim surface (6 Voronoi cells) | 27.3% |
-| Collapse, twice-refined interpolant-preserving surface (13 × 21, re-derived Voronoi weights) | 1.91% |
-| Joint, 20 bins | 35.4% |
-| Joint, 1000 bins | 0.199% |
+| Collapse, verbatim surface (6 Voronoi cells) | 27.3% (2026-08-07 measurement; pinned regime < 35%) |
+| Collapse, twice-refined interpolant-preserving surface (13 × 21, re-derived Voronoi weights) | 1.91% (pinned regime < 3%) |
+| Joint, default configuration | at the study's near-exact figure (< 4e-3; the fixed grid read 35.4% here on the 2026-08-07 run of record) |
+| Joint, 1000-bin configuration | at the same near-exact figure (the fixed grid read 0.199%) |
 
-Both discretizations shrink toward the same reference (asserted strictly, on the probability and EAD axes alike), the tightened paths agree within their combined pinned distances (measured tight-versus-tight gap 1.71% of the reference), and the engine's collapse semantics are pinned against an independent re-implementation — log-interpolated collapse knots with first/last-ordinate clamps — at 2e-5 relative (measured agreement 5.1e-6), so the comparison rests on verified semantics. The collapse refinement inserts axis midpoints with log-interpolated rows and columns, sampling the SAME surface interpolant at twice the density on both axes; refining only the secondary axis would leave the collapse curve's primary-axis log-interpolation gap in place, which is why both axes refine together.
+Re-anchored under the 2026-09-05 ruling: the joint side integrates adaptively at both bin configurations, so both joint runs pin inside the near-exact figure and the historical 20-versus-1000 joint refinement narrative is retired; the collapse side keeps its strict shrink-under-refinement asserts (that mechanism — surface refinement — is real and unchanged). The tightened paths agree within their combined pinned distances, and the engine's collapse semantics are pinned against an independent re-implementation — log-interpolated collapse knots with first/last-ordinate clamps — at 2e-5 relative (measured agreement ≈ 5e-6), so the comparison rests on verified semantics. The collapse refinement inserts axis midpoints with log-interpolated rows and columns, sampling the SAME surface interpolant at twice the density on both axes; refining only the secondary axis would leave the collapse curve's primary-axis log-interpolation gap in place, which is why both axes refine together.
 
 ## Test_V1Arrangement_StagePrimaryPgaCollapsed
 
 The axis-choice question, measured on the legacy scenario: the STAGE curve drives the component as the univariate hazard and PGA is marginalized out through the transposed 6×4 surface's automatically derived Voronoi weights — the v1.0 arrangement — with the life loss reading stage, now the driving signal. The exact reference is the same double integral the other tests use, evaluated by Fubini in the opposite order (the closed-form stage marginalization at each PGA level, life-loss-weighted for the risk axis, integrated densely over the PGA curve); the weighted closed form is asserted against the unweighted one at a unit consequence before use.
 
-| Arrangement | Failure probability | vs exact | EAD (lives) | vs exact | vs oracle |
-|---|---|---|---|---|---|
-| **v1.0: stage primary, PGA collapsed** | 3.0233e-4 | **0.241%** | 0.037994 | **0.241%** | 0.25σ / 1.22σ |
-| Bivariate: PGA primary, 20 bins (default) | 4.0828e-4 | 35.4% | 0.092962 | 145% | 6.4σ / 25.8σ |
-| Bivariate: PGA primary, 1000 bins | 3.0221e-4 | 0.199% | 0.038446 | 1.43% | 0.24σ / 1.43σ |
-| Exact reference | 3.0161e-4 | — | 0.037903 | — | — |
-| 1M Monte Carlo oracle | 2.98e-4 (SE 1.73e-5) | — | 0.035252 (SE 2.24e-3) | — | — |
-
-The mechanism is the engine's deliberate axis asymmetry — exact adaptive quadrature on the primary, discretization on the secondary — documented in [bivariate-hazards](../technical-reference/bivariate-hazards.md). The derived PGA weights {0.999593, 2.90e-4, 7.49e-5, 4.21e-5} put 99.96% of the mass on the surface's first level, inside the clamped region one weighted point reproduces almost exactly, while the stage axis (four orders of magnitude of surface variation under a normal-Z tail) receives the exact treatment.
-
-Two asserts carry this beyond a recorded observation: the arrangement must sit within 0.5% of the exact reference on both axes, and it must beat the default-bin bivariate arrangement of the identical scenario by more than 50×. Note the EAD comparison against the oracle is **oracle-limited, not engine-limited**: only 298 of the 1,000,000 realizations fail, so the oracle's own EAD standard error is ≈ 6.4% relative and the oracle itself sits 1.22σ from the exact value this arrangement reproduces to a quarter of a percent.
+The pins, re-anchored under the 2026-09-05 ruling: the v1.0 arrangement must sit within 0.5% of the exact reference on both axes (its 2026-08-07 measurement: 0.241% on both), **and so must the default-configuration bivariate arrangement of the identical scenario** — the pin that states the ruling's outcome. Under the fixed grid the default-bin bivariate arrangement read 35.4% / 145% against the same references (the historical > 50× superiority assert this replaces); under the adaptive interior both arrangements land at fractions of a percent, so the axis choice is a modelling decision rather than a conditioning one. The derived PGA weights {0.999593, 2.90e-4, 7.49e-5, 4.21e-5} still put 99.96% of the mass on the surface's first level — the collapse remains the cheaper arrangement of this scenario — and the engine values are additionally asserted against the 1M oracle at k·SE plus the 0.5% distance. The relaxed practitioner guidance is in [bivariate-hazards](../technical-reference/bivariate-hazards.md). Note the EAD comparison against the oracle is **oracle-limited, not engine-limited**: only 298 of the 1,000,000 realizations fail, so the oracle's own EAD standard error is ≈ 6.4% relative and the oracle itself sits ≈ 1.2σ from the exact reference both arrangements reproduce to fractions of a percent.

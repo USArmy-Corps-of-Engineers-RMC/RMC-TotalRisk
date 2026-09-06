@@ -869,6 +869,19 @@ discipline). Under Independence, y_j are plain marginal quantiles. `InverseCondi
 NEW scalar non-allocating Numerics member (the existing `InverseCDF(u,v)` allocates a `double[2]`
 per call — hot-loop violation); `ConditionalCDF(u,v)` (h-function) is added for oracles/diagnostics.
 
+> **Superseded as the production interior (Haden's ruling, 2026-09-05):** the fixed
+> conditional-trapezoid kernel above no longer integrates production runs. All bivariate hazards
+> integrate through `AdaptiveGaussKronrod2D` over (u, z = Φ⁻¹(t)) with the φ(z) Jacobian folded into
+> recorded masses (the additive/single-component interior, per-strip with fair-share budgets), and
+> every fixed-u seat — the joint VEGAS evaluation, the AFP probe, hazard-level sensitivity, the
+> endpoint columns — runs a per-slice 1D adaptive sweep in z budgeted at 21 × `SecondaryIntegrationBins`
+> (the ruled must-have). No compatibility knob; hashes and seeds hold (nothing new is serialized);
+> values move deliberately and the F8 byte gate re-pins. The trapezoid kernel survives verbatim in
+> exactly one seat: `EstimateSecondaryDiscretizationError`'s quarantined fixed-grid instrument, whose
+> Richardson limit is the standing independent cross-check of the adaptive answer.
+> `SecondaryIntegrationBins` keeps its serialized/hashed place: it prices the instrument ladder and
+> the fixed-slice sweep budget. Reference: [../technical-reference/bivariate-hazards.md](../technical-reference/bivariate-hazards.md).
+
 **D.3 Per-FM semantics and combination — combine per (X, Y_j), then weight-sum. Required.**
 Mixed Primary/Secondary/Bivariate modes are conditionally independent given (X, Y) but correlated
 through the shared Y at fixed X. The combination kernels state conditional independence *at the

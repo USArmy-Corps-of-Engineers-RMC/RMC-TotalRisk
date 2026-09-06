@@ -79,8 +79,27 @@ integrator.Integrate(bins);
 
 | Call site | Domain | Integrand | Notes |
 |---|---|---|---|
-| Per-component risk integral | the sampled hazard's natural probability support | selected by `RiskIntegrand` (below) | 50 `Stratify` hazard bins; explicit endpoint rectangles complete the mass budget (next section) |
-| Annualized-failure-probability probe | the same support | `P_F(p)` | deterministic, mean-sample; runs once per joint-method run to set the VEGAS tail-focus target (§VEGAS below) |
+| Per-component risk integral | the sampled hazard's natural probability support | selected by `RiskIntegrand` (below) | 50 `Stratify` hazard bins; explicit endpoint rectangles complete the mass budget (next section); a **bivariate** component routes to the two-dimensional interior below instead |
+| Annualized-failure-probability probe | the same support | `P_F(p)` | deterministic, mean-sample; runs once per joint-method run to set the VEGAS tail-focus target (§VEGAS below); under a bivariate hazard each probe evaluation marginalizes the secondary axis through the fixed-slice conditional sweep |
+
+### The bivariate two-dimensional interior
+
+A component under a `BivariateHazard` replaces the 1D per-component quadrature with
+`AdaptiveGaussKronrod2D` over (primary non-exceedance u, probit conditional coordinate
+z = Φ⁻¹(t)) — one globally adaptive tensor-rule pass per stratification strip, steered by a
+balanced probability-and-consequence surrogate, with each strip granted a fair share of
+`MaxEvaluations` (floor one 441-evaluation region) and its Jacobian-folded masses rescaled to
+the strip's exact probability width. The flushed nodes group by exact primary abscissa into
+merged conditional columns; each distinct abscissa replays one staged component evaluation over
+its column and records one risk point per stream, so the endpoint rectangles, the mass ledger's
+two invariants, and every downstream consumer operate unchanged. Everywhere a fixed u must be
+evaluated — the joint (VEGAS) integrand, the AFP probe, hazard-level sensitivity, the endpoint
+rectangles themselves — a 1D adaptive pass over z adopts a per-slice conditional column at the
+same discipline (relative tolerance from the pass context, absolute floor 1e-15, budget
+21 × `SecondaryIntegrationBins`, raised to the strip fair share for the additive interior's
+endpoint columns). The design, the probit-coordinate rationale, and the measured accuracy are
+in [bivariate-hazards.md](bivariate-hazards.md); the fixed conditional trapezoid survives only
+as the discretization diagnostic's instrument.
 
 v1.0 had a third recurring quadrature — the CVaR integral over the log-log LEC quantile
 (`Curve.vb:547-552`), run with library-default tolerances on the engine's steepest integrand. v1.1
