@@ -7,6 +7,7 @@ using Numerics.Distributions;
 using RMC.TotalRisk.Core;
 using RMC.TotalRisk.Core.Enums;
 using RMC.TotalRisk.Core.Interfaces;
+using RMC.TotalRisk.Results;
 using RMC.TotalRisk.RiskFunctions.Consequences;
 using RMC.TotalRisk.RiskFunctions.Hazards;
 using RMC.TotalRisk.RiskFunctions.Responses;
@@ -647,9 +648,12 @@ public class SystemComponentBivariateProjectionTests
         AddTerminal(bivariate, "Damages", bBreach);
         AddTerminal(bivariate, "Baseline", bHazard);
 
-        // Act / Assert — the bivariate estimate is the univariate bound × (bins + 1).
+        // Act / Assert — the bivariate estimate is the univariate bound times the adaptive
+        // refinement budget's hard mesh bound (21·⌈(bins + 1)/2⌉ = 126 at ten bins; a
+        // deliberately worst-case price — a converged sweep adopts far fewer nodes).
         long univariateEstimate = univariate.EstimateRecordedFailureEntries();
-        Assert.AreEqual(univariateEstimate * 11L, bivariate.EstimateRecordedFailureEntries());
+        Assert.AreEqual(126, SampledComponent.ConditionalMeshCapacity(10));
+        Assert.AreEqual(univariateEstimate * 126L, bivariate.EstimateRecordedFailureEntries());
     }
 
     #endregion

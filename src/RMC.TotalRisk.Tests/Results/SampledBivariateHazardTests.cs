@@ -77,6 +77,36 @@ public class SampledBivariateHazardTests
 
     #endregion
 
+    /// <summary>
+    /// The single-node inversion reproduces the corresponding grid node bit-exactly (the two
+    /// paths share the clamp constants and the inversion expression), clamps out-of-band
+    /// conditional probabilities onto the grid's own endpoint values, and guards the
+    /// conditioning probability like the grid fill.
+    /// </summary>
+    [TestMethod]
+    public void Test_InverseConditional_MatchesGridNodesBitExactly()
+    {
+        // Arrange
+        var hazard = UniformFixture(bins: 20);
+        var snapshot = hazard.SampleBivariate(0);
+        var (yNodes, _) = Fill(snapshot, 0.37d);
+
+        // Act / Assert — every grid node t_j = j/N (endpoint-clamped) reproduces bit-exactly.
+        for (int j = 0; j <= 20; j++)
+        {
+            double t = Math.Clamp(j / 20d, 1e-16, 1d - 1e-16);
+            Assert.AreEqual(yNodes[j], snapshot.InverseConditional(0.37d, t), 0d, $"node {j}");
+        }
+
+        // Out-of-band conditional probabilities clamp onto the endpoint values.
+        Assert.AreEqual(yNodes[0], snapshot.InverseConditional(0.37d, -0.5d), 0d);
+        Assert.AreEqual(yNodes[20], snapshot.InverseConditional(0.37d, 1.5d), 0d);
+
+        // The conditioning probability keeps the grid fill's guard.
+        Assert.ThrowsException<ArgumentOutOfRangeException>(() => snapshot.InverseConditional(0d, 0.5d));
+        Assert.ThrowsException<ArgumentOutOfRangeException>(() => snapshot.InverseConditional(1d, 0.5d));
+    }
+
     /// <summary>N bins fill N + 1 nodes with the trapezoid weight pattern.</summary>
     [TestMethod]
     public void Test_FillConditionalBins_NodeCountAndWeights()

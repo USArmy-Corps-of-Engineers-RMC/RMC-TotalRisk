@@ -131,6 +131,13 @@ namespace RMC.TotalRisk.Results
                 int nodeCount = _conditionalHazard.ConditionalNodeCount;
                 _binY = new double[nodeCount];
                 _binW = new double[nodeCount];
+
+                // The conditional-quadrature selector: an override snapshot IS the
+                // discretization-error instrument, whose Richardson ladder measures the fixed
+                // conditional-trapezoid grid — it stays on that grid structurally. Every other
+                // construction (the engine paths and direct sampling) evaluates the secondary
+                // axis adaptively.
+                _conditionalFixedGrid = conditionalOverride != null;
             }
 
             // The profile-axis remap: sample the component's resolved profile
@@ -489,6 +496,98 @@ namespace RMC.TotalRisk.Results
         /// summing exactly to one; null on univariate components.
         /// </summary>
         private readonly double[]? _binW;
+
+        /// <summary>
+        /// True when this snapshot evaluates the secondary axis on the fixed
+        /// conditional-trapezoid grid — the discretization-error instrument's construction
+        /// (an override snapshot); every other bivariate construction adapts.
+        /// </summary>
+        private readonly bool _conditionalFixedGrid;
+
+        /// <summary>
+        /// The relative tolerance of the per-slice adaptive conditional quadrature; the engine
+        /// configures the ensemble/mean discipline split, and the default is the mean
+        /// discipline.
+        /// </summary>
+        private double _conditionalRelativeTolerance = 1e-8;
+
+        /// <summary>
+        /// The minimum refinement depth of the per-slice adaptive conditional quadrature.
+        /// </summary>
+        private int _conditionalMinDepth = 2;
+
+        /// <summary>
+        /// The maximum refinement depth of the per-slice adaptive conditional quadrature.
+        /// </summary>
+        private int _conditionalMaxDepth = 100;
+
+        /// <summary>
+        /// Whether the conditional refinement surrogate carries the consequence term (risk
+        /// mode); false refines on the failure probability alone (reliability mode — a
+        /// consequence-free model's consequence surrogate is identically zero).
+        /// </summary>
+        private bool _conditionalIncludeConsequences = true;
+
+        /// <summary>
+        /// The reused per-slice adaptive conditional integrator (one instance per component,
+        /// serially reused — its recorder capture pools are instance state); built lazily on
+        /// the first adaptive evaluation.
+        /// </summary>
+        private Numerics.Mathematics.Integration.AdaptiveGaussKronrod? _conditionalIntegrator;
+
+        /// <summary>
+        /// The adopted per-slice conditional mesh, sized by the refinement-budget bound; built
+        /// lazily with the integrator.
+        /// </summary>
+        private ConditionalQuadratureMesh? _conditionalMesh;
+
+        /// <summary>
+        /// The reusable conditional secondary-hazard buffer of the adaptive paths (the mesh
+        /// replay and the column replay), grown on demand.
+        /// </summary>
+        private double[] _columnY = Array.Empty<double>();
+
+        /// <summary>
+        /// The primary non-exceedance probability of the surrogate evaluation in flight.
+        /// </summary>
+        private double _surrogateU = double.NaN;
+
+        /// <summary>
+        /// The primary hazard level matching <see cref="_surrogateU"/> (the tensor rule
+        /// evaluates same-u node runs, so the inverse-CDF caches on the last u).
+        /// </summary>
+        private double _surrogateX;
+
+        /// <summary>
+        /// The throwaway flag sink of the refinement surrogate: pass-one evaluations visit
+        /// conditional nodes the committed pass may never adopt, so their advisory flags must
+        /// never latch onto the realization.
+        /// </summary>
+        private readonly RiskComputeFlags _surrogateFlags = new RiskComputeFlags();
+
+        /// <summary>
+        /// The consequence-density normalization of the balanced conditional surrogate, from
+        /// the deterministic probe sweep; zero drops the term.
+        /// </summary>
+        private double _surrogateConsequenceScale;
+
+        /// <summary>
+        /// The failure-probability normalization of the balanced conditional surrogate, from
+        /// the deterministic probe sweep; zero drops the term.
+        /// </summary>
+        private double _surrogateProbabilityScale;
+
+        /// <summary>
+        /// Whether the surrogate scales have been probed for this snapshot.
+        /// </summary>
+        private bool _surrogateScalesReady;
+
+        /// <summary>
+        /// The per-slice conditional sweep's evaluation budget: 21 × bins by default (the
+        /// per-evaluation seats' bound), raised by the additive interior to its fair-share
+        /// strip budget for the endpoint columns. Zero until first read.
+        /// </summary>
+        private int _conditionalSweepBudget;
 
         /// <summary>
         /// The reusable per-type cross-bin Σ w_j · (adjusted probability × failure consequence)
@@ -1190,14 +1289,13 @@ namespace RMC.TotalRisk.Results
 
         /// <summary>
         /// Computes a bivariate component's risk at one primary hazard evaluation point by
-        /// integrating the conditional secondary dimension: the trapezoid bins discretize
-        /// Y | X = x in conditional-probability space, every failure mode evaluates at the same
-        /// (x, y_j), the combination kernels run per bin on the per-bin response probabilities
-        /// (combine-then-marginalize — marginalizing first would drop the modes' shared-Y
-        /// covariance), and the w_j-weighted sums fold into ONE risk point per stream per
-        /// evaluation with the entry lists enumerating (bin × pathway × branch). Contribution
-        /// samples accumulate across bins and submit once per evaluation and type, so the
-        /// recorded-mass and contribution-ledger accounting hold unchanged.
+        /// integrating the conditional secondary dimension adaptively: pass one runs the
+        /// per-slice Gauss–Kronrod refinement of a failure-density surrogate over
+        /// conditional-probability space and adopts the accepted composite rule (deterministic,
+        /// draw-free, budget-bounded at 21 × bins surrogate evaluations); pass two replays the
+        /// staged evaluation over the adopted column. The discretization-error instrument's
+        /// override snapshots stay on the fixed conditional-trapezoid grid — the Richardson
+        /// ladder measures exactly that grid.
         /// </summary>
         /// <param name="probability">The recorded probability coordinate (the VEGAS path passes its weight).</param>
         /// <param name="hazardLevel">The primary hazard level.</param>
@@ -1206,7 +1304,7 @@ namespace RMC.TotalRisk.Results
         /// <param name="recordOutput">True to record risk-point entries on the realization curves.</param>
         /// <param name="typeOutputs">The optional per-type output sink (entry 0 is the returned primary).</param>
         /// <param name="hazardNonExceedance">The slice's non-exceedance probability u, or NaN to derive it from the sampled primary marginal.</param>
-        /// <returns>The component's primary-type risk output, marginalized over the conditional bins.</returns>
+        /// <returns>The component's primary-type risk output, marginalized over the conditional column.</returns>
         private ComponentRiskOutput ComputeRiskBivariate(double probability, double hazardLevel, RiskComputeFlags flags,
             ComponentRealization realization, bool recordOutput, ComponentRiskOutput[]? typeOutputs,
             double hazardNonExceedance)
@@ -1215,8 +1313,44 @@ namespace RMC.TotalRisk.Results
             double u = double.IsNaN(hazardNonExceedance)
                 ? Tools.Clamp(Hazard.CDF(hazardLevel), ProbabilityFloor, 1d - ProbabilityFloor)
                 : Tools.Clamp(hazardNonExceedance, ProbabilityFloor, 1d - ProbabilityFloor);
-            conditional.FillConditionalBins(u, _binY!, _binW!);
-            int nodeCount = conditional.ConditionalNodeCount;
+
+            if (_conditionalFixedGrid)
+            {
+                conditional.FillConditionalBins(u, _binY!, _binW!);
+                return ComputeRiskBivariateCore(probability, hazardLevel, flags, realization, recordOutput, typeOutputs,
+                    conditional.ConditionalNodeCount, _binY!, _binW!);
+            }
+
+            int meshCount = BuildAdaptiveConditionalMesh(u, hazardLevel);
+            return ComputeRiskBivariateCore(probability, hazardLevel, flags, realization, recordOutput, typeOutputs,
+                meshCount, _columnY, _conditionalMesh!.Weights);
+        }
+
+        /// <summary>
+        /// The staged bivariate evaluation body over one conditional column — whatever supplies
+        /// the node set and its exhaustive unit-sum weights (the fixed trapezoid vectors, the
+        /// adopted adaptive mesh, or a merged two-dimensional column): every failure mode
+        /// evaluates at the same (x, y_j), the combination kernels run per node on the per-node
+        /// response probabilities (combine-then-marginalize — marginalizing first would drop
+        /// the modes' shared-Y covariance), and the weighted sums fold into ONE risk point per
+        /// stream per evaluation with the entry lists enumerating (node × pathway × branch).
+        /// Contribution samples accumulate across nodes and submit once per evaluation and
+        /// type, so the recorded-mass and contribution-ledger accounting hold unchanged.
+        /// </summary>
+        /// <param name="probability">The recorded probability coordinate.</param>
+        /// <param name="hazardLevel">The primary hazard level.</param>
+        /// <param name="flags">The realization's computational-warning flags.</param>
+        /// <param name="realization">The component's realization sink.</param>
+        /// <param name="recordOutput">True to record risk-point entries on the realization curves.</param>
+        /// <param name="typeOutputs">The optional per-type output sink (entry 0 is the returned primary).</param>
+        /// <param name="nodeCount">The column's node count.</param>
+        /// <param name="yNodes">The conditional secondary hazard values, one per node.</param>
+        /// <param name="weights">The node weights, index-aligned and summing exactly to one.</param>
+        /// <returns>The component's primary-type risk output, marginalized over the column.</returns>
+        private ComponentRiskOutput ComputeRiskBivariateCore(double probability, double hazardLevel, RiskComputeFlags flags,
+            ComponentRealization realization, bool recordOutput, ComponentRiskOutput[]? typeOutputs,
+            int nodeCount, double[] yNodes, double[] weights)
+        {
 
             // The profile-axis remap and the recorded exceedance coordinate — the univariate
             // rules verbatim (both are primary-axis quantities).
@@ -1343,8 +1477,8 @@ namespace RMC.TotalRisk.Results
             double totalProbabilityOfFailure = 0d;
             for (int b = 0; b < nodeCount; b++)
             {
-                double binY = _binY![b];
-                double binWeight = _binW![b];
+                double binY = yNodes[b];
+                double binWeight = weights[b];
 
                 // Every mode at the same (x, y_j) — the conditional-independence point the
                 // combination kernels require.
@@ -1750,6 +1884,344 @@ namespace RMC.TotalRisk.Results
             realization.MaxH = Math.Max(realization.MaxH, recordedHazard);
             return primary;
         }
+
+        /// <summary>
+        /// Whether this component integrates a conditional secondary dimension (a bivariate
+        /// hazard) — the engine's dispatch onto the two-dimensional additive interior.
+        /// </summary>
+        internal bool HasConditionalSecondary => _conditionalHazard != null;
+
+        /// <summary>
+        /// Whether this snapshot evaluates the secondary axis on the fixed
+        /// conditional-trapezoid grid (the discretization-error instrument's construction) —
+        /// the engine keeps such snapshots on the one-dimensional conditional-grid interior.
+        /// </summary>
+        internal bool UsesFixedConditionalGrid => _conditionalFixedGrid;
+
+        /// <summary>
+        /// Configures the per-slice adaptive conditional quadrature discipline — the engine
+        /// applies the ensemble/mean split (the relaxed ensemble tolerance with its minimum
+        /// depth, or the full mean-pass discipline) and the reliability-mode surrogate flavor.
+        /// The defaults are the mean discipline with the consequence-bearing surrogate, so a
+        /// path that never configures gets the rigorous treatment.
+        /// </summary>
+        /// <param name="relativeTolerance">The relative tolerance of the conditional refinement.</param>
+        /// <param name="minDepth">The forced minimum refinement depth.</param>
+        /// <param name="maxDepth">The maximum refinement depth.</param>
+        /// <param name="includeConsequences">True for the failure-density surrogate; false refines on failure probability alone (reliability mode).</param>
+        internal void ConfigureConditionalQuadrature(double relativeTolerance, int minDepth, int maxDepth, bool includeConsequences)
+        {
+            _conditionalRelativeTolerance = relativeTolerance;
+            _conditionalMinDepth = minDepth;
+            _conditionalMaxDepth = maxDepth;
+            _conditionalIncludeConsequences = includeConsequences;
+            _surrogateScalesReady = false;
+        }
+
+        /// <summary>
+        /// Raises the per-slice conditional sweep's evaluation budget above its default of
+        /// 21 × bins. The additive interior grants its endpoint columns the same fair-share
+        /// budget its strips get — an endpoint rectangle can carry most of a hazard's mass
+        /// (everything beyond the tabulated support) and runs once per pass, while the
+        /// per-evaluation seats (the joint system integrand, the probes, sensitivity) keep
+        /// the bin-bounded default their call volume demands. Must be configured before the
+        /// first adaptive sweep — the mesh capacity freezes at first use.
+        /// </summary>
+        /// <param name="budget">The sweep evaluation budget.</param>
+        /// <exception cref="InvalidOperationException">Thrown after the sweep machinery has been built.</exception>
+        internal void ConfigureConditionalSweepBudget(int budget)
+        {
+            if (_conditionalIntegrator != null)
+            {
+                throw new InvalidOperationException("The conditional sweep budget must be configured before the first adaptive sweep.");
+            }
+            _conditionalSweepBudget = Math.Max(budget, 21 * (_conditionalHazard?.SecondaryIntegrationBins ?? 1));
+        }
+
+        /// <summary>
+        /// The hard bound on a per-slice adaptive conditional mesh's node count under the
+        /// default refinement budget of 21 × bins surrogate evaluations: every subdivision
+        /// evaluates both children before the budget check can stop it, so the accepted
+        /// composite rule holds at most ⌈(bins + 1)/2⌉ intervals of 21 nodes each (231 at the
+        /// default 20 bins; the fixed grid's 21 nodes arise where one interval converges
+        /// immediately).
+        /// </summary>
+        /// <param name="bins">The hazard's configured secondary integration bin count.</param>
+        /// <returns>The mesh capacity.</returns>
+        internal static int ConditionalMeshCapacity(int bins)
+        {
+            return ConditionalMeshCapacityForBudget(21 * bins);
+        }
+
+        /// <summary>
+        /// The mesh-capacity bound for an arbitrary sweep budget: accepted intervals number at
+        /// most ⌈(budget/21 + 1)/2⌉, each contributing 21 nodes.
+        /// </summary>
+        /// <param name="budget">The sweep evaluation budget.</param>
+        /// <returns>The mesh capacity.</returns>
+        internal static int ConditionalMeshCapacityForBudget(int budget)
+        {
+            int intervals = (budget / 21 + 2) / 2;
+            return 21 * Math.Max(1, intervals);
+        }
+
+        /// <summary>
+        /// Runs pass one of the adaptive conditional sweep at one primary slice: the reused
+        /// Gauss–Kronrod integrator refines the failure-density surrogate over
+        /// conditional-probability space, the mesh adopts the accepted composite rule with its
+        /// exhaustive unit-sum gate, and the adopted nodes invert into the column buffer.
+        /// Budget or depth exhaustion is accepted by design — the frozen composite is still a
+        /// complete partition — while a thrown surrogate evaluation propagates with its own
+        /// stack (nothing is half-recorded; the mesh is discarded on the next reset).
+        /// </summary>
+        /// <param name="u">The slice's clamped non-exceedance probability.</param>
+        /// <param name="hazardLevel">The primary hazard level matching <paramref name="u"/>.</param>
+        /// <returns>The adopted node count.</returns>
+        private int BuildAdaptiveConditionalMesh(double u, double hazardLevel)
+        {
+            var conditional = _conditionalHazard!;
+            if (_conditionalIntegrator == null)
+            {
+                if (_conditionalSweepBudget == 0)
+                {
+                    _conditionalSweepBudget = 21 * conditional.SecondaryIntegrationBins;
+                }
+                int capacity = ConditionalMeshCapacityForBudget(_conditionalSweepBudget);
+                _conditionalMesh = new ConditionalQuadratureMesh(capacity);
+                _conditionalIntegrator = new Numerics.Mathematics.Integration.AdaptiveGaussKronrod(ConditionalObjective, ConditionalZFloor, ConditionalZCeiling)
+                {
+                    ReportFailure = true,
+                    AbsoluteTolerance = ConditionalAbsoluteTolerance,
+                    Recorder = _conditionalMesh.Record,
+                };
+                EnsureColumnCapacity(capacity);
+            }
+
+            EnsureSurrogateScales();
+            _surrogateU = u;
+            _surrogateX = hazardLevel;
+            _conditionalMesh!.Reset();
+            var integrator = _conditionalIntegrator;
+            integrator.RelativeTolerance = _conditionalRelativeTolerance;
+            integrator.MinDepth = _conditionalMinDepth;
+            integrator.MaxDepth = _conditionalMaxDepth;
+            integrator.MaxFunctionEvaluations = _conditionalSweepBudget;
+            integrator.Integrate();
+            _conditionalMesh.AdoptProbitExhaustive($"system component '{Name}'");
+
+            int count = _conditionalMesh.Count;
+            EnsureColumnCapacity(count);
+            var nodes = _conditionalMesh.Nodes;
+            for (int i = 0; i < count; i++)
+            {
+                _columnY[i] = conditional.InverseConditional(u, Normal.StandardCDF(nodes[i]));
+            }
+            return count;
+        }
+
+        /// <summary>
+        /// The per-slice refinement surrogate in the probit coordinate at the slice in flight —
+        /// the one-dimensional integrand of <see cref="BuildAdaptiveConditionalMesh"/>:
+        /// φ(z) times the balanced failure density at (x, y(Φ(z))).
+        /// </summary>
+        /// <param name="z">The probit conditional coordinate z = Φ⁻¹(t).</param>
+        /// <returns>The Jacobian-weighted surrogate value.</returns>
+        private double ConditionalObjective(double z)
+        {
+            double y = _conditionalHazard!.InverseConditional(_surrogateU, Normal.StandardCDF(z));
+            return Normal.StandardPDF(z) * ConditionalFailureDensity(_surrogateX, y);
+        }
+
+        /// <summary>
+        /// The two-dimensional refinement surrogate over (primary non-exceedance, probit
+        /// conditional coordinate) — the additive interior's integrand: φ(z) times the
+        /// balanced failure density. The primary hazard level caches on the last slice
+        /// probability (the tensor rule evaluates same-u node runs).
+        /// </summary>
+        /// <param name="u">The primary non-exceedance probability.</param>
+        /// <param name="z">The probit conditional coordinate z = Φ⁻¹(t).</param>
+        /// <returns>The Jacobian-weighted surrogate value.</returns>
+        internal double ConditionalDensityAt(double u, double z)
+        {
+            EnsureSurrogateScales();
+            double clamped = Tools.Clamp(u, ProbabilityFloor, 1d - ProbabilityFloor);
+            if (clamped != _surrogateU)
+            {
+                _surrogateU = clamped;
+                _surrogateX = Hazard.InverseCDF(clamped);
+            }
+            double y = _conditionalHazard!.InverseConditional(clamped, Normal.StandardCDF(z));
+            return Normal.StandardPDF(z) * ConditionalFailureDensity(_surrogateX, y);
+        }
+
+        /// <summary>
+        /// The balanced refinement surrogate at one joint point: the failure-consequence
+        /// density Σ p_j·c̄_j and the failure probability Σ p_j, each normalized by its
+        /// deterministic probe scale and summed — the conditional-axis analog of the primary
+        /// axis's balanced objective. Both terms matter: a consequence-led surrogate alone is
+        /// blind to probability structure wherever consequences vanish (a threshold-bound loss
+        /// leaves wide zero-consequence regions whose failure probability still shapes the
+        /// committed curves), while a probability-led surrogate alone under-refines the
+        /// consequence tail. Under the reliability flavor the consequence term is absent. A
+        /// steering quantity only — it decides where the conditional mesh refines, never what
+        /// the committed pass computes, so a surrogate approximation costs mesh optimality,
+        /// never correctness. Advisory flags from surrogate consequence evaluations land in a
+        /// throwaway sink: pass one visits nodes the committed pass may never adopt.
+        /// </summary>
+        /// <param name="x">The primary hazard level.</param>
+        /// <param name="y">The conditional secondary hazard level.</param>
+        /// <returns>The surrogate value.</returns>
+        private double ConditionalFailureDensity(double x, double y)
+        {
+            double consequenceDensity = 0d;
+            double probabilityDensity = 0d;
+            for (int j = 0; j < _fModes.Count; j++)
+            {
+                if (!_layout.IsFailureState[j]) continue;
+                var mode = _fModes[j];
+                double p = mode.SRPAt(x, y);
+                if (p <= 0d) continue;
+                probabilityDensity += p;
+                if (_conditionalIncludeConsequences && _surrogateConsequenceScale > 0d)
+                {
+                    mode.EvaluateConsequenceBranchesAt(x, y, 0, _surrogateFlags, out double[] branchWeights, out double[] branchValues);
+                    double mean = 0d;
+                    for (int q = 0; q < branchWeights.Length; q++)
+                    {
+                        mean += branchWeights[q] * branchValues[q];
+                    }
+                    consequenceDensity += p * mean;
+                }
+            }
+            double surrogate = _surrogateProbabilityScale > 0d ? probabilityDensity / _surrogateProbabilityScale : 0d;
+            if (_conditionalIncludeConsequences && _surrogateConsequenceScale > 0d)
+            {
+                surrogate += consequenceDensity / _surrogateConsequenceScale;
+            }
+            return surrogate;
+        }
+
+        /// <summary>
+        /// Probes the balanced surrogate's normalization scales once per snapshot: a
+        /// deterministic sweep over the hazard's precomputed conditional grid at three
+        /// representative slices accumulates |Σp| and |Σp·c̄|, so the two terms enter the
+        /// refinement on comparable footing regardless of consequence units. Draw-free (the
+        /// sweep evaluates already-sampled surfaces) and content-deterministic; a vanishing
+        /// accumulation drops its term.
+        /// </summary>
+        private void EnsureSurrogateScales()
+        {
+            if (_surrogateScalesReady) return;
+            _surrogateScalesReady = true;
+
+            var conditional = _conditionalHazard!;
+            double consequenceScale = 0d;
+            double probabilityScale = 0d;
+            Span<double> slices = stackalloc double[] { 0.1d, 0.5d, 0.9d };
+            int nodeCount = conditional.ConditionalNodeCount;
+            EnsureColumnCapacity(nodeCount);
+            var weights = new double[nodeCount];
+            foreach (double u in slices)
+            {
+                double x = Hazard.InverseCDF(u);
+                conditional.FillConditionalBins(u, _columnY, weights);
+                for (int b = 0; b < nodeCount; b++)
+                {
+                    double y = _columnY[b];
+                    for (int j = 0; j < _fModes.Count; j++)
+                    {
+                        if (!_layout.IsFailureState[j]) continue;
+                        var mode = _fModes[j];
+                        double p = mode.SRPAt(x, y);
+                        if (p <= 0d) continue;
+                        probabilityScale += p;
+                        if (_conditionalIncludeConsequences)
+                        {
+                            mode.EvaluateConsequenceBranchesAt(x, y, 0, _surrogateFlags, out double[] branchWeights, out double[] branchValues);
+                            double mean = 0d;
+                            for (int q = 0; q < branchWeights.Length; q++)
+                            {
+                                mean += branchWeights[q] * branchValues[q];
+                            }
+                            consequenceScale += p * mean;
+                        }
+                    }
+                }
+            }
+            _surrogateProbabilityScale = probabilityScale;
+            _surrogateConsequenceScale = consequenceScale;
+        }
+
+        /// <summary>
+        /// Replays the staged bivariate evaluation over one supplied conditional column — the
+        /// two-dimensional additive interior's pass-two entry: the column's
+        /// conditional-probability nodes invert through the slice's conditional distribution
+        /// and the shared evaluation body runs verbatim, committing one merged risk point per
+        /// stream at this abscissa.
+        /// </summary>
+        /// <param name="probability">The recorded probability coordinate (the column's primary abscissa).</param>
+        /// <param name="hazardLevel">The primary hazard level.</param>
+        /// <param name="flags">The realization's computational-warning flags.</param>
+        /// <param name="realization">The component's realization sink.</param>
+        /// <param name="recordOutput">True to record risk-point entries on the realization curves.</param>
+        /// <param name="typeOutputs">The optional per-type output sink.</param>
+        /// <param name="u">The slice's non-exceedance probability (clamped internally).</param>
+        /// <param name="nodeCount">The column's node count.</param>
+        /// <param name="zNodes">The column's probit conditional coordinates z = Φ⁻¹(t).</param>
+        /// <param name="weights">The column's probability weights, summing exactly to one.</param>
+        /// <returns>The component's primary-type risk output at this column.</returns>
+        /// <exception cref="InvalidOperationException">Thrown on a univariate component.</exception>
+        internal ComponentRiskOutput ComputeRiskBivariateColumns(double probability, double hazardLevel, RiskComputeFlags flags,
+            ComponentRealization realization, bool recordOutput, ComponentRiskOutput[]? typeOutputs,
+            double u, int nodeCount, double[] zNodes, double[] weights)
+        {
+            var conditional = _conditionalHazard
+                ?? throw new InvalidOperationException("The conditional column replay requires a bivariate component.");
+            double clamped = Tools.Clamp(u, ProbabilityFloor, 1d - ProbabilityFloor);
+            EnsureColumnCapacity(nodeCount);
+            for (int b = 0; b < nodeCount; b++)
+            {
+                _columnY[b] = conditional.InverseConditional(clamped, Normal.StandardCDF(zNodes[b]));
+            }
+            return ComputeRiskBivariateCore(probability, hazardLevel, flags, realization, recordOutput, typeOutputs,
+                nodeCount, _columnY, weights);
+        }
+
+        /// <summary>
+        /// Grows the shared conditional column buffer to at least the requested length.
+        /// </summary>
+        /// <param name="length">The required node capacity.</param>
+        private void EnsureColumnCapacity(int length)
+        {
+            if (_columnY.Length < length)
+            {
+                _columnY = new double[Math.Max(length, _columnY.Length * 2)];
+            }
+        }
+
+        /// <summary>
+        /// The pinned absolute-tolerance floor of the conditional refinement: the acceptance
+        /// test is absolute OR relative, and the conditional integrals can sit many orders
+        /// below the inherited default, so the absolute branch is pinned at the framework
+        /// floor and the relative criterion governs.
+        /// </summary>
+        private const double ConditionalAbsoluteTolerance = 1e-15;
+
+        /// <summary>
+        /// The lower probit bound of the conditional refinement coordinate — the standard
+        /// normal quantile of the engine's probability floor. The conditional axis integrates
+        /// in z = Φ⁻¹(t): both documented fixed-grid failure mechanisms (the copula map's
+        /// endpoint cusps and a normal-Z-tailed marginal's tail concentration) are endpoint
+        /// layers in t that hide inside a quadrature panel's outermost node gap, while in z
+        /// they stretch into interior structure the error estimator genuinely sees.
+        /// </summary>
+        internal static readonly double ConditionalZFloor = Normal.StandardZ(ProbabilityFloor);
+
+        /// <summary>
+        /// The upper probit bound of the conditional refinement coordinate (the deliberate
+        /// upstream endpoint asymmetry of the standard normal quantile is inherited as-is).
+        /// </summary>
+        internal static readonly double ConditionalZCeiling = Normal.StandardZ(1d - ProbabilityFloor);
 
         /// <summary>
         /// Appends one mode's conditional entries onto its adjusted-curve staging at one bin:

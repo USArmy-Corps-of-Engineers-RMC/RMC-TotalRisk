@@ -4137,6 +4137,18 @@ namespace RMC.TotalRisk.Analyses
                 token.ThrowIfCancellationRequested();
                 sampledComponents[i] = _components[i].Sample(realizationIndex);
                 sampledComponents[i].RecordAdjustedModeCurves = _options.OutputAdjustedFailureModeCurves;
+                if (sampledComponents[i].HasConditionalSecondary)
+                {
+                    // The conditional-quadrature discipline mirrors the primary axis's
+                    // ensemble/mean split; reliability mode refines on failure probability
+                    // alone (its consequence surrogate is identically zero).
+                    bool ensembleRealization = realizationIndex >= 0;
+                    sampledComponents[i].ConfigureConditionalQuadrature(
+                        ensembleRealization ? _options.EnsembleTolerance : _options.Tolerance,
+                        ensembleRealization ? _options.EnsembleMinDepth : 2,
+                        _options.MaxDepth,
+                        _options.Mode != RiskAnalysisMode.Reliability);
+                }
                 additionalTypes = Math.Max(additionalTypes, sampledComponents[i].ConsequenceTypeCount - 1);
                 componentRealizations.Add(new ComponentRealization(sampledComponents[i].FailureModeCount)
                 {
@@ -4450,11 +4462,15 @@ namespace RMC.TotalRisk.Analyses
         }
 
         /// <summary>
-        /// Runs the adaptive Gauss–Kronrod pass for one component: the integrator is an
-        /// importance sampler whose recorded evaluations populate the risk points; its returned
-        /// value is discarded and its evaluation count and true error estimate are kept as
+        /// Runs the additive-path quadrature for one component: a bivariate component
+        /// integrates its (primary, conditional) plane with the globally adaptive
+        /// two-dimensional Gauss–Kronrod rule, everything else — univariate components and the
+        /// discretization-error instrument's fixed-grid snapshots — runs the one-dimensional
+        /// pass. Either way the recorded evaluations populate the risk points, the returned
+        /// integral value is discarded, and the evaluation count and error estimate are kept as
         /// diagnostics.
         /// </summary>
+        /// <returns>The sealed exhaustive mass ledger.</returns>
         /// <param name="sampled">The sampled component.</param>
         /// <param name="componentRealization">The component's realization sink.</param>
         /// <param name="realization">The system realization (diagnostics).</param>
@@ -4476,6 +4492,29 @@ namespace RMC.TotalRisk.Analyses
         /// call sites carry the same guard).
         /// </exception>
         private QuadratureMassLedger IntegrateComponent(SampledComponent sampled, ComponentRealization componentRealization,
+            SystemRealization realization, RiskComputeFlags flags, int realizationIndex, CancellationToken token)
+        {
+            return sampled.HasConditionalSecondary && !sampled.UsesFixedConditionalGrid
+                ? IntegrateComponentAdaptive2D(sampled, componentRealization, realization, flags, realizationIndex, token)
+                : IntegrateComponentConditionalGrid(sampled, componentRealization, realization, flags, realizationIndex, token);
+        }
+
+        /// <summary>
+        /// The one-dimensional conditional-grid interior: the adaptive Gauss–Kronrod pass over
+        /// the primary probability domain, with any conditional secondary dimension evaluated
+        /// on its snapshot's grid per evaluation. Every univariate component integrates here,
+        /// and so do the discretization-error instrument's fixed-grid snapshots — the
+        /// Richardson ladder measures exactly this interior at reduced bin counts.
+        /// </summary>
+        /// <param name="sampled">The sampled component.</param>
+        /// <param name="componentRealization">The component's realization sink.</param>
+        /// <param name="realization">The system realization (diagnostics).</param>
+        /// <param name="flags">The realization's computational-warning flags.</param>
+        /// <param name="realizationIndex">The realization index, or −1 for the mean pass.</param>
+        /// <param name="token">The active run cancellation token.</param>
+        /// <returns>The sealed exhaustive mass ledger.</returns>
+        /// <exception cref="InvalidOperationException">Thrown when the integration reports failure.</exception>
+        private QuadratureMassLedger IntegrateComponentConditionalGrid(SampledComponent sampled, ComponentRealization componentRealization,
             SystemRealization realization, RiskComputeFlags flags, int realizationIndex, CancellationToken token)
         {
             // One stratification build serves the balanced-objective scales and the integrator
@@ -4515,6 +4554,150 @@ namespace RMC.TotalRisk.Analyses
                 objective, ledger.Record, $"system component '{sampled.Name}'");
             ledger.SealExhaustive();
             realization.FunctionEvaluations += interiorEvaluations + endpointEvaluations;
+            realization.StandardError += standardError / _components.Count;
+            return ledger;
+        }
+
+        /// <summary>
+        /// The two-dimensional adaptive interior of a bivariate component: per stratification
+        /// strip, the globally adaptive tensor Gauss–Kronrod rule refines the failure-density
+        /// surrogate over (primary non-exceedance, conditional probability) — the copula
+        /// transform makes that plane exactly uniform, so the flushed weights are probability
+        /// mass — and the flushed composite groups by exact primary abscissa into merged
+        /// conditional columns the staged evaluation replays, committing ONE risk point per
+        /// stream per distinct abscissa with the column's group mass recorded in the ledger.
+        /// The strip edges keep the v1.0 stratification and the objective-discontinuity
+        /// injections; the support-edge endpoint columns evaluate through the recording
+        /// objective (the per-slice adaptive sweep) exactly like the one-dimensional path; and
+        /// the sealed ledger's exhaustive gates hold unchanged. Where the refinement splits the
+        /// primary axis at different conditional bands, neighboring columns cover complementary
+        /// conditional slabs whose masses partition the area exactly — the documented
+        /// output-granularity property of the two-dimensional rule.
+        /// </summary>
+        /// <param name="sampled">The sampled bivariate component.</param>
+        /// <param name="componentRealization">The component's realization sink.</param>
+        /// <param name="realization">The system realization (diagnostics: the surrogate evaluation count; the error estimate is the conservative per-strip |K − G| sum, not the one-dimensional root-sum-square).</param>
+        /// <param name="flags">The realization's computational-warning flags.</param>
+        /// <param name="realizationIndex">The realization index, or −1 for the mean pass (the ensemble/mean discipline split).</param>
+        /// <param name="token">The active run cancellation token.</param>
+        /// <returns>The sealed exhaustive mass ledger.</returns>
+        /// <exception cref="InvalidOperationException">
+        /// Thrown when a strip's integration reports failure (a surrogate evaluation threw), or
+        /// when a non-failed pass flushed no nodes — the recorder contract guarantees a
+        /// complete flush on every non-throwing outcome, so an empty flush is an invariant
+        /// break, never a silent zero.
+        /// </exception>
+        private QuadratureMassLedger IntegrateComponentAdaptive2D(SampledComponent sampled, ComponentRealization componentRealization,
+            SystemRealization realization, RiskComputeFlags flags, int realizationIndex, CancellationToken token)
+        {
+            var bins = BuildStratificationBins(sampled, flags);
+
+            // The evaluation budget is fair-shared across the positive-width strips: a
+            // sequential hand-me-down lets early strips exhaust the budget and leaves the
+            // tail strips at the 441-evaluation tensor floor — coarse columns whose
+            // conditional error dwarfs the converged strips' (measured on the degenerate
+            // seismic probe before this allocation was adopted). The endpoint columns get the
+            // same share: an endpoint rectangle can carry most of a hazard's mass, and its
+            // per-slice sweep runs once per pass, so the per-evaluation seat budget would
+            // starve exactly the heaviest column. Configured before the balanced objective's
+            // probe pass can build the sweep machinery.
+            int activeStrips = 0;
+            for (int i = 0; i < bins.Count; i++)
+            {
+                if (bins[i].UpperBound > bins[i].LowerBound) activeStrips++;
+            }
+            int stripBudget = Math.Max(441, _options.MaxEvaluations / Math.Max(1, activeStrips));
+            sampled.ConfigureConditionalSweepBudget(stripBudget);
+
+            var support = HazardProbabilitySupport.Create(bins);
+            var objective = BuildObjective(sampled, componentRealization, flags, bins);
+            bool ensemble = realizationIndex >= 0;
+            int expectedNodes = Math.Min(_options.MaxEvaluations + 2, Math.Max(256, _options.LECOutputLength * 16));
+            var ledger = new QuadratureMassLedger(expectedNodes);
+
+            int surrogateEvaluations = 0;
+            int replayPoints = 0;
+            double standardError = 0d;
+            if (support.Upper > support.Lower)
+            {
+                using var columns = new ConditionalColumnLedger(expectedNodes);
+
+                for (int i = 0; i < bins.Count; i++)
+                {
+                    token.ThrowIfCancellationRequested();
+                    double lower = bins[i].LowerBound;
+                    double upper = bins[i].UpperBound;
+                    if (!(upper > lower)) continue;
+
+                    // The recorder folds the probit Jacobian into each node's probability mass
+                    // and tracks the strip's raw mass for the exact-width renormalization below.
+                    int stripStart = columns.NodeCount;
+                    double stripRawMass = 0d;
+                    var integrator = new AdaptiveGaussKronrod2D(sampled.ConditionalDensityAt, lower, upper,
+                        SampledComponent.ConditionalZFloor, SampledComponent.ConditionalZCeiling)
+                    {
+                        ReportFailure = false,
+                        RelativeTolerance = ensemble ? _options.EnsembleTolerance : _options.Tolerance,
+                        // The acceptance test is absolute OR relative; conditional risk mass
+                        // can sit many orders below the inherited default, so the absolute
+                        // branch is pinned at the framework floor.
+                        AbsoluteTolerance = 1e-15,
+                        MinDepth = ensemble ? _options.EnsembleMinDepth : 2,
+                        MaxDepth = _options.MaxDepth,
+                        MaxFunctionEvaluations = stripBudget,
+                        Recorder = (x, z, weight, value) =>
+                        {
+                            double mass = weight * Normal.StandardPDF(z);
+                            stripRawMass += mass;
+                            columns.Record(x, z, mass, value);
+                        },
+                    };
+                    integrator.Integrate();
+                    if (integrator.Status == IntegrationStatus.Failure)
+                    {
+                        throw new InvalidOperationException(AppendEvaluationFault($"The conditional risk integration failed for system component '{sampled.Name}': a surrogate evaluation threw and the recorded columns are incomplete. The analysis cannot publish results for this run."));
+                    }
+                    surrogateEvaluations += integrator.FunctionEvaluations;
+                    standardError += integrator.StandardError;
+
+                    // The per-strip probit renormalization: the folded masses integrate φ to
+                    // the refinement tolerance; scaling to the strip's exact probability width
+                    // keeps every downstream exhaustive-mass gate exact while bounding the
+                    // distortion by that tolerance. A material departure is structural mass
+                    // loss, never rescaled silently.
+                    double stripWidth = upper - lower;
+                    if (!(stripRawMass > 0d) || Math.Abs(1d - stripRawMass / stripWidth) > 1e-3)
+                    {
+                        throw new InvalidOperationException($"The probit conditional mass of system component '{sampled.Name}' integrated to {stripRawMass:R} against a strip width of {stripWidth:R}.");
+                    }
+                    columns.ScaleRange(stripStart, columns.NodeCount - stripStart, stripWidth / stripRawMass);
+                }
+
+                columns.Seal();
+                if (columns.GroupCount == 0)
+                {
+                    throw new InvalidOperationException($"The two-dimensional quadrature of system component '{sampled.Name}' flushed no accepted nodes.");
+                }
+
+                var tBuffer = new double[columns.MaxGroupNodeCount];
+                var wBuffer = new double[columns.MaxGroupNodeCount];
+                for (int g = 0; g < columns.GroupCount; g++)
+                {
+                    token.ThrowIfCancellationRequested();
+                    double x = columns.GroupAbscissa(g);
+                    int count = columns.FillGroupNormalized(g, tBuffer, wBuffer);
+                    double hazardLevel = sampled.Hazard.InverseCDF(x);
+                    sampled.ComputeRiskBivariateColumns(x, hazardLevel, flags, componentRealization, recordOutput: true,
+                        null, x, count, tBuffer, wBuffer);
+                    ledger.Record(x, columns.GroupMass(g), 0d);
+                }
+                replayPoints = columns.GroupCount;
+            }
+
+            int endpointEvaluations = support.CompleteExhaustive(ledger.RunningTotalWeight,
+                objective, ledger.Record, $"system component '{sampled.Name}'");
+            ledger.SealExhaustive();
+            realization.FunctionEvaluations += surrogateEvaluations + replayPoints + endpointEvaluations;
             realization.StandardError += standardError / _components.Count;
             return ledger;
         }

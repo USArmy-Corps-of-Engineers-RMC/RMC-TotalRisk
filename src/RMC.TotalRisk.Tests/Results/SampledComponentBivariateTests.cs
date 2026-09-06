@@ -195,11 +195,22 @@ public class SampledComponentBivariateTests
         return component;
     }
 
-    /// <summary>Sets up samplers and samples one realization of the component.</summary>
+    /// <summary>Sets up samplers and samples one realization of the component (the adaptive conditional sweep — the production construction).</summary>
     private static SampledComponent Sampled(SystemComponent component, int realizationIndex = 0)
     {
         component.SetupSamplers(8, componentSeed: 12345, SamplingScheme.LatinHypercube);
         return component.Sample(realizationIndex);
+    }
+
+    /// <summary>
+    /// Sets up samplers and samples the mean snapshot on the fixed conditional-trapezoid grid —
+    /// the discretization-error instrument's construction, which pins the fixed kernel's exact
+    /// arithmetic.
+    /// </summary>
+    private static SampledComponent SampledFixed(SystemComponent component, int bins)
+    {
+        component.SetupSamplers(8, componentSeed: 12345, SamplingScheme.LatinHypercube);
+        return component.SampleWithConditionalBins(bins);
     }
 
     /// <summary>A counting tabular response that tallies every sampling call.</summary>
@@ -249,17 +260,18 @@ public class SampledComponentBivariateTests
     #region Independence hand-sum
 
     /// <summary>
-    /// Verifies the marginalized engine result equals the exact conditional-trapezoid sum on a
-    /// hand-computable independence fixture: PoF = Σ w_j · p(y_j) and the mean failure
+    /// Verifies the marginalized fixed-grid result equals the exact conditional-trapezoid sum
+    /// on a hand-computable independence fixture: PoF = Σ w_j · p(y_j) and the mean failure
     /// consequence is the adjusted-weighted average, with the linear pool fragility
-    /// p(y) = y / 100 and damages c(y) = 6y.
+    /// p(y) = y / 100 and damages c(y) = 6y. The fixed kernel is the discretization-error
+    /// instrument's evaluation path, constructed here through the instrument route.
     /// </summary>
     [TestMethod]
     public void Test_IndependenceBins_MarginalizedRiskEqualsHandSum()
     {
         // Arrange — four bins, evaluation at the surge median (u = 0.5).
         var component = SecondaryBoundComponent(bins: 4);
-        var sampled = Sampled(component);
+        var sampled = SampledFixed(component, bins: 4);
         var bivariate = (IBivariateHazardFunction)component.HazardFunction!;
         var nodes = bivariate.SampleConditionalYGivenX(0, 10d);
 
@@ -290,6 +302,37 @@ public class SampledComponentBivariateTests
     }
 
     /// <summary>
+    /// Verifies the adaptive conditional sweep on the same hand fixture: the linear fragility
+    /// under the uniform conditional makes the exact marginalized probability of failure 0.5,
+    /// and the adopted mesh must land within the refinement budget's honesty band (the
+    /// piecewise-linear conditional integrand has table knots inside the panels; measured
+    /// 3.3e-5 at the four-bin budget of 84 surrogate evaluations, asserted with headroom). The
+    /// structural identities — one point's entries summing to the marginalized fold, the
+    /// exhaustive unit budgets — hold on the adaptive path exactly as on the fixed grid.
+    /// </summary>
+    [TestMethod]
+    public void Test_IndependenceAdaptive_TracksExactIntegral()
+    {
+        // Arrange — the production (adaptive) construction of the same fixture.
+        var component = SecondaryBoundComponent(bins: 4);
+        var sampled = Sampled(component);
+        var flags = new RiskComputeFlags();
+        var realization = new ComponentRealization(sampled.FailureModeCount);
+
+        // Act
+        var output = sampled.ComputeRisk(0.5d, 10d, flags, realization, recordOutput: true);
+
+        // Assert — the exact conditional mean, within the budget-capped adaptive band.
+        Assert.AreEqual(0.5d, output.ProbabilityOfFailure, 2e-4,
+            "The adaptive sweep must track the exact linear-fragility conditional mean within its budget band.");
+        var failPoint = realization.Curves.Fail.RiskPoints[0];
+        Assert.IsTrue(failPoint.ResponseProbabilities.Count > 0);
+        Assert.AreEqual(output.ProbabilityOfFailure, failPoint.ResponseProbabilities.Sum(), 1e-15);
+        Assert.AreEqual(1d, realization.Curves.Background.RiskPoints[0].ResponseProbabilities.Sum(), 1e-12);
+        Assert.AreEqual(1d, realization.Curves.Total.RiskPoints[0].ResponseProbabilities.Sum(), 1e-12);
+    }
+
+    /// <summary>
     /// Verifies the NaN default derives the same slice probability the caller would pass: the
     /// explicit-u and derived evaluations agree bit-for-bit on a bivariate component.
     /// </summary>
@@ -312,15 +355,17 @@ public class SampledComponentBivariateTests
 
     /// <summary>
     /// Verifies the joint-mode surface semantics: SRP(x) returns the preserved v1.0 weighted
-    /// collapse, SRPAt(x, y) evaluates the clamped probability surface, and the engine fold
-    /// marginalizes the surface over the conditional bins.
+    /// collapse, SRPAt(x, y) evaluates the clamped probability surface, the fixed-grid engine
+    /// fold (the instrument route) marginalizes the surface over the conditional-trapezoid
+    /// nodes exactly, and the adaptive production fold agrees with a dense fixed reference
+    /// within its refinement band.
     /// </summary>
     [TestMethod]
     public void Test_JointMode_SrpIsCollapseAndSrpAtIsSurface()
     {
-        // Arrange
+        // Arrange — the fixed-grid instrument construction pins the trapezoid fold.
         var component = JointResponseComponent(bins: 4);
-        var sampled = Sampled(component);
+        var sampled = SampledFixed(component, bins: 4);
         var mode = sampled.FailureModes.First(m => !m.IsNonFailureMode);
 
         // Assert — the collapse at x = 10: 0.22 + (0.74 − 0.22)/3.
@@ -329,7 +374,7 @@ public class SampledComponentBivariateTests
         // The surface at (10, 50): rows interpolate to 0.2 and 0.7, then x = 10 → 0.2 + 0.5/3.
         Assert.AreEqual(0.2d + 0.5d / 3d, mode.SRPAt(10d, 50d), 1e-12);
 
-        // The engine fold: Σ w_j · surface(10, y_j).
+        // The fixed-grid engine fold: Σ w_j · surface(10, y_j).
         var bivariate = (IBivariateHazardFunction)component.HazardFunction!;
         var nodes = bivariate.SampleConditionalYGivenX(0, 10d);
         double expected = 0d;
@@ -340,6 +385,20 @@ public class SampledComponentBivariateTests
         var flags = new RiskComputeFlags();
         var realization = new ComponentRealization(sampled.FailureModeCount);
         Assert.AreEqual(expected, sampled.ComputeRisk(0.5d, 10d, flags, realization).ProbabilityOfFailure, 1e-12);
+
+        // The adaptive production fold against a dense fixed reference (1000 trapezoid bins on
+        // the instrument route): the two discretizations of the same conditional integral must
+        // agree within the adaptive budget band.
+        var adaptiveComponent = JointResponseComponent(bins: 4);
+        var adaptive = Sampled(adaptiveComponent);
+        double adaptivePoF = adaptive.ComputeRisk(0.5d, 10d, new RiskComputeFlags(),
+            new ComponentRealization(adaptive.FailureModeCount)).ProbabilityOfFailure;
+        var denseComponent = JointResponseComponent(bins: 4);
+        var dense = SampledFixed(denseComponent, bins: 1000);
+        double densePoF = dense.ComputeRisk(0.5d, 10d, new RiskComputeFlags(),
+            new ComponentRealization(dense.FailureModeCount)).ProbabilityOfFailure;
+        Assert.AreEqual(densePoF, adaptivePoF, 1e-4,
+            "The adaptive fold must agree with the dense fixed reference within the budget band.");
     }
 
     #endregion
@@ -347,16 +406,33 @@ public class SampledComponentBivariateTests
     #region Recording
 
     /// <summary>
-    /// Verifies one recording evaluation folds the conditional bins into exactly one risk point
-    /// per stream per scope, with the entry lists enumerating the bins and the exhaustive
-    /// probability budgets intact.
+    /// Verifies one recording evaluation folds the conditional column into exactly one risk
+    /// point per stream per scope, with the entry lists enumerating the nodes and the
+    /// exhaustive probability budgets intact — asserted on BOTH constructions: the fixed-grid
+    /// instrument route (whose entry counts are the exact trapezoid shape) and the adaptive
+    /// production route (whose one-point and unit-budget structure is identical while its node
+    /// count follows the adopted mesh).
     /// </summary>
     [TestMethod]
     public void Test_BivariateRecording_OnePointPerStreamPerEvaluation()
     {
-        // Arrange
+        // The adaptive production construction: the one-point-per-stream contract and the
+        // exhaustive budgets hold with a mesh-shaped entry enumeration.
+        var adaptiveComponent = SecondaryBoundComponent(bins: 4);
+        var adaptive = Sampled(adaptiveComponent);
+        var adaptiveRealization = new ComponentRealization(adaptive.FailureModeCount);
+        var adaptiveOutput = adaptive.ComputeRisk(0.5d, 10d, new RiskComputeFlags(), adaptiveRealization, recordOutput: true);
+        Assert.AreEqual(1, adaptiveRealization.Curves.Fail.RiskPoints.Count);
+        Assert.AreEqual(1, adaptiveRealization.Curves.Total.RiskPoints.Count);
+        Assert.IsTrue(adaptiveRealization.Curves.Fail.RiskPoints[0].ResponseProbabilities.Count > 0);
+        Assert.AreEqual(adaptiveOutput.ProbabilityOfFailure,
+            adaptiveRealization.Curves.Fail.RiskPoints[0].ResponseProbabilities.Sum(), 1e-15);
+        Assert.AreEqual(1d, adaptiveRealization.Curves.Background.RiskPoints[0].ResponseProbabilities.Sum(), 1e-12);
+        Assert.AreEqual(1d, adaptiveRealization.Curves.Total.RiskPoints[0].ResponseProbabilities.Sum(), 1e-12);
+
+        // Arrange — the fixed-grid instrument construction, whose entry counts are exact.
         var component = SecondaryBoundComponent(bins: 4);
-        var sampled = Sampled(component);
+        var sampled = SampledFixed(component, bins: 4);
         var flags = new RiskComputeFlags();
         var realization = new ComponentRealization(sampled.FailureModeCount);
 

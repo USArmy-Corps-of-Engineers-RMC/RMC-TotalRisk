@@ -146,33 +146,64 @@ public class RiskAnalysisDiscretizationTests
     }
 
     /// <summary>
-    /// Verifies the configured-count evaluation agrees with a mean-only run bit-exactly: the
-    /// diagnostic's top level integrates the identical mean snapshot through the identical
-    /// engine path, so the annual failure probability and the mean incremental risk must match
-    /// the published mean realization to the bit.
+    /// Verifies the instrument contract: the diagnostic's levels are the fixed
+    /// conditional-trapezoid grid at the configured, halved, and quartered counts — internally
+    /// consistent across configurations (a level shared by two ladders is bit-identical) —
+    /// while the published mean run integrates the adaptive interior, cross-checked against
+    /// the DENSE instrument rather than the shallow ladder's Richardson limit: this fixture's
+    /// piecewise-linear conditional map leaves the {20, 10, 5} ladder pre-asymptotic (observed
+    /// ratio ≈ 1.07 against the second-order 4 — the regime flag the diagnostic itself
+    /// carries), so its extrapolation is indicative only, while the thousand-bin instrument is
+    /// converged (its own ladder differences sit at the noise floor). Measured: dense AFP
+    /// 0.4999775 with the adaptive mean 5.0e-5 away and fixed-20 2.7e-4 away; dense mean risk
+    /// 154.749 with the adaptive 4.1e-4 relative away and fixed-20 1.7% away — the adaptive
+    /// interior beats the configured fixed grid on both measures, asserted with ×5 headroom.
     /// </summary>
     [TestMethod]
-    public async Task Test_ConfiguredLevel_MatchesMeanOnlyRun_BitExact()
+    public async Task Test_ConfiguredLevel_InstrumentContract()
     {
-        // Arrange — the diagnostic on one instance, the published mean pass on a fresh twin.
+        // Arrange — the diagnostic, a doubled-count twin diagnostic (whose halved and
+        // quartered levels are the primary's configured and halved counts), and the published
+        // mean run.
         var diagnostic = Analysis(bins: 20).EstimateSecondaryDiscretizationError(0);
+        var doubledTwin = Analysis(bins: 40).EstimateSecondaryDiscretizationError(0);
         var meanRun = Analysis(bins: 20);
         meanRun.Options.EstimateMeanRiskOnly = true;
         await meanRun.RunAsync();
         var mean = meanRun.MeanRiskResults!.Components[0];
 
-        // Assert
+        // Assert — the ladder shape and the cross-configuration instrument parity.
         Assert.IsNotNull(diagnostic);
+        Assert.IsNotNull(doubledTwin);
         Assert.AreEqual(20, diagnostic!.Bins);
         Assert.AreEqual(10, diagnostic.HalfBins);
         Assert.AreEqual(5, diagnostic.QuarterBins);
-        Assert.AreEqual(mean.Curves.Fail.TotalProbability, diagnostic.FailureProbability.Value, 0d,
-            "The configured-count level is the mean pass, bit-exactly.");
-        Assert.AreEqual(mean.Curves.Excess.Mean, diagnostic.MeanRisk[0].Value, 0d,
-            "The mean incremental risk matches the published mean realization.");
+        Assert.AreEqual(doubledTwin!.FailureProbability.HalfValue, diagnostic.FailureProbability.Value, 0d,
+            "The twenty-bin instrument level is identical from either ladder, bit-exactly.");
+        Assert.AreEqual(doubledTwin.FailureProbability.QuarterValue, diagnostic.FailureProbability.HalfValue, 0d,
+            "The ten-bin instrument level is identical from either ladder, bit-exactly.");
+        Assert.AreEqual(doubledTwin.MeanRisk[0].HalfValue, diagnostic.MeanRisk[0].Value, 0d,
+            "The twenty-bin mean-risk level matches across ladders bit-exactly.");
         Assert.AreEqual(1, diagnostic.MeanRisk.Count, "One consequence type in the fixture.");
-        Assert.IsTrue(double.IsFinite(diagnostic.FailureProbability.HalfValue));
         Assert.IsTrue(double.IsFinite(diagnostic.FailureProbability.QuarterValue));
+
+        // The shallow ladder is pre-asymptotic on this fixture — the diagnostic's own regime
+        // flag (observed ratio far below the second-order 4) — so the cross-check anchors on
+        // the dense instrument instead of the extrapolation.
+        Assert.IsTrue(diagnostic.FailureProbability.ObservedRatio < 3.5d,
+            "This fixture's shallow ladder is the pre-asymptotic regime the diagnostic exists to flag.");
+        var dense = Analysis(bins: 1000).EstimateSecondaryDiscretizationError(0);
+        Assert.IsNotNull(dense);
+        Assert.AreEqual(dense!.FailureProbability.Value, mean.Curves.Fail.TotalProbability, 2.5e-4,
+            "The adaptive interior must land at the dense fixed truth within its budget band (measured 5.0e-5; ×5 headroom).");
+        Assert.AreEqual(dense.MeanRisk[0].Value, mean.Curves.Excess.Mean, 2e-3 * Math.Abs(dense.MeanRisk[0].Value),
+            "The adaptive mean incremental risk must land at the dense fixed truth (measured 4.1e-4 relative; ×5 headroom).");
+
+        // And the adaptive interior must beat the configured fixed grid against that truth on
+        // the consequence measure — the accuracy claim of the two-dimensional rule.
+        Assert.IsTrue(Math.Abs(mean.Curves.Excess.Mean - dense.MeanRisk[0].Value)
+            < Math.Abs(diagnostic.MeanRisk[0].Value - dense.MeanRisk[0].Value),
+            "The adaptive mean risk must sit closer to the dense truth than the configured fixed grid's.");
     }
 
     /// <summary>

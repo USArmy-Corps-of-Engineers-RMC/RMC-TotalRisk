@@ -176,6 +176,26 @@ public class CopulaDependenceVerification
         return analysis.RiskResults![0]!.Fail.TotalProbability;
     }
 
+    /// <summary>
+    /// Evaluates the fixed-conditional-grid interior at the component's configured bin count
+    /// through the quarantined discretization instrument (its configured level IS the fixed
+    /// grid at that count — the production interior is adaptive).
+    /// </summary>
+    /// <param name="component">The component to evaluate.</param>
+    /// <param name="pinTolerance">Optional pinned primary-quadrature tolerance (the study's rationale).</param>
+    private static double InstrumentFailureProbability(SystemComponent component, double? pinTolerance = null)
+    {
+        var analysis = new RiskAnalysis(new[] { component });
+        if (pinTolerance.HasValue)
+        {
+            analysis.Options.UseDefaults = false;
+            analysis.Options.Tolerance = pinTolerance.Value;
+        }
+        var diagnostic = analysis.EstimateSecondaryDiscretizationError(0);
+        Assert.IsNotNull(diagnostic, "The instrument evaluation requires a diagnosable bin count.");
+        return diagnostic!.FailureProbability.Value;
+    }
+
     /// <summary>The exact single-cell mean: E[P] = m·(z₀₀ + z₁₁) + (1/2 − m)·(z₀₁ + z₁₀).</summary>
     /// <param name="m">The copula's E[UV].</param>
     /// <param name="z00">The (x-low, y-low) corner probability.</param>
@@ -220,6 +240,19 @@ public class CopulaDependenceVerification
         => Math.Exp(-Math.Pow(Math.Pow(-Math.Log(u), theta) + Math.Pow(-Math.Log(v), theta), 1d / theta));
 
     /// <summary>
+    /// The analytic Joe copula: C(u, v) = 1 − ((1−u)^θ + (1−v)^θ − (1−u)^θ·(1−v)^θ)^(1/θ).
+    /// </summary>
+    /// <param name="theta">The Joe parameter.</param>
+    /// <param name="u">The first non-exceedance probability.</param>
+    /// <param name="v">The second non-exceedance probability.</param>
+    private static double JoeC(double theta, double u, double v)
+    {
+        double du = Math.Pow(1d - u, theta);
+        double dv = Math.Pow(1d - v, theta);
+        return 1d - Math.Pow(du + dv - du * dv, 1d / theta);
+    }
+
+    /// <summary>
     /// Computes E[UV] for a copula densely from its analytic CDF through the hoeffding-style
     /// identity E[UV] = ∫₀¹∫₀¹ P(U &gt; s, V &gt; t) ds dt = ∫₀¹∫₀¹ (1 − s − t + C(s, t)) ds dt
     /// = ∫₀¹∫₀¹ C(s, t) ds dt (the linear terms integrate to zero), by composite Simpson on
@@ -257,12 +290,18 @@ public class CopulaDependenceVerification
 
     /// <summary>
     /// Verifies the independence exactness identity: with a surface linear in the secondary
-    /// and a uniform secondary marginal, the conditional trapezoid rule is exact at ANY bin
-    /// count, so the engine reproduces the iterated closed form E[P] = (z₀₀+z₀₁+z₁₀+z₁₁)/4 at
-    /// 1e-10 relative at both 3 and 20 bins. The residual budget is machine rounding plus the
-    /// 1e-15 saturation atoms; the primary quadrature is exact because the marginalized
-    /// integrand is linear in the primary signal (G10K21 integrates polynomials far beyond
-    /// degree one exactly).
+    /// and a uniform secondary marginal, the engine reproduces the iterated closed form
+    /// E[P] = (z₀₀+z₀₁+z₁₀+z₁₁)/4 at 1e-10 relative at both 3 and 20 configured bin counts.
+    /// Re-anchored under the two-dimensional adaptive interior ruling (2026-09-05): the
+    /// production interior integrates the conditional axis adaptively in the probit
+    /// coordinate with the recorded masses renormalized to exactly one per column, so the
+    /// bin count no longer selects a trapezoid grid — the two configurations must agree with
+    /// the closed form (and each other) at quadrature scale, which the 1e-10 band verifies
+    /// directly. (The pre-ruling mechanism was the trapezoid's exactness on y-linear
+    /// integrands; the identity survives because the adaptive interior resolves the smooth
+    /// conditional integrand below the same band.) The primary quadrature is exact because
+    /// the marginalized integrand is linear in the primary signal (G10K21 integrates
+    /// polynomials far beyond degree one exactly).
     /// </summary>
     [TestMethod]
     public void Test_Independence_TrapezoidExactAtAnyN()
@@ -285,8 +324,10 @@ public class CopulaDependenceVerification
     /// conditional Φ((Φ⁻¹(v) − ρΦ⁻¹(u))/√(1−ρ²)) at 1e-12 over a probability grid (the
     /// independent transcription pin), and the engine's joint failure probability at 1000 bins
     /// matches the closed-form mean through E[UV] = 1/4 + arcsin(ρ/2)/(2π) within the
-    /// documented trapezoid allowance (measured by the convergence study on this same
-    /// fixture; the assert carries head-room above the observed error).
+    /// retained study band (measured by the convergence study on this same fixture; the
+    /// assert carries head-room above the observed error — under the 2026-09-05 adaptive
+    /// interior ruling the production error sits far below the historical fixed-grid figure,
+    /// so the band is kept as an upper bound).
     /// </summary>
     [TestMethod]
     public void Test_NormalCopula_HFunctionAndAnalyticMean()
@@ -314,18 +355,25 @@ public class CopulaDependenceVerification
         double afp = RunForFailureProbability(SingleCellComponent(new NormalCopula(rho), 1000,
             SingleCellSurface(0.1d, 0.4d, 0.3d, 0.85d)));
 
-        // Assert — 1.5e-5 relative, ≈ 4× head-room over the measured 3.8e-6. Under a copula
-        // the conditional map v(t) = Φ(√(1−ρ²)·Φ⁻¹(t) + ρ·Φ⁻¹(u)) has one-sided endpoint
-        // cusps (dv/dt ~ t^{−ρ²} as t → 0), so the trapezoid's endpoint panels converge at
-        // O(N^{−(2−ρ²)}) rather than the interior O(N⁻²) — at ρ = 0.7 and 1000 bins the
-        // measured error is ≈ 3.8e-6 relative (the convergence study documents the series).
+        // Assert — 1.5e-5 relative, the retained study band. The figure derives from the
+        // historical fixed-grid series (the trapezoid's endpoint-cusp order reduction under
+        // the conditional map v(t) = Φ(√(1−ρ²)·Φ⁻¹(t) + ρ·Φ⁻¹(u)) measured ≈ 3.8e-6 at 1000
+        // bins); under the 2026-09-05 adaptive interior ruling the production error sits far
+        // below it, so the band holds as a deliberate upper bound (the convergence study's
+        // adaptive layer pins the tighter figures).
         Assert.AreEqual(exact, afp, 1.5e-5 * exact, "Normal-copula engine mean vs the analytic E[UV] closed form.");
         Console.WriteLine($"normal copula: m {m:G17}, exact {exact:G17}, engine(1000) {afp:G17}, rel err {Math.Abs(afp - exact) / exact:G4}");
     }
 
     /// <summary>
-    /// The bin-count convergence study — the derivation source for every trapezoid allowance
-    /// in the bivariate families, run over three fixtures at N ∈ {20, 100, 1000}.
+    /// The bin-count convergence study — the derivation source for every fixed-grid
+    /// discretization allowance in the bivariate families, run over three fixtures at
+    /// N ∈ {20, 100, 1000}. Under the two-dimensional adaptive interior ruling (2026-09-05)
+    /// the production mean run no longer integrates the fixed conditional trapezoid, so the
+    /// fixed series is reached through the quarantined discretization instrument
+    /// (<c>EstimateSecondaryDiscretizationError</c>'s configured level IS the fixed grid at
+    /// the configured count) while the production series measures the adaptive interior at
+    /// the same configurations.
     /// (i) The smooth-fixture O(N⁻²) assert: independence with a log-interpolated surface
     /// whose corner exponents are additively separable, making the conditional integrand a
     /// pure exponential in t (C^∞ to the endpoints) and the exact mean a product of
@@ -344,8 +392,12 @@ public class CopulaDependenceVerification
     /// tail-concentrated log-scale surfaces; the measured errors are pinned as the documented
     /// adequacy figures consumed by <c>BivariateRiskVerification</c>. The closed form itself
     /// is cross-checked against a dense Simpson integral over the engine's own
-    /// empirical-distribution semantics before any engine comparison. All measurements
-    /// complete before any assert so a single band failure cannot hide the remaining series.
+    /// empirical-distribution semantics before any engine comparison.
+    /// (iv) The adaptive adequacy pins: at every configuration the production interior must
+    /// resolve all three fixtures to quadrature scale — including the tail-concentrated
+    /// legacy class the fixed default could not — beating the fixed default by well over two
+    /// orders on the motivating fixture. All measurements complete before any assert so a
+    /// single band failure cannot hide the remaining series.
     /// </summary>
     [TestMethod]
     public void Test_BinConvergence_OrderNSquaredAndDefaultAdequacy()
@@ -368,24 +420,40 @@ public class CopulaDependenceVerification
         double legacyExact = BivariateOracleFixtures.ExactMarginalizedSurface(0.8d);
         double legacyDense = BivariateOracleFixtures.DenseMarginalizedSurface(0.8d);
 
-        // Act — all three series.
+        // Act — the fixed-grid series through the quarantined instrument (the production
+        // interior is adaptive under the 2026-09-05 ruling, so the study's subject — the
+        // fixed conditional trapezoid — is reached through the discretization diagnostic's
+        // configured level), and the adaptive production series at the same configurations.
         var smoothErrors = new double[3];
         var cuspErrors = new double[3];
         var legacyErrors = new double[3];
+        var smoothAdaptive = new double[3];
+        var cuspAdaptive = new double[3];
+        var legacyAdaptive = new double[3];
         for (int i = 0; i < binCounts.Length; i++)
         {
-            double smooth = RunForFailureProbability(SingleCellComponent(null, binCounts[i],
+            double smooth = InstrumentFailureProbability(SingleCellComponent(null, binCounts[i],
                 SingleCellSurface(1e-4d, 1e-3d, 1e-2d, 1e-1d, Transform.Logarithmic)), pinTolerance: 1e-10);
             smoothErrors[i] = Math.Abs(smooth - smoothExact) / smoothExact;
+            double smoothProduction = RunForFailureProbability(SingleCellComponent(null, binCounts[i],
+                SingleCellSurface(1e-4d, 1e-3d, 1e-2d, 1e-1d, Transform.Logarithmic)), pinTolerance: 1e-10);
+            smoothAdaptive[i] = Math.Abs(smoothProduction - smoothExact) / smoothExact;
 
-            double cusp = RunForFailureProbability(SingleCellComponent(new NormalCopula(rho), binCounts[i],
+            double cusp = InstrumentFailureProbability(SingleCellComponent(new NormalCopula(rho), binCounts[i],
                 SingleCellSurface(0.1d, 0.4d, 0.3d, 0.85d)), pinTolerance: 1e-10);
             cuspErrors[i] = Math.Abs(cusp - cuspExact) / cuspExact;
+            double cuspProduction = RunForFailureProbability(SingleCellComponent(new NormalCopula(rho), binCounts[i],
+                SingleCellSurface(0.1d, 0.4d, 0.3d, 0.85d)), pinTolerance: 1e-10);
+            cuspAdaptive[i] = Math.Abs(cuspProduction - cuspExact) / cuspExact;
 
-            double legacy = RunForFailureProbability(
+            double legacy = InstrumentFailureProbability(
                 BivariateOracleFixtures.JointComponent(binCounts[i], BivariateOracleFixtures.DegeneratePrimary(0.8d)));
             legacyErrors[i] = Math.Abs(legacy - legacyExact) / legacyExact;
-            Console.WriteLine($"bins {binCounts[i]}: smooth {smoothErrors[i]:G6}, normal-cusp {cuspErrors[i]:G6}, legacy {legacyErrors[i]:G6}");
+            double legacyProduction = RunForFailureProbability(
+                BivariateOracleFixtures.JointComponent(binCounts[i], BivariateOracleFixtures.DegeneratePrimary(0.8d)));
+            legacyAdaptive[i] = Math.Abs(legacyProduction - legacyExact) / legacyExact;
+            Console.WriteLine($"bins {binCounts[i]}: fixed smooth {smoothErrors[i]:G6}, cusp {cuspErrors[i]:G6}, legacy {legacyErrors[i]:G6}; " +
+                $"adaptive smooth {smoothAdaptive[i]:G6}, cusp {cuspAdaptive[i]:G6}, legacy {legacyAdaptive[i]:G6}");
         }
 
         // Assert — the closed-form self-check: 2e-8 relative. The two references are
@@ -429,6 +497,24 @@ public class CopulaDependenceVerification
             "The legacy-fixture discretization error must decrease with bins.");
         Assert.IsTrue(legacyErrors[2] < legacyErrors[0] / 50d,
             "The 50× bin refinement must reduce the legacy-fixture error by well over 50×.");
+
+        // The adaptive adequacy pins (the 2026-09-05 two-dimensional interior ruling): the
+        // probit conditional coordinate resolves every fixture — the tail-concentrated legacy
+        // class included — to far below the fixed default's error at EVERY configured budget,
+        // and the default-budget adaptive answer beats the fixed default by well over two
+        // orders on the fixture that motivated the ruling (measured ≈ 3.7e-6 against the fixed
+        // grid's ≈ 0.353).
+        for (int i = 0; i < binCounts.Length; i++)
+        {
+            Assert.IsTrue(smoothAdaptive[i] < 1e-5,
+                $"Adaptive smooth error {smoothAdaptive[i]:G4} at bins {binCounts[i]} must sit at quadrature scale.");
+            Assert.IsTrue(cuspAdaptive[i] < 1e-4,
+                $"Adaptive cusp error {cuspAdaptive[i]:G4} at bins {binCounts[i]} must sit at quadrature scale.");
+            Assert.IsTrue(legacyAdaptive[i] < 1e-4,
+                $"Adaptive legacy error {legacyAdaptive[i]:G4} at bins {binCounts[i]} must sit far below the fixed grid's.");
+        }
+        Assert.IsTrue(legacyAdaptive[0] < legacyErrors[0] / 100d,
+            $"The default-budget adaptive error {legacyAdaptive[0]:G4} must beat the fixed default {legacyErrors[0]:G4} by well over two orders.");
     }
 
     /// <summary>
@@ -476,10 +562,12 @@ public class CopulaDependenceVerification
         double afp = RunForFailureProbability(SingleCellComponent(new ClaytonCopula(theta), 1000,
             SingleCellSurface(0.1d, 0.4d, 0.3d, 0.85d)));
 
-        // Assert — 4e-5 relative: Clayton's lower-tail dependence puts a v ~ t^{1/(θ+1)} cusp
-        // at the t → 0 endpoint, reducing the 1000-bin trapezoid to ≈ O(N^{−(1+1/(θ+1))});
-        // the measured error is ≈ 1.0e-5 relative and the assert carries ≈ 4× head-room, with
-        // the dense-moment residual (< 1e-8 by the refinement check) folded in.
+        // Assert — 4e-5 relative, the retained study band: the figure derives from the
+        // historical fixed-grid series (Clayton's lower-tail v ~ t^{1/(θ+1)} endpoint cusp
+        // measured ≈ 1.0e-5 at 1000 bins with ≈ 4× head-room); under the 2026-09-05 adaptive
+        // interior ruling the production error sits far below it, so the band holds as a
+        // deliberate upper bound, with the dense-moment residual (< 1e-8 by the refinement
+        // check) folded in.
         Assert.AreEqual(exact, afp, 4e-5 * exact, "Clayton engine mean vs the dense analytic-CDF re-derivation.");
         Console.WriteLine($"clayton: m {mClayton:G17}, exact {exact:G17}, engine(1000) {afp:G17}, rel err {Math.Abs(afp - exact) / exact:G4}");
     }
@@ -529,6 +617,61 @@ public class CopulaDependenceVerification
     }
 
     /// <summary>
+    /// The extreme-dependence boundary robustness probe for the two copula families whose
+    /// conditional inverse is solved numerically (Gumbel and Joe — Brent over the conditional
+    /// level). The adaptive conditional interior subdivides toward the probit-domain edges,
+    /// querying the inverse at conditional levels down to the 1e-16 clamp and up to
+    /// 1 − 1e-16 — the saturation band where the unguarded solver historically threw "root is
+    /// not bracketed" — so a full engine run at θ = 8 (near-comonotone; Kendall's τ = 7/8 for
+    /// Gumbel) through each family is the crash-class probe: it must complete AND land on the
+    /// independently re-derived closed form. Oracles: E[UV] densely from the analytic CDFs
+    /// alone (the Simpson moment integrator, self-checked by refinement doubling — at θ = 8
+    /// the CDF approaches min(s, t), whose diagonal boundary layer of width ≈ 1/θ the
+    /// 4096-interval grid resolves comfortably), then the corner mean 0.9·E[UV]. Tolerances
+    /// measured-then-pinned: the adaptive interior lands ≈ 4.6e-12 (Gumbel) and ≈ 3.3e-12
+    /// (Joe) relative on this fixture with refinement-doubling residuals ≤ 1e-11, so the
+    /// asserts pin 1e-9 relative — over two orders of head-room — with the ordering
+    /// inequality (both far above independence) closing the orientation.
+    /// </summary>
+    [TestMethod]
+    public void Test_GumbelJoe_ExtremeDependenceAdaptiveRobustness()
+    {
+        // Arrange — the near-comonotone parameter and the joint-extreme corner surface.
+        double theta = 8d;
+        double independenceExact = 0.9d * 0.25d;
+
+        // The dense E[UV] oracles with refinement self-checks.
+        double gumbelCoarse = DenseCopulaMoment((s, t) => GumbelC(theta, s, t));
+        double gumbelMoment = DenseCopulaMoment((s, t) => GumbelC(theta, s, t), intervals: 4096);
+        Assert.IsTrue(Math.Abs(gumbelMoment - gumbelCoarse) < 1e-9,
+            $"Refinement doubling must confirm the dense Gumbel moment ({gumbelCoarse:G12} vs {gumbelMoment:G12}).");
+        double joeCoarse = DenseCopulaMoment((s, t) => JoeC(theta, s, t));
+        double joeMoment = DenseCopulaMoment((s, t) => JoeC(theta, s, t), intervals: 4096);
+        Assert.IsTrue(Math.Abs(joeMoment - joeCoarse) < 1e-9,
+            $"Refinement doubling must confirm the dense Joe moment ({joeCoarse:G12} vs {joeMoment:G12}).");
+        double gumbelExact = SingleCellMean(gumbelMoment, 0d, 0d, 0d, 0.9d);
+        double joeExact = SingleCellMean(joeMoment, 0d, 0d, 0d, 0.9d);
+
+        // Act — full engine runs through both numerically inverted families at default bins.
+        double gumbelAfp = RunForFailureProbability(SingleCellComponent(new GumbelCopula(theta), 20,
+            SingleCellSurface(0d, 0d, 0d, 0.9d)));
+        double joeAfp = RunForFailureProbability(SingleCellComponent(new JoeCopula(theta), 20,
+            SingleCellSurface(0d, 0d, 0d, 0.9d)));
+
+        // Assert — measured ≈ 4.6e-12 (Gumbel) and ≈ 3.3e-12 (Joe) relative; pinned at 1e-9
+        // with over two orders of head-room (the dense oracle's own residual and the engine's
+        // adaptive interior agree at the same scale).
+        Assert.AreEqual(gumbelExact, gumbelAfp, 1e-9 * gumbelExact,
+            $"Gumbel θ = 8 engine mean {gumbelAfp:G12} vs the dense analytic-CDF re-derivation {gumbelExact:G12}.");
+        Assert.AreEqual(joeExact, joeAfp, 1e-9 * joeExact,
+            $"Joe θ = 8 engine mean {joeAfp:G12} vs the dense analytic-CDF re-derivation {joeExact:G12}.");
+        Assert.IsTrue(gumbelAfp > 1.25d * independenceExact && joeAfp > 1.25d * independenceExact,
+            $"Near-comonotone upper-tail dependence must sit far above independence: Gumbel {gumbelAfp:G6}, Joe {joeAfp:G6}, independence {independenceExact:G6}.");
+        Console.WriteLine($"extreme dependence: gumbel exact {gumbelExact:G12}, engine {gumbelAfp:G12}, rel {Math.Abs(gumbelAfp - gumbelExact) / gumbelExact:G4}; " +
+            $"joe exact {joeExact:G12}, engine {joeAfp:G12}, rel {Math.Abs(joeAfp - joeExact) / joeExact:G4}");
+    }
+
+    /// <summary>
     /// Verifies marginal-uncertainty propagation realization for realization: the secondary
     /// marginal is a parametric hazard with a deterministically injected Normal posterior (a
     /// fixed formula — no randomness), so each engine ensemble realization is a deterministic
@@ -536,8 +679,9 @@ public class CopulaDependenceVerification
     /// integral of the same parameter set. The single-cell surface is linear in the primary
     /// signal, so the primary integration is exact and the per-realization target reduces to
     /// ∫₀¹ P(x̄, Norm_i⁻¹(t)) dt by dense Simpson. The 0.1% relative assert covers the
-    /// ensemble-pass quadrature discipline (1e-4 relative), the 200-bin trapezoid residual,
-    /// and the oracle's own density — each orders of magnitude below the bound.
+    /// ensemble-pass quadrature discipline (1e-4 relative), the adaptive conditional-sweep
+    /// residual at that discipline, and the oracle's own density — each orders of magnitude
+    /// below the bound.
     /// </summary>
     [TestMethod]
     public void Test_MarginalUncertainty_RealizationParity()
@@ -606,18 +750,21 @@ public class CopulaDependenceVerification
     }
 
     /// <summary>
-    /// Verifies the secondary-axis discretization diagnostic against this family's measured
-    /// truth. (i) Level cross-pins: the diagnostic's halved and quartered evaluations must be
-    /// bit-identical to mean runs of the same fixture configured at those counts — the levels
-    /// are the engine itself at reduced grids, never a re-implementation. (ii) On the smooth
-    /// separable-log fixture (clean O(N⁻²) per the convergence study), the Richardson estimate
-    /// must land within a factor of two of the true bins = 20 error — in-regime the estimate
-    /// is e₂₀·(1 + O(N⁻²)) exactly — the observed ratio must sit near the second-order four,
-    /// and the extrapolated value must beat the configured-count value against the closed
-    /// form. (iii) On the legacy tail-concentrated fixture (the study's measured
-    /// pre-asymptotic series), the estimate must stay inside a documented indicative band of
-    /// the true error — one order each way — while the observed ratio falls below the
-    /// second-order four: the regime check flagging exactly the fixture the study flagged.
+    /// Verifies the secondary-axis discretization diagnostic — the quarantined fixed-grid
+    /// instrument — against this family's measured truth. (i) Level cross-pins, re-anchored
+    /// under the two-dimensional adaptive interior ruling (2026-09-05): the production mean
+    /// run no longer integrates the fixed grid, so the levels cross-pin against a
+    /// doubled-count twin diagnostic instead — the twenty- and ten-bin instrument evaluations
+    /// must be bit-identical from either ladder (the levels are the instrument itself at
+    /// reduced grids, never a re-implementation). (ii) On the smooth separable-log fixture
+    /// (clean O(N⁻²) per the convergence study), the Richardson estimate must land within a
+    /// factor of two of the true bins = 20 error — in-regime the estimate is e₂₀·(1 + O(N⁻²))
+    /// exactly — the observed ratio must sit near the second-order four, and the extrapolated
+    /// value must beat the configured-count value against the closed form. (iii) On the
+    /// legacy tail-concentrated fixture (the study's measured pre-asymptotic series), the
+    /// estimate must stay inside a documented indicative band of the true error — one order
+    /// each way — while the observed ratio falls below the second-order four: the regime
+    /// check flagging exactly the fixture the study flagged.
     /// </summary>
     [TestMethod]
     public void Test_DiscretizationDiagnostic_TracksMeasuredErrors()
@@ -634,16 +781,20 @@ public class CopulaDependenceVerification
         // Act
         var smooth = smoothAnalysis.EstimateSecondaryDiscretizationError(0);
 
-        // Assert — (i) the level cross-pins against independently configured models.
+        // Assert — (i) the level cross-pins against an independently configured
+        // doubled-count instrument ladder (its halved and quartered levels are this
+        // ladder's configured and halved counts).
         Assert.IsNotNull(smooth);
-        double atHalf = RunForFailureProbability(SingleCellComponent(null, 10,
-            SingleCellSurface(1e-4d, 1e-3d, 1e-2d, 1e-1d, Transform.Logarithmic)), pinTolerance: 1e-10);
-        double atQuarter = RunForFailureProbability(SingleCellComponent(null, 5,
-            SingleCellSurface(1e-4d, 1e-3d, 1e-2d, 1e-1d, Transform.Logarithmic)), pinTolerance: 1e-10);
-        Assert.AreEqual(atHalf, smooth!.FailureProbability.HalfValue, 0d,
-            "The halved level must equal a model configured at ten bins, bit-exactly.");
-        Assert.AreEqual(atQuarter, smooth.FailureProbability.QuarterValue, 0d,
-            "The quartered level must equal a model configured at five bins, bit-exactly.");
+        var doubledAnalysis = new RiskAnalysis(new[] { SingleCellComponent(null, 40,
+            SingleCellSurface(1e-4d, 1e-3d, 1e-2d, 1e-1d, Transform.Logarithmic)) });
+        doubledAnalysis.Options.UseDefaults = false;
+        doubledAnalysis.Options.Tolerance = 1e-10;
+        var doubled = doubledAnalysis.EstimateSecondaryDiscretizationError(0);
+        Assert.IsNotNull(doubled);
+        Assert.AreEqual(doubled!.FailureProbability.HalfValue, smooth!.FailureProbability.Value, 0d,
+            "The twenty-bin instrument level must be identical from either ladder, bit-exactly.");
+        Assert.AreEqual(doubled.FailureProbability.QuarterValue, smooth.FailureProbability.HalfValue, 0d,
+            "The ten-bin instrument level must be identical from either ladder, bit-exactly.");
 
         // (ii) the in-regime estimate against the true error.
         double trueSmoothError = Math.Abs(smooth.FailureProbability.Value - smoothExact) / smoothExact;

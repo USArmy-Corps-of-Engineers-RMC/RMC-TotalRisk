@@ -157,6 +157,28 @@ namespace RMC.TotalRisk.Results
             Array.Copy(_conditionalWeights, weights, count);
         }
 
+        /// <summary>
+        /// Inverts one conditional node: y = MarginalY.InverseCDF(copula.InverseConditionalCDF(u, t))
+        /// — the single-point analog of <see cref="FillConditionalBins"/>, with the conditional
+        /// probability clamped into the same [1e-16, 1 − 1e-16] band the precomputed nodes use, so
+        /// an adaptively placed node reproduces a precomputed node's value bit-exactly at equal t.
+        /// </summary>
+        /// <param name="u">
+        /// The primary slice's NON-exceedance probability, strictly inside (0, 1) — the engine
+        /// clamps its slice probabilities to [1e-16, 1 − 1e-16] before calling.
+        /// </param>
+        /// <param name="t">The conditional probability of the secondary given the primary slice.</param>
+        /// <returns>The conditional secondary hazard value.</returns>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="u"/> is not strictly inside (0, 1).</exception>
+        public double InverseConditional(double u, double t)
+        {
+            if (!(u > 0d && u < 1d))
+                throw new ArgumentOutOfRangeException(nameof(u), "The primary non-exceedance probability must be strictly inside (0, 1).");
+            if (t < 1e-16) t = 1e-16;
+            else if (t > 1d - 1e-16) t = 1d - 1e-16;
+            return _marginalY.InverseCDF(_copula.InverseConditionalCDF(u, t));
+        }
+
         #endregion
     }
 }

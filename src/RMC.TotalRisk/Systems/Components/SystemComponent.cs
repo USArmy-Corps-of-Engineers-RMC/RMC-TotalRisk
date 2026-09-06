@@ -1195,12 +1195,13 @@ namespace RMC.TotalRisk.Systems.Components
                 estimate = Math.Max(estimate, typeEstimate);
             }
 
-            // A bivariate hazard's recorded entries enumerate (bin × pathway × branch): the
-            // conditional-bin sweep multiplies every combination width by its node count, so the
-            // joint-entry limits price the cross product.
+            // A bivariate hazard's recorded entries enumerate (node × pathway × branch): the
+            // conditional sweep multiplies every combination width by its node count, priced at
+            // the adaptive refinement budget's hard mesh bound (deliberately worst-case — a
+            // converged sweep adopts far fewer nodes).
             if (HazardFunction is IBivariateHazardFunction bivariateHazard)
             {
-                estimate = Math.Min(cap, estimate * (bivariateHazard.SecondaryIntegrationBins + 1));
+                estimate = Math.Min(cap, estimate * SampledComponent.ConditionalMeshCapacity(bivariateHazard.SecondaryIntegrationBins));
             }
             return Math.Max(1, Math.Min(cap, estimate));
         }

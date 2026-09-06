@@ -147,13 +147,13 @@ public class BivariateRiskVerification
 
     /// <summary>
     /// The legacy <c>Test_Bivariate_Risk</c> oracle versus the engine: the same curves,
-    /// surface, and stage-bound life loss run through the conditional-bin engine at 1000 bins
-    /// (percent-scale discretization per the convergence study) and at the default 20 bins
-    /// (the study's pinned large-allowance regime). EAD asserts at K·σ̂/√N plus the pinned
-    /// engine discretization allowance; the failure probability at the binomial
-    /// K·√(p(1−p)/N) plus the same allowance; FN ordinates at probe levels with at least
-    /// ~100 expected exceedances, binomially. The probe qualification counts and every
-    /// measured figure are recorded in docs/verification/bivariate-risk.md.
+    /// surface, and stage-bound life loss run through the adaptive two-dimensional interior
+    /// at the thousand-bin and default refinement budgets. EAD asserts at K·σ̂/√N plus the
+    /// adaptive conditional figure; the failure probability at the binomial K·√(p(1−p)/N)
+    /// plus the same figure; FN ordinates at probe levels with at least ~100 expected
+    /// exceedances, binomially; and the two budgets must agree with each other (the
+    /// historical fixed-grid overshoot regime collapses under the adaptive interior — the
+    /// re-anchoring is recorded in docs/verification/bivariate-risk.md).
     /// </summary>
     [TestMethod]
     public void Test_BivariateRisk_EngineVsLegacyOracle()
@@ -165,22 +165,21 @@ public class BivariateRiskVerification
         var engine1000 = RunSeismicEngine(1000);
         var engine20 = RunSeismicEngine(20);
 
-        // Assert — the 1000-bin engine against the oracle: K·SE plus the study's pinned
-        // near-exact discretization figure (negligible beside the Monte Carlo error at 298
-        // failures — the run of record measured 1.4σ on EAD and 0.2σ on the failure
-        // probability).
+        // Assert — the adaptive engine against the oracle: K·SE plus the adaptive
+        // conditional figure (1e-4 relative, measured 3.7e-6 on this fixture class —
+        // negligible beside the Monte Carlo error at 298 failures).
         double afpSe = Math.Sqrt(oracle.Afp * (1d - oracle.Afp) / OracleRealizations);
         Assert.AreEqual(oracle.Ead, engine1000.Ead,
-            K * oracle.EadSe + BivariateOracleFixtures.LegacySrpBins1000RelativeError * engine1000.Ead,
-            "1000-bin EAD vs the legacy oracle.");
+            K * oracle.EadSe + 1e-4 * engine1000.Ead,
+            "Thousand-bin-budget EAD vs the legacy oracle.");
         Assert.AreEqual(oracle.Afp, engine1000.Afp,
-            K * afpSe + BivariateOracleFixtures.LegacySrpBins1000RelativeError * engine1000.Afp,
-            "1000-bin failure probability vs the legacy oracle.");
+            K * afpSe + 1e-4 * engine1000.Afp,
+            "Thousand-bin-budget failure probability vs the legacy oracle.");
 
         // FN ordinates at the qualified probe levels — expected exceedance counts
         // {298, 298, 271, 179, 102} at 1M; the 200-lives probe is excluded with 12 expected
-        // exceedances (< ~100 per the family policy). Binomial K·√(p(1−p)/N) plus the pinned
-        // near-exact figure.
+        // exceedances (< ~100 per the family policy). Binomial K·√(p(1−p)/N) plus the
+        // adaptive conditional figure.
         var failCurve = engine1000.Analysis.MeanRiskResults!.Curves.Fail;
         for (int p = 0; p < SeismicProbes.Length - 1; p++)
         {
@@ -188,20 +187,23 @@ public class BivariateRiskVerification
             double engineExceedance = failCurve.LEC.GetYFromX(SeismicProbes[p], Transform.Logarithmic, Transform.Logarithmic);
             double probeSe = Math.Sqrt(oracleExceedance * (1d - oracleExceedance) / OracleRealizations);
             Assert.AreEqual(oracleExceedance, engineExceedance,
-                K * probeSe + BivariateOracleFixtures.LegacySrpBins1000RelativeError * engineExceedance,
+                K * probeSe + 1e-4 * engineExceedance,
                 $"FN ordinate at {SeismicProbes[p]} lives.");
         }
 
-        // The default-bin regime: the 20-bin run's deterministic trapezoid overshoot against
-        // the 1000-bin run, pinned as measured ratios (run of record: failure probability
-        // 1.351, EAD 2.418 — the consequence weighting compounds the tail concentration the
-        // convergence study documents). The bands guard the regime, not a point value.
+        // The budget-consistency pin, re-anchored under the two-dimensional adaptive interior
+        // ruling (2026-09-05): the historical 20-versus-1000-bin trapezoid overshoot regime
+        // (failure probability 1.351, EAD 2.418 at the run of record) collapses to unity —
+        // the bin knob bounds the per-slice refinement budget rather than fixing a grid, and
+        // this fixture converges below either budget, so the two configurations must agree.
+        // The fixed grid's overshoot regime remains measured by the discretization
+        // instrument in the copula-dependence family.
         double afpRatio = engine20.Afp / engine1000.Afp;
         double eadRatio = engine20.Ead / engine1000.Ead;
-        Assert.IsTrue(afpRatio > 1.2d && afpRatio < 1.5d,
-            $"The 20-bin failure-probability overshoot ratio {afpRatio:G4} left the measured regime.");
-        Assert.IsTrue(eadRatio > 2.0d && eadRatio < 2.9d,
-            $"The 20-bin EAD overshoot ratio {eadRatio:G4} left the measured regime.");
+        Assert.IsTrue(Math.Abs(afpRatio - 1d) < 5e-3,
+            $"The default-budget failure probability must agree with the thousand-bin budget (ratio {afpRatio:G6}).");
+        Assert.IsTrue(Math.Abs(eadRatio - 1d) < 5e-3,
+            $"The default-budget EAD must agree with the thousand-bin budget (ratio {eadRatio:G6}).");
 
         Console.WriteLine($"seismic: oracle EAD {oracle.Ead:G8} (se {oracle.EadSe:G4}) AFP {oracle.Afp:G8} " +
             $"({oracle.Failures} failures); engine(1000) EAD {engine1000.Ead:G8} AFP {engine1000.Afp:G8}; " +
@@ -209,14 +211,19 @@ public class BivariateRiskVerification
     }
 
     /// <summary>
-    /// The legacy <c>Test_Bivariate_SRP</c> target E_Y[CDF(0.8, Y)] three ways: the exact
+    /// The legacy <c>Test_Bivariate_SRP</c> target E_Y[CDF(0.8, Y)] four ways: the exact
     /// union-grid closed form (derived in <see cref="BivariateOracleFixtures"/> and
-    /// cross-checked there against a dense Simpson reference), the engine's marginalized
-    /// failure probability through a degenerate primary bracket at PGA 0.8, and the
-    /// re-captured legacy 100M constant at its k·SE. The engine comparisons carry the
-    /// convergence study's pinned discretization figures — percent-scale at 1000 bins and
-    /// the large pinned allowance at the default 20, both a consequence of the stage
-    /// marginal's normal-Z tail concentration (the study documents the mechanism).
+    /// cross-checked there against a dense Simpson reference), the re-captured legacy 100M
+    /// constant at its k·SE, the adaptive engine's marginalized failure probability through a
+    /// degenerate primary bracket at PGA 0.8, and the per-slice probit sweep evaluated
+    /// directly against the fixed-grid instrument at a thousand bins. Re-anchored under the
+    /// two-dimensional adaptive interior ruling (2026-09-05): the probit conditional
+    /// coordinate resolves the stage marginal's normal-Z tail concentration that rate-limited
+    /// the fixed grid, so the full-run probes land within 1e-4 relative of the closed form at
+    /// EITHER configured bin count (measured 3.7e-6 at both — the bin knob bounds the
+    /// per-slice refinement budget, and this fixture converges far below it), the per-slice
+    /// sweep reproduces the closed form to 1e-9 relative (measured 5.3e-12), and the
+    /// fixed-grid instrument's thousand-bin value keeps its historical 4e-3 allowance.
     /// </summary>
     [TestMethod]
     public void Test_BivariateSRP_ClosedForm()
@@ -227,17 +234,37 @@ public class BivariateRiskVerification
         Assert.AreEqual(exact, LegacySrp100MMean, K * legacySe,
             "The re-captured legacy 100M mean must sit within k·SE of the exact closed form.");
 
-        // Act — the engine probes.
+        // Act — the adaptive full-run probes at both configured budgets.
         double probe1000 = RunProbe(1000);
         double probe20 = RunProbe(20);
 
-        // Assert — the pinned discretization figures from the convergence study.
-        Assert.AreEqual(exact, probe1000, BivariateOracleFixtures.LegacySrpBins1000RelativeError * exact,
-            "The 1000-bin probe must reproduce the closed form within the pinned near-exact figure.");
-        Assert.AreEqual(exact, probe20, BivariateOracleFixtures.LegacySrpBins20RelativeError * exact,
-            "The 20-bin probe must reproduce the closed form within the pinned default-bin figure.");
+        // The per-slice decomposition: the adaptive probit sweep and the fixed-grid
+        // instrument evaluated at the same slice.
+        var adaptiveComponent = BivariateOracleFixtures.JointComponent(1000, BivariateOracleFixtures.DegeneratePrimary(0.8d));
+        adaptiveComponent.SetupSamplers(100, 12345, RMC.TotalRisk.Core.Enums.SamplingScheme.LatinHypercube);
+        var adaptiveSampled = adaptiveComponent.Sample(-1);
+        double sliceLevel = adaptiveSampled.Hazard.InverseCDF(0.5d);
+        double adaptiveSlice = adaptiveSampled.ComputeRisk(0.5d, sliceLevel, new RMC.TotalRisk.Results.RiskComputeFlags(),
+            new RMC.TotalRisk.Results.ComponentRealization(adaptiveSampled.FailureModeCount)).ProbabilityOfFailure;
+
+        var fixedComponent = BivariateOracleFixtures.JointComponent(1000, BivariateOracleFixtures.DegeneratePrimary(0.8d));
+        fixedComponent.SetupSamplers(100, 12345, RMC.TotalRisk.Core.Enums.SamplingScheme.LatinHypercube);
+        var fixedSampled = fixedComponent.SampleWithConditionalBins(1000);
+        double fixedSlice = fixedSampled.ComputeRisk(0.5d, sliceLevel, new RMC.TotalRisk.Results.RiskComputeFlags(),
+            new RMC.TotalRisk.Results.ComponentRealization(fixedSampled.FailureModeCount)).ProbabilityOfFailure;
+
+        // Assert — the adaptive figures (measured 3.7e-6 relative full-run, 5.3e-12 per
+        // slice; asserted with documented headroom), and the instrument's historical figure.
+        Assert.AreEqual(exact, probe1000, 1e-4 * exact,
+            "The adaptive probe at the thousand-bin budget must reproduce the closed form within the pinned figure.");
+        Assert.AreEqual(exact, probe20, 1e-4 * exact,
+            "The adaptive probe at the default budget must reproduce the closed form within the pinned figure.");
+        Assert.AreEqual(exact, adaptiveSlice, 1e-9 * exact,
+            "The per-slice probit sweep must reproduce the closed form to quadrature accuracy.");
+        Assert.AreEqual(exact, fixedSlice, BivariateOracleFixtures.LegacySrpBins1000RelativeError * exact,
+            "The fixed-grid instrument at a thousand bins keeps its historical near-exact figure.");
         Console.WriteLine($"srp closed form {exact:G17}, legacy 100M {LegacySrp100MMean:G17} (se {legacySe:G4}), " +
-            $"probe(1000) {probe1000:G17}, probe(20) {probe20:G17}");
+            $"probe(1000) {probe1000:G17}, probe(20) {probe20:G17}, slice adaptive {adaptiveSlice:G17}, slice fixed(1000) {fixedSlice:G17}");
 
         // Runs the degenerate-primary probe at the given bin count.
         static double RunProbe(int bins)
@@ -567,27 +594,26 @@ public class BivariateRiskVerification
         var engine1000 = RunEngine(1000);
         var engine20 = RunEngine(20);
 
-        // Assert — the 1000-bin engine against the oracle at K·SE plus a 2.5% measured
-        // residual allowance: the run of record measured a deterministic +1.6% EAD / +1.2%
-        // failure-probability overshoot remaining at 1000 bins on this fixture (the pool
-        // marginal's normal-Z tail — the same mechanism the convergence study documents),
-        // sitting at 2.0σ / 1.7σ of the Monte Carlo error; the explicit allowance keeps the
-        // assert's head-room honest instead of leaning on the k·SE band to absorb a known
-        // bias.
+        // Assert — the adaptive engine against the oracle at K·SE plus the 2.5% historical
+        // allowance kept as an upper bound: the fixed grid's run of record carried a
+        // deterministic +1.6% EAD / +1.2% failure-probability overshoot at a thousand bins
+        // (the pool marginal's normal-Z tail); the adaptive probit interior removes that
+        // mechanism, so the band is now generous rather than tight.
         double afpSe = Math.Sqrt(oracle.Afp * (1d - oracle.Afp) / OracleRealizations);
         Assert.AreEqual(oracle.Ead, engine1000.Ead, K * oracle.EadSe + 0.025d * engine1000.Ead,
-            "1000-bin EAD vs the re-anchored oracle.");
+            "Thousand-bin-budget EAD vs the re-anchored oracle.");
         Assert.AreEqual(oracle.Afp, engine1000.Afp, K * afpSe + 0.025d * engine1000.Afp,
-            "1000-bin failure probability vs the re-anchored oracle.");
+            "Thousand-bin-budget failure probability vs the re-anchored oracle.");
 
-        // The default-bin regime pinned as measured ratios (run of record: failure
-        // probability 1.460, EAD 1.643).
+        // The budget-consistency pin, re-anchored under the two-dimensional adaptive interior
+        // ruling (2026-09-05): the historical fixed-grid overshoot regime (failure
+        // probability 1.460, EAD 1.643 at the run of record) collapses to unity.
         double afpRatio = engine20.Afp / engine1000.Afp;
         double eadRatio = engine20.Ead / engine1000.Ead;
-        Assert.IsTrue(afpRatio > 1.25d && afpRatio < 1.7d,
-            $"The 20-bin failure-probability overshoot ratio {afpRatio:G4} left the measured regime.");
-        Assert.IsTrue(eadRatio > 1.4d && eadRatio < 1.9d,
-            $"The 20-bin EAD overshoot ratio {eadRatio:G4} left the measured regime.");
+        Assert.IsTrue(Math.Abs(afpRatio - 1d) < 0.01d,
+            $"The default-budget failure probability must agree with the thousand-bin budget (ratio {afpRatio:G6}).");
+        Assert.IsTrue(Math.Abs(eadRatio - 1d) < 0.01d,
+            $"The default-budget EAD must agree with the thousand-bin budget (ratio {eadRatio:G6}).");
 
         Console.WriteLine($"damrae: oracle EAD {oracle.Ead:G8} (se {oracle.EadSe:G4}) AFP {oracle.Afp:G8} " +
             $"({oracle.Failures} failures); engine(1000) EAD {engine1000.Ead:G8} AFP {engine1000.Afp:G8}; " +
@@ -674,13 +700,18 @@ public class BivariateRiskVerification
         Assert.IsTrue(eadDistance < 0.005d,
             $"The v1.0 arrangement's EAD sits {eadDistance:P3} from the exact reference.");
 
-        // The arrangement claim, pinned: putting the tail-concentrated axis on the exactly
-        // integrated primary and collapsing the mass-concentrated axis beats the default-bin
-        // bivariate arrangement of the same scenario by two orders of magnitude.
-        Assert.IsTrue(afpDistance < bivariateAfpDistance / 50d,
-            $"The v1.0 arrangement ({afpDistance:P3}) must beat the default-bin bivariate arrangement ({bivariateAfpDistance:P3}) decisively on failure probability.");
-        Assert.IsTrue(eadDistance < bivariateEadDistance / 50d,
-            $"The v1.0 arrangement ({eadDistance:P3}) must beat the default-bin bivariate arrangement ({bivariateEadDistance:P3}) decisively on risk.");
+        // The arrangement question, re-anchored under the two-dimensional adaptive interior
+        // ruling (2026-09-05): under the fixed conditional grid the default-bin bivariate
+        // arrangement sat 35.4% from the exact reference and the collapse arrangement's
+        // two-order superiority was the practitioner rule; the adaptive probit interior
+        // resolves the tail-concentrated conditional axis, so BOTH arrangements now land
+        // within the same half-percent band and the axis choice is no longer
+        // accuracy-critical for this scenario class (the historical measurement stays in
+        // docs/verification/bivariate-risk.md).
+        Assert.IsTrue(bivariateAfpDistance < 0.005d,
+            $"The bivariate arrangement's failure probability sits {bivariateAfpDistance:P3} from the exact reference under the adaptive interior.");
+        Assert.IsTrue(bivariateEadDistance < 0.005d,
+            $"The bivariate arrangement's EAD sits {bivariateEadDistance:P3} from the exact reference under the adaptive interior.");
 
         // And against the oracle at k·SE plus the measured discretization distance. The EAD
         // comparison is oracle-noise-limited, not engine-limited: only 298 of the 1,000,000
@@ -862,14 +893,19 @@ public class BivariateRiskVerification
     /// under the independence bivariate hazard in joint mode — with the same primary-bound
     /// damage, so both paths estimate ∫ E_Y[P(x, Y)]·C(x) dF_X and its probability analogue.
     /// Both are compared against the exact dense reference (the union-grid conditional
-    /// expectation integrated densely over the PGA curve), at two refinement levels each:
-    /// the verbatim surface with six Voronoi cells versus 20 bins, and the twice-refined
-    /// interpolant-preserving surface (13 × 21 with re-derived Voronoi weights) versus 1000
-    /// bins. The engine's collapse semantics are additionally pinned against an independent
-    /// re-implementation (log-interpolated collapse knots with end clamps) at the quadrature
-    /// scale, so the comparison rests on verified semantics, not assumptions. Distances
-    /// must shrink on BOTH sides as both discretizations refine — the deliberate
-    /// demonstration that the preserved method and the new path estimate the same quantity.
+    /// expectation integrated densely over the PGA curve). The collapse side runs at two
+    /// refinement levels — the verbatim surface with six Voronoi cells and the twice-refined
+    /// interpolant-preserving surface (13 × 21 with re-derived Voronoi weights) — and its
+    /// distances must shrink under refinement. Re-anchored under the two-dimensional
+    /// adaptive interior ruling (2026-09-05): the joint side integrates adaptively at BOTH
+    /// bin configurations (the historical 20-versus-1000 fixed-grid refinement narrative is
+    /// retired — the bin count no longer selects the production grid), so both joint runs
+    /// must sit inside the study's near-exact figure and the tightened paths must agree
+    /// within their combined pinned distances. The engine's collapse semantics are
+    /// additionally pinned against an independent re-implementation (log-interpolated
+    /// collapse knots with end clamps) at the quadrature scale, so the comparison rests on
+    /// verified semantics, not assumptions — the deliberate demonstration that the preserved
+    /// method and the new path estimate the same quantity.
     /// </summary>
     [TestMethod]
     public void Test_CollapseVsJoint_Consistency()
@@ -905,41 +941,42 @@ public class BivariateRiskVerification
         Assert.AreEqual(tightSemantics, collapseTight.Afp, 2e-5 * tightSemantics,
             "The engine's collapse semantics diverged from the independent re-implementation (refined surface).");
 
-        // The measured distances to the exact reference (run of record: collapse 27.3% →
-        // 1.91%; joint 35.4% → 0.199%, the study's pinned figures). Each pin carries
-        // head-room over the measured value.
+        // The measured distances to the exact reference. Collapse-side run of record:
+        // 27.3% → 1.91% under surface refinement (the pins carry head-room). Joint-side,
+        // re-anchored under the 2026-09-05 adaptive interior ruling: both bin
+        // configurations integrate adaptively (the bin count steers only the surrogate
+        // probe grid and the fixed-slice sweep budget), so BOTH joint runs must sit inside
+        // the study's near-exact figure — the historical 20-bin 35.4% regime is retired.
         double DistanceAfp(double value) => Math.Abs(value - afpReference) / afpReference;
         double DistanceEad(double value) => Math.Abs(value - eadReference) / eadReference;
         Assert.IsTrue(DistanceAfp(collapseLoose.Afp) < 0.35d, "The verbatim collapse distance left its measured regime.");
         Assert.IsTrue(DistanceAfp(collapseTight.Afp) < 0.03d, "The refined collapse distance left its measured regime.");
-        Assert.IsTrue(DistanceAfp(jointLoose.Afp) < BivariateOracleFixtures.LegacySrpBins20RelativeError,
-            "The 20-bin joint distance exceeded the study's pinned figure.");
+        Assert.IsTrue(DistanceAfp(jointLoose.Afp) < BivariateOracleFixtures.LegacySrpBins1000RelativeError,
+            "The default-configuration adaptive joint distance exceeded the study's near-exact figure.");
         Assert.IsTrue(DistanceAfp(jointTight.Afp) < BivariateOracleFixtures.LegacySrpBins1000RelativeError,
-            "The 1000-bin joint distance exceeded the study's pinned figure.");
+            "The 1000-bin-configuration adaptive joint distance exceeded the study's near-exact figure.");
 
-        // The convergence demonstration: BOTH discretizations must shrink toward the same
-        // reference, and the tightened paths must agree within the sum of their pinned
-        // distances (measured tight-vs-tight gap: 1.7% of the reference).
+        // The convergence demonstration: the collapse side must shrink toward the reference
+        // under surface refinement, and every pairing must agree within the sum of its
+        // pinned distances.
         Assert.IsTrue(DistanceAfp(collapseTight.Afp) < DistanceAfp(collapseLoose.Afp),
             "Refining the collapse surface must move it toward the reference.");
-        Assert.IsTrue(DistanceAfp(jointTight.Afp) < DistanceAfp(jointLoose.Afp),
-            "Raising the bins must move the joint path toward the reference.");
         Assert.IsTrue(Math.Abs(collapseTight.Afp - jointTight.Afp)
             < (0.03d + BivariateOracleFixtures.LegacySrpBins1000RelativeError) * afpReference,
             "The tightened collapse and joint paths must agree within their combined pinned distances.");
         Assert.IsTrue(Math.Abs(collapseLoose.Afp - jointLoose.Afp)
-            < (0.35d + BivariateOracleFixtures.LegacySrpBins20RelativeError) * afpReference,
-            "The verbatim collapse and 20-bin joint paths must agree within their combined pinned distances.");
+            < (0.35d + BivariateOracleFixtures.LegacySrpBins1000RelativeError) * afpReference,
+            "The verbatim collapse and default-configuration joint paths must agree within their combined pinned distances.");
 
         // The same structure holds on the risk (EAD) axis with the shared primary damage.
         Assert.IsTrue(DistanceEad(collapseLoose.Ead) < 0.35d, "The verbatim collapse EAD distance left its measured regime.");
         Assert.IsTrue(DistanceEad(collapseTight.Ead) < 0.03d, "The refined collapse EAD distance left its measured regime.");
+        Assert.IsTrue(DistanceEad(jointLoose.Ead) < BivariateOracleFixtures.LegacySrpBins1000RelativeError,
+            "The default-configuration adaptive joint EAD distance exceeded the study's near-exact figure.");
         Assert.IsTrue(DistanceEad(jointTight.Ead) < BivariateOracleFixtures.LegacySrpBins1000RelativeError,
-            "The 1000-bin joint EAD distance exceeded the study's pinned figure.");
+            "The 1000-bin-configuration adaptive joint EAD distance exceeded the study's near-exact figure.");
         Assert.IsTrue(DistanceEad(collapseTight.Ead) < DistanceEad(collapseLoose.Ead),
             "Refining the collapse surface must move its EAD toward the reference.");
-        Assert.IsTrue(DistanceEad(jointTight.Ead) < DistanceEad(jointLoose.Ead),
-            "Raising the bins must move the joint EAD toward the reference.");
         Assert.IsTrue(Math.Abs(collapseTight.Ead - jointTight.Ead)
             < (0.03d + BivariateOracleFixtures.LegacySrpBins1000RelativeError) * eadReference,
             "The tightened EAD paths must agree within their combined pinned distances.");
