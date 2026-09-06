@@ -65,6 +65,21 @@
    **post-v1.1**: the namespace reservation stays; `RiskAnalysis`-owns-components remains the v1.1
    system representation.
 
+## Rulings recorded 2026-09-06
+
+1. **B1 (Bayesian updating) is relocated out of this repository's program**: the capability
+   belongs to `C:\GIT\System-Response` (the physics-based system-response library — the same
+   home ruled for FORM/SORM and fragility derivation on 2026-08-27), where the fragility
+   evidence lives. The existing design draft
+   (`~/.claude/plans/b1-bayesian-updating-design-draft.md` — conjugate Beta-on-SRP
+   parameterized by effective record length and exposure period, plus the ensemble
+   likelihood re-weighting companion) becomes the System-Response design reference; the
+   TotalRisk-side A4 realization-weight carrier it composes with is already shipped and
+   needs nothing further here. No TotalRisk design-session gate remains for B1.
+2. **B7 (tail-dependent capacity coupling) is deferred indefinitely**: it is not a near-term
+   practitioner need and will not be scheduled; the complete prepared plan below stays as the
+   archive so a future ruling can reopen it without re-derivation.
+
 ## Open questions that resolve inside the items above
 
 | Question | Where it resolves |
@@ -207,9 +222,10 @@ approved and executed (`74af2e95…`, its own commit).
   kernel) — the session-9 plan's proposed advisory warning was dropped as mislabeling
   supported behavior.
 
-- **B7 — tail-dependent (Student-t) capacity coupling: DEFERRED by ruling 2026-09-05, complete
-  prepared plan recorded.** Nothing was implemented; the design survey is preserved so the item
-  can start without re-derivation. *Verified consumption map:* failure-mode coupling is consumed
+- **B7 — tail-dependent (Student-t) capacity coupling: DEFERRED by ruling 2026-09-05 and
+  deferred INDEFINITELY by ruling 2026-09-06 (not a near-term practitioner need; reopening
+  requires a fresh ruling).** Nothing was implemented; the design survey is preserved so the
+  item can start without re-derivation. *Verified consumption map:* failure-mode coupling is consumed
   analytically, never as draws — JointFailures dependent = `Probability.ExclusivePCMLazy` → HPCM
   over closed-form `MultivariateNormal.BivariateCDF` (deterministic at any dimension);
   CompetingFailures dependent = the seeded Genz lattice inside
