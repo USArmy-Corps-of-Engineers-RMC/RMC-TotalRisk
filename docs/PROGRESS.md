@@ -1,5 +1,116 @@
 # Progress Log
 
+## 2026-09-06 — Capability program session 11: the C5 CostBenefitAnalysis DESIGN session (the ratified normative design)
+
+**Goal:** the dedicated C5 design session per the 2026-08-27 ruling ("C5 needs its own design
+session") and the 2026-09-06 sequencing — produce and ratify the normative
+`docs/requirements/COST_BENEFIT_ANALYSIS_DESIGN.md` on the BIVARIATE precedent (legacy audit,
+complete type/results design, numbered decision ledger ratified via batched review rounds,
+verification strategy, implementation slicing), land the records, and write the CB1
+implementation prompt. **Docs, plans, and records only — no library code**; the eight gates
+end where the baseline left them.
+
+**Baseline (session start):** numerics `94d1713` clean (ahead 6, no v2.2.x tag — latest
+v2.1.4; sibling Debug DLL rebuilt from committed state); TotalRisk `v2.0-development` clean at
+`6f70a57` (ahead 5 of the now-live origin — never push). `dotnet build` 0 warnings; fast suite
+**1,463/1,463** + Api **73/73**; **all eight perf byte gates bit-exact** as separate
+invocations against their RESULTS.md pins — F1 `b2e6ea88…`, F2 `ac35a7fa…`, F3 `e46763ef…`,
+F4 `8a3a8b52…`, F5 `2ae3925b…`, F6 `bd4a26e8…`, F7 `f985ca02…`, F8 `c9599e0a…` (F8 4.080 s
+mean-only / 124.405 s full / 155.02 GB — near the recorded row; the hash is the gate).
+Docs-only session ⇒ the baseline gates are the closing gates.
+
+**Exploration (four parallel passes, all source-anchored):** (1) the legacy repo — the ONLY
+v1.0 economics is `PlanRow.EquivalentAnnual` (WPF-side, pure statics; verbatim transcription
+into the design doc; r = 0 → NaN, base year discounted one full period, silent beyond-horizon
+ramp truncation; no differencing/benefits/costs anywhere; zero test coverage; VB-only), and
+**"TR App. H" resolved** — Appendix H of the in-repo `RMC-TR-2022-XX` draft (Eqs. 252–256),
+which DISAGREES with the shipped code on the discounting index (base year undiscounted over
+b..b+n vs the code's one-period-discounted n terms); (2) the current repo — the C1/A5/B8
+surfaces, the `Curve` measure inventory (SD, VaR/CVaR at `Options.Alpha`, ConditionalMean),
+`RiskMeasure`/`RiskType`/`TolerableRiskCriterion` as the ready-made constraint vocabulary,
+the `SelectScope`/`ExtractMeasure` private-static reuse blocker, the epoch rows' Total-only
+capture, and the `EnsembleSummary` epistemic-variance/CVaR gap; (3) numerics — **no
+ε-constraint/Pareto class exists**; the "2-objective version" is `AugmentedLagrange` (exposes
+the multipliers) + `Test_Haimes_5_2` (pins Mu[0] = 1.67 at ε = 13.31) + two water-economics
+net-benefit multiplier tests; `ConditionalExpectedValue(alpha)` is the distribution-level
+CVaR; v1 needs zero numerics work under the discrete ruling; (4) the literature — **the
+lead's M.S. thesis located and read in full** (Smith 2022, Colorado School of Mines,
+open-access): TEAC (Eq. 2.4), CVaR (2.9–2.11 with the Ch. 2-vs-App. A α-notation split),
+N_Δ (2.12), the ε-constraint program + trade-off λ (B.6/B.7), **Eq. 4.2** (min TEAC s.t.
+EAC_Δ ≤ 0.001, N_Δ ≤ ε₃ — proposed there, implemented discretely by this design), PMRM, and
+the worked Tables B.1/2.1/3.4 adopted as verification fixtures; USACE ER 1110-2-1156 App. L
+CSSL(U)/(A) verbatim + disproportionality/ALARP bands; the iPresas indicator family
+(ACSLS/EWACSLS/CSFP) and Fluixá-Sanmartín 2020 AACSLS (algebraically the shipped C1
+absorbing aggregates); HEC-FDA's EqAD guardrail; Reclamation 2022's no-numeric-threshold
+negative finding; DAMRAE's thin alternatives layer. The dissertation proposal
+(`C:\GIT\Portfolio-Optimization\docs\dissertation_proposal.docx`) was read for positioning:
+the PhD is the portfolio tier ABOVE C5 (C4-adjacent); C5 is the single-study
+alternatives-evaluation engine beneath it. Parity oracle constants independently re-derived
+before pinning (EA cases A–E: 134.970911441500 / 108.287007110536 / 160 / 119.497368419047 /
+137.5).
+
+**User rulings (2026-09-06, the design review — four batched rounds + a serialization
+follow-up, plus three mid-session scope directions):** the mid-session directions reshaped
+the draft before ratification — (a) the collection model (a `CostBenefitAnalysis` owns
+`RiskReductionAlternative`s, the user designates the baseline, each alternative carries a
+`RiskAnalysis` + cost, stream selectable with "flexibility and lots of options"); (b) **the
+ε-constraint method is DISCRETE and manually defined** (the user defines the alternative
+array to rank; no continuous nonlinear optimization; mean-variance/mean-CVaR; Lagrangians as
+shadow prices; max net benefits s.t. excess life loss ≤ TRG and CVaR ≤ threshold — the
+NED-under-constraints framing; dissertation-grade); (c) the full-uncertainty risk-aversion
+tier ("minimize maximum regret" and ALL viable risk-based design strategies a dissertation or
+journal publication should test) plus the presentation-complete results contract for the
+future UI/App. The ratified ledger is the design doc's twenty-two decisions; the review
+revisions/additions beyond the drafted recommendations: **default benefit stream = Total**
+(fail/non-fail trade-offs Excess alone can miss; CSLS stays Excess by App. L definition);
+**the do-no-harm screen** (Total risk cannot increase from baseline; Enforce default);
+**standard deviation of risk as the declared secondary dispersion objective** + a
+mean-variance ε template; **reliability-based design support on AFP** (metrics, constraints,
+the reliability template, all-reliability-mode studies legal, mixed modes refused); **the
+study is a formal serialized class** — definition XML in BOTH `RiskSerializationMode`s, a
+hash-stripped `RiskAnalysis.Id` for ByReference links, **and study results serialized as
+JSON** (the injection ctor restores an estimated study; deep drill-down stays runtime and
+re-runs); **four implementation sessions** (CB1 kernel/model/parity → CB2 the decision
+framework → CB3 the strategy catalog → CB4 the serialized study + presentation closure +
+docs). Also ratified as recommended: the designated-baseline collection model; study-owned
+horizon/rate + the study-wide epoch grid + comparability validation; the three-kind cost
+model with the epoch-consistent discounting conventions; non-absorbing headline accounting
+with the absorbing twins always alongside; epoch realization retention + study-α
+re-evaluation; the App. L-exact formulary with the documented NaN/clamp discipline and the
+basis-invariance lemma; the exceedance-α pin; opt-in split-accounted monetization with no
+shipped WTP/VSL defaults; CSSL(A)-basis disproportionality + proximity-selected ALARP bands;
+the metric-selector vocabulary; the discrete ε study with total trade-off shadow prices and
+the CE/ICA ≡ trade-off unification; the k-objective frontier + MCDA rules; all three
+strategy tiers in v1 (Tier 2 chance constraints on the A7 semantics; Tier 3 Savage regret on
+C3 shared states); the honesty clauses (aleatory-from-mean-LEC labeling,
+pairing-impossibility documentation); anchor-to-code for the v1.0 parity with the TR App. H
+discrepancy recorded; the deferral list (continuous optimization on `AugmentedLagrange`+DE,
+iPresas prioritization sequences/CTB → C4, distributional NPV routes, TOPSIS, info-gap, the
+sample-CVaR numerics ask-first item, real options on the named C1 seat).
+
+**Landed (docs/plans/records only):** `docs/requirements/COST_BENEFIT_ANALYSIS_DESIGN.md`
+v1.0 (ratified — exploration digest with the verbatim v1.0 transcription and the thesis
+formulary; the 22-decision ledger; R1–R42; architecture A–I incl. the CB1 kernel promotions
+(`DiscountingSupport`, `SelectScope`/`ExtractMeasure` → internal, the life-cycle stream axis
+{Total, Excess, Fail} + opt-in epoch realization retention), the input records, the study
+class, the normative formulary, the formal decision framework, the strategy catalog, the
+results table catalog, the serialized-study wire shape; the CB1–CB4 phase table; the
+31-fixture verification plan with the independently re-derived constants); ROADMAP's
+future-phases bullet rewritten (C5 on the critical path); REMAINING-WORK ruling 5 (the
+ratified design) + the post-v1.1 block correction; this entry; the CB1 implementation prompt
+at `~/.claude/plans/session-12-totalrisk-c5-cb1.md`.
+
+**Verified:** docs-only — the baseline gates stand (1,463 + 73 green; eight hashes
+bit-exact); no library, test, or verification source touched; tree committed on
+`v2.0-development`; nothing pushed.
+
+**Next:** session 12 = CB1 per the ratified design (the prompt above; baseline re-checked at
+write time) → CB2 → CB3 → CB4 → **the exhaustive unit + verification testing campaign (the
+ruled critical path)** → the import surface (`session-11-totalrisk-imports.md` re-baselines
+after the campaign) → N4/T8 whenever Haden re-packs, tags, and pushes 2.2.0 → Phase 12
+hardening → Phase 13 release prep → Phase 14B → C4 at Haden's convenience → the publish
+session.
+
 ## 2026-09-06 — Capability program session 10: C2 deteriorating responses AND C1 the epoch-sequence life-cycle axis (the life-cycle foundations)
 
 **Goal:** the life-cycle/real-options FOUNDATIONS under the ruled scope discipline — C2 (the

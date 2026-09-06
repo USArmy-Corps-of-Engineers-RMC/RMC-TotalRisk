@@ -88,6 +88,29 @@
    anything else on the critical path (the import surface, hardening, and release prep
    follow the campaign). C5 itself runs design-first: a dedicated design session produces
    the ratified normative design document, then implementation sessions execute it.
+5. **The C5 design is ratified (the 2026-09-06 design review)**:
+   [requirements/COST_BENEFIT_ANALYSIS_DESIGN.md](requirements/COST_BENEFIT_ANALYSIS_DESIGN.md)
+   v1.0 — twenty-two decisions across four batched rounds plus a serialization follow-up.
+   The study is a **serialized** `CostBenefitAnalysis : AnalysisBase` owning a collection of
+   `RiskReductionAlternative`s (each a `RiskAnalysis` + tagged cost stream + optional
+   life-cycle plan) with a user-designated baseline; economics on a selectable stream
+   (**default Total** — fail/non-fail trade-offs), both accounting conventions
+   (non-absorbing headline); the discrete ε-constraint framework with Haimes total
+   trade-off shadow prices and three templates (thesis Eq. 4.2 tolerable-life-risk,
+   mean-variance, reliability/AFP); the App. L-exact CSSL family + EWACSLS/CSFP/AACSLS +
+   disproportionality/ALARP; opt-in VSL monetization with split accounting and no shipped
+   dollar defaults; the **do-no-harm screen** (Total risk must not increase; Enforce
+   default); the three-tier decision-strategy catalog (mean-only exact / per-ensemble
+   epistemic incl. chance constraints via the A7 semantics / C3 shared-state Savage
+   regret); the presentation-complete results catalog as the UI/App contract; study
+   definition XML in both serialization modes + a hash-stripped `RiskAnalysis.Id` +
+   results JSON. Implementation = sessions CB1–CB4 (kernel/model/parity → decision
+   framework → strategy catalog → serialized study + docs), each closing on the standard
+   gates with all eight byte gates bit-identical; **the testing campaign follows CB4**.
+   Methodological anchors: Smith (2022) — the lead's M.S. thesis, read in full at design
+   time; Haimes, Lasdon & Wismer (1971); Rockafellar & Uryasev (2000/2002); ER 1110-2-1156
+   App. L; the v1.0 `PlanRow.EquivalentAnnual` parity anchor with the TR App. H
+   discrepancy ruled to the code.
 
 ## Open questions that resolve inside the items above
 
@@ -331,10 +354,12 @@ approved and executed (`74af2e95…`, its own commit).
 
 UI layer (`RMC.TotalRisk.UI`: element wrappers, `.tra`/`.rmcbf` reading, v1.0-project import,
 TRG-line comparison, KDE-smoothed assurance banding, batch orchestration) · Desktop App (WPF
-shell) · `CostBenefitAnalysis` (incl. `PlanRow.EquivalentAnnual` and the TR App. H
-equivalent-annual math) · FDA importer + datasets (the six `BlockedExternalData` traceability
-rows) · Hydrologics cross-engine parity · the `SystemModel` system root (ruling 3) · the shared
-`Hydrologics.Risk` assembly.
+shell) · FDA importer + datasets (the six `BlockedExternalData` traceability rows) ·
+Hydrologics cross-engine parity · the `SystemModel` system root (ruling 3) · the shared
+`Hydrologics.Risk` assembly. *(`CostBenefitAnalysis` left this block 2026-09-06 — it is the
+C5 capability on the v2.0 critical path with a ratified design; see ruling 5 above. The
+`PlanRow.EquivalentAnnual` + TR App. H parity scope moved with it, into the design's
+decision 19.)*
 
 ## Standing facts worth restating
 
