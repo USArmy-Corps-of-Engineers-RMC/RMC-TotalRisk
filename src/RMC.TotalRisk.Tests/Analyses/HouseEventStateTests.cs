@@ -31,4 +31,26 @@ public class HouseEventStateTests
         Assert.ThrowsException<ArgumentException>(() =>
             new HouseEventState(Guid.NewGuid(), Guid.Empty, false));
     }
+
+    /// <summary>Verifies the XML round trip and the malformed-id refusal.</summary>
+    [TestMethod]
+    public void Test_Serialization_RoundTrip()
+    {
+        // Arrange
+        var state = new HouseEventState(Guid.NewGuid(), Guid.NewGuid(), true);
+
+        // Act
+        var restored = new HouseEventState(state.ToXElement());
+
+        // Assert
+        Assert.AreEqual(state.FunctionId, restored.FunctionId);
+        Assert.AreEqual(state.NodeId, restored.NodeId);
+        Assert.IsTrue(restored.State);
+        Assert.ThrowsException<ArgumentNullException>(() => new HouseEventState(null!));
+
+        // A malformed id parses empty and refuses through the construction guards.
+        var malformed = state.ToXElement();
+        malformed.SetAttributeValue(nameof(HouseEventState.FunctionId), "not-a-guid");
+        Assert.ThrowsException<ArgumentException>(() => new HouseEventState(malformed));
+    }
 }

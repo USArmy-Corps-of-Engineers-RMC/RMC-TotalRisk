@@ -1,5 +1,127 @@
 # Progress Log
 
+## 2026-09-07 — Capability program session 12: C5 implementation session CB1 — kernel, model, parity
+
+**Goal:** execute CB1 per the ratified design's phase table (`COST_BENEFIT_ANALYSIS_DESIGN.md`
+v1.0, commit `1f1e04d`): the Section-A kernel promotions and life-cycle extensions proven
+bit-inert, every Section-B input record with XML round-trips, `CostBenefitAnalysis :
+AnalysisBase` (orchestration + the full validation matrix; study XML deferred to CB4),
+per-alternative economics in both accounting conventions with the monetized/economic split,
+`PlanEconomics` (the decision-19 v1.0 parity anchor), and the CB1 verification fixtures.
+
+**Baseline (session start):** numerics `94d1713` clean (ahead 6, no v2.2.x tag; sibling Debug
+DLL rebuilt); TotalRisk `v2.0-development` clean at `1f1e04d` (ahead of origin — never push).
+`dotnet build` 0 warnings; fast suite **1,463/1,463** + Api **73/73**; **all eight perf byte
+gates bit-exact** as separate invocations against their RESULTS.md pins — F1 `b2e6ea88…`,
+F2 `ac35a7fa…`, F3 `e46763ef…`, F4 `8a3a8b52…`, F5 `2ae3925b…`, F6 `bd4a26e8…`,
+F7 `f985ca02…`, F8 `c9599e0a…`.
+
+**User rulings (2026-09-07, at plan review and mid-session):**
+
+1. **Fixtures 9–10 seat in CB2.** The design assigns CB1 fixtures 1–11 while its phase table
+   builds the CSSL formulary (App. L exact + EWACSLS/CSFP/AACSLS) those two fixtures test in
+   CB2; ruled: the CSSL family and its fixtures land together in CB2, CB1 lands 1–8 + 11
+   (the prompt's never-silently-drop rule, split recorded here). Fixture 5's
+   frontier/do-no-harm/CSLS asserts and fixture 6's TEAC assert likewise extend at CB2.
+2. **`EconomicMetric.MonetizedPresentValueBenefit = 14` appended before first landing.** The
+   ratified default objective vector and default frontier axis name "monetized present-value
+   benefit", which the ratified 14-member catalog could not select (NetPresentValue = benefit
+   − cost screens a DIFFERENT frontier); ruled: append the member now, while the append is
+   free — the enum's names become serialized contract at this landing.
+
+**Landed — Section A (commit `06ea033`, proven bit-inert at its own commit):**
+`internal static DiscountingSupport` (`AnnuityFactor` moved verbatim, `RiskAnalysis`
+delegates; the log-space `DiscountFactor` generalizing the shipped first-year expression —
+year-zero exactly 1; the A5 inline annuity deliberately untouched, the stationary bridge
+pins it); `SelectScope`/`ExtractMeasure` promoted `internal static`, bodies unchanged;
+the life-cycle stream axis — `CreateLifeCycleEntry` reads Total/Excess/Fail per type,
+`LifeCycleEpochEntry` gains the two stream lists and `LifeCycleRiskResults` the ten
+per-stream aggregate arrays as appended optional ctor params, and `MeasureLifeCycleRisk`
+accumulates every stream through ONE `AccumulateStreamAggregates` authority (Total's
+operations verbatim in order — the bit-inertness argument; per-epoch scalars computed once,
+stream-independent); epoch retention — `LifeCycleDefinition.RetainEpochRealizations`
+(default false) attaches each epoch's `DumpMemory()`-applied mean realization to
+`LifeCycleEpochRisk.Realization`. Inertness proof at the Section-A commit: fast suite
+1,471/1,471, `LifeCycleVerification` 10/10 isolated (stationary bridge + two-epoch closed
+form bit-exact), **all eight byte gates bit-identical** (the second full round).
+
+**Landed — the CB1 model and parity (this commit):** the nine declaration enums
+(`LifeCycleAccounting`, `MetricBasis`, `MetricForm`, `EconomicMetric` incl. the ruled
+15th member, `ObjectiveDirection`, `ConstraintScope`, `AlarpProximity`, `DoNoHarmPolicy`,
+`UtilityFunctionForm`) with name/order/value pins; the Section-B records with ctor-throwing
+guards + XML round-trips (element = nameof, G17, enums by NAME — wire shapes append-only
+from this landing): `CapitalCostEntry`, `RecurringCostSegment` (conditional `EndYear`),
+`CostStream` (three kinds under wrapper children), `MonetizationFactor`,
+`ConsequenceMonetization` (duplicate positions refused), `LifeCyclePlan` (serializes
+interventions inline — `LifeCycleIntervention`/`HouseEventState`/`HazardReplacement` gained
+XML forms, replacement hazards written self-contained via `RiskFunctionFactory`; a
+serialization-mode seat is the recorded CB4 extension if the study document needs
+by-reference replacements), `RiskReductionAlternative` (referenced never-owned system;
+deliberately no XML until CB4's study document), `CostBenefitMetric` (the selector union
+with both factories; `Kind` discriminator), `ObjectiveDeclaration`, `CostBenefitConstraint`
+(sense = the numerics `ConstraintType`, equality refused — the `CopulaType` upstream-enum
+precedent), `EpsilonConstraintStudy` + the three template factories as declarations
+(tolerable-life-risk with the 1e-3 guideline as a default ARGUMENT, mean-variance,
+reliability; the sweep engine is CB2), `UtilityDeclaration`, `PmrmPartition`, and
+`CostBenefitOptions` (the full declaration set with the design's defaults — BenefitRiskType
+Total, Accounting NonAbsorbing, α {0.01}, DoNoHarm Enforce, the default objective vector
+cost/monetized-benefit/SD — plus the option-local Validate matrix). `CostBenefitAnalysis :
+AnalysisBase`: replace-to-edit options, ObservableCollection alternatives + designated
+`Baseline` (edits clear published state), the full Error/Warning validation matrix (options
+carrying CB2/CB3 declarations validate now; the do-no-harm-under-WarnOnly notice lands with
+the screen), `RunAsync` = veto → race-safe snapshot validation → ONE
+`MeasureLifeCycleRisk` per distinct (System, Plan) pair on the study-wide union grid
+(baseline first, retention on, cancellation between evaluations, progress = evaluations
+done/total) → decision-3 cost pricing → both-convention monetized/economic aggregates
+(identity pricing only under a DECLARED map; empty set ⇒ NaN + Warning) → NPV/NetAnnual/BCR
++ AFP p_eq + year-0 echo + Excess lives saved → publish; authors byte-untouched, runs
+bit-reproducible. CB1 results containers (runtime-only until CB4's JSON):
+`CostBenefitResults` (the convention echo block + tables), `AlternativeEconomics` (baseline
+row 0), `ConsequenceReduction` (type × stream, absorbing twins, monetized ΔPV),
+`TrajectoryPoint`. `PlanEconomics.EquivalentAnnualConsequences` anchored to the v1.0 code
+exactly (r > 0 loop verbatim incl. the silent beyond-horizon truncation and the
+constant-stream behavior; r = 0 the exact-average improvement; the TR App. H discrepancy
+recorded in the API remarks).
+
+**Verified:** `CostBenefitVerification` **7/7 isolated** (fixtures 3–8 + 11) — the five
+decision-19 parity constants each re-derived by an independent in-test loop (1e-9 abs /
+1e-12 rel); the cost-stream oracle on per-year power sums that never touch the annuity
+forms (1e-12 rel + the EAC identity); the null study's exact zeros with trajectory dedup
+(reference-equal) and the NaN benefit-cost ratio; the stationary bridge's 270·A(20) closed
+form with the B8 `MeasureConfigurationRisk` cross-check at NO delta (both queries run the
+same clone machinery); the two-epoch (1+r)^(−10) capital vs (1+r)^(−11) first-benefit
+convention pairing with the absorbing survival-loop difference; grid telescoping — **probed
+bit-exact first and MEASURED at ulp scale: 4.6e-13 absolute on a net present value of
+magnitude 115 (≈ 4e-15 relative), so refining a stationary grid re-associates exact
+telescoping sums without bit-identical addition; pinned at 1e-13 relative with the
+derivation documented** (the design's "bit-identical" phrasing does not survive
+floating-point re-association — the C1 stationary bridge's N·ε precedent) — plus
+shared-grid deterioration re-aging (the union grid re-ages the baseline at the repair
+alternative's plan year); and the monetization split identities (life-only V·ΔPV with an
+exactly zero economic aggregate, the identity-priced recomposition at no delta, the
+empty-set NaN + Warning). `LifeCycleVerification` **11/11 isolated** — the two-epoch test
+extended with per-stream aggregate asserts (the streams coincide analytically on the
+background-free model), and the NEW background-split closed form (flat failure 1000 over
+flat background 100 ⇒ Fail = 1000p, Total = 1000p + 100(1 − p), Excess = 900p, Background
+= 100) with retained-realization row consistency at no delta, Total = Excess + Background
+on the retained curves, and retention aggregate-inertness against a retention-free twin.
+Fast suite **1,547/1,547** + Api **73/73** (84 new tests); `validate-code-xml-docs.ps1`
+green; **all eight byte gates bit-identical at close** (the third full round — baseline,
+post-Section-A, close). Docs: `docs/verification/cost-benefit.md` (new run-of-record),
+`life-cycle.md` updated to 11 tests, the README family rows, CLAUDE.md matrix + namespace
+map + AGENTS.md regenerated.
+
+**Next:** session 13 = **CB2 — the decision framework** (prompt:
+`~/.claude/plans/session-13-totalrisk-c5-cb2.md`): the metric selectors wired end-to-end
+through the promoted `SelectScope`/`ExtractMeasure` and the retained epoch realizations
+(the study-α re-evaluation route), the CSSL formulary (App. L exact + EWACSLS/CSFP/AACSLS
++ disproportionality/ALARP), TEAC, the do-no-harm screen, the ε-constraint sweep engine +
+the noninferior set + total trade-off ratios, frontier + incremental CE/ICA, MCDA;
+fixtures 12–17 + 27–28 **plus the relocated fixtures 9–10** and the CB1 fixture extensions
+(the null study's frontier/do-no-harm/CSLS asserts, the stationary bridge's TEAC). Then
+CB3 (the strategy catalog) → CB4 (the serialized study + docs) → the exhaustive testing
+campaign.
+
 ## 2026-09-06 — Capability program session 11: the C5 CostBenefitAnalysis DESIGN session (the ratified normative design)
 
 **Goal:** the dedicated C5 design session per the 2026-08-27 ruling ("C5 needs its own design

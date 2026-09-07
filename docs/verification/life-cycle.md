@@ -1,6 +1,6 @@
 # Life cycle
 
-**Test class:** `LifeCycleVerification` · **Tests:** 10 · **Run of record:** 2026-09-06, isolated run, ✅ all passed
+**Test class:** `LifeCycleVerification` · **Tests:** 11 · **Run of record:** 2026-09-07, isolated run, ✅ all passed
 
 ## Scope and status
 
@@ -10,8 +10,10 @@ knowledge parity on one content-seeded stream, the age-zero base identity, an en
 mean-only twin against the re-authored base-plus-shift-transform model, and the
 full-uncertainty reproducibility pin. The trajectory query: the stationary bridge onto the
 exposure-period conversions, the two-epoch closed form with independent annuity and survival
-arithmetic, per-epoch re-authored configuration twins, the deterioration-monotone/
-intervention-drop trajectory shape, and the author byte pin.
+arithmetic on every carried consequence stream, the background-split closed form separating
+the Total, Excess, and Fail streams with the retained per-epoch measure surface, per-epoch
+re-authored configuration twins, the deterioration-monotone/intervention-drop trajectory
+shape, and the author byte pin.
 
 Run in isolation:
 
@@ -19,7 +21,7 @@ Run in isolation:
 dotnet test src/RMC.TotalRisk.Verification -- --filter "ClassName~LifeCycleVerification"
 ```
 
-Observed 2026-09-06: **10/10 passed** (≈ 12 s).
+Observed 2026-09-07: **11/11 passed** (≈ 13 s).
 
 ## The equivalence oracle
 
@@ -48,7 +50,8 @@ failure mode plus the non-failure complement.
 | `Test_Engine_MeanOnlyTwin_BitExact` | The wrapper model at age 50 reproduces the re-authored base-plus-stage-transform twin — annual failure probability, expected annual consequence, and the loss-exceedance ordinate arrays — with no delta; the aged model strictly exceeds the undegraded baseline | ✅ bit-exact |
 | `Test_Engine_Reproducibility_SameSeedBitIdentical` | The full-uncertainty wrapper scenario run twice from independently built models publishes byte-identical ensemble and mean JSON | ✅ byte-identical |
 | `Test_LifeCycle_StationaryMatchesExposurePeriod_BitExact` | A stationary trajectory on an all-deterministic model (discipline pinned, the smallest legal ensemble) collapses every `MeasureExposurePeriodRisk` percentile slot onto the life-cycle aggregates with no delta, the mean slot within its documented summation-rounding bound, at 3.5% and 0% discounting | ✅ bit-exact (percentiles) / 1e-13 rel (means) |
-| `Test_LifeCycle_TwoEpochClosedForm_Exact` | The flat OR(AND(house, 0.375), 0.2) tree configured at year 10 of 20: probabilities 0.2 and exactly 0.5 (1e-10), the factored consequence ratio 2.5 (1e-10), the horizon aggregates against independent power-form annuities and a per-year survival loop (1e-12 rel), and the undiscounted PV ≡ cumulative identity with no delta | ✅ within documented tolerances |
+| `Test_LifeCycle_TwoEpochClosedForm_Exact` | The flat OR(AND(house, 0.375), 0.2) tree configured at year 10 of 20: probabilities 0.2 and exactly 0.5 (1e-10), the factored consequence ratio 2.5 (1e-10), the horizon aggregates against independent power-form annuities and a per-year survival loop (1e-12 rel), the undiscounted PV ≡ cumulative identity with no delta, and — on this background-free model, where the streams analytically coincide — the Excess and Fail epoch means equal to Total (1e-12 rel) with their per-stream aggregates against the same independent loop (1e-12 rel) | ✅ within documented tolerances |
+| `Test_LifeCycle_BackgroundSplitStreams_ClosedFormAndRetention` | A flat failure consequence of 1000 over a flat non-failure background of 100 separates the streams exactly (Fail = 1000p, Total = 1000p + 100(1 − p), Excess = 900p, Background = 100): epoch stream means at the flat-quadrature 1e-9 rel bound, the retained realizations reproducing the rows with no delta and carrying Total = Excess + Background (1e-12 rel) with the per-sample workspace dropped, per-stream aggregates against the independent annuity/survival loop on the closed-form means (1e-9 rel), and a retention-free twin query bit-identical on every aggregate with null realizations | ✅ within documented tolerances |
 | `Test_LifeCycle_EpochsMatchReauthoredTwins_BitExact` | Baseline, configured-house, and configured-house-plus-replacement epochs each equal a directly re-authored mean-only model of that cumulative state — system and component scope, no delta | ✅ bit-exact |
 | `Test_LifeCycle_DeteriorationMonotone_InterventionDrops` | Under the monotone weakening law the epoch failure probabilities never decrease (strictly rising into the first aged epoch); a milder replacement hazard at year 20 leaves earlier epochs bit-untouched and strictly drops every later one | ✅ shape verified |
 | `Test_LifeCycle_AuthorFullRun_ByteUntouched` | A 200-realization published run's ensemble JSON, component hashes, authored references, ages, and house states are byte-identical after a trajectory query exercising a house event, a hazard replacement, and per-epoch ages | ✅ byte-identical |
@@ -76,3 +79,7 @@ failure mode plus the non-failure complement.
   configured state is compute content, so per-epoch full-uncertainty ensembles would re-roll
   every configured function's stream; the closed forms and twins here are exact because every
   engine fixture function is deterministic.
+- Every trajectory carries the Total, Excess, and Fail stream aggregates through one shared
+  accumulation, and epoch-realization retention attaches the dumped mean realization (curve
+  scalars and the thinned exceedance curves — the per-epoch measure surface) without moving
+  any number; both properties are pinned here and at unit scale.

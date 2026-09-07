@@ -122,4 +122,27 @@ public class LifeCycleInterventionTests
         Assert.AreEqual(1, intervention.HouseEvents.Count);
         Assert.AreEqual(1, intervention.HazardReplacements.Count);
     }
+
+    /// <summary>Verifies the XML round trip carries both action kinds.</summary>
+    [TestMethod]
+    public void Test_Serialization_RoundTrip()
+    {
+        // Arrange
+        var house = House();
+        var replacement = Replacement();
+        var intervention = new LifeCycleIntervention(15, new[] { house }, new[] { replacement });
+
+        // Act
+        var restored = new LifeCycleIntervention(intervention.ToXElement());
+
+        // Assert
+        Assert.AreEqual(15, restored.Year);
+        Assert.AreEqual(1, restored.HouseEvents.Count);
+        Assert.AreEqual(house.FunctionId, restored.HouseEvents[0].FunctionId);
+        Assert.AreEqual(house.NodeId, restored.HouseEvents[0].NodeId);
+        Assert.AreEqual(house.State, restored.HouseEvents[0].State);
+        Assert.AreEqual(1, restored.HazardReplacements.Count);
+        Assert.AreEqual(replacement.TargetFunctionId, restored.HazardReplacements[0].TargetFunctionId);
+        Assert.ThrowsException<ArgumentNullException>(() => new LifeCycleIntervention(null!));
+    }
 }

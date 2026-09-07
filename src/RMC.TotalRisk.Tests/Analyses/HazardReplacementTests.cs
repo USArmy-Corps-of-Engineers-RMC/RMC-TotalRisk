@@ -1,4 +1,5 @@
 using System;
+using System.Xml.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using RMC.TotalRisk.Analyses;
 using RMC.TotalRisk.RiskFunctions.Hazards;
@@ -44,5 +45,33 @@ public class HazardReplacementTests
         // Assert — referenced, not owned.
         Assert.AreEqual(target, action.TargetFunctionId);
         Assert.IsTrue(ReferenceEquals(replacement, action.Replacement));
+    }
+
+    /// <summary>
+    /// Verifies the XML round trip carries the self-contained replacement payload, and an
+    /// unknown child refuses loudly.
+    /// </summary>
+    [TestMethod]
+    public void Test_Serialization_RoundTrip()
+    {
+        // Arrange
+        var replacement = new TabularHazard { Name = "Future stage frequency" };
+        var action = new HazardReplacement(replacement.Id, replacement);
+
+        // Act
+        var restored = new HazardReplacement(action.ToXElement());
+
+        // Assert — id, payload identity, and payload content all survive.
+        Assert.AreEqual(action.TargetFunctionId, restored.TargetFunctionId);
+        Assert.AreEqual(replacement.Id, restored.Replacement.Id);
+        Assert.AreEqual(Convert.ToHexString(replacement.CanonicalHash()),
+            Convert.ToHexString(restored.Replacement.CanonicalHash()));
+        Assert.ThrowsException<ArgumentNullException>(() => new HazardReplacement(null!));
+
+        // A child naming no known hazard function refuses loudly.
+        var unknown = new XElement(nameof(HazardReplacement));
+        unknown.SetAttributeValue(nameof(HazardReplacement.TargetFunctionId), replacement.Id.ToString("D"));
+        unknown.Add(new XElement("NotAHazard"));
+        Assert.ThrowsException<ArgumentException>(() => new HazardReplacement(unknown));
     }
 }

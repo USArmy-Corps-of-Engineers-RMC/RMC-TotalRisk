@@ -36,6 +36,19 @@ namespace RMC.TotalRisk.Core
         }
 
         /// <summary>
+        /// Returns the element when present, throwing when null — the argument guard for
+        /// serialization constructors that chain to their validating primary constructor.
+        /// </summary>
+        /// <param name="element">The element to guard.</param>
+        /// <param name="parameterName">The caller's parameter name for the exception.</param>
+        /// <returns>The non-null element.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when the element is null.</exception>
+        public static XElement RequireElement(XElement? element, string parameterName)
+        {
+            return element ?? throw new ArgumentNullException(parameterName);
+        }
+
+        /// <summary>
         /// Parses a double from serialized text, permissively.
         /// </summary>
         /// <param name="text">The text to parse; may be null.</param>

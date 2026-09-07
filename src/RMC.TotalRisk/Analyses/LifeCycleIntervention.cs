@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Xml.Linq;
+using RMC.TotalRisk.Core;
 
 namespace RMC.TotalRisk.Analyses;
 
@@ -15,12 +17,15 @@ namespace RMC.TotalRisk.Analyses;
 ///     Haden Smith, USACE Risk Management Center, cole.h.smith@usace.army.mil
 /// </para>
 /// <para>
-/// Runtime-only input — never serialized, hashed, or applied to the authored model; the
-/// life-cycle query applies the cumulative schedule to throwaway component clones per epoch.
-/// Interventions accumulate: a state configured at one year persists until a later
-/// intervention overrides the same house event (re-exercise, including reversal, is legal
-/// across years; within one intervention each house event and each replacement target appears
-/// at most once). Year zero means "now" — applied before the first exposure year.
+/// Never hashed and never applied to the authored model; the life-cycle query applies the
+/// cumulative schedule to throwaway component clones per epoch. Interventions accumulate: a
+/// state configured at one year persists until a later intervention overrides the same house
+/// event (re-exercise, including reversal, is legal across years; within one intervention
+/// each house event and each replacement target appears at most once). Year zero means
+/// "now" — applied before the first exposure year. The XML form exists for the cost-benefit
+/// study document, whose plans carry these entries; persisting one never touches a
+/// canonical-hash or seed surface, and element and attribute names are append-only
+/// serialized contract.
 /// </para>
 /// <para>
 /// Entries are unconditional exercise plans. A future condition member gating exercise on the
@@ -82,6 +87,71 @@ public sealed class LifeCycleIntervention
 
         HouseEvents = Array.AsReadOnly(houseSnapshot);
         HazardReplacements = Array.AsReadOnly(replacementSnapshot);
+    }
+
+    /// <summary>
+    /// Restores an intervention from its serialized form: the year attribute plus the
+    /// house-event and hazard-replacement children.
+    /// </summary>
+    /// <param name="xElement">The serialized form produced by <see cref="ToXElement"/>.</param>
+    /// <exception cref="ArgumentNullException">Thrown when the element is null.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when the stored year is negative.</exception>
+    /// <exception cref="ArgumentException">Thrown when the stored actions violate the construction guards.</exception>
+    public LifeCycleIntervention(XElement xElement)
+        : this(SerializationUtilities.ReadInt32(SerializationUtilities.RequireElement(xElement, nameof(xElement)), nameof(Year)),
+            ReadHouseEvents(xElement),
+            ReadReplacements(xElement))
+    {
+    }
+
+    /// <summary>
+    /// Reads the house-event overrides from the serialized form.
+    /// </summary>
+    /// <param name="xElement">The serialized form.</param>
+    /// <returns>The overrides.</returns>
+    private static IReadOnlyList<HouseEventState> ReadHouseEvents(XElement xElement)
+    {
+        var states = new List<HouseEventState>();
+        foreach (XElement child in xElement.Elements(nameof(HouseEventState)))
+        {
+            states.Add(new HouseEventState(child));
+        }
+        return states;
+    }
+
+    /// <summary>
+    /// Reads the hazard-replacement actions from the serialized form.
+    /// </summary>
+    /// <param name="xElement">The serialized form.</param>
+    /// <returns>The actions.</returns>
+    private static IReadOnlyList<HazardReplacement> ReadReplacements(XElement xElement)
+    {
+        var replacements = new List<HazardReplacement>();
+        foreach (XElement child in xElement.Elements(nameof(HazardReplacement)))
+        {
+            replacements.Add(new HazardReplacement(child));
+        }
+        return replacements;
+    }
+
+    /// <summary>
+    /// Serializes the intervention: the year attribute plus one child per house-event
+    /// override and hazard replacement. Element and attribute names are append-only contract.
+    /// </summary>
+    /// <returns>The serialized form.</returns>
+    public XElement ToXElement()
+    {
+        var element = new XElement(nameof(LifeCycleIntervention));
+        element.SetAttributeValue(nameof(Year), Year);
+        for (int i = 0; i < HouseEvents.Count; i++)
+        {
+            element.Add(HouseEvents[i].ToXElement());
+        }
+        for (int i = 0; i < HazardReplacements.Count; i++)
+        {
+            element.Add(HazardReplacements[i].ToXElement());
+        }
+        return element;
     }
 
     /// <summary>

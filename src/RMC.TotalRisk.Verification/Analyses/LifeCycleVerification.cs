@@ -23,8 +23,10 @@ namespace RMC.TotalRisk.Verification.Analyses;
 /// stream, the age-zero base identity, an engine-level mean-only twin against the re-authored
 /// base-plus-shift-transform model, the family reproducibility pin, and the trajectory query's
 /// anchors — the stationary bridge onto the exposure-period conversions, the two-epoch closed
-/// form with independent annuity and survival arithmetic, per-epoch re-authored configuration
-/// twins, the deterioration-monotone/intervention-drop trajectory, and the author byte pin.
+/// form with independent annuity and survival arithmetic on every carried consequence stream,
+/// the background-split closed form separating the Total, Excess, and Fail streams with the
+/// retained per-epoch measure surface, per-epoch re-authored configuration twins, the
+/// deterioration-monotone/intervention-drop trajectory, and the author byte pin.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -73,7 +75,15 @@ namespace RMC.TotalRisk.Verification.Analyses;
 /// error of order the count times machine epsilon; it asserts at 1e-13 relative, documented.
 /// The two-epoch closed form drives the flat OR(AND(house, 0.375), 0.2)
 /// tree — baseline probability 0.2, configured exactly 0.5 — and recomputes the horizon
-/// aggregates with independent power-form annuities and a per-year survival loop. The
+/// aggregates with independent power-form annuities and a per-year survival loop, for the
+/// Total stream and its Excess and Fail twins (which coincide analytically on that
+/// background-free model). The background-split closed form adds a flat non-failure mode —
+/// failure consequence 1000, background 100, so the epoch stream means are exactly
+/// Fail = 1000p, NonFail = 100(1 − p), Total = 1000p + 100(1 − p), Excess = 900p, and
+/// Background = 100 — retains each epoch's realization, and checks Total = Excess +
+/// Background on the retained curves, the retained means against the epoch rows with no
+/// delta, the per-stream aggregates against the independent loop on the closed-form means,
+/// and retention's aggregate inertness against a retention-free twin query. The
 /// configuration twins re-author each epoch's cumulative state directly (the
 /// configuration-risk family's twin discipline). The trajectory test drives the deteriorating
 /// wrapper through ages {0, 10, 20, 30} and drops the load with a milder replacement hazard.
@@ -82,8 +92,12 @@ namespace RMC.TotalRisk.Verification.Analyses;
 /// <b>Tolerances.</b> Deterministic identities assert bit-exact (no-delta equality). The
 /// two-epoch closed form allows 1e-10 absolute on probabilities (quadrature exactness of the
 /// flat fixture compounded through tenth powers), 1e-10 on the factored consequence ratio, and
-/// 1e-12 relative against the independent annuity and survival arithmetic; each derivation is
-/// documented on its assert.
+/// 1e-12 relative against the independent annuity and survival arithmetic; the
+/// background-split closed form allows 1e-9 relative on the flat stream means (the
+/// integrator's 1e-8 relative discipline is quadrature-exact on flat integrands, leaving
+/// rounding), 1e-12 relative on the retained-curve stream identity, and 1e-9 relative on the
+/// aggregates recomputed from the closed-form means (the mean error dominates the loop's
+/// rounding); each derivation is documented on its assert.
 /// </para>
 /// </remarks>
 [TestClass]
@@ -620,7 +634,199 @@ public class LifeCycleVerification
                 Assert.AreEqual(trajectory.CumulativeExpectedConsequences[0],
                     trajectory.PresentValueOfExpectedConsequences[0]);
             }
+
+            // The stream axis on this background-free model: with no non-failure
+            // consequences, the Excess and Fail streams analytically coincide with Total
+            // (Total = Excess + Background holds with a zero Background), so every epoch's
+            // stream means agree to accumulation rounding (1e-12 relative) and the
+            // per-stream horizon aggregates reproduce the shared accumulation from the rows'
+            // own stream means with no delta.
+            var streamAggregates = new double[2, 4];
+            double streamLogSurvival = 0d;
+            double discountBase = 1d / (1d + rate);
+            foreach (LifeCycleEpochRisk epoch in trajectory.Epochs)
+            {
+                double excessMean = epoch.System.ExcessExpectedConsequences[0];
+                double failMean = epoch.System.FailExpectedConsequences[0];
+                double totalMean = epoch.System.ExpectedConsequences[0];
+                Assert.AreEqual(totalMean, excessMean, Math.Abs(totalMean) * 1e-12d);
+                Assert.AreEqual(totalMean, failMean, Math.Abs(totalMean) * 1e-12d);
+
+                double p = epoch.System.FailureProbability;
+                int span = epoch.SpanYears;
+                double annuityEnd = rate > 0d ? (1d - Math.Pow(1d + rate, -epoch.EndYear)) / rate : epoch.EndYear;
+                double annuityStart = rate > 0d ? (1d - Math.Pow(1d + rate, -epoch.StartYear)) / rate : epoch.StartYear;
+                double survivalAtStart = Math.Exp(streamLogSurvival);
+                double survivalYears = p > 0d ? -(Math.Pow(1d - p, span) - 1d) / p : span;
+                double x = (1d - p) * discountBase;
+                double geometric = x == 1d ? span : (1d - Math.Pow(x, span)) / (1d - x);
+                double firstYearDiscount = Math.Pow(1d + rate, -(epoch.StartYear + 1));
+                double[] means = [excessMean, failMean];
+                for (int s = 0; s < 2; s++)
+                {
+                    streamAggregates[s, 0] += span * means[s];
+                    streamAggregates[s, 1] += means[s] * (annuityEnd - annuityStart);
+                    streamAggregates[s, 2] += means[s] * survivalAtStart * survivalYears;
+                    streamAggregates[s, 3] += means[s] * survivalAtStart * firstYearDiscount * geometric;
+                }
+                streamLogSurvival += span * Math.Log(1d - p);
+            }
+            double annuityHorizon = rate > 0d ? (1d - Math.Pow(1d + rate, -20)) / rate : 20d;
+            Assert.AreEqual(streamAggregates[0, 0], trajectory.ExcessCumulativeExpectedConsequences[0],
+                Math.Abs(streamAggregates[0, 0]) * 1e-12d);
+            Assert.AreEqual(streamAggregates[0, 1], trajectory.ExcessPresentValueOfExpectedConsequences[0],
+                Math.Abs(streamAggregates[0, 1]) * 1e-12d);
+            Assert.AreEqual(streamAggregates[0, 1] / annuityHorizon, trajectory.ExcessEquivalentAnnualConsequences[0],
+                Math.Abs(streamAggregates[0, 1] / annuityHorizon) * 1e-12d);
+            Assert.AreEqual(streamAggregates[0, 2], trajectory.AbsorbingExcessCumulativeExpectedConsequences[0],
+                Math.Abs(streamAggregates[0, 2]) * 1e-12d);
+            Assert.AreEqual(streamAggregates[0, 3], trajectory.AbsorbingExcessPresentValueOfExpectedConsequences[0],
+                Math.Abs(streamAggregates[0, 3]) * 1e-12d);
+            Assert.AreEqual(streamAggregates[1, 0], trajectory.FailCumulativeExpectedConsequences[0],
+                Math.Abs(streamAggregates[1, 0]) * 1e-12d);
+            Assert.AreEqual(streamAggregates[1, 1], trajectory.FailPresentValueOfExpectedConsequences[0],
+                Math.Abs(streamAggregates[1, 1]) * 1e-12d);
+            Assert.AreEqual(streamAggregates[1, 3], trajectory.AbsorbingFailPresentValueOfExpectedConsequences[0],
+                Math.Abs(streamAggregates[1, 3]) * 1e-12d);
         }
+    }
+
+    /// <summary>
+    /// The background-split closed form: a flat failure consequence of 1000 over a flat
+    /// non-failure background of 100 separates every stream exactly — per epoch,
+    /// Fail = 1000p, Total = 1000p + 100(1 − p), Excess = 900p, Background = 100 — so the
+    /// epoch rows' stream means pin to closed forms, the retained realizations carry the
+    /// Total = Excess + Background identity and reproduce the rows with no delta, the
+    /// per-stream horizon aggregates match the independent annuity and survival loop on the
+    /// closed-form means, and retention itself never moves an aggregate.
+    /// </summary>
+    [TestMethod]
+    public void Test_LifeCycle_BackgroundSplitStreams_ClosedFormAndRetention()
+    {
+        // Arrange — the flat tree (0.2 baseline, 0.5 configured at year ten of twenty) with a
+        // flat failure consequence and a flat non-failure background so every stream mean is
+        // closed-form: Fail = 1000p, NonFail = 100(1 − p), Total = 1000p + 100(1 − p),
+        // Excess = 900p, Background = 100.
+        static TabularConsequence FlatConsequence(string name, double value)
+        {
+            return new TabularConsequence
+            {
+                Name = name,
+                SpecifiedHazard = "Stage",
+                HazardUnit = "ft",
+                SpecifiedConsequence = "Damages",
+                ConsequenceUnit = "$",
+                UncertainOrderedPairedData = new UncertainOrderedPairedData(
+                    new[]
+                    {
+                        new UncertainOrdinate(40d, new Deterministic(value)),
+                        new UncertainOrdinate(260d, new Deterministic(value)),
+                    },
+                    true, SortOrder.Ascending, false, SortOrder.None,
+                    UnivariateDistributionType.Deterministic),
+            };
+        }
+
+        var response = FlatFaultResponse(houseState: false, out Guid houseId);
+        var component = new SystemComponent { Name = "Dam" };
+        component.HazardFunction = StageFrequency();
+        component.AddFailureMode(new FailureMode(null, null, response, FlatConsequence("Failure damages", 1000d)));
+        component.AddFailureMode(new FailureMode(null, null, new NonFailResponse { Name = "Background" },
+            FlatConsequence("Background damages", 100d)));
+        var author = new RiskAnalysis(new[] { component })
+        {
+            SpecifiedConsequence = "Damages",
+            ConsequenceUnit = "$",
+        };
+        var schedule = new[]
+        {
+            new LifeCycleIntervention(10, new[] { new HouseEventState(response.Id, houseId, true) }),
+        };
+        double rate = 0.05d;
+
+        // Act — the retained trajectory and its retention-free twin query.
+        LifeCycleRiskResults retained = author.MeasureLifeCycleRisk(
+            new LifeCycleDefinition(20, rate, null, schedule, retainEpochRealizations: true));
+        LifeCycleRiskResults plain = author.MeasureLifeCycleRisk(
+            new LifeCycleDefinition(20, rate, null, schedule));
+
+        // Assert — the closed-form stream means per epoch: the flat integrands are
+        // quadrature-exact under the integrator's 1e-8 relative discipline, so 1e-9 relative
+        // absorbs rounding.
+        double[] probabilities = [0.2d, 0.5d];
+        for (int k = 0; k < 2; k++)
+        {
+            double p = probabilities[k];
+            LifeCycleEpochEntry entry = retained.Epochs[k].System;
+            Assert.AreEqual(p, entry.FailureProbability, 1e-10d);
+            Assert.AreEqual(1000d * p + 100d * (1d - p), entry.ExpectedConsequences[0],
+                Math.Abs(1000d * p + 100d * (1d - p)) * 1e-9d);
+            Assert.AreEqual(900d * p, entry.ExcessExpectedConsequences[0], 900d * p * 1e-9d);
+            Assert.AreEqual(1000d * p, entry.FailExpectedConsequences[0], 1000d * p * 1e-9d);
+
+            // The retained realization is the row's own measure surface: the stream means it
+            // carries are the values the row copied (no delta), the per-sample workspace is
+            // dropped, and Total = Excess + Background holds to accumulation rounding.
+            SystemRealization? realization = retained.Epochs[k].Realization;
+            Assert.IsNotNull(realization);
+            Assert.AreEqual(0, realization.Curves.Total.RiskPoints.Count);
+            Assert.AreEqual(entry.ExpectedConsequences[0], realization.Curves.Total.Mean);
+            Assert.AreEqual(entry.ExcessExpectedConsequences[0], realization.Curves.Excess.Mean);
+            Assert.AreEqual(entry.FailExpectedConsequences[0], realization.Curves.Fail.Mean);
+            Assert.AreEqual(realization.Curves.Excess.Mean + realization.Curves.Background.Mean,
+                realization.Curves.Total.Mean, Math.Abs(realization.Curves.Total.Mean) * 1e-12d);
+            Assert.AreEqual(100d, realization.Curves.Background.Mean, 100d * 1e-9d);
+        }
+
+        // The per-stream horizon aggregates against the independent annuity and survival
+        // loop on the closed-form means (1e-9 relative: the mean error dominates).
+        static double Annuity(int years, double r) => r > 0d
+            ? (1d - Math.Pow(1d + r, -years)) / r
+            : years;
+        double[][] streamMeans =
+        [
+            [1000d * 0.2d + 100d * 0.8d, 1000d * 0.5d + 100d * 0.5d],
+            [900d * 0.2d, 900d * 0.5d],
+            [1000d * 0.2d, 1000d * 0.5d],
+        ];
+        double[][] published =
+        [
+            [retained.PresentValueOfExpectedConsequences[0], retained.CumulativeExpectedConsequences[0],
+                retained.AbsorbingPresentValueOfExpectedConsequences[0]],
+            [retained.ExcessPresentValueOfExpectedConsequences[0], retained.ExcessCumulativeExpectedConsequences[0],
+                retained.AbsorbingExcessPresentValueOfExpectedConsequences[0]],
+            [retained.FailPresentValueOfExpectedConsequences[0], retained.FailCumulativeExpectedConsequences[0],
+                retained.AbsorbingFailPresentValueOfExpectedConsequences[0]],
+        ];
+        for (int s = 0; s < 3; s++)
+        {
+            double m1 = streamMeans[s][0];
+            double m2 = streamMeans[s][1];
+            double presentValue = m1 * Annuity(10, rate) + m2 * (Annuity(20, rate) - Annuity(10, rate));
+            double cumulative = 10d * m1 + 10d * m2;
+            double survival = 1d;
+            double absorbingPresent = 0d;
+            for (int year = 1; year <= 20; year++)
+            {
+                double p = year <= 10 ? 0.2d : 0.5d;
+                double mean = year <= 10 ? m1 : m2;
+                absorbingPresent += survival * mean * Math.Pow(1d + rate, -year);
+                survival *= 1d - p;
+            }
+            Assert.AreEqual(presentValue, published[s][0], Math.Abs(presentValue) * 1e-9d);
+            Assert.AreEqual(cumulative, published[s][1], Math.Abs(cumulative) * 1e-9d);
+            Assert.AreEqual(absorbingPresent, published[s][2], Math.Abs(absorbingPresent) * 1e-9d);
+        }
+
+        // Retention never moves a number: the retention-free twin query publishes the same
+        // aggregates with no delta, and carries no realizations.
+        Assert.AreEqual(retained.PresentValueOfExpectedConsequences[0], plain.PresentValueOfExpectedConsequences[0]);
+        Assert.AreEqual(retained.ExcessPresentValueOfExpectedConsequences[0], plain.ExcessPresentValueOfExpectedConsequences[0]);
+        Assert.AreEqual(retained.FailPresentValueOfExpectedConsequences[0], plain.FailPresentValueOfExpectedConsequences[0]);
+        Assert.AreEqual(retained.AbsorbingPresentValueOfExpectedConsequences[0], plain.AbsorbingPresentValueOfExpectedConsequences[0]);
+        Assert.AreEqual(retained.FailureProbabilityByHorizon, plain.FailureProbabilityByHorizon);
+        Assert.IsNull(plain.Epochs[0].Realization);
+        Assert.IsNull(plain.Epochs[1].Realization);
     }
 
     /// <summary>
