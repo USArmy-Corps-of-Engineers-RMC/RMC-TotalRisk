@@ -102,6 +102,19 @@ public class LifeCycleDefinitionTests
         Assert.AreEqual(0, definition.Interventions.Count);
     }
 
+    /// <summary>Verifies epoch-realization retention defaults off and echoes when requested.</summary>
+    [TestMethod]
+    public void Test_Ctor_RetainEpochRealizations_DefaultFalse_Echoed()
+    {
+        // Act
+        var bare = new LifeCycleDefinition(50);
+        var retaining = new LifeCycleDefinition(50, 0d, null, null, retainEpochRealizations: true);
+
+        // Assert
+        Assert.IsFalse(bare.RetainEpochRealizations);
+        Assert.IsTrue(retaining.RetainEpochRealizations);
+    }
+
     /// <summary>Verifies a year-zero intervention is legal.</summary>
     [TestMethod]
     public void Test_Ctor_YearZeroIntervention_Valid()

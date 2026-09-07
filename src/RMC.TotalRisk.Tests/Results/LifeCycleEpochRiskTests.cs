@@ -70,4 +70,22 @@ public class LifeCycleEpochRiskTests
         Assert.AreEqual(1, epoch.Components.Count);
         Assert.AreEqual(1, epoch.AppliedActions.Count);
     }
+
+    /// <summary>Verifies the retained realization is null by default and echoed when supplied.</summary>
+    [TestMethod]
+    public void Test_Ctor_Realization_NullByDefault_Echoed()
+    {
+        // Arrange
+        var realization = new SystemRealization();
+
+        // Act
+        var bare = new LifeCycleEpochRisk(0, 10, 0d, 0.4d, Entry(),
+            Array.Empty<LifeCycleEpochEntry>(), Array.Empty<string>());
+        var retained = new LifeCycleEpochRisk(0, 10, 0d, 0.4d, Entry(),
+            Array.Empty<LifeCycleEpochEntry>(), Array.Empty<string>(), realization);
+
+        // Assert
+        Assert.IsNull(bare.Realization);
+        Assert.IsTrue(ReferenceEquals(realization, retained.Realization));
+    }
 }

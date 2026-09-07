@@ -33,6 +33,10 @@ public sealed class LifeCycleDefinition
     /// <param name="discountRate">The annual discount rate (0 = undiscounted; finite and non-negative).</param>
     /// <param name="evaluationYears">Additional epoch start years refining the trajectory; null or empty for none.</param>
     /// <param name="interventions">The intervention schedule; null or empty for none.</param>
+    /// <param name="retainEpochRealizations">
+    /// True to keep each epoch's mean realization on its trajectory row (with the per-sample
+    /// workspace dropped), so every curve measure is readable per epoch and per stream.
+    /// </param>
     /// <exception cref="ArgumentOutOfRangeException">
     /// Thrown for a non-positive horizon, an invalid discount rate, or a year outside
     /// [0, periodYears − 1].
@@ -42,7 +46,8 @@ public sealed class LifeCycleDefinition
     /// </exception>
     public LifeCycleDefinition(int periodYears, double discountRate = 0d,
         IReadOnlyList<int>? evaluationYears = null,
-        IReadOnlyList<LifeCycleIntervention>? interventions = null)
+        IReadOnlyList<LifeCycleIntervention>? interventions = null,
+        bool retainEpochRealizations = false)
     {
         if (periodYears < 1)
             throw new ArgumentOutOfRangeException(nameof(periodYears), "The exposure period must be at least one year.");
@@ -78,6 +83,7 @@ public sealed class LifeCycleDefinition
 
         EvaluationYears = Array.AsReadOnly(yearSnapshot);
         Interventions = Array.AsReadOnly(interventionSnapshot);
+        RetainEpochRealizations = retainEpochRealizations;
     }
 
     /// <summary>
@@ -101,4 +107,12 @@ public sealed class LifeCycleDefinition
     /// ascending year order); at most one entry per year.
     /// </summary>
     public IReadOnlyList<LifeCycleIntervention> Interventions { get; }
+
+    /// <summary>
+    /// True to keep each epoch's mean realization on its trajectory row — the per-epoch
+    /// measure surface (curve scalars and the thinned exceedance curves; the per-sample
+    /// workspace is dropped). False (the default) discards each epoch's realization after
+    /// its row is built.
+    /// </summary>
+    public bool RetainEpochRealizations { get; }
 }

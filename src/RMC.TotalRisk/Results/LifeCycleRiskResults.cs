@@ -8,7 +8,9 @@ namespace RMC.TotalRisk.Results;
 /// A life-cycle risk trajectory: the per-epoch rows plus the horizon aggregates — the
 /// probability of at least one failure by the horizon, cumulative and discounted expected
 /// consequences per type under both the non-absorbing (annual-renewal) and the absorbing
-/// (first-failure-terminates) conventions, and the equivalent-annual consequences.
+/// (first-failure-terminates) conventions, and the equivalent-annual consequences — on the
+/// Total stream, with the Excess- and Fail-stream aggregate twins alongside so a benefit
+/// stream can be selected without re-deriving the trajectory.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -43,6 +45,16 @@ public sealed class LifeCycleRiskResults
     /// <param name="absorbingCumulativeExpectedConsequences">The survival-weighted cumulative expected consequences per type.</param>
     /// <param name="absorbingPresentValueOfExpectedConsequences">The survival-weighted discounted expected consequences per type.</param>
     /// <param name="appliedInterventions">One label per intervention entry, in ascending year order.</param>
+    /// <param name="excessCumulativeExpectedConsequences">The Excess-stream cumulative expected consequences per type; null for none.</param>
+    /// <param name="excessPresentValueOfExpectedConsequences">The Excess-stream discounted expected consequences per type; null for none.</param>
+    /// <param name="excessEquivalentAnnualConsequences">The Excess-stream equivalent-annual consequences per type; null for none.</param>
+    /// <param name="absorbingExcessCumulativeExpectedConsequences">The Excess-stream survival-weighted cumulative expected consequences per type; null for none.</param>
+    /// <param name="absorbingExcessPresentValueOfExpectedConsequences">The Excess-stream survival-weighted discounted expected consequences per type; null for none.</param>
+    /// <param name="failCumulativeExpectedConsequences">The Fail-stream cumulative expected consequences per type; null for none.</param>
+    /// <param name="failPresentValueOfExpectedConsequences">The Fail-stream discounted expected consequences per type; null for none.</param>
+    /// <param name="failEquivalentAnnualConsequences">The Fail-stream equivalent-annual consequences per type; null for none.</param>
+    /// <param name="absorbingFailCumulativeExpectedConsequences">The Fail-stream survival-weighted cumulative expected consequences per type; null for none.</param>
+    /// <param name="absorbingFailPresentValueOfExpectedConsequences">The Fail-stream survival-weighted discounted expected consequences per type; null for none.</param>
     /// <exception cref="ArgumentNullException">Thrown when a required list is null.</exception>
     /// <exception cref="ArgumentException">Thrown when the labels, units, or any per-type list misalign.</exception>
     public LifeCycleRiskResults(int periodYears, double discountRate,
@@ -53,7 +65,17 @@ public sealed class LifeCycleRiskResults
         IReadOnlyList<double> equivalentAnnualConsequences,
         IReadOnlyList<double> absorbingCumulativeExpectedConsequences,
         IReadOnlyList<double> absorbingPresentValueOfExpectedConsequences,
-        IReadOnlyList<string> appliedInterventions)
+        IReadOnlyList<string> appliedInterventions,
+        IReadOnlyList<double>? excessCumulativeExpectedConsequences = null,
+        IReadOnlyList<double>? excessPresentValueOfExpectedConsequences = null,
+        IReadOnlyList<double>? excessEquivalentAnnualConsequences = null,
+        IReadOnlyList<double>? absorbingExcessCumulativeExpectedConsequences = null,
+        IReadOnlyList<double>? absorbingExcessPresentValueOfExpectedConsequences = null,
+        IReadOnlyList<double>? failCumulativeExpectedConsequences = null,
+        IReadOnlyList<double>? failPresentValueOfExpectedConsequences = null,
+        IReadOnlyList<double>? failEquivalentAnnualConsequences = null,
+        IReadOnlyList<double>? absorbingFailCumulativeExpectedConsequences = null,
+        IReadOnlyList<double>? absorbingFailPresentValueOfExpectedConsequences = null)
     {
         PeriodYears = periodYears;
         DiscountRate = discountRate;
@@ -89,6 +111,35 @@ public sealed class LifeCycleRiskResults
         AbsorbingCumulativeExpectedConsequences = Array.AsReadOnly(absorbingCumulativeExpectedConsequences.ToArray());
         AbsorbingPresentValueOfExpectedConsequences = Array.AsReadOnly(absorbingPresentValueOfExpectedConsequences.ToArray());
         AppliedInterventions = Array.AsReadOnly(appliedInterventions.ToArray());
+        ExcessCumulativeExpectedConsequences = SnapshotStreamList(excessCumulativeExpectedConsequences, typeCount, nameof(excessCumulativeExpectedConsequences));
+        ExcessPresentValueOfExpectedConsequences = SnapshotStreamList(excessPresentValueOfExpectedConsequences, typeCount, nameof(excessPresentValueOfExpectedConsequences));
+        ExcessEquivalentAnnualConsequences = SnapshotStreamList(excessEquivalentAnnualConsequences, typeCount, nameof(excessEquivalentAnnualConsequences));
+        AbsorbingExcessCumulativeExpectedConsequences = SnapshotStreamList(absorbingExcessCumulativeExpectedConsequences, typeCount, nameof(absorbingExcessCumulativeExpectedConsequences));
+        AbsorbingExcessPresentValueOfExpectedConsequences = SnapshotStreamList(absorbingExcessPresentValueOfExpectedConsequences, typeCount, nameof(absorbingExcessPresentValueOfExpectedConsequences));
+        FailCumulativeExpectedConsequences = SnapshotStreamList(failCumulativeExpectedConsequences, typeCount, nameof(failCumulativeExpectedConsequences));
+        FailPresentValueOfExpectedConsequences = SnapshotStreamList(failPresentValueOfExpectedConsequences, typeCount, nameof(failPresentValueOfExpectedConsequences));
+        FailEquivalentAnnualConsequences = SnapshotStreamList(failEquivalentAnnualConsequences, typeCount, nameof(failEquivalentAnnualConsequences));
+        AbsorbingFailCumulativeExpectedConsequences = SnapshotStreamList(absorbingFailCumulativeExpectedConsequences, typeCount, nameof(absorbingFailCumulativeExpectedConsequences));
+        AbsorbingFailPresentValueOfExpectedConsequences = SnapshotStreamList(absorbingFailPresentValueOfExpectedConsequences, typeCount, nameof(absorbingFailPresentValueOfExpectedConsequences));
+    }
+
+    /// <summary>
+    /// Snapshots one optional per-type stream aggregate list — empty when the trajectory does
+    /// not carry the stream axis, aligned with the declared types when it does.
+    /// </summary>
+    /// <param name="values">The supplied list, or null for none.</param>
+    /// <param name="typeCount">The declared consequence-type count.</param>
+    /// <param name="parameterName">The parameter name for the misalignment diagnostic.</param>
+    /// <returns>The read-only snapshot (empty when null was supplied).</returns>
+    /// <exception cref="ArgumentException">Thrown when a supplied list misaligns with the declared types.</exception>
+    private static IReadOnlyList<double> SnapshotStreamList(IReadOnlyList<double>? values,
+        int typeCount, string parameterName)
+    {
+        if (values == null) return Array.AsReadOnly(Array.Empty<double>());
+        if (values.Count != typeCount)
+            throw new ArgumentException("The per-type stream aggregate lists must align with the consequence labels.",
+                parameterName);
+        return Array.AsReadOnly(values.ToArray());
     }
 
     /// <summary>
@@ -156,4 +207,64 @@ public sealed class LifeCycleRiskResults
     /// house-event states and hazard replacements.
     /// </summary>
     public IReadOnlyList<string> AppliedInterventions { get; }
+
+    /// <summary>
+    /// The Excess-stream cumulative expected consequences per type (non-absorbing); empty
+    /// when the trajectory does not carry the stream axis.
+    /// </summary>
+    public IReadOnlyList<double> ExcessCumulativeExpectedConsequences { get; }
+
+    /// <summary>
+    /// The Excess-stream discounted (present-value) expected consequences per type
+    /// (non-absorbing); empty when the trajectory does not carry the stream axis.
+    /// </summary>
+    public IReadOnlyList<double> ExcessPresentValueOfExpectedConsequences { get; }
+
+    /// <summary>
+    /// The Excess-stream equivalent-annual consequences per type; empty when the trajectory
+    /// does not carry the stream axis.
+    /// </summary>
+    public IReadOnlyList<double> ExcessEquivalentAnnualConsequences { get; }
+
+    /// <summary>
+    /// The Excess-stream survival-weighted cumulative expected consequences per type
+    /// (absorbing); empty when the trajectory does not carry the stream axis.
+    /// </summary>
+    public IReadOnlyList<double> AbsorbingExcessCumulativeExpectedConsequences { get; }
+
+    /// <summary>
+    /// The Excess-stream survival-weighted discounted expected consequences per type
+    /// (absorbing); empty when the trajectory does not carry the stream axis.
+    /// </summary>
+    public IReadOnlyList<double> AbsorbingExcessPresentValueOfExpectedConsequences { get; }
+
+    /// <summary>
+    /// The Fail-stream cumulative expected consequences per type (non-absorbing); empty when
+    /// the trajectory does not carry the stream axis.
+    /// </summary>
+    public IReadOnlyList<double> FailCumulativeExpectedConsequences { get; }
+
+    /// <summary>
+    /// The Fail-stream discounted (present-value) expected consequences per type
+    /// (non-absorbing); empty when the trajectory does not carry the stream axis.
+    /// </summary>
+    public IReadOnlyList<double> FailPresentValueOfExpectedConsequences { get; }
+
+    /// <summary>
+    /// The Fail-stream equivalent-annual consequences per type; empty when the trajectory
+    /// does not carry the stream axis.
+    /// </summary>
+    public IReadOnlyList<double> FailEquivalentAnnualConsequences { get; }
+
+    /// <summary>
+    /// The Fail-stream survival-weighted cumulative expected consequences per type
+    /// (absorbing); empty when the trajectory does not carry the stream axis.
+    /// </summary>
+    public IReadOnlyList<double> AbsorbingFailCumulativeExpectedConsequences { get; }
+
+    /// <summary>
+    /// The Fail-stream survival-weighted discounted expected consequences per type
+    /// (absorbing); empty when the trajectory does not carry the stream axis.
+    /// </summary>
+    public IReadOnlyList<double> AbsorbingFailPresentValueOfExpectedConsequences { get; }
 }

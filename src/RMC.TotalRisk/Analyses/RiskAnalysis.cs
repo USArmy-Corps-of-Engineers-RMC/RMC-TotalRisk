@@ -3881,7 +3881,12 @@ namespace RMC.TotalRisk.Analyses
         /// conversions' exact conventions — the probability of at least one failure accumulated
         /// in log space, cumulative and per-epoch-annuity discounted expected consequences, the
         /// equivalent-annual amounts — plus the absorbing (first-failure-terminates)
-        /// survival-weighted variants. Deliberately mean-only, like the configuration-risk
+        /// survival-weighted variants, each computed for the Total, Excess, and Fail
+        /// consequence streams through one shared accumulation so a benefit stream can be
+        /// selected without re-deriving the trajectory. When the definition retains epoch
+        /// realizations, each epoch row also carries its mean realization with the per-sample
+        /// workspace dropped, so every curve measure is readable per epoch and per stream.
+        /// Deliberately mean-only, like the configuration-risk
         /// query: a configured state is compute content, so a full-uncertainty trajectory would
         /// re-roll every configured function's stream per epoch. Runtime-only: nothing is
         /// serialized, hashed, or seed-affecting, and the authored model is never touched.
@@ -3914,6 +3919,14 @@ namespace RMC.TotalRisk.Analyses
             var presentValue = new double[typeCount];
             var absorbingCumulative = new double[typeCount];
             var absorbingPresentValue = new double[typeCount];
+            var excessCumulative = new double[typeCount];
+            var excessPresentValue = new double[typeCount];
+            var absorbingExcessCumulative = new double[typeCount];
+            var absorbingExcessPresentValue = new double[typeCount];
+            var failCumulative = new double[typeCount];
+            var failPresentValue = new double[typeCount];
+            var absorbingFailCumulative = new double[typeCount];
+            var absorbingFailPresentValue = new double[typeCount];
             var interventionLabels = new List<string>(schedule.Count);
             double logSurvival = 0d;
 
@@ -3937,35 +3950,38 @@ namespace RMC.TotalRisk.Analyses
                 double p = systemEntry.FailureProbability;
                 double logSurvivalAtStart = logSurvival;
 
-                // The non-absorbing aggregates: every year exposed (the exposure-period
-                // conversions' conventions, per-epoch and in ascending-epoch order).
+                // The per-epoch scalars are stream-independent: the annuity segment carries the
+                // non-absorbing (every-year-exposed) convention, and the survival terms carry
+                // the absorbing (first-failure-terminates) geometric closed forms.
                 double annuitySegment = AnnuityFactor(endYear, discountRate) - AnnuityFactor(startYear, discountRate);
-                for (int t = 0; t < typeCount; t++)
-                {
-                    double mean = systemEntry.ExpectedConsequences[t];
-                    cumulative[t] += span * mean;
-                    presentValue[t] += mean * annuitySegment;
-                }
-
-                // The absorbing aggregates: each year weighted by the probability every earlier
-                // year survived, via the per-epoch geometric closed forms.
                 double survivalAtStart = Math.Exp(logSurvivalAtStart);
                 double annualSurvival = 1d - p;
                 double survivalYears = p > 0d ? -Tools.Expm1(span * Tools.Log1p(-p)) / p : span;
                 double x = annualSurvival * discountBase;
                 double geometric = x == 1d ? span : (1d - Math.Pow(x, span)) / (1d - x);
-                double firstYearDiscount = Math.Exp(-(startYear + 1) * Tools.Log1p(discountRate));
-                for (int t = 0; t < typeCount; t++)
-                {
-                    double mean = systemEntry.ExpectedConsequences[t];
-                    absorbingCumulative[t] += mean * survivalAtStart * survivalYears;
-                    absorbingPresentValue[t] += mean * survivalAtStart * firstYearDiscount * geometric;
-                }
+                double firstYearDiscount = DiscountingSupport.DiscountFactor(startYear + 1, discountRate);
+
+                // One aggregation authority per stream over the same epoch realization.
+                AccumulateStreamAggregates(systemEntry.ExpectedConsequences, span, annuitySegment,
+                    survivalAtStart, survivalYears, firstYearDiscount, geometric,
+                    cumulative, presentValue, absorbingCumulative, absorbingPresentValue);
+                AccumulateStreamAggregates(systemEntry.ExcessExpectedConsequences, span, annuitySegment,
+                    survivalAtStart, survivalYears, firstYearDiscount, geometric,
+                    excessCumulative, excessPresentValue, absorbingExcessCumulative, absorbingExcessPresentValue);
+                AccumulateStreamAggregates(systemEntry.FailExpectedConsequences, span, annuitySegment,
+                    survivalAtStart, survivalYears, firstYearDiscount, geometric,
+                    failCumulative, failPresentValue, absorbingFailCumulative, absorbingFailPresentValue);
 
                 logSurvival += span * Tools.Log1p(-p);
                 double cumulativeFailure = -Tools.Expm1(logSurvival);
+                SystemRealization? retained = null;
+                if (definition.RetainEpochRealizations)
+                {
+                    retained = epoch.Realization;
+                    retained.DumpMemory();
+                }
                 epochs.Add(new LifeCycleEpochRisk(startYear, span, startYear, cumulativeFailure,
-                    systemEntry, componentEntries, epoch.ActionLabels));
+                    systemEntry, componentEntries, epoch.ActionLabels, retained));
 
                 // The entry whose year opens this epoch echoes its own action labels.
                 for (int s = 0; s < schedule.Count; s++)
@@ -3976,9 +3992,13 @@ namespace RMC.TotalRisk.Analyses
             }
 
             var equivalentAnnual = new double[typeCount];
+            var excessEquivalentAnnual = new double[typeCount];
+            var failEquivalentAnnual = new double[typeCount];
             for (int t = 0; t < typeCount; t++)
             {
                 equivalentAnnual[t] = presentValue[t] / horizonAnnuity;
+                excessEquivalentAnnual[t] = excessPresentValue[t] / horizonAnnuity;
+                failEquivalentAnnual[t] = failPresentValue[t] / horizonAnnuity;
             }
 
             var labels = new List<string>(typeCount) { SpecifiedConsequence };
@@ -3991,7 +4011,11 @@ namespace RMC.TotalRisk.Analyses
 
             return new LifeCycleRiskResults(definition.PeriodYears, discountRate, labels, units,
                 epochs, -Tools.Expm1(logSurvival), cumulative, presentValue, equivalentAnnual,
-                absorbingCumulative, absorbingPresentValue, interventionLabels);
+                absorbingCumulative, absorbingPresentValue, interventionLabels,
+                excessCumulative, excessPresentValue, excessEquivalentAnnual,
+                absorbingExcessCumulative, absorbingExcessPresentValue,
+                failCumulative, failPresentValue, failEquivalentAnnual,
+                absorbingFailCumulative, absorbingFailPresentValue);
         }
 
         /// <summary>
@@ -4238,7 +4262,42 @@ namespace RMC.TotalRisk.Analyses
         }
 
         /// <summary>
-        /// Builds one life-cycle scope row from an epoch's mean curve sets.
+        /// Accumulates one stream's per-type horizon aggregates for one epoch under both
+        /// accounting conventions — the single aggregation authority every trajectory stream
+        /// flows through, so the streams cannot drift. The scalar factors are epoch-level and
+        /// stream-independent; the caller computes them once per epoch.
+        /// </summary>
+        /// <param name="means">The stream's per-type expected annual consequences for the epoch.</param>
+        /// <param name="span">The epoch's exposure-year span.</param>
+        /// <param name="annuitySegment">The epoch's annuity segment A(end) − A(start).</param>
+        /// <param name="survivalAtStart">The probability every year before the epoch survived.</param>
+        /// <param name="survivalYears">The expected surviving exposure years within the epoch.</param>
+        /// <param name="firstYearDiscount">The discount factor for the epoch's first exposure year.</param>
+        /// <param name="geometric">The epoch's discounted-survival geometric sum.</param>
+        /// <param name="cumulative">The non-absorbing cumulative accumulator (updated in place).</param>
+        /// <param name="presentValue">The non-absorbing present-value accumulator (updated in place).</param>
+        /// <param name="absorbingCumulative">The absorbing cumulative accumulator (updated in place).</param>
+        /// <param name="absorbingPresentValue">The absorbing present-value accumulator (updated in place).</param>
+        private static void AccumulateStreamAggregates(IReadOnlyList<double> means, int span,
+            double annuitySegment, double survivalAtStart, double survivalYears,
+            double firstYearDiscount, double geometric,
+            double[] cumulative, double[] presentValue,
+            double[] absorbingCumulative, double[] absorbingPresentValue)
+        {
+            for (int t = 0; t < cumulative.Length; t++)
+            {
+                double mean = means[t];
+                cumulative[t] += span * mean;
+                presentValue[t] += mean * annuitySegment;
+                absorbingCumulative[t] += mean * survivalAtStart * survivalYears;
+                absorbingPresentValue[t] += mean * survivalAtStart * firstYearDiscount * geometric;
+            }
+        }
+
+        /// <summary>
+        /// Builds one life-cycle scope row from an epoch's mean curve sets, reading the Total,
+        /// Excess, and Fail stream means per type from the same curve set — the one authority
+        /// for every stream a trajectory carries.
         /// </summary>
         /// <param name="name">The scope display label.</param>
         /// <param name="curves">The primary curve set.</param>
@@ -4249,28 +4308,35 @@ namespace RMC.TotalRisk.Analyses
             IReadOnlyList<Curves> additionalCurves, int typeCount)
         {
             var means = new double[typeCount];
+            var excessMeans = new double[typeCount];
+            var failMeans = new double[typeCount];
             means[0] = curves.Total.Mean;
+            excessMeans[0] = curves.Excess.Mean;
+            failMeans[0] = curves.Fail.Mean;
             for (int t = 1; t < typeCount; t++)
             {
                 means[t] = additionalCurves[t - 1].Total.Mean;
+                excessMeans[t] = additionalCurves[t - 1].Excess.Mean;
+                failMeans[t] = additionalCurves[t - 1].Fail.Mean;
             }
-            return new LifeCycleEpochEntry(name, curves.Fail.TotalProbability, means);
+            return new LifeCycleEpochEntry(name, curves.Fail.TotalProbability, means,
+                excessMeans, failMeans);
         }
 
         /// <summary>
         /// The annuity present-value factor for one unit per year over the given horizon —
         /// (1 − (1 + r)^−n)/r with the exact r → 0 limit n, evaluated in log space (the
         /// exposure-period conversions' exact expression shape, so stationary life-cycle
-        /// aggregates reproduce them bit-for-bit).
+        /// aggregates reproduce them bit-for-bit). Delegates to the shared discounting
+        /// arithmetic the cost-benefit layer prices with, so both layers evaluate one
+        /// expression.
         /// </summary>
         /// <param name="years">The horizon in years.</param>
         /// <param name="discountRate">The annual discount rate.</param>
         /// <returns>The annuity factor.</returns>
         private static double AnnuityFactor(int years, double discountRate)
         {
-            return discountRate > 0d
-                ? -Tools.Expm1(-years * Tools.Log1p(discountRate)) / discountRate
-                : years;
+            return DiscountingSupport.AnnuityFactor(years, discountRate);
         }
 
         /// <summary>
@@ -4319,7 +4385,9 @@ namespace RMC.TotalRisk.Analyses
 
         /// <summary>
         /// Resolves one realization summary's scope stream, or null when the summary does not
-        /// carry it (shape drift across a loaded ensemble).
+        /// carry it (shape drift across a loaded ensemble). Internal so the cost-benefit layer
+        /// resolves measures through the same switch pair the engine and the tolerable-risk
+        /// confidence evaluation use.
         /// </summary>
         /// <param name="summary">The realization summary.</param>
         /// <param name="componentIndex">The component scope (−1 = system).</param>
@@ -4327,7 +4395,7 @@ namespace RMC.TotalRisk.Analyses
         /// <param name="riskType">The stream.</param>
         /// <param name="consequenceType">The consequence-type position.</param>
         /// <returns>The stream summary, or null.</returns>
-        private static SummaryRiskResults? SelectScope(SystemRiskResults summary, int componentIndex, int failureModeIndex,
+        internal static SummaryRiskResults? SelectScope(SystemRiskResults summary, int componentIndex, int failureModeIndex,
             RiskType riskType, int consequenceType)
         {
             if (componentIndex < 0)
@@ -4403,11 +4471,12 @@ namespace RMC.TotalRisk.Analyses
             };
         }
 
-        /// <summary>Extracts one scalar measure from a stream summary.</summary>
+        /// <summary>Extracts one scalar measure from a stream summary. Internal so the
+        /// cost-benefit layer resolves measures through the same switch the engine uses.</summary>
         /// <param name="summary">The stream summary.</param>
         /// <param name="measure">The measure.</param>
         /// <returns>The value (possibly NaN).</returns>
-        private static double ExtractMeasure(SummaryRiskResults summary, RiskMeasure measure)
+        internal static double ExtractMeasure(SummaryRiskResults summary, RiskMeasure measure)
         {
             return measure switch
             {

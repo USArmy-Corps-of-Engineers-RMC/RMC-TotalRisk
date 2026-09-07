@@ -31,10 +31,12 @@ public sealed class LifeCycleEpochRisk
     /// <param name="system">The system scope row.</param>
     /// <param name="components">The per-component scope rows in declared component order.</param>
     /// <param name="appliedActions">The configuration labels in effect during the epoch.</param>
+    /// <param name="realization">The epoch's retained mean realization, or null when not retained.</param>
     /// <exception cref="ArgumentNullException">Thrown when a required row or list is null.</exception>
     public LifeCycleEpochRisk(int startYear, int spanYears, double evaluationAge,
         double cumulativeFailureProbability, LifeCycleEpochEntry system,
-        IReadOnlyList<LifeCycleEpochEntry> components, IReadOnlyList<string> appliedActions)
+        IReadOnlyList<LifeCycleEpochEntry> components, IReadOnlyList<string> appliedActions,
+        SystemRealization? realization = null)
     {
         StartYear = startYear;
         SpanYears = spanYears;
@@ -45,6 +47,7 @@ public sealed class LifeCycleEpochRisk
         Components = Array.AsReadOnly(components.ToArray());
         if (appliedActions == null) throw new ArgumentNullException(nameof(appliedActions));
         AppliedActions = Array.AsReadOnly(appliedActions.ToArray());
+        Realization = realization;
     }
 
     /// <summary>
@@ -89,4 +92,11 @@ public sealed class LifeCycleEpochRisk
     /// and hazard replacement, in application order.
     /// </summary>
     public IReadOnlyList<string> AppliedActions { get; }
+
+    /// <summary>
+    /// The epoch's retained mean realization — every curve measure readable per stream, with
+    /// the per-sample workspace dropped — or null when the definition did not retain
+    /// realizations.
+    /// </summary>
+    public SystemRealization? Realization { get; }
 }

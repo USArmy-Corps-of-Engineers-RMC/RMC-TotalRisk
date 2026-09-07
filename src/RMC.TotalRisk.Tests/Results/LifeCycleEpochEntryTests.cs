@@ -53,4 +53,37 @@ public class LifeCycleEpochEntryTests
         Assert.AreEqual(1, entry.ExpectedConsequences.Count);
         Assert.AreEqual(500d, entry.ExpectedConsequences[0]);
     }
+
+    /// <summary>Verifies the stream lists echo when supplied and default empty when omitted.</summary>
+    [TestMethod]
+    public void Test_Ctor_StreamLists_EchoedAndEmptyByDefault()
+    {
+        // Act
+        var bare = new LifeCycleEpochEntry("System", 0.05d, new[] { 500d });
+        var full = new LifeCycleEpochEntry("System", 0.05d, new[] { 500d, 2d },
+            new[] { 400d, 1.5d }, new[] { 100d, 0.5d });
+
+        // Assert — the pre-stream form carries empty stream lists.
+        Assert.AreEqual(0, bare.ExcessExpectedConsequences.Count);
+        Assert.AreEqual(0, bare.FailExpectedConsequences.Count);
+
+        // The stream-bearing form echoes per type.
+        Assert.AreEqual(2, full.ExcessExpectedConsequences.Count);
+        Assert.AreEqual(400d, full.ExcessExpectedConsequences[0]);
+        Assert.AreEqual(1.5d, full.ExcessExpectedConsequences[1]);
+        Assert.AreEqual(2, full.FailExpectedConsequences.Count);
+        Assert.AreEqual(100d, full.FailExpectedConsequences[0]);
+        Assert.AreEqual(0.5d, full.FailExpectedConsequences[1]);
+    }
+
+    /// <summary>Verifies a supplied stream list must align with the Total-stream list.</summary>
+    [TestMethod]
+    public void Test_Ctor_StreamMisalignment_Throws()
+    {
+        // Act / Assert
+        Assert.ThrowsException<ArgumentException>(() => new LifeCycleEpochEntry(
+            "System", 0.05d, new[] { 500d, 2d }, excessExpectedConsequences: new[] { 400d }));
+        Assert.ThrowsException<ArgumentException>(() => new LifeCycleEpochEntry(
+            "System", 0.05d, new[] { 500d, 2d }, failExpectedConsequences: new[] { 100d, 0.5d, 3d }));
+    }
 }

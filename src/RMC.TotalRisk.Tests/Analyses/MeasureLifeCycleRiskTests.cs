@@ -562,6 +562,134 @@ public class MeasureLifeCycleRiskTests
     }
 
     /// <summary>
+    /// Verifies the Excess- and Fail-stream aggregates reproduce the documented arithmetic
+    /// over the epoch rows' stream lists with no delta, discounted and undiscounted, and that
+    /// every scope row carries the stream axis.
+    /// </summary>
+    [TestMethod]
+    public void Test_Query_StreamAggregates_MatchEpochRowArithmetic_BitExact()
+    {
+        // Arrange
+        (RiskAnalysis author, Guid functionId, Guid houseId) = Build(houseState: false);
+
+        foreach (double rate in new[] { 0.05d, 0d })
+        {
+            // Act
+            LifeCycleRiskResults results = author.MeasureLifeCycleRisk(new LifeCycleDefinition(
+                20, rate, null, new[] { HouseAt(10, functionId, houseId, true) }));
+
+            // Assert — recompute each stream's aggregates from the published rows with the
+            // documented formulas (the ascending-epoch accumulation order).
+            static double Annuity(int years, double r) => r > 0d
+                ? -Tools.Expm1(-years * Tools.Log1p(r)) / r
+                : years;
+
+            double logSurvival = 0d;
+            var cumulative = new double[2];
+            var presentValue = new double[2];
+            var absorbingCumulative = new double[2];
+            var absorbingPresentValue = new double[2];
+            double discountBase = 1d / (1d + rate);
+            foreach (LifeCycleEpochRisk epoch in results.Epochs)
+            {
+                Assert.AreEqual(1, epoch.System.ExcessExpectedConsequences.Count);
+                Assert.AreEqual(1, epoch.System.FailExpectedConsequences.Count);
+                Assert.AreEqual(1, epoch.Components[0].ExcessExpectedConsequences.Count);
+                Assert.AreEqual(1, epoch.Components[0].FailExpectedConsequences.Count);
+
+                double p = epoch.System.FailureProbability;
+                int span = epoch.SpanYears;
+                double annuitySegment = Annuity(epoch.EndYear, rate) - Annuity(epoch.StartYear, rate);
+                double survivalAtStart = Math.Exp(logSurvival);
+                double survivalYears = p > 0d ? -Tools.Expm1(span * Tools.Log1p(-p)) / p : span;
+                double x = (1d - p) * discountBase;
+                double geometric = x == 1d ? span : (1d - Math.Pow(x, span)) / (1d - x);
+                double firstYearDiscount = Math.Exp(-(epoch.StartYear + 1) * Tools.Log1p(rate));
+                double[] streamMeans =
+                [
+                    epoch.System.ExcessExpectedConsequences[0],
+                    epoch.System.FailExpectedConsequences[0],
+                ];
+                for (int s = 0; s < 2; s++)
+                {
+                    double mean = streamMeans[s];
+                    cumulative[s] += span * mean;
+                    presentValue[s] += mean * annuitySegment;
+                    absorbingCumulative[s] += mean * survivalAtStart * survivalYears;
+                    absorbingPresentValue[s] += mean * survivalAtStart * firstYearDiscount * geometric;
+                }
+                logSurvival += span * Tools.Log1p(-p);
+            }
+
+            Assert.AreEqual(cumulative[0], results.ExcessCumulativeExpectedConsequences[0]);
+            Assert.AreEqual(presentValue[0], results.ExcessPresentValueOfExpectedConsequences[0]);
+            Assert.AreEqual(presentValue[0] / Annuity(20, rate), results.ExcessEquivalentAnnualConsequences[0]);
+            Assert.AreEqual(absorbingCumulative[0], results.AbsorbingExcessCumulativeExpectedConsequences[0]);
+            Assert.AreEqual(absorbingPresentValue[0], results.AbsorbingExcessPresentValueOfExpectedConsequences[0]);
+            Assert.AreEqual(cumulative[1], results.FailCumulativeExpectedConsequences[0]);
+            Assert.AreEqual(presentValue[1], results.FailPresentValueOfExpectedConsequences[0]);
+            Assert.AreEqual(presentValue[1] / Annuity(20, rate), results.FailEquivalentAnnualConsequences[0]);
+            Assert.AreEqual(absorbingCumulative[1], results.AbsorbingFailCumulativeExpectedConsequences[0]);
+            Assert.AreEqual(absorbingPresentValue[1], results.AbsorbingFailPresentValueOfExpectedConsequences[0]);
+
+            // The failure-path stream never exceeds the total in this all-positive fixture.
+            Assert.IsTrue(results.FailCumulativeExpectedConsequences[0]
+                <= results.CumulativeExpectedConsequences[0]);
+        }
+    }
+
+    /// <summary>
+    /// Verifies epoch-realization retention: every aggregate is bit-identical with retention
+    /// on or off, the rows carry dumped realizations only when retaining, and each retained
+    /// realization agrees with its own scope row.
+    /// </summary>
+    [TestMethod]
+    public void Test_Query_RetainEpochRealizations_DumpedAttachment_AggregatesBitEqual()
+    {
+        // Arrange
+        (RiskAnalysis author, Guid functionId, Guid houseId) = Build(houseState: false);
+        var schedule = new[] { HouseAt(10, functionId, houseId, true) };
+
+        // Act
+        LifeCycleRiskResults off = author.MeasureLifeCycleRisk(
+            new LifeCycleDefinition(20, 0.035d, null, schedule));
+        LifeCycleRiskResults on = author.MeasureLifeCycleRisk(
+            new LifeCycleDefinition(20, 0.035d, null, schedule, retainEpochRealizations: true));
+
+        // Assert — retention never moves a number.
+        Assert.AreEqual(off.FailureProbabilityByHorizon, on.FailureProbabilityByHorizon);
+        Assert.AreEqual(off.CumulativeExpectedConsequences[0], on.CumulativeExpectedConsequences[0]);
+        Assert.AreEqual(off.PresentValueOfExpectedConsequences[0], on.PresentValueOfExpectedConsequences[0]);
+        Assert.AreEqual(off.EquivalentAnnualConsequences[0], on.EquivalentAnnualConsequences[0]);
+        Assert.AreEqual(off.AbsorbingPresentValueOfExpectedConsequences[0],
+            on.AbsorbingPresentValueOfExpectedConsequences[0]);
+        Assert.AreEqual(off.ExcessPresentValueOfExpectedConsequences[0],
+            on.ExcessPresentValueOfExpectedConsequences[0]);
+        Assert.AreEqual(off.FailPresentValueOfExpectedConsequences[0],
+            on.FailPresentValueOfExpectedConsequences[0]);
+
+        for (int k = 0; k < off.Epochs.Count; k++)
+        {
+            // Off: no realization survives the row build.
+            Assert.IsNull(off.Epochs[k].Realization);
+
+            // On: the dumped mean realization rides its row and agrees with it.
+            SystemRealization? retained = on.Epochs[k].Realization;
+            Assert.IsNotNull(retained);
+            Assert.AreEqual(0, retained.Curves.Total.RiskPoints.Count);
+            Assert.AreEqual(0, retained.Curves.Fail.RiskPoints.Count);
+            Assert.AreEqual(retained.Curves.Fail.TotalProbability,
+                on.Epochs[k].System.FailureProbability);
+            Assert.AreEqual(retained.Curves.Total.Mean,
+                on.Epochs[k].System.ExpectedConsequences[0]);
+            Assert.AreEqual(retained.Curves.Excess.Mean,
+                on.Epochs[k].System.ExcessExpectedConsequences[0]);
+            Assert.AreEqual(retained.Curves.Fail.Mean,
+                on.Epochs[k].System.FailExpectedConsequences[0]);
+        }
+    }
+
+    /// <summary>
     /// Verifies deteriorating responses evaluate at each epoch's start age: the aged epoch
     /// fails more, and the authored wrapper keeps its own evaluation age.
     /// </summary>
