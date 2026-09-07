@@ -179,13 +179,24 @@ namespace RMC.TotalRisk.Analyses
         /// </summary>
         public double Alpha { get; }
 
+        /// <summary>
+        /// True when the metric resolves to one whole-horizon value per alternative — every
+        /// economics metric, and every risk-measure selection on a horizon basis. Whole-horizon
+        /// metrics are checked once at the Horizon constraint scope; annualized metrics are
+        /// checked per epoch.
+        /// </summary>
+        internal bool IsWholeHorizon => IsEconomic || Basis != MetricBasis.AnnualizedPerEpoch;
+
         #endregion
 
         #region IModel Methods
 
         /// <summary>
         /// Validates the selector: recognized enum members, a non-negative consequence-type
-        /// position, and an exceedance level in (0, 1) or NaN.
+        /// position, an exceedance level in (0, 1) or NaN, and the horizon-basis legality
+        /// rules — the trajectory aggregates carry the Mean measure on the Total, Excess, and
+        /// Fail streams only, so a horizon basis with any other measure or stream has no
+        /// backing quantity.
         /// </summary>
         /// <returns>The validity flag and messages.</returns>
         public (bool IsValid, List<string> ValidationMessages) Validate()
@@ -212,6 +223,13 @@ namespace RMC.TotalRisk.Analyses
                     messages.Add("Error: The metric's consequence-type position must not be negative.");
                 if (!double.IsNaN(Alpha) && (!Tools.IsFinite(Alpha) || Alpha <= 0d || Alpha >= 1d))
                     messages.Add("Error: The metric's exceedance level must lie in (0, 1), or be NaN for the study's level.");
+                if (Enum.IsDefined(Basis) && Basis != MetricBasis.AnnualizedPerEpoch)
+                {
+                    if (Measure != RiskMeasure.Mean)
+                        messages.Add($"Error: The metric declares the {Measure} measure on the {Basis} basis; horizon bases carry the Mean measure only — tail and dispersion measures are annualized.");
+                    if (RiskType != RiskType.Total && RiskType != RiskType.Excess && RiskType != RiskType.Fail)
+                        messages.Add($"Error: The metric declares the {RiskType} stream on the {Basis} basis; horizon aggregates exist for the Total, Excess, and Fail streams only.");
+                }
             }
             return (messages.Count == 0, messages);
         }

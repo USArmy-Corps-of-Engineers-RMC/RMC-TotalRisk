@@ -1,11 +1,15 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace RMC.TotalRisk.Results
 {
     /// <summary>
     /// One alternative's economics row: the priced cost block, the monetized and economic
     /// benefit aggregates in both accounting conventions, the net-benefit metrics, the
-    /// annualized failure probabilities, and the equivalent-annual lives saved.
+    /// annualized failure probabilities, the equivalent-annual lives saved, the total expected
+    /// annual cost, the cost-effectiveness family, the disproportionality block, and the
+    /// do-no-harm screen.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -53,6 +57,20 @@ namespace RMC.TotalRisk.Results
         /// <param name="yearZeroFailureProbability">The first epoch's annualized failure probability.</param>
         /// <param name="yearZeroFailureProbabilityReduction">The signed first-epoch failure-probability reduction vs the baseline.</param>
         /// <param name="livesSavedEquivalentAnnual">The equivalent-annual Excess life-loss reduction vs the baseline; NaN when no life-safety type is declared.</param>
+        /// <param name="totalExpectedAnnualCost">The total expected annual cost (non-absorbing); NaN when no types are monetized.</param>
+        /// <param name="absorbingTotalExpectedAnnualCost">The total expected annual cost (absorbing); NaN when no types are monetized.</param>
+        /// <param name="costPerStatisticalLifeSavedUnadjusted">The unadjusted cost per statistical life saved; NaN when lives saved is not positive.</param>
+        /// <param name="costPerStatisticalLifeSavedAdjusted">The adjusted cost per statistical life saved; NaN when lives saved is not positive or a term is unavailable.</param>
+        /// <param name="equityWeightedAdjustedCostPerStatisticalLifeSaved">The equity-weighted adjusted cost per statistical life saved.</param>
+        /// <param name="costPerStatisticalFailurePrevented">The cost per statistical failure prevented; NaN when the probability reduction is not positive.</param>
+        /// <param name="absorbingAdjustedCostPerStatisticalLifeSaved">The absorbing-basis adjusted cost per statistical life saved.</param>
+        /// <param name="disproportionalityRatio">The disproportionality ratio; NaN when no willingness to pay is declared.</param>
+        /// <param name="alarpBand">The ALARP justification-band label, or null/empty when the block is skipped.</param>
+        /// <param name="failsDoNoHarm">True when the do-no-harm screen flagged this row.</param>
+        /// <param name="doNoHarmOffendingTypes">The consequence-type positions whose Total-stream risk increased, or null for none.</param>
+        /// <param name="baselineIndividualRiskUsed">The baseline-side individual risk the equity weighting used.</param>
+        /// <param name="alternativeIndividualRiskUsed">The alternative-side individual risk the equity weighting used.</param>
+        /// <param name="individualRiskIsProxy">True when either individual-risk side fell back to the survival-equivalent annualized failure-probability proxy.</param>
         /// <exception cref="ArgumentNullException">Thrown when the name or description is null.</exception>
         public AlternativeEconomics(string name, string description, bool isBaseline,
             double capitalPresentValue, double operationsAndMaintenancePresentValue,
@@ -65,7 +83,21 @@ namespace RMC.TotalRisk.Results
             double absorbingBenefitCostRatio,
             double annualizedFailureProbability, double annualizedFailureProbabilityReduction,
             double yearZeroFailureProbability, double yearZeroFailureProbabilityReduction,
-            double livesSavedEquivalentAnnual)
+            double livesSavedEquivalentAnnual,
+            double totalExpectedAnnualCost = double.NaN,
+            double absorbingTotalExpectedAnnualCost = double.NaN,
+            double costPerStatisticalLifeSavedUnadjusted = double.NaN,
+            double costPerStatisticalLifeSavedAdjusted = double.NaN,
+            double equityWeightedAdjustedCostPerStatisticalLifeSaved = double.NaN,
+            double costPerStatisticalFailurePrevented = double.NaN,
+            double absorbingAdjustedCostPerStatisticalLifeSaved = double.NaN,
+            double disproportionalityRatio = double.NaN,
+            string? alarpBand = null,
+            bool failsDoNoHarm = false,
+            IReadOnlyList<int>? doNoHarmOffendingTypes = null,
+            double baselineIndividualRiskUsed = double.NaN,
+            double alternativeIndividualRiskUsed = double.NaN,
+            bool individualRiskIsProxy = false)
         {
             Name = name ?? throw new ArgumentNullException(nameof(name));
             Description = description ?? throw new ArgumentNullException(nameof(description));
@@ -91,6 +123,22 @@ namespace RMC.TotalRisk.Results
             YearZeroFailureProbability = yearZeroFailureProbability;
             YearZeroFailureProbabilityReduction = yearZeroFailureProbabilityReduction;
             LivesSavedEquivalentAnnual = livesSavedEquivalentAnnual;
+            TotalExpectedAnnualCost = totalExpectedAnnualCost;
+            AbsorbingTotalExpectedAnnualCost = absorbingTotalExpectedAnnualCost;
+            CostPerStatisticalLifeSavedUnadjusted = costPerStatisticalLifeSavedUnadjusted;
+            CostPerStatisticalLifeSavedAdjusted = costPerStatisticalLifeSavedAdjusted;
+            EquityWeightedAdjustedCostPerStatisticalLifeSaved = equityWeightedAdjustedCostPerStatisticalLifeSaved;
+            CostPerStatisticalFailurePrevented = costPerStatisticalFailurePrevented;
+            AbsorbingAdjustedCostPerStatisticalLifeSaved = absorbingAdjustedCostPerStatisticalLifeSaved;
+            DisproportionalityRatio = disproportionalityRatio;
+            AlarpBand = alarpBand ?? string.Empty;
+            FailsDoNoHarm = failsDoNoHarm;
+            DoNoHarmOffendingTypes = doNoHarmOffendingTypes == null
+                ? Array.Empty<int>()
+                : Array.AsReadOnly(doNoHarmOffendingTypes.ToArray());
+            BaselineIndividualRiskUsed = baselineIndividualRiskUsed;
+            AlternativeIndividualRiskUsed = alternativeIndividualRiskUsed;
+            IndividualRiskIsProxy = individualRiskIsProxy;
         }
 
         /// <summary>The alternative's display name.</summary>
@@ -179,5 +227,91 @@ namespace RMC.TotalRisk.Results
         /// axis of the cost-effectiveness family); NaN when no life-safety type is declared.
         /// </summary>
         public double LivesSavedEquivalentAnnual { get; }
+
+        /// <summary>
+        /// The total expected annual cost — the equivalent annual cost plus the monetized
+        /// equivalent-annual expected consequences of the benefit stream (non-absorbing); NaN
+        /// when no types are monetized.
+        /// </summary>
+        public double TotalExpectedAnnualCost { get; }
+
+        /// <summary>The total expected annual cost (absorbing); NaN when no types are monetized.</summary>
+        public double AbsorbingTotalExpectedAnnualCost { get; }
+
+        /// <summary>
+        /// The unadjusted cost per statistical life saved — the annualized capital plus
+        /// operations-and-maintenance cost over the equivalent-annual life-loss reduction; NaN
+        /// when the reduction is not positive.
+        /// </summary>
+        public double CostPerStatisticalLifeSavedUnadjusted { get; }
+
+        /// <summary>
+        /// The adjusted cost per statistical life saved — the annualized cost net of the
+        /// economic and operating-cost reductions, clamped at zero, over the equivalent-annual
+        /// life-loss reduction; NaN when the reduction is not positive or a term is
+        /// unavailable.
+        /// </summary>
+        public double CostPerStatisticalLifeSavedAdjusted { get; }
+
+        /// <summary>
+        /// The equity-weighted adjusted cost per statistical life saved — the adjusted ratio
+        /// divided by the floored individual-risk ratio raised to the equity exponent.
+        /// </summary>
+        public double EquityWeightedAdjustedCostPerStatisticalLifeSaved { get; }
+
+        /// <summary>
+        /// The cost per statistical failure prevented — the annualized cost over the
+        /// annualized failure-probability reduction; NaN when the reduction is not positive.
+        /// </summary>
+        public double CostPerStatisticalFailurePrevented { get; }
+
+        /// <summary>
+        /// The absorbing-basis adjusted cost per statistical life saved — the capital plus
+        /// operations-and-maintenance present value net of the operating and absorbing economic
+        /// reductions, clamped at zero, over the absorbing cumulative life-loss reduction.
+        /// </summary>
+        public double AbsorbingAdjustedCostPerStatisticalLifeSaved { get; }
+
+        /// <summary>
+        /// The disproportionality ratio — the adjusted cost per statistical life saved over
+        /// the willingness to pay; NaN when no willingness to pay is declared.
+        /// </summary>
+        public double DisproportionalityRatio { get; }
+
+        /// <summary>
+        /// The ALARP justification-band label for the disproportionality ratio (a label,
+        /// never a verdict); empty when the block is skipped.
+        /// </summary>
+        public string AlarpBand { get; }
+
+        /// <summary>
+        /// True when the do-no-harm screen flagged this row: some declared type's Total-stream
+        /// equivalent-annual risk increased from the baseline under the headline accounting.
+        /// Always false when the policy is Off (the screen is not evaluated) and for the
+        /// baseline row.
+        /// </summary>
+        public bool FailsDoNoHarm { get; }
+
+        /// <summary>
+        /// The consequence-type positions whose Total-stream risk increased from the baseline;
+        /// empty when the screen passed or was not evaluated.
+        /// </summary>
+        public IReadOnlyList<int> DoNoHarmOffendingTypes { get; }
+
+        /// <summary>
+        /// The baseline-side individual risk the equity weighting used — the declared seat, or
+        /// the survival-equivalent annualized failure-probability proxy when the seat is NaN.
+        /// </summary>
+        public double BaselineIndividualRiskUsed { get; }
+
+        /// <summary>
+        /// The alternative-side individual risk the equity weighting used — the declared seat,
+        /// or this row's survival-equivalent annualized failure-probability proxy when the
+        /// seat is NaN.
+        /// </summary>
+        public double AlternativeIndividualRiskUsed { get; }
+
+        /// <summary>True when either individual-risk side fell back to the proxy.</summary>
+        public bool IndividualRiskIsProxy { get; }
     }
 }

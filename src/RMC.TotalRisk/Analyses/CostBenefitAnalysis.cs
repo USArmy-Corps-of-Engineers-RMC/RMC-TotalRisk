@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using Numerics;
@@ -319,13 +320,15 @@ namespace RMC.TotalRisk.Analyses
         }
 
         /// <summary>
-        /// Selects one stream's horizon aggregate lists from a trajectory.
+        /// Selects one stream's horizon aggregate lists from a trajectory. Internal so the
+        /// metric resolver reads the aggregate arrays through the same selection the study's
+        /// own tables use.
         /// </summary>
         /// <param name="trajectory">The trajectory.</param>
         /// <param name="stream">The stream (Total, Excess, or Fail).</param>
         /// <returns>The per-type present-value, equivalent-annual, cumulative, absorbing present-value, and absorbing cumulative lists.</returns>
         /// <exception cref="ArgumentOutOfRangeException">Thrown for an unsupported stream.</exception>
-        private static (IReadOnlyList<double> PresentValue, IReadOnlyList<double> EquivalentAnnual,
+        internal static (IReadOnlyList<double> PresentValue, IReadOnlyList<double> EquivalentAnnual,
             IReadOnlyList<double> Cumulative, IReadOnlyList<double> AbsorbingPresentValue,
             IReadOnlyList<double> AbsorbingCumulative) SelectStreamAggregates(
             LifeCycleRiskResults trajectory, RiskType stream)
@@ -510,6 +513,9 @@ namespace RMC.TotalRisk.Analyses
             }
 
             var baselineBenefitStream = SelectStreamAggregates(baselineTrajectory, options.BenefitRiskType);
+            var baselineTotalAggregates = SelectStreamAggregates(baselineTrajectory, RiskType.Total);
+            var baselineExcessAggregates = SelectStreamAggregates(baselineTrajectory, RiskType.Excess);
+            var baselineCosts = PriceCosts(baseline.Costs, periodYears, discountRate, horizonAnnuity);
             double baselineEquivalentAnnualProbability =
                 SurvivalEquivalentAnnualProbability(baselineTrajectory.FailureProbabilityByHorizon, periodYears);
             double baselineYearZeroProbability = baselineTrajectory.Epochs[0].System.FailureProbability;
@@ -535,12 +541,17 @@ namespace RMC.TotalRisk.Analyses
                 (double capitalPv, double omPv, double operatingPv, double totalPv, double eac, double cumulativeCost) =
                     PriceCosts(alternative.Costs, periodYears, discountRate, horizonAnnuity);
 
-                // The benefit aggregates on the study's stream, both conventions.
+                // The benefit aggregates on the study's stream, both conventions, plus the
+                // monetized equivalent-annual consequence levels the total expected annual
+                // cost adds to the equivalent annual cost (the absorbing equivalent-annual
+                // level derives as the absorbing present value over the horizon annuity).
                 var streamAggregates = SelectStreamAggregates(trajectory, options.BenefitRiskType);
                 double monetized = anyMonetized ? 0d : double.NaN;
                 double economic = anyMonetized ? 0d : double.NaN;
                 double absorbingMonetized = monetized;
                 double absorbingEconomic = economic;
+                double monetizedEquivalentAnnualLevel = monetized;
+                double absorbingMonetizedEquivalentAnnualLevel = monetized;
                 if (anyMonetized)
                 {
                     for (int t = 0; t < typeCount; t++)
@@ -558,6 +569,9 @@ namespace RMC.TotalRisk.Analyses
                             economic += reduction;
                             absorbingEconomic += absorbingReduction;
                         }
+                        monetizedEquivalentAnnualLevel += factor * streamAggregates.EquivalentAnnual[t];
+                        absorbingMonetizedEquivalentAnnualLevel += factor
+                            * (streamAggregates.AbsorbingPresentValue[t] / horizonAnnuity);
                     }
                 }
                 double netPresentValue = monetized - totalPv;
@@ -571,10 +585,70 @@ namespace RMC.TotalRisk.Analyses
 
                 // The life-saved axis always reads the Excess stream of the declared type.
                 double livesSaved = double.NaN;
+                double absorbingLivesSavedCumulative = double.NaN;
                 if (options.LifeSafetyConsequenceType >= 0 && options.LifeSafetyConsequenceType < typeCount)
                 {
                     livesSaved = baselineTrajectory.ExcessEquivalentAnnualConsequences[options.LifeSafetyConsequenceType]
                         - trajectory.ExcessEquivalentAnnualConsequences[options.LifeSafetyConsequenceType];
+                    var alternativeExcess = SelectStreamAggregates(trajectory, RiskType.Excess);
+                    absorbingLivesSavedCumulative =
+                        baselineExcessAggregates.AbsorbingCumulative[options.LifeSafetyConsequenceType]
+                        - alternativeExcess.AbsorbingCumulative[options.LifeSafetyConsequenceType];
+                }
+
+                // The cost-effectiveness family: the annualized implementation cost is capital
+                // plus operations and maintenance; the operating-change stream enters through
+                // its own signed reduction (baseline minus alternative), never the cost base.
+                double annualizedImplementationCost = (capitalPv + omPv) / horizonAnnuity;
+                double operatingReductionPresentValue = baselineCosts.OperatingChanges - operatingPv;
+                double costPerLifeSavedUnadjusted = CostBenefitFormulary.CostPerLifeSavedUnadjusted(
+                    annualizedImplementationCost, livesSaved);
+                double costPerLifeSavedAdjusted = CostBenefitFormulary.CostPerLifeSavedAdjusted(
+                    annualizedImplementationCost, economic / horizonAnnuity,
+                    operatingReductionPresentValue / horizonAnnuity, livesSaved);
+                double baselineIndividualRiskUsed = double.IsNaN(options.BaselineIndividualRisk)
+                    ? baselineEquivalentAnnualProbability
+                    : options.BaselineIndividualRisk;
+                double alternativeIndividualRiskUsed = double.IsNaN(options.AlternativeIndividualRisk)
+                    ? equivalentAnnualProbability
+                    : options.AlternativeIndividualRisk;
+                bool individualRiskIsProxy = double.IsNaN(options.BaselineIndividualRisk)
+                    || double.IsNaN(options.AlternativeIndividualRisk);
+                double equityWeighted = CostBenefitFormulary.EquityWeightedCostPerLifeSaved(
+                    costPerLifeSavedAdjusted, baselineIndividualRiskUsed, alternativeIndividualRiskUsed,
+                    options.IndividualRiskLimit, options.EquityExponent);
+                double costPerFailurePrevented = CostBenefitFormulary.CostPerFailurePrevented(
+                    annualizedImplementationCost,
+                    baselineEquivalentAnnualProbability - equivalentAnnualProbability);
+                double absorbingAdjusted = CostBenefitFormulary.AbsorbingCostPerLifeSavedAdjusted(
+                    capitalPv + omPv, operatingReductionPresentValue, absorbingEconomic,
+                    absorbingLivesSavedCumulative);
+                double disproportionality = CostBenefitFormulary.DisproportionalityRatio(
+                    costPerLifeSavedAdjusted, options.WillingnessToPay);
+                string alarpBand = CostBenefitFormulary.AlarpBandLabel(disproportionality,
+                    options.AlarpBandThresholds ?? CostBenefitFormulary.AlarpBandThresholds(options.AlarpProximity));
+
+                // The do-no-harm screen: every declared type's Total-stream equivalent-annual
+                // risk must not increase from the baseline under the headline accounting. A
+                // NaN delta cannot offend (nothing measurable increased); Off leaves the
+                // screen unevaluated.
+                bool failsDoNoHarm = false;
+                List<int>? offendingTypes = null;
+                if (options.DoNoHarm != DoNoHarmPolicy.Off)
+                {
+                    var alternativeTotal = SelectStreamAggregates(trajectory, RiskType.Total);
+                    for (int t = 0; t < typeCount; t++)
+                    {
+                        double totalReductionEquivalentAnnual = options.Accounting == LifeCycleAccounting.Absorbing
+                            ? (baselineTotalAggregates.AbsorbingPresentValue[t]
+                                - alternativeTotal.AbsorbingPresentValue[t]) / horizonAnnuity
+                            : baselineTotalAggregates.EquivalentAnnual[t] - alternativeTotal.EquivalentAnnual[t];
+                        if (totalReductionEquivalentAnnual < 0d)
+                        {
+                            (offendingTypes ??= new List<int>()).Add(t);
+                        }
+                    }
+                    failsDoNoHarm = offendingTypes != null;
                 }
 
                 rows.Add(new AlternativeEconomics(alternative.Name, alternative.Description,
@@ -587,7 +661,13 @@ namespace RMC.TotalRisk.Analyses
                     baselineEquivalentAnnualProbability - equivalentAnnualProbability,
                     yearZeroProbability,
                     baselineYearZeroProbability - yearZeroProbability,
-                    livesSaved));
+                    livesSaved,
+                    CostBenefitFormulary.TotalExpectedAnnualCost(eac, monetizedEquivalentAnnualLevel),
+                    CostBenefitFormulary.TotalExpectedAnnualCost(eac, absorbingMonetizedEquivalentAnnualLevel),
+                    costPerLifeSavedUnadjusted, costPerLifeSavedAdjusted, equityWeighted,
+                    costPerFailurePrevented, absorbingAdjusted, disproportionality, alarpBand,
+                    failsDoNoHarm, offendingTypes,
+                    baselineIndividualRiskUsed, alternativeIndividualRiskUsed, individualRiskIsProxy));
 
                 // The per-type per-stream reduction rows, in stream-major order per type.
                 foreach (RiskType stream in new[] { RiskType.Total, RiskType.Excess, RiskType.Fail })
@@ -624,13 +704,204 @@ namespace RMC.TotalRisk.Analyses
                 }
             }
 
+            // The decision framework over the assembled tables: the metric resolver, the
+            // declared-constraint evaluations, the ε-constraint sweep, the declared-vector
+            // frontier with its standard projections and incremental table, and the
+            // multi-criteria scores.
+            var diagnostics = new List<ComputationDiagnostic>();
+            var thresholds = new IReadOnlyList<double>[rowOrder.Count];
+            for (int i = 0; i < rowOrder.Count; i++)
+            {
+                RiskAnalysis system = rowOrder[i].System;
+                var systemThresholds = new double[typeCount];
+                systemThresholds[0] = system.Options.ConsequenceThreshold;
+                for (int t = 0; t < system.AdditionalConsequenceTypes.Count && t + 1 < typeCount; t++)
+                {
+                    systemThresholds[t + 1] = system.AdditionalConsequenceTypes[t].ConsequenceThreshold;
+                }
+                thresholds[i] = systemThresholds;
+            }
+            bool reliabilityMode = baseline.System.Options.Mode == RiskAnalysisMode.Reliability;
+            var resolver = new CostBenefitMetricResolver(options, rows, trajectories, thresholds,
+                reliabilityMode, horizonAnnuity, diagnostics);
+
+            var names = new string[rows.Count];
+            var eligible = new bool[rows.Count];
+            for (int i = 0; i < rows.Count; i++)
+            {
+                names[i] = rows[i].Name;
+                eligible[i] = !(options.DoNoHarm == DoNoHarmPolicy.Enforce && rows[i].FailsDoNoHarm);
+            }
+
+            var constraintEvaluations = new List<ConstraintEvaluation>(options.Constraints.Count);
+            for (int c = 0; c < options.Constraints.Count; c++)
+            {
+                CostBenefitConstraint constraint = options.Constraints[c];
+                var satisfied = new bool[rows.Count];
+                for (int i = 0; i < rows.Count; i++)
+                {
+                    satisfied[i] = resolver.EvaluateConstraint(constraint, i);
+                }
+                string sense = constraint.Sense == Numerics.Mathematics.Optimization.ConstraintType.GreaterThanOrEqualTo
+                    ? "≥"
+                    : "≤";
+                constraintEvaluations.Add(new ConstraintEvaluation(
+                    $"{CostBenefitMetricResolver.Describe(constraint.Metric)} {sense} {constraint.Threshold.ToString(CultureInfo.InvariantCulture)} ({constraint.Scope})",
+                    satisfied));
+            }
+
+            EpsilonSweepResults? epsilonSweep = null;
+            if (options.EpsilonStudy != null)
+            {
+                EpsilonConstraintStudy study = options.EpsilonStudy;
+                var primaryValues = new double[rows.Count];
+                var epsilonValues = new double[rows.Count];
+                var fixedFeasible = new bool[rows.Count];
+                for (int i = 0; i < rows.Count; i++)
+                {
+                    primaryValues[i] = resolver.ResolveValue(study.Primary.Metric, i);
+                    epsilonValues[i] = resolver.ResolveValue(study.EpsilonObjective, i);
+                    bool feasible = true;
+                    for (int c = 0; c < study.FixedConstraints.Count; c++)
+                    {
+                        if (!resolver.EvaluateConstraint(study.FixedConstraints[c], i)) feasible = false;
+                    }
+                    fixedFeasible[i] = feasible;
+                }
+                epsilonSweep = EpsilonSweepEngine.Run(study.Primary.Name, study.Primary.Direction,
+                    CostBenefitMetricResolver.Describe(study.EpsilonObjective), names, primaryValues,
+                    epsilonValues, fixedFeasible, eligible, study.EpsilonGrid, study.GridPoints,
+                    diagnostics);
+            }
+
+            // The declared-vector frontier: values, the weak-dominance screen, the three
+            // standard projections, and the cost-ranked incremental table.
+            var objectiveNames = new string[options.Objectives.Count];
+            var objectiveDirections = new ObjectiveDirection[options.Objectives.Count];
+            var objectiveValues = new double[rows.Count][];
+            var excludedForNaN = new bool[rows.Count];
+            for (int j = 0; j < options.Objectives.Count; j++)
+            {
+                objectiveNames[j] = options.Objectives[j].Name;
+                objectiveDirections[j] = options.Objectives[j].Direction;
+            }
+            for (int i = 0; i < rows.Count; i++)
+            {
+                objectiveValues[i] = new double[options.Objectives.Count];
+                for (int j = 0; j < options.Objectives.Count; j++)
+                {
+                    objectiveValues[i][j] = resolver.ResolveValue(options.Objectives[j].Metric, i);
+                    if (double.IsNaN(objectiveValues[i][j])) excludedForNaN[i] = true;
+                }
+            }
+            bool[] nonDominated = ParetoFrontierEngine.NonDominated(objectiveValues, objectiveDirections,
+                excludedForNaN);
+
+            bool absorbingHeadline = options.Accounting == LifeCycleAccounting.Absorbing;
+            var costValues = new double[rows.Count];
+            var monetizedBenefits = new double[rows.Count];
+            var annualCosts = new double[rows.Count];
+            var livesSavedValues = new double[rows.Count];
+            var failureProbabilityReductions = new double[rows.Count];
+            for (int i = 0; i < rows.Count; i++)
+            {
+                costValues[i] = rows[i].TotalCostPresentValue;
+                monetizedBenefits[i] = absorbingHeadline
+                    ? rows[i].AbsorbingMonetizedPresentValueBenefit
+                    : rows[i].MonetizedPresentValueBenefit;
+                annualCosts[i] = rows[i].EquivalentAnnualCost;
+                livesSavedValues[i] = rows[i].LivesSavedEquivalentAnnual;
+                failureProbabilityReductions[i] = rows[i].AnnualizedFailureProbabilityReduction;
+            }
+            var projections = new List<FrontierProjection>(3)
+            {
+                BuildProjection("Present value of cost vs monetized present-value benefit",
+                    "Present value of total cost", ObjectiveDirection.Minimize,
+                    "Monetized present-value benefit", ObjectiveDirection.Maximize,
+                    names, costValues, monetizedBenefits),
+                BuildProjection("Equivalent annual cost vs annualized lives saved",
+                    "Equivalent annual cost", ObjectiveDirection.Minimize,
+                    "Equivalent-annual lives saved", ObjectiveDirection.Maximize,
+                    names, annualCosts, livesSavedValues),
+                BuildProjection("Present value of cost vs annualized failure-probability reduction",
+                    "Present value of total cost", ObjectiveDirection.Minimize,
+                    "Annualized failure-probability reduction", ObjectiveDirection.Maximize,
+                    names, costValues, failureProbabilityReductions),
+            };
+            List<IncrementalEntry> incremental = ParetoFrontierEngine.IncrementalAnalysis(names,
+                costValues, monetizedBenefits, livesSavedValues, nonDominated);
+            var notEligible = new bool[rows.Count];
+            for (int i = 0; i < rows.Count; i++)
+            {
+                notEligible[i] = !eligible[i];
+            }
+            var frontier = new ParetoFrontierResults(objectiveNames, objectiveDirections, names,
+                WrapRows(objectiveValues), nonDominated, excludedForNaN, notEligible, projections,
+                incremental);
+
+            McdaResults? mcda = null;
+            if (options.McdaWeights != null)
+            {
+                mcda = McdaEngine.Score(objectiveNames, objectiveDirections, options.McdaWeights,
+                    names, objectiveValues, eligible);
+            }
+
             return new CostBenefitResults(periodYears, discountRate, grid,
                 options.BenefitRiskType, options.Accounting, options.AlphaLevels,
                 options.Monetization, options.LifeSafetyConsequenceType,
                 options.WillingnessToPay, options.WillingnessToPayVintage,
                 options.AlarpProximity, options.AlarpBandThresholds,
                 options.IndividualRiskLimit, options.EquityExponent, options.DoNoHarm,
-                labels, units, rows, reductions, points, trajectories);
+                labels, units, rows, reductions, points, trajectories,
+                options.BaselineIndividualRisk, options.AlternativeIndividualRisk,
+                options.Objectives, options.Constraints, options.EpsilonStudy,
+                constraintEvaluations, epsilonSweep, frontier, mcda, diagnostics);
+        }
+
+        /// <summary>
+        /// Builds one standard two-dimensional projection: its own weak-dominance screen over
+        /// the pair, with NaN coordinates excluded and flagged.
+        /// </summary>
+        /// <param name="label">The projection label.</param>
+        /// <param name="xLabel">The x-axis label.</param>
+        /// <param name="xDirection">The x-axis direction.</param>
+        /// <param name="yLabel">The y-axis label.</param>
+        /// <param name="yDirection">The y-axis direction.</param>
+        /// <param name="names">The alternative names.</param>
+        /// <param name="xValues">The x coordinates.</param>
+        /// <param name="yValues">The y coordinates.</param>
+        /// <returns>The projection.</returns>
+        private static FrontierProjection BuildProjection(string label, string xLabel,
+            ObjectiveDirection xDirection, string yLabel, ObjectiveDirection yDirection,
+            IReadOnlyList<string> names, double[] xValues, double[] yValues)
+        {
+            int count = names.Count;
+            var excluded = new bool[count];
+            var pairValues = new double[count][];
+            for (int i = 0; i < count; i++)
+            {
+                excluded[i] = double.IsNaN(xValues[i]) || double.IsNaN(yValues[i]);
+                pairValues[i] = new[] { xValues[i], yValues[i] };
+            }
+            bool[] nonDominated = ParetoFrontierEngine.NonDominated(pairValues,
+                new[] { xDirection, yDirection }, excluded);
+            return new FrontierProjection(label, xLabel, xDirection, yLabel, yDirection, names,
+                xValues, yValues, nonDominated, excluded);
+        }
+
+        /// <summary>
+        /// Wraps a value matrix's rows as read-only views for the frontier container.
+        /// </summary>
+        /// <param name="values">The matrix (one row per alternative).</param>
+        /// <returns>The read-only rows.</returns>
+        private static IReadOnlyList<IReadOnlyList<double>> WrapRows(double[][] values)
+        {
+            var rows = new IReadOnlyList<double>[values.Length];
+            for (int i = 0; i < values.Length; i++)
+            {
+                rows[i] = values[i];
+            }
+            return rows;
         }
 
         /// <summary>
@@ -786,6 +1057,10 @@ namespace RMC.TotalRisk.Analyses
                     messages.Add($"Error: The life-safety consequence-type position {options.LifeSafetyConsequenceType} is not declared.");
                 }
 
+                // Every declared metric selector must reference the declared axis — an
+                // out-of-range position would otherwise resolve to a silent NaN.
+                CheckDeclaredMetricAxes(options, typeCount, messages);
+
                 // The monetized-set warnings.
                 double[]? factors = ResolveMonetizationFactors(options, baselineUnits);
                 bool anyMonetized = false;
@@ -877,6 +1152,10 @@ namespace RMC.TotalRisk.Analyses
             {
                 messages.Add("Warning: No willingness to pay is declared; the disproportionality and ALARP block is skipped.");
             }
+            if (options.DoNoHarm == DoNoHarmPolicy.WarnOnly)
+            {
+                messages.Add("Warning: The do-no-harm screen is advisory only: alternatives that increase Total-stream risk are marked but stay eligible for recommendations.");
+            }
             if (options.LifeSafetyConsequenceType >= 0
                 && (double.IsNaN(options.BaselineIndividualRisk) || double.IsNaN(options.AlternativeIndividualRisk)))
             {
@@ -884,6 +1163,56 @@ namespace RMC.TotalRisk.Analyses
             }
 
             return messages;
+        }
+
+        /// <summary>
+        /// Checks every declared metric selector — the objectives, the constraints, and the
+        /// ε study's primary, swept objective, and fixed constraints — against the baseline's
+        /// declared consequence-type axis.
+        /// </summary>
+        /// <param name="options">The study declarations.</param>
+        /// <param name="typeCount">The baseline's declared consequence-type count.</param>
+        /// <param name="messages">The message sink.</param>
+        private static void CheckDeclaredMetricAxes(CostBenefitOptions options, int typeCount,
+            List<string> messages)
+        {
+            for (int i = 0; i < options.Objectives.Count; i++)
+            {
+                CheckMetricAxis(options.Objectives[i].Metric,
+                    $"Objective '{options.Objectives[i].Name}'", typeCount, messages);
+            }
+            for (int i = 0; i < options.Constraints.Count; i++)
+            {
+                CheckMetricAxis(options.Constraints[i].Metric, $"Constraint {i}", typeCount, messages);
+            }
+            if (options.EpsilonStudy != null)
+            {
+                CheckMetricAxis(options.EpsilonStudy.Primary.Metric,
+                    $"The ε study's primary objective '{options.EpsilonStudy.Primary.Name}'", typeCount, messages);
+                CheckMetricAxis(options.EpsilonStudy.EpsilonObjective,
+                    "The ε study's swept objective", typeCount, messages);
+                for (int i = 0; i < options.EpsilonStudy.FixedConstraints.Count; i++)
+                {
+                    CheckMetricAxis(options.EpsilonStudy.FixedConstraints[i].Metric,
+                        $"The ε study's fixed constraint {i}", typeCount, messages);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Checks one metric selector's consequence-type position against the declared axis.
+        /// </summary>
+        /// <param name="metric">The metric selector.</param>
+        /// <param name="seat">The declaration seat named in the message.</param>
+        /// <param name="typeCount">The declared consequence-type count.</param>
+        /// <param name="messages">The message sink.</param>
+        private static void CheckMetricAxis(CostBenefitMetric metric, string seat, int typeCount,
+            List<string> messages)
+        {
+            if (!metric.IsEconomic && metric.ConsequenceType >= typeCount)
+            {
+                messages.Add($"Error: {seat} references consequence-type position {metric.ConsequenceType}, which is not declared.");
+            }
         }
 
         /// <summary>

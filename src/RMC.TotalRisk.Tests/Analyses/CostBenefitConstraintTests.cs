@@ -72,4 +72,57 @@ public class CostBenefitConstraintTests
         Assert.AreEqual(0.01d, restored.Metric.Alpha);
         Assert.ThrowsException<ArgumentNullException>(() => new CostBenefitConstraint(null!));
     }
+
+    /// <summary>
+    /// Verifies the metric-aware scope default: a null scope resolves to every epoch for an
+    /// annualized metric and to the horizon for a whole-horizon metric, so natural
+    /// declarations need no explicit scope.
+    /// </summary>
+    [TestMethod]
+    public void Test_Ctor_ScopeDefault_MetricAware()
+    {
+        // Act
+        var annualized = new CostBenefitConstraint(
+            CostBenefitMetric.ForRiskMeasure(RiskMeasure.Mean, RiskType.Excess),
+            ConstraintType.LesserThanOrEqualTo, 1e-3);
+        var economic = new CostBenefitConstraint(
+            CostBenefitMetric.ForEconomic(EconomicMetric.AnnualizedFailureProbability),
+            ConstraintType.LesserThanOrEqualTo, 1e-4);
+        var horizonBasis = new CostBenefitConstraint(
+            CostBenefitMetric.ForRiskMeasure(RiskMeasure.Mean, RiskType.Total,
+                basis: MetricBasis.HorizonPresentValue),
+            ConstraintType.LesserThanOrEqualTo, 100d);
+
+        // Assert — and every defaulted declaration validates.
+        Assert.AreEqual(ConstraintScope.EveryEpoch, annualized.Scope);
+        Assert.AreEqual(ConstraintScope.Horizon, economic.Scope);
+        Assert.AreEqual(ConstraintScope.Horizon, horizonBasis.Scope);
+        Assert.IsTrue(annualized.Validate().IsValid);
+        Assert.IsTrue(economic.Validate().IsValid);
+        Assert.IsTrue(horizonBasis.Validate().IsValid);
+    }
+
+    /// <summary>
+    /// Verifies the scope-and-metric compatibility rule: a whole-horizon metric checked per
+    /// epoch is refused, and an annualized metric checked at the horizon is refused.
+    /// </summary>
+    [TestMethod]
+    public void Test_Validate_ScopeMetricMismatch_Refused()
+    {
+        // Act
+        (bool horizonAtEveryEpochValid, List<string> horizonMessages) = new CostBenefitConstraint(
+            CostBenefitMetric.ForEconomic(EconomicMetric.PresentValueOfTotalCost),
+            ConstraintType.LesserThanOrEqualTo, 100d, ConstraintScope.EveryEpoch).Validate();
+        (bool annualizedAtHorizonValid, List<string> annualizedMessages) = new CostBenefitConstraint(
+            CostBenefitMetric.ForRiskMeasure(RiskMeasure.Mean, RiskType.Excess),
+            ConstraintType.LesserThanOrEqualTo, 1e-3, ConstraintScope.Horizon).Validate();
+
+        // Assert
+        Assert.IsFalse(horizonAtEveryEpochValid);
+        Assert.IsTrue(horizonMessages[0].StartsWith(
+            "Error: The constraint checks a whole-horizon metric", StringComparison.Ordinal));
+        Assert.IsFalse(annualizedAtHorizonValid);
+        Assert.IsTrue(annualizedMessages[0].StartsWith(
+            "Error: The constraint checks an annualized metric", StringComparison.Ordinal));
+    }
 }

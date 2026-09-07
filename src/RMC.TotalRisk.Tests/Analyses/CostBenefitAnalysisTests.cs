@@ -524,4 +524,105 @@ public class CostBenefitAnalysisTests
         Assert.AreEqual(firstNetPresentValue, study.Results!.Alternatives[1].NetPresentValue, 0d);
         Assert.AreEqual(firstAnnualized, study.Results.Alternatives[1].AnnualizedFailureProbability, 0d);
     }
+
+    /// <summary>
+    /// Verifies the formulary columns wire from the published quantities: the total expected
+    /// annual cost identities against the trajectory levels, the failure-prevention ratio
+    /// against the published cost and probability columns, the individual-risk proxy echo, and
+    /// the skipped blocks (no life-safety type, no willingness to pay) reporting NaN and an
+    /// empty band.
+    /// </summary>
+    [TestMethod]
+    public void Test_Run_FormularyColumns_WiringAndSkippedBlocks()
+    {
+        // Arrange — identity monetization prices the single "$" type at one.
+        (CostBenefitAnalysis study, _, _) =
+            BuildStudy(new CostBenefitOptions(30, 0.05d, monetization: new ConsequenceMonetization()));
+
+        // Act
+        study.RunAsync().GetAwaiter().GetResult();
+        CostBenefitResults results = study.Results!;
+        AlternativeEconomics baselineRow = results.Alternatives[0];
+        AlternativeEconomics fixRow = results.Alternatives[1];
+        double horizonAnnuity = DiscountingSupport.AnnuityFactor(30, 0.05d);
+
+        // Assert — TEAC = EAC + the monetized Total-stream equivalent-annual level, per
+        // convention (the absorbing level derives as absorbing present value over annuity).
+        Assert.AreEqual(fixRow.EquivalentAnnualCost + results.Trajectories[1].EquivalentAnnualConsequences[0],
+            fixRow.TotalExpectedAnnualCost, 0d);
+        Assert.AreEqual(fixRow.EquivalentAnnualCost
+            + results.Trajectories[1].AbsorbingPresentValueOfExpectedConsequences[0] / horizonAnnuity,
+            fixRow.AbsorbingTotalExpectedAnnualCost, 0d);
+
+        // The failure-prevention ratio recomposes from published columns.
+        Assert.AreEqual(
+            (fixRow.CapitalPresentValue + fixRow.OperationsAndMaintenancePresentValue) / horizonAnnuity
+                / fixRow.AnnualizedFailureProbabilityReduction,
+            fixRow.CostPerStatisticalFailurePrevented, 0d);
+        Assert.IsTrue(double.IsNaN(baselineRow.CostPerStatisticalFailurePrevented),
+            "The baseline prevents nothing relative to itself.");
+
+        // The individual-risk seats fall back to the survival-equivalent proxy and echo it.
+        Assert.IsTrue(fixRow.IndividualRiskIsProxy);
+        Assert.AreEqual(baselineRow.AnnualizedFailureProbability, fixRow.BaselineIndividualRiskUsed, 0d);
+        Assert.AreEqual(fixRow.AnnualizedFailureProbability, fixRow.AlternativeIndividualRiskUsed, 0d);
+
+        // No life-safety type and no willingness to pay: the life-saved family and the
+        // disproportionality block are skipped, and the screen passes.
+        Assert.IsTrue(double.IsNaN(fixRow.CostPerStatisticalLifeSavedUnadjusted));
+        Assert.IsTrue(double.IsNaN(fixRow.CostPerStatisticalLifeSavedAdjusted));
+        Assert.IsTrue(double.IsNaN(fixRow.AbsorbingAdjustedCostPerStatisticalLifeSaved));
+        Assert.IsTrue(double.IsNaN(fixRow.DisproportionalityRatio));
+        Assert.AreEqual(string.Empty, fixRow.AlarpBand);
+        Assert.IsFalse(fixRow.FailsDoNoHarm);
+        Assert.AreEqual(0, baselineRow.DoNoHarmOffendingTypes.Count);
+    }
+
+    /// <summary>
+    /// Verifies the do-no-harm screen across its three policies on an alternative that
+    /// increases Total-stream risk: Enforce and WarnOnly flag the row with the offending type
+    /// named (WarnOnly also carries the advisory validation Warning), and Off leaves the
+    /// screen unevaluated.
+    /// </summary>
+    [TestMethod]
+    public void Test_Run_DoNoHarmScreen_Policies()
+    {
+        // Arrange — the baseline is the sound configuration; the alternative raises the
+        // failure probability (house event true: 0.2 → 0.92), so Total risk increases.
+        static (CostBenefitAnalysis Study, RiskReductionAlternative Worse) BuildHarmStudy(CostBenefitOptions options)
+        {
+            var soundBaseline = new RiskReductionAlternative("Existing condition", BuildSystem(houseState: false));
+            var worse = new RiskReductionAlternative("Deferred maintenance", BuildSystem(houseState: true),
+                new CostStream(new[] { new CapitalCostEntry(0, 10d) }));
+            var harmStudy = new CostBenefitAnalysis(options);
+            harmStudy.Alternatives.Add(soundBaseline);
+            harmStudy.Alternatives.Add(worse);
+            harmStudy.Baseline = soundBaseline;
+            return (harmStudy, worse);
+        }
+
+        // Act / Assert — Enforce (the default): flagged, the offending type named, no
+        // advisory Warning.
+        (CostBenefitAnalysis study, _) = BuildHarmStudy(new CostBenefitOptions(30, 0.05d));
+        (_, List<string> enforceMessages) = study.Validate();
+        Assert.IsFalse(HasMessage(enforceMessages, "Warning: The do-no-harm screen is advisory only"));
+        study.RunAsync().GetAwaiter().GetResult();
+        Assert.IsTrue(study.Results!.Alternatives[1].FailsDoNoHarm);
+        CollectionAssert.AreEqual(new[] { 0 },
+            (System.Collections.ICollection)study.Results.Alternatives[1].DoNoHarmOffendingTypes);
+        Assert.IsFalse(study.Results.Alternatives[0].FailsDoNoHarm, "The baseline cannot harm itself.");
+
+        // WarnOnly: still flagged, and the advisory Warning joins the validation messages.
+        (study, _) = BuildHarmStudy(new CostBenefitOptions(30, 0.05d, doNoHarm: DoNoHarmPolicy.WarnOnly));
+        (_, List<string> warnMessages) = study.Validate();
+        Assert.IsTrue(HasMessage(warnMessages, "Warning: The do-no-harm screen is advisory only"));
+        study.RunAsync().GetAwaiter().GetResult();
+        Assert.IsTrue(study.Results!.Alternatives[1].FailsDoNoHarm);
+
+        // Off: the screen is not evaluated.
+        (study, _) = BuildHarmStudy(new CostBenefitOptions(30, 0.05d, doNoHarm: DoNoHarmPolicy.Off));
+        study.RunAsync().GetAwaiter().GetResult();
+        Assert.IsFalse(study.Results!.Alternatives[1].FailsDoNoHarm);
+        Assert.AreEqual(0, study.Results.Alternatives[1].DoNoHarmOffendingTypes.Count);
+    }
 }

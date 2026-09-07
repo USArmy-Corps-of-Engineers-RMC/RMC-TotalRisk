@@ -52,6 +52,16 @@ namespace RMC.TotalRisk.Results
         /// <param name="consequenceReductions">The per-type per-stream reduction rows.</param>
         /// <param name="trajectoryPoints">The plot-ready trajectory points.</param>
         /// <param name="trajectories">The per-alternative trajectories, parallel to the economics rows.</param>
+        /// <param name="baselineIndividualRisk">The declared baseline-side individual-risk seat (NaN = the proxy is in use).</param>
+        /// <param name="alternativeIndividualRisk">The declared alternative-side individual-risk seat (NaN = the proxy is in use).</param>
+        /// <param name="objectives">The declared objective vector echo, or null for none recorded.</param>
+        /// <param name="constraints">The declared constraint echo, or null for none recorded.</param>
+        /// <param name="epsilonStudy">The declared ε-constraint study echo, or null.</param>
+        /// <param name="constraintEvaluations">The declared constraints' per-alternative evaluations, or null.</param>
+        /// <param name="epsilonSweep">The ε-constraint sweep results, or null when no study is declared.</param>
+        /// <param name="frontier">The declared-vector frontier results, or null when not computed.</param>
+        /// <param name="mcda">The multi-criteria scores, or null when no weights are declared.</param>
+        /// <param name="diagnostics">The computation diagnostics, or null for none.</param>
         /// <exception cref="ArgumentNullException">Thrown when a required list is null.</exception>
         /// <exception cref="ArgumentException">Thrown when the trajectories do not parallel the economics rows.</exception>
         public CostBenefitResults(int periodYears, double discountRate,
@@ -64,7 +74,17 @@ namespace RMC.TotalRisk.Results
             IReadOnlyList<AlternativeEconomics> alternatives,
             IReadOnlyList<ConsequenceReduction> consequenceReductions,
             IReadOnlyList<TrajectoryPoint> trajectoryPoints,
-            IReadOnlyList<LifeCycleRiskResults> trajectories)
+            IReadOnlyList<LifeCycleRiskResults> trajectories,
+            double baselineIndividualRisk = double.NaN,
+            double alternativeIndividualRisk = double.NaN,
+            IReadOnlyList<ObjectiveDeclaration>? objectives = null,
+            IReadOnlyList<CostBenefitConstraint>? constraints = null,
+            EpsilonConstraintStudy? epsilonStudy = null,
+            IReadOnlyList<ConstraintEvaluation>? constraintEvaluations = null,
+            EpsilonSweepResults? epsilonSweep = null,
+            ParetoFrontierResults? frontier = null,
+            McdaResults? mcda = null,
+            IReadOnlyList<ComputationDiagnostic>? diagnostics = null)
         {
             PeriodYears = periodYears;
             DiscountRate = discountRate;
@@ -94,12 +114,30 @@ namespace RMC.TotalRisk.Results
             IndividualRiskLimit = individualRiskLimit;
             EquityExponent = equityExponent;
             DoNoHarm = doNoHarm;
+            BaselineIndividualRisk = baselineIndividualRisk;
+            AlternativeIndividualRisk = alternativeIndividualRisk;
             ConsequenceLabels = Array.AsReadOnly(consequenceLabels.ToArray());
             ConsequenceUnits = Array.AsReadOnly(consequenceUnits.ToArray());
             Alternatives = Array.AsReadOnly(alternatives.ToArray());
             ConsequenceReductions = Array.AsReadOnly(consequenceReductions.ToArray());
             TrajectoryPoints = Array.AsReadOnly(trajectoryPoints.ToArray());
             Trajectories = Array.AsReadOnly(trajectories.ToArray());
+            Objectives = objectives == null
+                ? Array.Empty<ObjectiveDeclaration>()
+                : Array.AsReadOnly(objectives.ToArray());
+            Constraints = constraints == null
+                ? Array.Empty<CostBenefitConstraint>()
+                : Array.AsReadOnly(constraints.ToArray());
+            EpsilonStudy = epsilonStudy;
+            ConstraintEvaluations = constraintEvaluations == null
+                ? Array.Empty<ConstraintEvaluation>()
+                : Array.AsReadOnly(constraintEvaluations.ToArray());
+            EpsilonSweep = epsilonSweep;
+            Frontier = frontier;
+            Mcda = mcda;
+            Diagnostics = diagnostics == null
+                ? Array.Empty<ComputationDiagnostic>()
+                : Array.AsReadOnly(diagnostics.ToArray());
         }
 
         /// <summary>The planning horizon in years.</summary>
@@ -144,6 +182,18 @@ namespace RMC.TotalRisk.Results
         /// <summary>The equity-versus-efficiency exponent.</summary>
         public double EquityExponent { get; }
 
+        /// <summary>
+        /// The declared baseline-side individual-risk seat; NaN when the survival-equivalent
+        /// annualized failure-probability proxy is in use (the rows echo the values used).
+        /// </summary>
+        public double BaselineIndividualRisk { get; }
+
+        /// <summary>
+        /// The declared alternative-side individual-risk seat; NaN when each row's own proxy
+        /// is in use.
+        /// </summary>
+        public double AlternativeIndividualRisk { get; }
+
         /// <summary>The do-no-harm policy.</summary>
         public DoNoHarmPolicy DoNoHarm { get; }
 
@@ -168,5 +218,32 @@ namespace RMC.TotalRisk.Results
         /// and plan share one trajectory instance.
         /// </summary>
         public IReadOnlyList<LifeCycleRiskResults> Trajectories { get; }
+
+        /// <summary>The declared objective vector echo.</summary>
+        public IReadOnlyList<ObjectiveDeclaration> Objectives { get; }
+
+        /// <summary>The declared constraint echo.</summary>
+        public IReadOnlyList<CostBenefitConstraint> Constraints { get; }
+
+        /// <summary>The declared ε-constraint study echo, or null when none is declared.</summary>
+        public EpsilonConstraintStudy? EpsilonStudy { get; }
+
+        /// <summary>
+        /// The declared constraints' per-alternative evaluations, parallel to the constraint
+        /// echo — a declared constraint is never silently inert.
+        /// </summary>
+        public IReadOnlyList<ConstraintEvaluation> ConstraintEvaluations { get; }
+
+        /// <summary>The ε-constraint sweep results, or null when no study is declared.</summary>
+        public EpsilonSweepResults? EpsilonSweep { get; }
+
+        /// <summary>The declared-vector frontier with its projections and incremental table, or null.</summary>
+        public ParetoFrontierResults? Frontier { get; }
+
+        /// <summary>The multi-criteria scores, or null when no weights are declared.</summary>
+        public McdaResults? Mcda { get; }
+
+        /// <summary>The computation diagnostics (named skips and exclusions).</summary>
+        public IReadOnlyList<ComputationDiagnostic> Diagnostics { get; }
     }
 }

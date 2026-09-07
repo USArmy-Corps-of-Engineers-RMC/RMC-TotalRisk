@@ -35,15 +35,19 @@ namespace RMC.TotalRisk.Analyses
         /// <param name="metric">The metric selector the constraint reads.</param>
         /// <param name="sense">The inequality sense (at most, or at least).</param>
         /// <param name="threshold">The threshold, in the metric's own units.</param>
-        /// <param name="scope">The trajectory scope the constraint is evaluated at.</param>
+        /// <param name="scope">
+        /// The trajectory scope the constraint is evaluated at; null resolves by the metric —
+        /// every epoch for an annualized metric, the horizon for a whole-horizon metric — so
+        /// natural declarations need no explicit scope.
+        /// </param>
         /// <exception cref="ArgumentNullException">Thrown when the metric is null.</exception>
         public CostBenefitConstraint(CostBenefitMetric metric, ConstraintType sense, double threshold,
-            ConstraintScope scope = ConstraintScope.EveryEpoch)
+            ConstraintScope? scope = null)
         {
             Metric = metric ?? throw new ArgumentNullException(nameof(metric));
             Sense = sense;
             Threshold = threshold;
-            Scope = scope;
+            Scope = scope ?? (Metric.IsWholeHorizon ? ConstraintScope.Horizon : ConstraintScope.EveryEpoch);
         }
 
         /// <summary>
@@ -103,7 +107,9 @@ namespace RMC.TotalRisk.Analyses
 
         /// <summary>
         /// Validates the constraint: an inequality sense, a recognized scope, a finite
-        /// threshold, and a valid metric.
+        /// threshold, a valid metric, and the scope-and-metric compatibility rule — a
+        /// whole-horizon metric is one number for the whole study and is checked once at the
+        /// Horizon scope, while an annualized metric is checked per epoch.
         /// </summary>
         /// <returns>The validity flag and messages.</returns>
         public (bool IsValid, List<string> ValidationMessages) Validate()
@@ -117,6 +123,13 @@ namespace RMC.TotalRisk.Analyses
                 messages.Add("Error: The constraint threshold must be finite.");
             (_, List<string> metricMessages) = Metric.Validate();
             messages.AddRange(metricMessages);
+            if (Enum.IsDefined(Scope))
+            {
+                if (Metric.IsWholeHorizon && Scope != ConstraintScope.Horizon)
+                    messages.Add($"Error: The constraint checks a whole-horizon metric at the {Scope} scope; a whole-horizon metric is one number for the study and is checked at the Horizon scope.");
+                if (!Metric.IsWholeHorizon && Scope == ConstraintScope.Horizon)
+                    messages.Add("Error: The constraint checks an annualized metric at the Horizon scope; annualized metrics are checked per epoch (EveryEpoch or FirstEpoch).");
+            }
             return (messages.Count == 0, messages);
         }
 

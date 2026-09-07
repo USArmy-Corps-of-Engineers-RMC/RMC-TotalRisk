@@ -33,6 +33,66 @@ public class AlternativeEconomicsTests
             0d, 0d, 0d, 0d, 0d, 0d, 0d, 0d, 0d, 0d, 0d, 0d, 0d, 0d, 0d, 0d, 0d, 0d, 0d, 0d, 0d));
     }
 
+    /// <summary>
+    /// Verifies the appended decision-framework columns default to skipped values and echo
+    /// explicit values, with the offending-type list defensively copied.
+    /// </summary>
+    [TestMethod]
+    public void Test_Ctor_DecisionColumns_DefaultsAndEcho()
+    {
+        // Act — the defaults.
+        var defaulted = Build();
+
+        // Assert
+        Assert.IsTrue(double.IsNaN(defaulted.TotalExpectedAnnualCost));
+        Assert.IsTrue(double.IsNaN(defaulted.AbsorbingTotalExpectedAnnualCost));
+        Assert.IsTrue(double.IsNaN(defaulted.CostPerStatisticalLifeSavedUnadjusted));
+        Assert.IsTrue(double.IsNaN(defaulted.CostPerStatisticalLifeSavedAdjusted));
+        Assert.IsTrue(double.IsNaN(defaulted.EquityWeightedAdjustedCostPerStatisticalLifeSaved));
+        Assert.IsTrue(double.IsNaN(defaulted.CostPerStatisticalFailurePrevented));
+        Assert.IsTrue(double.IsNaN(defaulted.AbsorbingAdjustedCostPerStatisticalLifeSaved));
+        Assert.IsTrue(double.IsNaN(defaulted.DisproportionalityRatio));
+        Assert.AreEqual(string.Empty, defaulted.AlarpBand);
+        Assert.IsFalse(defaulted.FailsDoNoHarm);
+        Assert.AreEqual(0, defaulted.DoNoHarmOffendingTypes.Count);
+        Assert.IsTrue(double.IsNaN(defaulted.BaselineIndividualRiskUsed));
+        Assert.IsTrue(double.IsNaN(defaulted.AlternativeIndividualRiskUsed));
+        Assert.IsFalse(defaulted.IndividualRiskIsProxy);
+
+        // Act — explicit values, with a mutable offending list copied at construction.
+        var offending = new System.Collections.Generic.List<int> { 0, 2 };
+        var row = new AlternativeEconomics("Fix", "d", false,
+            1d, 2d, 3d, 6d, 0.5d, 7d, 10d, 9d, 4d, 0.4d, 1.67d,
+            9.5d, 8.5d, 3.5d, 0.35d, 1.58d, 1e-3, 5e-4, 2e-3, 1e-3, 0.002d,
+            totalExpectedAnnualCost: 150d, absorbingTotalExpectedAnnualCost: 149d,
+            costPerStatisticalLifeSavedUnadjusted: 30000d,
+            costPerStatisticalLifeSavedAdjusted: 20000d,
+            equityWeightedAdjustedCostPerStatisticalLifeSaved: 2000d,
+            costPerStatisticalFailurePrevented: 120000d,
+            absorbingAdjustedCostPerStatisticalLifeSaved: 10000d,
+            disproportionalityRatio: 0.0034d, alarpBand: "Very Strong",
+            failsDoNoHarm: true, doNoHarmOffendingTypes: offending,
+            baselineIndividualRiskUsed: 1e-3, alternativeIndividualRiskUsed: 1e-4,
+            individualRiskIsProxy: true);
+        offending.Add(9);
+
+        // Assert
+        Assert.AreEqual(150d, row.TotalExpectedAnnualCost);
+        Assert.AreEqual(149d, row.AbsorbingTotalExpectedAnnualCost);
+        Assert.AreEqual(30000d, row.CostPerStatisticalLifeSavedUnadjusted);
+        Assert.AreEqual(20000d, row.CostPerStatisticalLifeSavedAdjusted);
+        Assert.AreEqual(2000d, row.EquityWeightedAdjustedCostPerStatisticalLifeSaved);
+        Assert.AreEqual(120000d, row.CostPerStatisticalFailurePrevented);
+        Assert.AreEqual(10000d, row.AbsorbingAdjustedCostPerStatisticalLifeSaved);
+        Assert.AreEqual(0.0034d, row.DisproportionalityRatio);
+        Assert.AreEqual("Very Strong", row.AlarpBand);
+        Assert.IsTrue(row.FailsDoNoHarm);
+        CollectionAssert.AreEqual(new[] { 0, 2 }, (System.Collections.ICollection)row.DoNoHarmOffendingTypes);
+        Assert.AreEqual(1e-3, row.BaselineIndividualRiskUsed);
+        Assert.AreEqual(1e-4, row.AlternativeIndividualRiskUsed);
+        Assert.IsTrue(row.IndividualRiskIsProxy);
+    }
+
     /// <summary>Verifies every slot echoes its own value.</summary>
     [TestMethod]
     public void Test_Ctor_PropertiesEchoed()

@@ -1,5 +1,127 @@
 # Progress Log
 
+## 2026-09-07 — Capability program session 13: C5 implementation session CB2 — the decision framework
+
+**Goal:** execute CB2 per the ratified design's phase table (`COST_BENEFIT_ANALYSIS_DESIGN.md`
+v1.0): the metric selectors wired end-to-end through the promoted `SelectScope`/`ExtractMeasure`
+and the retained epoch realizations, the CSSL formulary (App. L exact + EWACSLS/CSFP/AACSLS +
+disproportionality/ALARP), TEAC, the do-no-harm screen, the discrete ε-constraint sweep with
+the three templates executing, frontier + incremental CE/ICA + MCDA, and verification fixtures
+12–17 + 27–28 plus the relocated 9–10 and the CB1 fixture extensions.
+
+**Baseline (session start):** numerics `94d1713` clean (ahead 6, no v2.2.x tag; sibling Debug
+DLL rebuilt); TotalRisk `v2.0-development` clean at `59ae8e8` (ahead 8 — never push).
+`dotnet build` 0 warnings; fast suite **1,547/1,547** + Api **73/73**; **all eight perf byte
+gates bit-exact** as separate invocations against their RESULTS.md pins — F1 `b2e6ea88…`,
+F2 `ac35a7fa…`, F3 `e46763ef…`, F4 `8a3a8b52…`, F5 `2ae3925b…`, F6 `bd4a26e8…`,
+F7 `f985ca02…`, F8 `c9599e0a…`.
+
+**User rulings (2026-09-07, at plan review):**
+
+1. **A scope × metric mismatch is refused.** A whole-horizon metric (an economics metric or
+   a Horizon-basis risk measure) declared with a year-by-year constraint scope — or an
+   annualized metric declared at the Horizon scope — is a Validate Error naming the
+   combination. To keep natural declarations legal, `CostBenefitConstraint`'s `scope`
+   parameter became nullable with a metric-aware resolution (EveryEpoch for annualized
+   metrics, Horizon for whole-horizon ones — decision 6's own "default for annualized
+   measures" phrasing); nothing is serialized yet, so the tightening breaks nothing.
+2. **An annualized metric used as an objective, frontier axis, MCDA axis, or ε axis
+   resolves at the first epoch** (year zero — the present-condition reading, matching the
+   established year-zero echo convention); whole-horizon readings are declared through the
+   Horizon bases. This pins the default objective vector's dispersion member.
+
+Plan-ratified conventions (recorded in the plan and the API remarks): TEAC's consequence
+term is the monetized equivalent-annual level of the benefit stream (forced by the
+min-TEAC ≡ max-net-benefits identity; the absorbing twin follows the CB1 pattern); Horizon
+bases are Mean-only on Total/Excess/Fail with the absorbing equivalent-annual level derived
+as AbsorbingPV/A(T); a metric's NaN α reads `AlphaLevels[0]`; α re-evaluation always clones
+retained curves (trajectories are reference-shared — mutation is off the table) and
+re-measures with each system's own per-type consequence thresholds; the automatic ε grid is
+GridPoints uniform inclusive values over the fixed-feasible payoff range; the swept bound is
+always an upper bound, binding when the fixed-constraints-only optimum violates it, ties to
+the first results row; λ̂ ≡ ICA through one shared `TradeOffRatio` authority; do-no-harm
+under Off is unevaluated and under WarnOnly advisory (the deferred CB1 notice landed);
+reliability-mode consequence metrics resolve NaN with one named `ComputationDiagnostic`
+each (TRC2001); declared study constraints evaluate into a per-alternative table so they
+are never silently inert; AACSLS's cost base is capital + O&M (the documented reading —
+Section D's literal PV_cost token would double-count the operating stream its own term
+subtracts).
+
+**Landed (this commit):** `CostBenefitFormulary` (internal pure statics: TEAC,
+CSSL(U)/(A) per App. L with the zero clamp, EWACSLS with the IRL floor and equity exponent,
+CSFP, AACSLS with the family-consistency clamp, disproportionality, and the first code home
+of the ER ALARP band tables {1, 4, 20}/{0.3, 1, 6} with labels never verdicts);
+`ComputeStudy` computes the family per row with the per-side individual-risk proxy/override
+seats echoed as used, and the do-no-harm screen (Total-stream equivalent-annual reduction
+≥ 0 per declared type under the headline accounting) flags rows with offending types;
+`CostBenefitMetricResolver` (economics from the rows under headline-accounting twins;
+Horizon bases from the trajectory aggregates; `AnnualizedPerEpoch` through
+clone → `ComputeRiskMeasures` → a system-scope `SystemRiskResults` → the promoted
+`SelectScope`/`ExtractMeasure` verbatim, cached per (trajectory, α); reductions signed;
+constraints at the three scopes with NaN never satisfying); `EpsilonSweepEngine`,
+`ParetoFrontierEngine`, and `McdaEngine` as internal statics over plain per-alternative
+arrays (the hand-matrix seam the CB3 strategy catalog reuses; `InternalsVisibleTo` already
+covers both test projects) — the sweep with degenerate-grid handling and TRC2003/TRC2004
+diagnostics, the frontier with exact ties both kept, `IsExcludedForNaN`, THREE
+always-emitted projections (PV cost vs monetized benefit, EAC vs annualized lives saved,
+and the decision-17 PV cost vs ΔAFP reliability projection), the cost-ranked incremental
+table, and MCDA with direction-aware min-max normalization, the constant-objective zero
+rule, and competition ranks among recommendation-eligible rows; do-no-harm eligibility
+flows into every engine (sweep selections enforce; frontier/ICA/MCDA rows stay visibly
+marked). Results growth by appended optional ctor params: `AlternativeEconomics` gains the
+fourteen decision columns, `CostBenefitResults` gains the individual-risk echo seats, the
+declaration echoes, `ConstraintEvaluations`, `EpsilonSweep`, `Frontier`, `Mcda`, and
+`Diagnostics`; new sealed containers `EpsilonSweepResults`/`EpsilonSweepEntry`,
+`ParetoFrontierResults`/`FrontierProjection`/`IncrementalEntry`, `McdaResults`, and
+`ConstraintEvaluation`. Validation: the metric-local horizon-legality Errors
+(`CostBenefitMetric`), the scope-compatibility Errors (`CostBenefitConstraint`), the
+axis-bound Error for every declared metric (`ValidateMessagesCore` — an out-of-range type
+position no longer falls through `SelectScope` into a silent NaN), and the
+do-no-harm-under-WarnOnly advisory. `RiskMeasureTests` closes the standing enum-pin gap.
+Nothing serializes into any canonical-hash or seed surface; the study stays runtime state
+until CB4.
+
+**Verified:** `CostBenefitVerification` **17/17 isolated** — the ten new fixtures: the
+App. L family at the hand values (30,000 / 20,000 exactly, the clamp to exactly zero, the
+NaN denominator rule) with the basis-invariance lemma bit-exact under a power-of-two
+annuity surrogate and at 1e-15 relative under a real one; the equity/failure-prevention/
+absorbing arithmetic (the IRL floor engaging one side, the n ∈ {0.5, 1, 2} sweep against
+independent `Math.Pow`, Δp_eq against an independent survival computation at the 1e-9
+flat-quadrature grade — **measured lesson: the published probabilities inherit the
+quadrature bound, not the pure-discounting 1e-12 grade** — CSFP/EWACSLS recomposing from
+published values with no delta, AACSLS against independent survival loops); the
+closed-form Haimes ε table (ten analytic noninferior points, selections walked in order,
+secant trade-offs exact and bracketed by the analytic tangent multipliers, the
+1.667-at-ε-13.31 upstream anchor — **measured lesson: a √-then-square bound can land one
+ulp off its algebraic ε, so the grid passes the points' own computed swept values**); the
+identical-EV conditional-tail discrimination table with the ≤ 100 filter selecting option
+two; the tolerable-life-risk template end to end (engine-backed — the recorded superset of
+the design's hand-built reading); the frontier/ICA hand set with **ICA ≡ λ̂ bit-exact,
+including the reversed-walk pairing (IEEE negation and subtraction reversal are exact)**;
+the MCDA arithmetic exactly; the study-α re-measurement **bit-exact against a
+directly-configured twin run**; the do-no-harm screen across all three policies (Excess
+falls 180 → 60 while Total rises 280 → 460 through background growth; Enforce excludes the
+row from the selection it would otherwise win); and the reliability-mode study end to end
+(the AFP axis live, every consequence skip named once, the ΔAFP projection carrying the
+frontier, mixed modes refused) — plus the CB1 extensions (the null study's
+frontier-tie/do-no-harm/CSLS-NaN closures and the stationary bridge's TEAC identity
+TEAC_base − TEAC_alt = −NPV/A(T)). `LifeCycleVerification` **11/11 isolated** (untouched;
+run for confidence). Fast suite **1,589/1,589** + Api **73/73** (42 new tests);
+`validate-code-xml-docs.ps1` green; **all eight byte gates bit-identical at close** (the
+second full round — CB2 is post-processing, and the gates prove it). Docs:
+`docs/verification/cost-benefit.md` to 17 tests with the new conventions, the README
+registry row, the CLAUDE.md matrix row + namespace map + AGENTS.md regenerated.
+
+**Next:** session 14 = **CB3 — the strategy catalog** (prompt:
+`~/.claude/plans/session-14-totalrisk-c5-cb3.md`): the three-tier decision-strategy
+catalog over the assembled metric matrix (Tier 1 mean-only scalar rules incl. EV/TEAC/BCR/
+CSSL orderings, FSD/SSD, PMRM, expected utility/certainty equivalents; Tier 2 per-alternative
+stored-ensemble strategies incl. Laplace/maximin/maximax/Hurwicz/mean+kσ, epistemic
+variance and CVaR, epistemic-CDF dominance, chance constraints, quantile regret; Tier 3
+shared logic-tree states: minimax/expected regret), `StrategyRanking` rows + the
+`DecisionSummary` cross-tabulation honoring the do-no-harm exclusions; fixtures 18–26.
+Then CB4 (the serialized study + docs) → the exhaustive testing campaign.
+
 ## 2026-09-07 — Capability program session 12: C5 implementation session CB1 — kernel, model, parity
 
 **Goal:** execute CB1 per the ratified design's phase table (`COST_BENEFIT_ANALYSIS_DESIGN.md`

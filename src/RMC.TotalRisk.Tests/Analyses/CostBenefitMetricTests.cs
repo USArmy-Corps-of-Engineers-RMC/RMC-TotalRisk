@@ -101,4 +101,35 @@ public class CostBenefitMetricTests
         // Assert
         Assert.IsTrue(double.IsNaN(restored.Alpha), "NaN must read back as the study's level.");
     }
+
+    /// <summary>
+    /// Verifies the horizon-basis legality rules: the trajectory aggregates back the Mean
+    /// measure on the Total, Excess, and Fail streams only, so any other measure or stream
+    /// on a horizon basis is refused, while the annualized basis serves every measure and
+    /// stream.
+    /// </summary>
+    [TestMethod]
+    public void Test_Validate_HorizonBasisLegality()
+    {
+        // Act
+        (bool sdOnHorizonValid, List<string> sdMessages) = CostBenefitMetric.ForRiskMeasure(
+            RiskMeasure.StandardDeviation, RiskType.Total, basis: MetricBasis.HorizonPresentValue).Validate();
+        (bool backgroundOnHorizonValid, List<string> streamMessages) = CostBenefitMetric.ForRiskMeasure(
+            RiskMeasure.Mean, RiskType.Background, basis: MetricBasis.HorizonCumulative).Validate();
+        (bool meanOnHorizonValid, _) = CostBenefitMetric.ForRiskMeasure(
+            RiskMeasure.Mean, RiskType.Excess, basis: MetricBasis.HorizonEquivalentAnnual,
+            accounting: LifeCycleAccounting.Absorbing).Validate();
+        (bool annualizedValid, _) = CostBenefitMetric.ForRiskMeasure(
+            RiskMeasure.StandardDeviation, RiskType.Background).Validate();
+
+        // Assert
+        Assert.IsFalse(sdOnHorizonValid);
+        Assert.IsTrue(sdMessages[0].StartsWith("Error: The metric declares the StandardDeviation measure",
+            StringComparison.Ordinal));
+        Assert.IsFalse(backgroundOnHorizonValid);
+        Assert.IsTrue(streamMessages[0].StartsWith("Error: The metric declares the Background stream",
+            StringComparison.Ordinal));
+        Assert.IsTrue(meanOnHorizonValid, "Mean on an aggregate stream is the legal horizon reading.");
+        Assert.IsTrue(annualizedValid, "The annualized basis serves every measure and stream.");
+    }
 }
