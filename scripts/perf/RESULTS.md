@@ -27,7 +27,7 @@ below are the measurement history and pin provenance (superseded pins remain as 
 | F3 | `e46763eff9139854b9ba30ecf219c35260da3feda6fa5276e5e30e5bc0560e33` |
 | F4 | `8a3a8b522b92aae893902ebc9aa785bbf02efa58de660b5a98219241dd8ea212` |
 | F5 | `2ae3925bfb7488cbfa4bd516cc2d4eb7d71c6f84bfff9f4891873a2bfd811349` |
-| F6 | `bd4a26e80972540f5247effb4521c26b94bfeb8998f99817cf7f352ca13d044b` |
+| F6 | `1549355363204c1adb057f364d64e54e5056e2d5b5641d05158bfd7785ff8203` |
 | F7 | `f985ca0228952ac0ba66cc29b39cf9006247ea3965264b966ab785fa74317084` |
 | F8 | `c9599e0a057ff511020d38a585669a56e8a13c8cf73fbfb4eed147f0ad184e2b` |
 
@@ -741,3 +741,20 @@ Mixture `InverseCDF` per call (Debug assembly, the linked-DLL discipline): pre-h
 144 B / 0.97 µs; regressed 62,512 B / 11.1 µs; repaired 96 B / 0.79 µs — better than the
 pre-hardening baseline on both axes. The formal F6 re-pin to `15493553…` (with a fresh
 `--reps 3` row) is a ruling for Haden Smith on this settled state.
+
+## F6 re-pin — the upstream distribution repairs, repaired state (2026-09-09)
+
+Re-pinned with approval on the settled state: the accuracy-bearing value movement is
+attributed to the single upstream commit (`b8bf912`, the tail-repaired log-sum-exp
+`Mixture` routing), the allocation regression is repaired upstream (the seven-commit
+campaign above), and the hash has reproduced bit-exactly across five independent runs on
+three upstream states (`a3bd2af`, `62424a2`, `7a80e35`). The committed row (isolated
+invocation, Release, `--reps 3`, numerics `7a80e35`):
+
+| Fixture | Mean-only median (s) | Full median (s) | Full alloc (GB) | SHA-256 |
+|---|---:|---:|---:|---|
+| F6 | 0.714 | 4.752 | 3.11 | `1549355363204c1adb057f364d64e54e5056e2d5b5641d05158bfd7785ff8203` |
+
+Against the superseded `bd4a26e8…` row (~5.7 s / 3.12 GB, retained above as audit trail):
+the repaired state is faster and leaner than the fixture has ever measured, with the
+upstream tail repairs kept.

@@ -55,8 +55,13 @@ build 0 warnings, fast suites **3,420 + 645 + 444 + 498 all green**, scoped veri
 **Univariate 121/121 (23m16s)** and **DistributionFitting 52/52 (1m28s)** — the first
 runs under the updated scoped-verification rules.
 
-**Next:** Haden's formal F6 re-pin ruling on the settled state (fresh `--reps 3` row);
-then CB3 re-baselines and executes its approved plan.
+**Close-out addendum (2026-09-09):** Haden approved the formal F6 re-pin — RESULTS.md now
+pins `15493553…` with the fresh `--reps 3` row (0.714 / 4.752 s, 3.11 GB; the hash
+reproduced bit-exactly across five runs on three upstream states). **Next:** CB3
+re-baselines (numerics expected at `7a80e35`, `bug-fixes-and-enhancements`) and executes
+its approved plan — the plan and both plan-review rulings are preserved at
+`~/.claude/plans/session-14-totalrisk-c5-cb3-plan.md`, referenced from the re-baselined
+session prompt.
 
 **Goal:** execute CB2 per the ratified design's phase table (`COST_BENEFIT_ANALYSIS_DESIGN.md`
 v1.0): the metric selectors wired end-to-end through the promoted `SelectScope`/`ExtractMeasure`
