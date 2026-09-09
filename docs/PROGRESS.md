@@ -1,6 +1,62 @@
 # Progress Log
 
-## 2026-09-07 — Capability program session 13: C5 implementation session CB2 — the decision framework
+## 2026-09-09 — Interleave: the upstream distribution-repair campaign (CB3 paused mid-plan)
+
+**Goal:** session 14 (CB3, the strategy catalog) was planned and its plan approved with two
+Haden rulings (the Tier-2/3 criterion set = benefit-stream Mean per declared type +
+declared risk-measure Level metrics; the `Curve.QuantileTailIntegral` extract-with-delegate),
+but the mandatory session-start baseline found F6 moved and Haden redirected the session to
+the upstream numerics work: review the GPT-authored distribution-hardening delta
+(`94d1713..62424a2` + the doc commit `376e200`), keep every accuracy/precision/hardening
+improvement, repair every performance regression, restore parallel tests, reorganize
+misfiled helpers, and gate across numerics (net481 + net10), TotalRisk, and BestFit.
+**CB3 resumes with a fresh baseline; its approved plan and rulings stand.**
+
+**F6 attribution and ruling:** F6 read `15493553…` against the pinned `bd4a26e8…`
+(F1–F5/F7/F8 bit-exact). DLL-swap bisection attributed the movement to the single upstream
+commit `b8bf912` (the `Mixture` log-sum-exp/tail rework F6 alone exercises); in-tolerance
+(`CompositeHazardVerification` 11/11, `CompositeEngineVerification` 5/5, fast suite green).
+**Ruled session-local (2026-09-09): the working F6 target is `15493553…`; the RESULTS.md
+table retains `bd4a26e8…` pending the formal re-pin ruling** (the dated RESULTS.md note
+carries the full three-state table). The same round exposed the allocation regression —
+52.95 GB / ~15–16 s vs the recorded 3.12 GB / ~5.7 s — root-caused to per-call recursive
+XML configuration keys (62,512 B + 11.6 µs per `Mixture.InverseCDF` call) and per-call
+allocating validation.
+
+**Landed (numerics `bug-fixes-and-enhancements`, seven commits `1b90450..7a80e35`, never
+pushed):** restored `Parallelize(ClassLevel)` (suites −30/−35% wall; the serialization
+leftover removed); `DistributionSnapshot` — the generalized bitwise configuration snapshot
+(exact-type per-family capture incl. the LogNormal/LP3 `Base` and LnNormal physical-moment
+surfaces, recursive composites, derived/table-backed defeat → the canonical string stays
+the deciding authority) with `CompetingRisks`' Weibull-only fast path generalized (dependent
+CDF 31,057 → 136 B/call, −69% wall; the Weibull-gated `DependentCDFCore` arm deliberately
+unwidened); the Mixture refresh short-circuit + validation certificate + certified support
+bounds + single-walk `InverseCDF` (62,512 → 96 B/call and 11.1 → 0.79 µs — **better than
+the pre-hardening 144 B / 0.97 µs on both axes**; CDF 160 → 0 B at wall parity); the
+snapshot guard suite (round-trip + the reflection completeness sweep, which immediately
+caught `GeneralizedPareto.Lambda`); static log-Pearson routing (56 → 0 B/call on
+CDF/LogCDF/LogCCDF/InverseCDF); the ruled file moves (`DistributionEndpointTail` →
+`CompetingRisks.cs`, `MixtureLogWeights` → `Mixture.cs`, the two kappa kernels → `Base/`;
+`StandardErrorExtensions` stays — public API). Deferred with evidence: the `GammaLogTail`
+no-derivative overload (the derivative stream is exit-coupled to the value stream — a
+bit-inert variant saves only a Digamma), the CR collection-storm rewrite (LINQ Min/Sum
+NaN/signed-zero semantics vs no downstream visibility), the GEV moment cache
+(cold path). BestFit's stale ">1 day USER-ONLY" verification rule updated per Haden's
+ruling (local instruction files; scoped verification now standard).
+
+**Verified (close-out):** numerics net481 **2,840/2,840**, net10.0 2,853/2,855 with the
+two failures = the `Integration`-category live-USGS full-period downloads (transient —
+both pass in isolation; also the source of the session-start baseline flakes); TotalRisk
+build 0 warnings, fast suite **1,589 + 73**, `CompositeHazardVerification` 11/11 +
+`CompositeEngineVerification` 5/5 isolated, **all eight gates bit-exact** (F1–F5/F7/F8 vs
+pins, F6 vs the session-local target) with **F6 recovered to 3.11 GB / 4.90 s — beating
+the pre-regression 3.12 GB / 5.72 s**; BestFit (building numerics from the repaired tree)
+build 0 warnings, fast suites **3,420 + 645 + 444 + 498 all green**, scoped verification
+**Univariate 121/121 (23m16s)** and **DistributionFitting 52/52 (1m28s)** — the first
+runs under the updated scoped-verification rules.
+
+**Next:** Haden's formal F6 re-pin ruling on the settled state (fresh `--reps 3` row);
+then CB3 re-baselines and executes its approved plan.
 
 **Goal:** execute CB2 per the ratified design's phase table (`COST_BENEFIT_ANALYSIS_DESIGN.md`
 v1.0): the metric selectors wired end-to-end through the promoted `SelectScope`/`ExtractMeasure`

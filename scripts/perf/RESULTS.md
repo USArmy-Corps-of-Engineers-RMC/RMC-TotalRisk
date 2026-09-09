@@ -705,3 +705,39 @@ buffers, cached slice state). Recorded for the future dedicated perf session per
 no-preoptimization rule: candidate reductions are pooling the per-abscissa staging objects and
 reusing tensor-region storage upstream. The single-rep hash reproduced the `--reps 3` hash
 bit-exactly.
+
+## F6 movement note — upstream distribution repairs, session-local target, regression repaired (2026-09-09)
+
+A session-start byte-gate round against the upstream distribution-hardening delta (numerics
+`94d1713..62424a2`; the `bug-fixes-and-enhancements` branch) found F6 at
+`1549355363204c1adb057f364d64e54e5056e2d5b5641d05158bfd7785ff8203` against the recorded
+`bd4a26e8…`, with the other seven fixtures reproducing their pins bit-exactly. A
+detached-clone DLL swap attributed the movement to the single upstream commit `b8bf912`
+("Repair distribution tails, moments, and uncertainty"): DLLs built at `94d1713` and at
+`d80bfa8` (the commit before it) reproduce the prior pin bit-exactly, and every state from
+`b8bf912` forward reproduces the new hash stably. The mechanism is the `Mixture` rework F6
+alone exercises (log-sum-exp CDF routing with repaired tails); magnitude evidence against
+the moved DLL: `CompositeHazardVerification` 11/11, `CompositeEngineVerification` 5/5, and
+the fast suite 1,589 + 73 — inside every statistical tolerance, no pinned oracle breaks.
+Ruled session-local (Haden Smith, 2026-09-09): the working target is `15493553…` and the
+table above deliberately retains `bd4a26e8…` until the formal re-pin.
+
+The same round exposed a severe upstream allocation regression on the F6 path — 52.95 GB
+and ~15–16 s full-MC against the recorded 3.12 GB / ~5.7 s — root-caused to per-call
+canonical-configuration serialization (`Mixture.InverseCDF` rebuilt and discarded a
+recursive per-component XML string on every call: 62,512 B and 11.6 µs per call measured)
+plus per-call allocating validation. The repair campaign on the numerics branch (commits
+`1b90450..7a80e35`: the generalized bitwise configuration snapshot, the validation
+certificate with certified support bounds, the single-walk quantile path, and the
+static log-Pearson routing) recovered and improved the fixture with the hash unchanged:
+
+| F6 | Full-MC (s) | Full alloc (GB) | SHA-256 |
+|---|---:|---:|---|
+| Recorded pre-hardening row | ~5.7 | 3.12 | `bd4a26e8…` |
+| Regressed (numerics `b8bf912..62424a2`) | 15.3–16.8 | 52.95–56.08 | `15493553…` |
+| Repaired (numerics `7a80e35`) | 4.90 | 3.11 | `15493553…` |
+
+Mixture `InverseCDF` per call (Debug assembly, the linked-DLL discipline): pre-hardening
+144 B / 0.97 µs; regressed 62,512 B / 11.1 µs; repaired 96 B / 0.79 µs — better than the
+pre-hardening baseline on both axes. The formal F6 re-pin to `15493553…` (with a fresh
+`--reps 3` row) is a ruling for Haden Smith on this settled state.
