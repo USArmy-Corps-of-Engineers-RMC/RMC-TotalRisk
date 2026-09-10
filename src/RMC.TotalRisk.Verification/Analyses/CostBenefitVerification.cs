@@ -27,7 +27,13 @@ namespace RMC.TotalRisk.Verification.Analyses;
 /// tolerable-life-risk template end to end, the frontier and incremental-analysis hand set
 /// with the trade-off unification, the multi-criteria arithmetic, the study-level
 /// re-measurement against a directly-configured twin, the do-no-harm screen policies, and
-/// the reliability-mode study subset.
+/// the reliability-mode study subset — plus the decision-strategy catalog (the Strategies
+/// partial): the shared-state regret machinery over genuinely enumerated ensembles with the
+/// epistemic-alternative refusal, the classical epistemic rule picks, the exact tail
+/// averages, the stochastic-dominance verdicts, the expected-utility closed forms with the
+/// partition-to-CVaR pin, the chance-constraint parity, the designed decision-summary
+/// disagreement, study author-inertness with run-to-run reproducibility, and the strategy
+/// validation sweep.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -81,7 +87,7 @@ namespace RMC.TotalRisk.Verification.Analyses;
 /// </para>
 /// </remarks>
 [TestClass]
-public class CostBenefitVerification
+public partial class CostBenefitVerification
 {
     #region Fixtures
 
