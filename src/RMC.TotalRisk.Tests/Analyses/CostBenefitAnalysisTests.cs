@@ -625,4 +625,226 @@ public class CostBenefitAnalysisTests
         Assert.IsFalse(study.Results!.Alternatives[1].FailsDoNoHarm);
         Assert.AreEqual(0, study.Results.Alternatives[1].DoNoHarmOffendingTypes.Count);
     }
+
+    /// <summary>
+    /// Verifies the Tier-1 strategy catalog wires in order over a mean-only study — the
+    /// aleatory per-type family, then the economics family — with the Tier-2 and Tier-3
+    /// blocks gated off by named per-alternative diagnostics, the aleatory dominance screen
+    /// emitted, and the decision summary's margins reconciling against the rankings.
+    /// </summary>
+    [TestMethod]
+    public void Test_Run_StrategyCatalog_TierOneAndGating()
+    {
+        // Arrange — identity monetization so the economics family carries real values.
+        (CostBenefitAnalysis study, _, _) =
+            BuildStudy(new CostBenefitOptions(30, 0.05d, monetization: new ConsequenceMonetization()));
+
+        // Act
+        study.RunAsync().GetAwaiter().GetResult();
+        CostBenefitResults results = study.Results!;
+
+        // Assert — the catalog order for this study: the aleatory per-type family (one
+        // declared type), then TEAC, NPV, BCR, the failure-probability ranking, and the
+        // constrained selection over the default objective vector (no life-safety
+        // declaration, no MCDA weights).
+        var expectedOrder = new[]
+        {
+            DecisionStrategy.ExpectedValue, DecisionStrategy.MeanPlusDispersion,
+            DecisionStrategy.ConditionalValueAtRisk, DecisionStrategy.TotalExpectedAnnualCost,
+            DecisionStrategy.NetPresentValue, DecisionStrategy.BenefitCostRatio,
+            DecisionStrategy.AnnualizedFailureProbability, DecisionStrategy.ConstrainedSelection,
+        };
+        Assert.AreEqual(expectedOrder.Length, results.StrategyRankings.Count);
+        for (int i = 0; i < expectedOrder.Length; i++)
+        {
+            Assert.AreEqual(expectedOrder[i], results.StrategyRankings[i].Strategy);
+            Assert.AreEqual(1, results.StrategyRankings[i].Tier);
+        }
+        StrategyRanking expectedValue = results.StrategyRankings[0];
+        Assert.AreEqual("Aleatory", expectedValue.Layer);
+        Assert.AreEqual("aleatory-from-mean-LEC", expectedValue.Discipline);
+        Assert.AreEqual(1, expectedValue.RecommendedIndex,
+            "The repair reduces Total risk, so the expected-value rule recommends it.");
+        Assert.AreEqual("Exact", results.StrategyRankings[3].Layer);
+        StrategyRanking constrained = results.StrategyRankings[7];
+        Assert.AreEqual("Present value of total cost", constrained.CriterionLabel,
+            "The constrained selection ranks the default objective vector's first axis.");
+        Assert.AreEqual(0, constrained.RecommendedIndex,
+            "The zero-cost baseline legally wins the cost-minimizing selection.");
+
+        // The aleatory dominance screen: one pair on the one declared type.
+        Assert.AreEqual(1, results.Dominance.Count);
+        Assert.AreEqual("Aleatory", results.Dominance[0].Layer);
+
+        // Tier 2 and Tier 3 are gated off with named diagnostics; their blocks stay empty.
+        Assert.AreEqual(0, results.EpistemicMeasures.Count);
+        Assert.AreEqual(0, results.ChanceConstraints.Count);
+        Assert.AreEqual(0, results.RegretMatrices.Count);
+        int tierTwoSkips = 0;
+        int tierThreeSkips = 0;
+        int criterionSkips = 0;
+        for (int i = 0; i < results.Diagnostics.Count; i++)
+        {
+            if (results.Diagnostics[i].Code == "TRC2006") tierTwoSkips++;
+            if (results.Diagnostics[i].Code == "TRC2008") tierThreeSkips++;
+            if (results.Diagnostics[i].Code == "TRC2007") criterionSkips++;
+        }
+        Assert.AreEqual(2, tierTwoSkips, "Both alternatives lack stored ensembles.");
+        Assert.AreEqual(1, tierThreeSkips, "The baseline lacks an enumeration map.");
+        Assert.AreEqual(2, criterionSkips,
+            "Both default objectives are economics metrics with no per-realization criterion analog.");
+
+        // The summary reconciles: one entry per ranking, margins counting non-withheld
+        // recommendations, and no do-no-harm marks on this study.
+        Assert.IsNotNull(results.Summary);
+        Assert.AreEqual(results.StrategyRankings.Count, results.Summary.Entries.Count);
+        var recomputedCounts = new int[results.Summary.AlternativeNames.Count];
+        for (int i = 0; i < results.Summary.Entries.Count; i++)
+        {
+            DecisionSummaryEntry entry = results.Summary.Entries[i];
+            if (entry.RecommendationWithheld) continue;
+            for (int j = 0; j < results.Summary.AlternativeNames.Count; j++)
+            {
+                if (results.Summary.AlternativeNames[j] == entry.RecommendedAlternative)
+                {
+                    recomputedCounts[j]++;
+                }
+            }
+        }
+        CollectionAssert.AreEqual(recomputedCounts, results.Summary.RecommendationCounts.ToArray());
+        Assert.IsFalse(results.Summary.FailsDoNoHarm[0]);
+        Assert.IsFalse(results.Summary.FailsDoNoHarm[1]);
+    }
+
+    /// <summary>
+    /// Verifies the reliability-mode catalog: consequence-dependent strategies skip whole
+    /// with one named diagnostic each while the failure-probability ranking stays live and
+    /// recommends the repaired configuration.
+    /// </summary>
+    [TestMethod]
+    public void Test_Run_StrategyCatalog_ReliabilityModeSkips()
+    {
+        // Arrange — both systems in reliability mode.
+        (CostBenefitAnalysis study, RiskReductionAlternative baseline, RiskReductionAlternative fix) =
+            BuildStudy();
+        baseline.System.Options.Mode = RiskAnalysisMode.Reliability;
+        fix.System.Options.Mode = RiskAnalysisMode.Reliability;
+
+        // Act
+        study.RunAsync().GetAwaiter().GetResult();
+        CostBenefitResults results = study.Results!;
+
+        // Assert — only the failure-probability ranking and the cost-side constrained
+        // selection survive Tier 1; the probability ranking recommends the repair (0.2
+        // versus the degraded 0.92).
+        Assert.AreEqual(2, results.StrategyRankings.Count);
+        StrategyRanking probability = results.StrategyRankings[0];
+        Assert.AreEqual(DecisionStrategy.AnnualizedFailureProbability, probability.Strategy);
+        Assert.AreEqual(1, probability.RecommendedIndex);
+        Assert.AreEqual(DecisionStrategy.ConstrainedSelection, results.StrategyRankings[1].Strategy,
+            "The default objective vector's cost axis stays active under reliability mode.");
+        Assert.AreEqual(0, results.Dominance.Count);
+
+        bool namedExpectedValue = false;
+        bool namedDominanceScreen = false;
+        for (int i = 0; i < results.Diagnostics.Count; i++)
+        {
+            if (results.Diagnostics[i].Code != "TRC2005") continue;
+            if (results.Diagnostics[i].Message.Contains("'ExpectedValue'")) namedExpectedValue = true;
+            if (results.Diagnostics[i].Message.Contains("stochastic-dominance")) namedDominanceScreen = true;
+        }
+        Assert.IsTrue(namedExpectedValue, "Each skipped strategy is named once.");
+        Assert.IsTrue(namedDominanceScreen, "The skipped aleatory screen is named.");
+    }
+
+    /// <summary>
+    /// Verifies a do-no-harm exclusion flows into every ranking and the summary: the harming
+    /// alternative keeps its values, is excluded from every recommendation, collects a zero
+    /// margin, and is marked in the summary.
+    /// </summary>
+    [TestMethod]
+    public void Test_Run_StrategyCatalog_DoNoHarmExclusion()
+    {
+        // Arrange — the sound configuration is the baseline; the alternative raises risk.
+        var soundBaseline = new RiskReductionAlternative("Existing condition", BuildSystem(houseState: false));
+        var worse = new RiskReductionAlternative("Deferred maintenance", BuildSystem(houseState: true),
+            new CostStream(new[] { new CapitalCostEntry(0, 10d) }));
+        var study = new CostBenefitAnalysis(new CostBenefitOptions(30, 0.05d,
+            monetization: new ConsequenceMonetization()));
+        study.Alternatives.Add(soundBaseline);
+        study.Alternatives.Add(worse);
+        study.Baseline = soundBaseline;
+
+        // Act
+        study.RunAsync().GetAwaiter().GetResult();
+        CostBenefitResults results = study.Results!;
+
+        // Assert
+        Assert.IsTrue(results.Summary!.FailsDoNoHarm[1]);
+        Assert.AreEqual(0, results.Summary.RecommendationCounts[1],
+            "An excluded alternative collects no recommendations.");
+        for (int i = 0; i < results.StrategyRankings.Count; i++)
+        {
+            Assert.IsTrue(results.StrategyRankings[i].IsExcludedFromRecommendation[1]);
+            Assert.AreNotEqual(1, results.StrategyRankings[i].RecommendedIndex);
+        }
+    }
+
+    /// <summary>
+    /// Verifies the declared-selection strategies on a mean-only study: the constrained
+    /// selection ranks the first objective under the fixed constraints, the chance-constrained
+    /// selection stays behind the Tier-2 ensemble gate, and an economics objective is named as
+    /// having no per-realization criterion analog.
+    /// </summary>
+    [TestMethod]
+    public void Test_Run_StrategyCatalog_ConstrainedSelections()
+    {
+        // Arrange — an economics objective and one whole-horizon economics constraint.
+        var objective = new ObjectiveDeclaration("Net present value",
+            CostBenefitMetric.ForEconomic(EconomicMetric.NetPresentValue),
+            ObjectiveDirection.Maximize);
+        var constraint = new CostBenefitConstraint(
+            CostBenefitMetric.ForEconomic(EconomicMetric.PresentValueOfTotalCost),
+            Numerics.Mathematics.Optimization.ConstraintType.LesserThanOrEqualTo, 1e9);
+        (CostBenefitAnalysis study, _, _) = BuildStudy(new CostBenefitOptions(30, 0.05d,
+            monetization: new ConsequenceMonetization(),
+            objectives: new[] { objective }, constraints: new[] { constraint }));
+
+        // Act
+        study.RunAsync().GetAwaiter().GetResult();
+        CostBenefitResults results = study.Results!;
+
+        // Assert — both selections publish; the chance selection echoes its confidence and
+        // the absence of evaluable chance constraints.
+        StrategyRanking? constrained = null;
+        StrategyRanking? chance = null;
+        for (int i = 0; i < results.StrategyRankings.Count; i++)
+        {
+            if (results.StrategyRankings[i].Strategy == DecisionStrategy.ConstrainedSelection)
+            {
+                constrained = results.StrategyRankings[i];
+            }
+            if (results.StrategyRankings[i].Strategy == DecisionStrategy.ChanceConstrainedSelection)
+            {
+                chance = results.StrategyRankings[i];
+            }
+        }
+        Assert.IsNotNull(constrained);
+        Assert.AreEqual("Net present value", constrained.CriterionLabel);
+        Assert.AreEqual(ObjectiveDirection.Maximize, constrained.Direction);
+        StringAssert.Contains(constrained.ParameterEcho, "1 fixed constraints");
+        Assert.IsNull(chance,
+            "Without stored ensembles the chance-constrained selection stays behind the Tier-2 gate.");
+
+        bool namedEconomicsCriterion = false;
+        for (int i = 0; i < results.Diagnostics.Count; i++)
+        {
+            if (results.Diagnostics[i].Code == "TRC2007"
+                && results.Diagnostics[i].Message.Contains("no per-realization analog under content-based seeding"))
+            {
+                namedEconomicsCriterion = true;
+            }
+        }
+        Assert.IsTrue(namedEconomicsCriterion);
+    }
 }
