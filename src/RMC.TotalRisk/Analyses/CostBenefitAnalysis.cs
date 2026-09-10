@@ -846,6 +846,27 @@ namespace RMC.TotalRisk.Analyses
                     names, objectiveValues, eligible);
             }
 
+            // The decision-strategy catalog over the published tables and stored state: the
+            // exact and aleatory Tier-1 rules, the stored-ensemble Tier-2 rules with the
+            // chance-constraint evaluations, the shared-state Tier-3 regret rules, and the
+            // strategy-by-recommendation summary.
+            var strategyRankings = new List<StrategyRanking>();
+            var epistemicMeasures = new List<EpistemicMeasureSummary>();
+            var chanceConstraints = new List<ChanceConstraintEntry>();
+            var dominance = new List<DominanceEntry>();
+            var regretMatrices = new List<RegretMatrixResults>();
+            ComputeTierOneStrategies(options, resolver, trajectories, names, eligible,
+                constraintEvaluations, mcda, reliabilityMode, labels, strategyRankings, dominance,
+                diagnostics);
+            List<TierCriterion> tierCriteria = BuildTierCriteria(options, labels, typeCount,
+                reliabilityMode, diagnostics);
+            ComputeTierTwoStrategies(options, rowOrder, names, eligible, resolver, tierCriteria,
+                reliabilityMode, strategyRankings, epistemicMeasures, chanceConstraints, dominance,
+                diagnostics);
+            ComputeTierThreeStrategies(rowOrder, names, eligible, tierCriteria, strategyRankings,
+                regretMatrices, diagnostics);
+            DecisionSummary? decisionSummary = BuildDecisionSummary(strategyRankings, names, rows);
+
             return new CostBenefitResults(periodYears, discountRate, grid,
                 options.BenefitRiskType, options.Accounting, options.AlphaLevels,
                 options.Monetization, options.LifeSafetyConsequenceType,
@@ -855,7 +876,977 @@ namespace RMC.TotalRisk.Analyses
                 labels, units, rows, reductions, points, trajectories,
                 options.BaselineIndividualRisk, options.AlternativeIndividualRisk,
                 options.Objectives, options.Constraints, options.EpsilonStudy,
-                constraintEvaluations, epsilonSweep, frontier, mcda, diagnostics);
+                constraintEvaluations, epsilonSweep, frontier, mcda, diagnostics,
+                strategyRankings, decisionSummary, regretMatrices, epistemicMeasures,
+                chanceConstraints, dominance);
+        }
+
+        /// <summary>
+        /// One Tier-2/3 decision criterion: a stored-scalar selection over the published
+        /// ensembles with its ranking direction and display label.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        ///     <b>Authors:</b>
+        ///     Haden Smith, USACE Risk Management Center, cole.h.smith@usace.army.mil
+        /// </para>
+        /// <para>
+        /// The criterion set is the benefit-stream mean per declared consequence type plus
+        /// every declared level-form risk-measure metric (the Fail-stream total probability
+        /// under reliability mode); tail criteria read each ensemble's own stored exceedance
+        /// level, stated on the label.
+        /// </para>
+        /// </remarks>
+        private sealed class TierCriterion
+        {
+            /// <summary>Initializes a criterion.</summary>
+            /// <param name="measure">The scalar measure.</param>
+            /// <param name="riskType">The stream.</param>
+            /// <param name="consequenceType">The consequence-type position.</param>
+            /// <param name="direction">The ranking direction.</param>
+            /// <param name="label">The display label.</param>
+            /// <param name="isAlphaDependent">Whether the measure depends on the run's exceedance level.</param>
+            /// <param name="declaredAlpha">The declaring metric's exceedance level, or NaN for none.</param>
+            internal TierCriterion(RiskMeasure measure, RiskType riskType, int consequenceType,
+                ObjectiveDirection direction, string label, bool isAlphaDependent, double declaredAlpha)
+            {
+                Measure = measure;
+                RiskType = riskType;
+                ConsequenceType = consequenceType;
+                Direction = direction;
+                Label = label;
+                IsAlphaDependent = isAlphaDependent;
+                DeclaredAlpha = declaredAlpha;
+            }
+
+            /// <summary>The scalar measure.</summary>
+            internal RiskMeasure Measure { get; }
+
+            /// <summary>The stream.</summary>
+            internal RiskType RiskType { get; }
+
+            /// <summary>The consequence-type position.</summary>
+            internal int ConsequenceType { get; }
+
+            /// <summary>The ranking direction.</summary>
+            internal ObjectiveDirection Direction { get; }
+
+            /// <summary>The display label.</summary>
+            internal string Label { get; }
+
+            /// <summary>Whether the measure depends on the run's exceedance level.</summary>
+            internal bool IsAlphaDependent { get; }
+
+            /// <summary>The declaring metric's exceedance level, or NaN for none.</summary>
+            internal double DeclaredAlpha { get; }
+        }
+
+        /// <summary>
+        /// Builds the Tier-2/3 criterion set: the benefit-stream mean per declared consequence
+        /// type (the Fail-stream total probability under reliability mode) plus every declared
+        /// level-form annualized risk-measure metric from the objectives then the constraints,
+        /// deduplicated first-wins. Declared metrics with no per-realization analog — economics
+        /// metrics, reductions versus the baseline, and horizon-basis selections — are skipped
+        /// with a named diagnostic, never fabricated.
+        /// </summary>
+        /// <param name="options">The study declarations.</param>
+        /// <param name="labels">The declared consequence-type labels (position 0 primary).</param>
+        /// <param name="typeCount">The declared consequence-type count.</param>
+        /// <param name="reliabilityMode">True when the alternatives run in reliability mode.</param>
+        /// <param name="diagnostics">The diagnostics sink.</param>
+        /// <returns>The criterion set, in declaration order.</returns>
+        private static List<TierCriterion> BuildTierCriteria(CostBenefitOptions options,
+            List<string> labels, int typeCount, bool reliabilityMode,
+            List<ComputationDiagnostic> diagnostics)
+        {
+            var criteria = new List<TierCriterion>();
+            var seen = new HashSet<(RiskMeasure Measure, RiskType RiskType, int ConsequenceType)>();
+            var emitted = new HashSet<string>(StringComparer.Ordinal);
+            if (reliabilityMode)
+            {
+                criteria.Add(new TierCriterion(RiskMeasure.TotalProbability, RiskType.Fail, 0,
+                    ObjectiveDirection.Minimize,
+                    CriterionLabel(RiskMeasure.TotalProbability, RiskType.Fail, 0, labels, false),
+                    isAlphaDependent: false, declaredAlpha: double.NaN));
+                seen.Add((RiskMeasure.TotalProbability, RiskType.Fail, 0));
+            }
+            else
+            {
+                for (int t = 0; t < typeCount; t++)
+                {
+                    criteria.Add(new TierCriterion(RiskMeasure.Mean, options.BenefitRiskType, t,
+                        ObjectiveDirection.Minimize,
+                        CriterionLabel(RiskMeasure.Mean, options.BenefitRiskType, t, labels, false),
+                        isAlphaDependent: false, declaredAlpha: double.NaN));
+                    seen.Add((RiskMeasure.Mean, options.BenefitRiskType, t));
+                }
+            }
+            for (int i = 0; i < options.Objectives.Count; i++)
+            {
+                TryAddDeclaredCriterion(options.Objectives[i].Metric, options.Objectives[i].Direction,
+                    labels, reliabilityMode, criteria, seen, emitted, diagnostics);
+            }
+            for (int i = 0; i < options.Constraints.Count; i++)
+            {
+                ObjectiveDirection direction = options.Constraints[i].Sense
+                    == Numerics.Mathematics.Optimization.ConstraintType.GreaterThanOrEqualTo
+                    ? ObjectiveDirection.Maximize
+                    : ObjectiveDirection.Minimize;
+                TryAddDeclaredCriterion(options.Constraints[i].Metric, direction, labels,
+                    reliabilityMode, criteria, seen, emitted, diagnostics);
+            }
+            return criteria;
+        }
+
+        /// <summary>
+        /// Adds one declared metric to the Tier-2/3 criterion set when it has a
+        /// per-realization analog, or records the named skip.
+        /// </summary>
+        /// <param name="metric">The declared metric.</param>
+        /// <param name="direction">The declaring seat's ranking direction.</param>
+        /// <param name="labels">The declared consequence-type labels.</param>
+        /// <param name="reliabilityMode">True when the alternatives run in reliability mode.</param>
+        /// <param name="criteria">The criterion sink.</param>
+        /// <param name="seen">The first-wins deduplication set.</param>
+        /// <param name="emitted">The already-emitted skip messages.</param>
+        /// <param name="diagnostics">The diagnostics sink.</param>
+        private static void TryAddDeclaredCriterion(CostBenefitMetric metric,
+            ObjectiveDirection direction, List<string> labels, bool reliabilityMode,
+            List<TierCriterion> criteria,
+            HashSet<(RiskMeasure Measure, RiskType RiskType, int ConsequenceType)> seen,
+            HashSet<string> emitted, List<ComputationDiagnostic> diagnostics)
+        {
+            if (metric.IsEconomic)
+            {
+                ReportCriterionSkip(diagnostics, emitted,
+                    $"The declared metric '{CostBenefitMetricResolver.Describe(metric)}' is not an epistemic decision criterion: an economics metric has no per-realization analog under content-based seeding.");
+                return;
+            }
+            if (metric.Form != MetricForm.Level)
+            {
+                ReportCriterionSkip(diagnostics, emitted,
+                    $"The declared metric '{CostBenefitMetricResolver.Describe(metric)}' is not an epistemic decision criterion: a reduction versus the baseline cannot be paired per realization under content-based seeding.");
+                return;
+            }
+            if (metric.Basis != MetricBasis.AnnualizedPerEpoch)
+            {
+                ReportCriterionSkip(diagnostics, emitted,
+                    $"The declared metric '{CostBenefitMetricResolver.Describe(metric)}' is not an epistemic decision criterion: a horizon basis has no per-realization analog in the stored ensembles.");
+                return;
+            }
+            if (reliabilityMode && metric.Measure != RiskMeasure.TotalProbability)
+            {
+                if (emitted.Add(CostBenefitMetricResolver.Describe(metric)))
+                {
+                    diagnostics.Add(new ComputationDiagnostic("TRC2005", DiagnosticSeverity.Warning,
+                        $"The declared metric '{CostBenefitMetricResolver.Describe(metric)}' is consequence-dependent and is skipped as an epistemic decision criterion under reliability mode.",
+                        string.Empty));
+                }
+                return;
+            }
+            if (!seen.Add((metric.Measure, metric.RiskType, metric.ConsequenceType))) return;
+            bool alphaDependent = metric.Measure is RiskMeasure.ValueAtRisk
+                or RiskMeasure.ConditionalValueAtRisk;
+            criteria.Add(new TierCriterion(metric.Measure, metric.RiskType, metric.ConsequenceType,
+                direction, CriterionLabel(metric.Measure, metric.RiskType, metric.ConsequenceType,
+                labels, alphaDependent), alphaDependent, metric.Alpha));
+        }
+
+        /// <summary>
+        /// Records one criterion-skip notice, deduplicated by message.
+        /// </summary>
+        /// <param name="diagnostics">The diagnostics sink.</param>
+        /// <param name="emitted">The already-emitted messages.</param>
+        /// <param name="message">The notice.</param>
+        private static void ReportCriterionSkip(List<ComputationDiagnostic> diagnostics,
+            HashSet<string> emitted, string message)
+        {
+            if (!emitted.Add(message)) return;
+            diagnostics.Add(new ComputationDiagnostic("TRC2007", DiagnosticSeverity.Warning,
+                message, string.Empty));
+        }
+
+        /// <summary>
+        /// Builds a Tier-2/3 criterion display label; tail criteria state that they read each
+        /// ensemble's stored exceedance level.
+        /// </summary>
+        /// <param name="measure">The scalar measure.</param>
+        /// <param name="riskType">The stream.</param>
+        /// <param name="consequenceType">The consequence-type position.</param>
+        /// <param name="labels">The declared consequence-type labels.</param>
+        /// <param name="isAlphaDependent">Whether the measure depends on the run's exceedance level.</param>
+        /// <returns>The label.</returns>
+        private static string CriterionLabel(RiskMeasure measure, RiskType riskType,
+            int consequenceType, List<string> labels, bool isAlphaDependent)
+        {
+            string typeLabel = consequenceType < labels.Count && labels[consequenceType].Length > 0
+                ? $" ({labels[consequenceType]})"
+                : string.Empty;
+            string alphaNote = isAlphaDependent ? " at the stored run α" : string.Empty;
+            return string.Create(CultureInfo.InvariantCulture,
+                $"{measure} of {riskType} type {consequenceType}{typeLabel}{alphaNote}");
+        }
+
+        /// <summary>
+        /// Records one named Tier-1 reliability skip.
+        /// </summary>
+        /// <param name="diagnostics">The diagnostics sink.</param>
+        /// <param name="subject">The skipped strategy or screen, already phrased as a subject.</param>
+        private static void ReportReliabilitySkip(List<ComputationDiagnostic> diagnostics, string subject)
+        {
+            diagnostics.Add(new ComputationDiagnostic("TRC2005", DiagnosticSeverity.Warning,
+                $"{subject} is consequence-dependent and is skipped under reliability mode.",
+                string.Empty));
+        }
+
+        /// <summary>
+        /// Reads the year-zero retained benefit-stream curve for one alternative's trajectory,
+        /// or null when the position is not retained or declared.
+        /// </summary>
+        /// <param name="trajectory">The alternative's trajectory.</param>
+        /// <param name="stream">The benefit stream.</param>
+        /// <param name="consequenceType">The consequence-type position.</param>
+        /// <returns>The curve, or null.</returns>
+        private static Curve? BenefitCurveAt(LifeCycleRiskResults trajectory, RiskType stream,
+            int consequenceType)
+        {
+            SystemRealization? realization = trajectory.Epochs.Count > 0
+                ? trajectory.Epochs[0].Realization
+                : null;
+            if (realization == null) return null;
+            if (consequenceType == 0) return realization.Curves.GetCurve(stream);
+            int typeIndex = consequenceType - 1;
+            return typeIndex < realization.AdditionalCurves.Count
+                ? realization.AdditionalCurves[typeIndex].GetCurve(stream)
+                : null;
+        }
+
+        /// <summary>
+        /// Computes the Tier-1 strategies: the aleatory per-type family from the year-zero
+        /// retained curves through the metric resolver, the declared partition and utility
+        /// rules, the aleatory dominance screen, the exact economics family, the constrained
+        /// selection, and the multi-criteria echo. Consequence-dependent strategies skip whole
+        /// under reliability mode with one named diagnostic each.
+        /// </summary>
+        /// <param name="options">The study declarations.</param>
+        /// <param name="resolver">The metric resolver over the published tables.</param>
+        /// <param name="trajectories">The per-row trajectories, parallel to the rows.</param>
+        /// <param name="names">The alternative names, in results row order.</param>
+        /// <param name="eligible">The do-no-harm recommendation eligibility, parallel to the names.</param>
+        /// <param name="constraintEvaluations">The declared constraints' evaluations.</param>
+        /// <param name="mcda">The multi-criteria scores, or null.</param>
+        /// <param name="reliabilityMode">True when the alternatives run in reliability mode.</param>
+        /// <param name="labels">The declared consequence-type labels.</param>
+        /// <param name="rankings">The ranking sink.</param>
+        /// <param name="dominance">The dominance-entry sink.</param>
+        /// <param name="diagnostics">The diagnostics sink.</param>
+        private static void ComputeTierOneStrategies(CostBenefitOptions options,
+            CostBenefitMetricResolver resolver, List<LifeCycleRiskResults> trajectories,
+            string[] names, bool[] eligible, List<ConstraintEvaluation> constraintEvaluations,
+            McdaResults? mcda, bool reliabilityMode, List<string> labels,
+            List<StrategyRanking> rankings, List<DominanceEntry> dominance,
+            List<ComputationDiagnostic> diagnostics)
+        {
+            int count = names.Length;
+            int typeCount = labels.Count;
+            RiskType stream = options.BenefitRiskType;
+
+            if (reliabilityMode)
+            {
+                ReportReliabilitySkip(diagnostics, "The strategy 'ExpectedValue'");
+                ReportReliabilitySkip(diagnostics, "The strategy 'MeanPlusDispersion'");
+                ReportReliabilitySkip(diagnostics, "The strategy 'ConditionalValueAtRisk'");
+                if (options.PmrmPartition != null)
+                {
+                    ReportReliabilitySkip(diagnostics, "The strategy 'PartitionedConditionalMean'");
+                }
+                if (options.Utility != null)
+                {
+                    ReportReliabilitySkip(diagnostics, "The strategy 'CertaintyEquivalent'");
+                }
+                ReportReliabilitySkip(diagnostics, "The aleatory stochastic-dominance screen");
+            }
+            else
+            {
+                for (int t = 0; t < typeCount; t++)
+                {
+                    string typeLabel = labels[t].Length > 0 ? $" ({labels[t]})" : string.Empty;
+                    var meanMetric = CostBenefitMetric.ForRiskMeasure(RiskMeasure.Mean, stream, t);
+                    var meanValues = new double[count];
+                    for (int i = 0; i < count; i++)
+                    {
+                        meanValues[i] = resolver.ResolveValue(meanMetric, i);
+                    }
+                    rankings.Add(DecisionStrategyEngine.Rank(DecisionStrategy.ExpectedValue, 1,
+                        DecisionStrategyEngine.LayerAleatory, DecisionStrategyEngine.DisciplineAleatory,
+                        CostBenefitMetricResolver.Describe(meanMetric), string.Empty,
+                        ObjectiveDirection.Minimize, names, meanValues, eligible));
+
+                    var dispersionMetric = CostBenefitMetric.ForRiskMeasure(
+                        RiskMeasure.StandardDeviation, stream, t);
+                    var dispersionValues = new double[count];
+                    for (int i = 0; i < count; i++)
+                    {
+                        dispersionValues[i] = meanValues[i]
+                            + options.DispersionK * resolver.ResolveValue(dispersionMetric, i);
+                    }
+                    rankings.Add(DecisionStrategyEngine.Rank(DecisionStrategy.MeanPlusDispersion, 1,
+                        DecisionStrategyEngine.LayerAleatory, DecisionStrategyEngine.DisciplineAleatory,
+                        string.Create(CultureInfo.InvariantCulture,
+                            $"Mean + k·SD of {stream} type {t}{typeLabel}"),
+                        string.Create(CultureInfo.InvariantCulture, $"k = {options.DispersionK}"),
+                        ObjectiveDirection.Minimize, names, dispersionValues, eligible));
+
+                    var tailMetric = CostBenefitMetric.ForRiskMeasure(
+                        RiskMeasure.ConditionalValueAtRisk, stream, t);
+                    var tailValues = new double[count];
+                    for (int i = 0; i < count; i++)
+                    {
+                        tailValues[i] = resolver.ResolveValue(tailMetric, i);
+                    }
+                    rankings.Add(DecisionStrategyEngine.Rank(DecisionStrategy.ConditionalValueAtRisk, 1,
+                        DecisionStrategyEngine.LayerAleatory, DecisionStrategyEngine.DisciplineAleatory,
+                        CostBenefitMetricResolver.Describe(tailMetric), string.Empty,
+                        ObjectiveDirection.Minimize, names, tailValues, eligible));
+                }
+
+                if (options.PmrmPartition != null)
+                {
+                    IReadOnlyList<double> boundaries = options.PmrmPartition.ExceedanceBoundaries;
+                    string[] parts = new string[boundaries.Count];
+                    for (int b = 0; b < boundaries.Count; b++)
+                    {
+                        parts[b] = boundaries[b].ToString(CultureInfo.InvariantCulture);
+                    }
+                    string echo = $"boundaries = {string.Join("|", parts)}; f₅ is the ExpectedValue ranking; NaN marks a region above an alternative's total exceedance";
+                    for (int t = 0; t < typeCount; t++)
+                    {
+                        string typeLabel = labels[t].Length > 0 ? $" ({labels[t]})" : string.Empty;
+                        var regionMeans = new double[count][];
+                        for (int i = 0; i < count; i++)
+                        {
+                            Curve? curve = BenefitCurveAt(trajectories[i], stream, t);
+                            if (curve == null)
+                            {
+                                regionMeans[i] = new double[boundaries.Count + 1];
+                                for (int r = 0; r < regionMeans[i].Length; r++)
+                                {
+                                    regionMeans[i][r] = double.NaN;
+                                }
+                            }
+                            else
+                            {
+                                regionMeans[i] = LecPartitionEngine.RegionConditionalMeans(curve, boundaries);
+                            }
+                        }
+                        for (int r = 0; r <= boundaries.Count; r++)
+                        {
+                            double upper = r == 0 ? 1d : boundaries[r - 1];
+                            double lower = r == boundaries.Count ? 0d : boundaries[r];
+                            var regionValues = new double[count];
+                            for (int i = 0; i < count; i++)
+                            {
+                                regionValues[i] = regionMeans[i][r];
+                            }
+                            rankings.Add(DecisionStrategyEngine.Rank(
+                                DecisionStrategy.PartitionedConditionalMean, 1,
+                                DecisionStrategyEngine.LayerAleatory,
+                                DecisionStrategyEngine.DisciplineAleatory,
+                                string.Create(CultureInfo.InvariantCulture,
+                                    $"Conditional mean of {stream} type {t}{typeLabel} in exceedance region ({lower}, {upper}]"),
+                                echo, ObjectiveDirection.Minimize, names, regionValues, eligible));
+                        }
+                    }
+                }
+
+                if (options.Utility != null)
+                {
+                    string echo = string.Create(CultureInfo.InvariantCulture,
+                        $"{options.Utility.Form}, risk aversion = {options.Utility.RiskAversion}");
+                    for (int t = 0; t < typeCount; t++)
+                    {
+                        string typeLabel = labels[t].Length > 0 ? $" ({labels[t]})" : string.Empty;
+                        var certaintyValues = new double[count];
+                        for (int i = 0; i < count; i++)
+                        {
+                            Curve? curve = BenefitCurveAt(trajectories[i], stream, t);
+                            certaintyValues[i] = curve == null
+                                ? double.NaN
+                                : LecPartitionEngine.CertaintyEquivalent(curve,
+                                    options.Utility.Form, options.Utility.RiskAversion);
+                        }
+                        rankings.Add(DecisionStrategyEngine.Rank(DecisionStrategy.CertaintyEquivalent, 1,
+                            DecisionStrategyEngine.LayerAleatory, DecisionStrategyEngine.DisciplineAleatory,
+                            string.Create(CultureInfo.InvariantCulture,
+                                $"Certainty equivalent of {stream} type {t}{typeLabel}"),
+                            echo, ObjectiveDirection.Minimize, names, certaintyValues, eligible));
+                    }
+                }
+
+                for (int t = 0; t < typeCount; t++)
+                {
+                    string typeLabel = labels[t].Length > 0 ? $" ({labels[t]})" : string.Empty;
+                    string screenLabel = string.Create(CultureInfo.InvariantCulture,
+                        $"{stream} type {t}{typeLabel} loss exceedance");
+                    for (int i = 0; i < count; i++)
+                    {
+                        Curve? first = BenefitCurveAt(trajectories[i], stream, t);
+                        if (first == null) continue;
+                        for (int j = i + 1; j < count; j++)
+                        {
+                            Curve? second = BenefitCurveAt(trajectories[j], stream, t);
+                            if (second == null) continue;
+                            dominance.Add(new DominanceEntry(names[i], names[j],
+                                DecisionStrategyEngine.LayerAleatory, screenLabel,
+                                StochasticDominanceEngine.CompareLossExceedanceCurves(first, second)));
+                        }
+                    }
+                }
+            }
+
+            AddEconomicRanking(DecisionStrategy.TotalExpectedAnnualCost,
+                EconomicMetric.TotalExpectedAnnualCost, ObjectiveDirection.Minimize,
+                consequenceDependent: true);
+            AddEconomicRanking(DecisionStrategy.NetPresentValue, EconomicMetric.NetPresentValue,
+                ObjectiveDirection.Maximize, consequenceDependent: true);
+            AddEconomicRanking(DecisionStrategy.BenefitCostRatio, EconomicMetric.BenefitCostRatio,
+                ObjectiveDirection.Maximize, consequenceDependent: true);
+            if (options.LifeSafetyConsequenceType >= 0)
+            {
+                AddEconomicRanking(DecisionStrategy.CostPerLifeSaved,
+                    EconomicMetric.CostPerStatisticalLifeSavedAdjusted, ObjectiveDirection.Minimize,
+                    consequenceDependent: true);
+            }
+            AddEconomicRanking(DecisionStrategy.AnnualizedFailureProbability,
+                EconomicMetric.AnnualizedFailureProbability, ObjectiveDirection.Minimize,
+                consequenceDependent: false);
+
+            if (options.Objectives.Count == 0)
+            {
+                diagnostics.Add(new ComputationDiagnostic("TRC2007", DiagnosticSeverity.Warning,
+                    "The constrained-selection strategy is skipped: no objective vector is declared to rank by.",
+                    string.Empty));
+            }
+            else
+            {
+                ObjectiveDeclaration primary = options.Objectives[0];
+                var primaryValues = new double[count];
+                for (int i = 0; i < count; i++)
+                {
+                    primaryValues[i] = resolver.ResolveValue(primary.Metric, i);
+                }
+                var constrainedEligible = new bool[count];
+                for (int i = 0; i < count; i++)
+                {
+                    bool satisfied = eligible[i];
+                    for (int c = 0; c < constraintEvaluations.Count; c++)
+                    {
+                        satisfied = satisfied && constraintEvaluations[c].Satisfied[i];
+                    }
+                    constrainedEligible[i] = satisfied;
+                }
+                rankings.Add(DecisionStrategyEngine.Rank(DecisionStrategy.ConstrainedSelection, 1,
+                    DecisionStrategyEngine.LayerExact, DecisionStrategyEngine.DisciplineExact,
+                    primary.Name,
+                    string.Create(CultureInfo.InvariantCulture,
+                        $"objective: {CostBenefitMetricResolver.Describe(primary.Metric)}; {constraintEvaluations.Count} fixed constraints"),
+                    primary.Direction, names, primaryValues, constrainedEligible));
+            }
+
+            if (mcda != null)
+            {
+                var scores = new double[count];
+                var mcdaEligible = new bool[count];
+                for (int i = 0; i < count; i++)
+                {
+                    scores[i] = mcda.Scores[i];
+                    mcdaEligible[i] = !mcda.IsExcludedFromRecommendation[i];
+                }
+                rankings.Add(DecisionStrategyEngine.Rank(DecisionStrategy.MultiCriteriaScore, 1,
+                    DecisionStrategyEngine.LayerExact, DecisionStrategyEngine.DisciplineExact,
+                    "Multi-criteria weighted score",
+                    string.Create(CultureInfo.InvariantCulture,
+                        $"{options.Objectives.Count} objectives; normalized weights echoed on the MCDA block"),
+                    ObjectiveDirection.Maximize, names, scores, mcdaEligible));
+            }
+
+            void AddEconomicRanking(DecisionStrategy strategy, EconomicMetric metric,
+                ObjectiveDirection direction, bool consequenceDependent)
+            {
+                if (reliabilityMode && consequenceDependent)
+                {
+                    ReportReliabilitySkip(diagnostics, $"The strategy '{strategy}'");
+                    return;
+                }
+                var selector = CostBenefitMetric.ForEconomic(metric);
+                var economicValues = new double[count];
+                for (int i = 0; i < count; i++)
+                {
+                    economicValues[i] = resolver.ResolveValue(selector, i);
+                }
+                rankings.Add(DecisionStrategyEngine.Rank(strategy, 1,
+                    DecisionStrategyEngine.LayerExact, DecisionStrategyEngine.DisciplineExact,
+                    CostBenefitMetricResolver.Describe(selector), string.Empty, direction, names,
+                    economicValues, eligible));
+            }
+        }
+
+        /// <summary>
+        /// Computes the Tier-2 strategies over the stored full-uncertainty ensembles: the
+        /// epistemic band rows, the classical rules, the quantile-regret ranking, the
+        /// epistemic dominance screen, the chance-constraint evaluations, and the
+        /// chance-constrained selections. The whole block is skipped with per-alternative
+        /// diagnostics when any alternative lacks a stored ensemble.
+        /// </summary>
+        /// <param name="options">The study declarations.</param>
+        /// <param name="rowOrder">The alternatives, in results row order.</param>
+        /// <param name="names">The alternative names, parallel to the rows.</param>
+        /// <param name="eligible">The do-no-harm recommendation eligibility, parallel to the rows.</param>
+        /// <param name="resolver">The metric resolver (the chance-constrained selection's objective values).</param>
+        /// <param name="criteria">The Tier-2/3 criterion set.</param>
+        /// <param name="reliabilityMode">True when the alternatives run in reliability mode.</param>
+        /// <param name="rankings">The ranking sink.</param>
+        /// <param name="epistemicMeasures">The band-row sink.</param>
+        /// <param name="chanceConstraints">The chance-evaluation sink.</param>
+        /// <param name="dominance">The dominance-entry sink.</param>
+        /// <param name="diagnostics">The diagnostics sink.</param>
+        private static void ComputeTierTwoStrategies(CostBenefitOptions options,
+            List<RiskReductionAlternative> rowOrder, string[] names, bool[] eligible,
+            CostBenefitMetricResolver resolver, List<TierCriterion> criteria, bool reliabilityMode,
+            List<StrategyRanking> rankings, List<EpistemicMeasureSummary> epistemicMeasures,
+            List<ChanceConstraintEntry> chanceConstraints, List<DominanceEntry> dominance,
+            List<ComputationDiagnostic> diagnostics)
+        {
+            int count = names.Length;
+            bool blockAvailable = true;
+            for (int i = 0; i < count; i++)
+            {
+                EnsembleResults? ensemble = rowOrder[i].System.RiskResults;
+                if (ensemble == null || ensemble.Realizations.Length == 0)
+                {
+                    diagnostics.Add(new ComputationDiagnostic("TRC2006", DiagnosticSeverity.Warning,
+                        $"Alternative '{names[i]}' carries no stored full-uncertainty ensemble; the epistemic decision strategies are skipped.",
+                        string.Empty));
+                    blockAvailable = false;
+                }
+            }
+            if (!blockAvailable) return;
+
+            double width = rowOrder[0].System.Options.ConfidenceIntervalWidth;
+            double tail = (1d - width) / 2d;
+            var levels = new[] { tail, 1d - tail, 0.5d };
+            double studyAlpha = options.AlphaLevels[0];
+
+            foreach (TierCriterion criterion in criteria)
+            {
+                if (criterion.IsAlphaDependent)
+                {
+                    double target = double.IsNaN(criterion.DeclaredAlpha)
+                        ? studyAlpha
+                        : criterion.DeclaredAlpha;
+                    for (int i = 0; i < count; i++)
+                    {
+                        if (rowOrder[i].System.Options.Alpha != target)
+                        {
+                            diagnostics.Add(new ComputationDiagnostic("TRC2007",
+                                DiagnosticSeverity.Warning,
+                                $"The epistemic criterion '{criterion.Label}' reads each stored ensemble's own exceedance level, not the declared level.",
+                                string.Empty));
+                            break;
+                        }
+                    }
+                }
+
+                var sampleValues = new double[count][];
+                var sampleWeights = new double[count][];
+                var sampleCounts = new int[count];
+                var means = new double[count];
+                var worst = new double[count];
+                var best = new double[count];
+                var hurwicz = new double[count];
+                var dispersion = new double[count];
+                var quantiles = new double[count][];
+                for (int i = 0; i < count; i++)
+                {
+                    EnsembleResults ensemble = rowOrder[i].System.RiskResults!;
+                    var valueBuffer = new double[ensemble.Realizations.Length];
+                    var weightBuffer = new double[ensemble.Realizations.Length];
+                    int used = EpistemicCriteriaEngine.CriterionSample(ensemble.Realizations,
+                        ensemble.RealizationWeights, criterion.RiskType, criterion.ConsequenceType,
+                        criterion.Measure, valueBuffer, weightBuffer);
+                    sampleValues[i] = valueBuffer;
+                    sampleWeights[i] = weightBuffer;
+                    sampleCounts[i] = used;
+                    means[i] = EpistemicCriteriaEngine.WeightedMean(valueBuffer, weightBuffer, used);
+                    double variance = EpistemicCriteriaEngine.WeightedVariance(valueBuffer, weightBuffer, used);
+                    quantiles[i] = EpistemicCriteriaEngine.WeightedPercentiles(valueBuffer, weightBuffer,
+                        used, levels);
+                    double tailAverage = EpistemicCriteriaEngine.TailAverage(valueBuffer, weightBuffer,
+                        used, options.EpistemicTailAlpha, criterion.Direction);
+                    worst[i] = EpistemicCriteriaEngine.WeightedExtreme(valueBuffer, weightBuffer, used,
+                        worst: true, criterion.Direction);
+                    best[i] = EpistemicCriteriaEngine.WeightedExtreme(valueBuffer, weightBuffer, used,
+                        worst: false, criterion.Direction);
+                    hurwicz[i] = EpistemicCriteriaEngine.HurwiczBlend(best[i], worst[i],
+                        options.HurwiczAlpha);
+                    dispersion[i] = means[i] + options.DispersionK * Math.Sqrt(variance);
+                    epistemicMeasures.Add(new EpistemicMeasureSummary(names[i], criterion.Label,
+                        criterion.Direction, means[i], quantiles[i][0], quantiles[i][2],
+                        quantiles[i][1], tail, 1d - tail, variance, tailAverage,
+                        options.EpistemicTailAlpha,
+                        EpistemicCriteriaEngine.KishEffectiveCount(weightBuffer, used), used));
+                }
+
+                rankings.Add(DecisionStrategyEngine.Rank(DecisionStrategy.Laplace, 2,
+                    DecisionStrategyEngine.LayerEpistemic, DecisionStrategyEngine.DisciplineEpistemic,
+                    criterion.Label, "expected value under the stored epistemic weights",
+                    criterion.Direction, names, means, eligible));
+                rankings.Add(DecisionStrategyEngine.Rank(DecisionStrategy.WaldMaximin, 2,
+                    DecisionStrategyEngine.LayerEpistemic, DecisionStrategyEngine.DisciplineEpistemic,
+                    criterion.Label, string.Empty, criterion.Direction, names, worst, eligible));
+                rankings.Add(DecisionStrategyEngine.Rank(DecisionStrategy.Maximax, 2,
+                    DecisionStrategyEngine.LayerEpistemic, DecisionStrategyEngine.DisciplineEpistemic,
+                    criterion.Label, string.Empty, criterion.Direction, names, best, eligible));
+                rankings.Add(DecisionStrategyEngine.Rank(DecisionStrategy.Hurwicz, 2,
+                    DecisionStrategyEngine.LayerEpistemic, DecisionStrategyEngine.DisciplineEpistemic,
+                    criterion.Label,
+                    string.Create(CultureInfo.InvariantCulture, $"α = {options.HurwiczAlpha}"),
+                    criterion.Direction, names, hurwicz, eligible));
+                rankings.Add(DecisionStrategyEngine.Rank(DecisionStrategy.MeanPlusDispersion, 2,
+                    DecisionStrategyEngine.LayerEpistemic, DecisionStrategyEngine.DisciplineEpistemic,
+                    criterion.Label,
+                    string.Create(CultureInfo.InvariantCulture, $"k = {options.DispersionK}"),
+                    criterion.Direction, names, dispersion, eligible));
+
+                var quantileRegret = new double[count];
+                for (int i = 0; i < count; i++)
+                {
+                    quantileRegret[i] = 0d;
+                }
+                for (int q = 0; q < levels.Length; q++)
+                {
+                    double bestAtLevel = double.NaN;
+                    for (int i = 0; i < count; i++)
+                    {
+                        double value = quantiles[i][q];
+                        if (double.IsNaN(value)) continue;
+                        if (double.IsNaN(bestAtLevel)
+                            || (criterion.Direction == ObjectiveDirection.Maximize
+                                ? value > bestAtLevel
+                                : value < bestAtLevel))
+                        {
+                            bestAtLevel = value;
+                        }
+                    }
+                    for (int i = 0; i < count; i++)
+                    {
+                        double value = quantiles[i][q];
+                        double regret = double.IsNaN(value) || double.IsNaN(bestAtLevel)
+                            ? double.NaN
+                            : criterion.Direction == ObjectiveDirection.Maximize
+                                ? bestAtLevel - value
+                                : value - bestAtLevel;
+                        if (double.IsNaN(regret))
+                        {
+                            quantileRegret[i] = double.NaN;
+                        }
+                        else if (!double.IsNaN(quantileRegret[i]) && regret > quantileRegret[i])
+                        {
+                            quantileRegret[i] = regret;
+                        }
+                    }
+                }
+                rankings.Add(DecisionStrategyEngine.Rank(DecisionStrategy.QuantileRegret, 2,
+                    DecisionStrategyEngine.LayerEpistemic, DecisionStrategyEngine.DisciplineEpistemic,
+                    criterion.Label,
+                    string.Create(CultureInfo.InvariantCulture,
+                        $"band levels {tail}, 0.5, {1d - tail}; ranked by the maximum quantile regret"),
+                    ObjectiveDirection.Minimize, names, quantileRegret, eligible));
+
+                for (int i = 0; i < count; i++)
+                {
+                    for (int j = i + 1; j < count; j++)
+                    {
+                        dominance.Add(new DominanceEntry(names[i], names[j],
+                            DecisionStrategyEngine.LayerEpistemic, criterion.Label,
+                            StochasticDominanceEngine.CompareWeightedSamples(sampleValues[i],
+                                sampleWeights[i], sampleCounts[i], sampleValues[j],
+                                sampleWeights[j], sampleCounts[j], criterion.Direction)));
+                    }
+                }
+            }
+
+            IReadOnlyList<double> confidenceLevels = options.ChanceConstraintConfidenceLevels;
+            var evaluableVerdicts = new List<bool[][]>();
+            for (int c = 0; c < options.Constraints.Count; c++)
+            {
+                CostBenefitConstraint constraint = options.Constraints[c];
+                CostBenefitMetric metric = constraint.Metric;
+                string sense = constraint.Sense
+                    == Numerics.Mathematics.Optimization.ConstraintType.GreaterThanOrEqualTo
+                    ? "≥"
+                    : "≤";
+                string constraintLabel = string.Create(CultureInfo.InvariantCulture,
+                    $"{CostBenefitMetricResolver.Describe(metric)} {sense} {constraint.Threshold}");
+                if (metric.IsEconomic || metric.Form != MetricForm.Level
+                    || metric.Basis != MetricBasis.AnnualizedPerEpoch)
+                {
+                    diagnostics.Add(new ComputationDiagnostic("TRC2007", DiagnosticSeverity.Warning,
+                        $"The chance evaluation of constraint '{constraintLabel}' is skipped: the metric has no per-realization analog in the stored ensembles.",
+                        string.Empty));
+                    continue;
+                }
+                if (reliabilityMode && metric.Measure != RiskMeasure.TotalProbability)
+                {
+                    diagnostics.Add(new ComputationDiagnostic("TRC2005", DiagnosticSeverity.Warning,
+                        $"The chance evaluation of constraint '{constraintLabel}' is consequence-dependent and is skipped under reliability mode.",
+                        string.Empty));
+                    continue;
+                }
+                var exceedance = new double[count];
+                var satisfaction = new double[count];
+                for (int i = 0; i < count; i++)
+                {
+                    EnsembleResults ensemble = rowOrder[i].System.RiskResults!;
+                    exceedance[i] = EpistemicCriteriaEngine.ExceedanceFraction(ensemble.Realizations,
+                        ensemble.RealizationWeights, metric.RiskType, metric.ConsequenceType,
+                        metric.Measure, constraint.Threshold);
+                    satisfaction[i] = constraint.Sense
+                        == Numerics.Mathematics.Optimization.ConstraintType.GreaterThanOrEqualTo
+                        ? EpistemicCriteriaEngine.SatisfactionFraction(ensemble.Realizations,
+                            ensemble.RealizationWeights, metric.RiskType, metric.ConsequenceType,
+                            metric.Measure, constraint.Threshold)
+                        : 1d - exceedance[i];
+                }
+                var verdicts = new bool[confidenceLevels.Count][];
+                for (int level = 0; level < confidenceLevels.Count; level++)
+                {
+                    verdicts[level] = new bool[count];
+                    for (int i = 0; i < count; i++)
+                    {
+                        verdicts[level][i] = satisfaction[i] >= confidenceLevels[level];
+                    }
+                }
+                chanceConstraints.Add(new ChanceConstraintEntry(constraintLabel, names, exceedance,
+                    satisfaction, confidenceLevels, verdicts));
+                evaluableVerdicts.Add(verdicts);
+            }
+
+            if (options.Objectives.Count == 0)
+            {
+                diagnostics.Add(new ComputationDiagnostic("TRC2007", DiagnosticSeverity.Warning,
+                    "The chance-constrained selection strategy is skipped: no objective vector is declared to rank by.",
+                    string.Empty));
+            }
+            else
+            {
+                ObjectiveDeclaration primary = options.Objectives[0];
+                var primaryValues = new double[count];
+                for (int i = 0; i < count; i++)
+                {
+                    primaryValues[i] = resolver.ResolveValue(primary.Metric, i);
+                }
+                for (int level = 0; level < confidenceLevels.Count; level++)
+                {
+                    var levelEligible = new bool[count];
+                    for (int i = 0; i < count; i++)
+                    {
+                        bool satisfied = eligible[i];
+                        for (int c = 0; c < evaluableVerdicts.Count; c++)
+                        {
+                            satisfied = satisfied && evaluableVerdicts[c][level][i];
+                        }
+                        levelEligible[i] = satisfied;
+                    }
+                    rankings.Add(DecisionStrategyEngine.Rank(DecisionStrategy.ChanceConstrainedSelection, 2,
+                        DecisionStrategyEngine.LayerEpistemic, DecisionStrategyEngine.DisciplineEpistemic,
+                        primary.Name,
+                        string.Create(CultureInfo.InvariantCulture,
+                            $"confidence = {confidenceLevels[level]}; {evaluableVerdicts.Count} chance constraints"),
+                        primary.Direction, names, primaryValues, levelEligible));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Computes the Tier-3 shared-state regret strategies over aligned logic-tree
+        /// enumeration maps: the per-criterion block means with their block noise, the regret
+        /// matrices, and the minimax- and expected-regret rankings. The whole block is skipped
+        /// with per-alternative diagnostics when any alternative's map is absent or misaligned.
+        /// </summary>
+        /// <param name="rowOrder">The alternatives, in results row order.</param>
+        /// <param name="names">The alternative names, parallel to the rows.</param>
+        /// <param name="eligible">The do-no-harm recommendation eligibility, parallel to the rows.</param>
+        /// <param name="criteria">The Tier-2/3 criterion set.</param>
+        /// <param name="rankings">The ranking sink.</param>
+        /// <param name="regretMatrices">The regret-matrix sink.</param>
+        /// <param name="diagnostics">The diagnostics sink.</param>
+        private static void ComputeTierThreeStrategies(List<RiskReductionAlternative> rowOrder,
+            string[] names, bool[] eligible, List<TierCriterion> criteria,
+            List<StrategyRanking> rankings, List<RegretMatrixResults> regretMatrices,
+            List<ComputationDiagnostic> diagnostics)
+        {
+            int count = names.Length;
+            LogicTreeEnumerationMap? baselineMap = rowOrder[0].System.LogicTreeEnumeration;
+            if (baselineMap == null)
+            {
+                diagnostics.Add(new ComputationDiagnostic("TRC2008", DiagnosticSeverity.Warning,
+                    $"Alternative '{names[0]}': the shared-state regret strategies are skipped — the baseline carries no logic-tree enumeration map.",
+                    string.Empty));
+                return;
+            }
+            bool aligned = true;
+            for (int i = 0; i < count; i++)
+            {
+                bool sharesInstance = ReferenceEquals(rowOrder[i].System, rowOrder[0].System);
+                string? reason = RegretEngine.DescribeMisalignment(baselineMap,
+                    rowOrder[i].System.LogicTreeEnumeration, sharesInstance);
+                if (reason == null)
+                {
+                    EnsembleResults? ensemble = rowOrder[i].System.RiskResults;
+                    if (ensemble == null
+                        || ensemble.Realizations.Length != baselineMap.RealizationCount)
+                    {
+                        reason = "the stored ensemble does not carry the enumeration's realization count.";
+                    }
+                }
+                if (reason != null)
+                {
+                    diagnostics.Add(new ComputationDiagnostic("TRC2008", DiagnosticSeverity.Warning,
+                        $"Alternative '{names[i]}': the shared-state regret strategies are skipped — {reason}",
+                        string.Empty));
+                    aligned = false;
+                }
+            }
+            if (!aligned) return;
+
+            int stateCount = baselineMap.CombinationCount;
+            int blockSize = baselineMap.RealizationsPerCombination;
+            var stateLabels = new string[stateCount];
+            var stateWeights = new double[stateCount];
+            var labelParts = new string[baselineMap.Axes.Count];
+            for (int c = 0; c < stateCount; c++)
+            {
+                for (int a = 0; a < baselineMap.Axes.Count; a++)
+                {
+                    string axisName = baselineMap.Axes[a].Name.Length > 0
+                        ? baselineMap.Axes[a].Name
+                        : string.Create(CultureInfo.InvariantCulture, $"axis {a}");
+                    labelParts[a] = string.Create(CultureInfo.InvariantCulture,
+                        $"{axisName} = branch {baselineMap.BranchIndexOf(c, a)}");
+                }
+                stateLabels[c] = string.Join("; ", labelParts);
+                stateWeights[c] = baselineMap.CombinationWeights[c];
+            }
+
+            foreach (TierCriterion criterion in criteria)
+            {
+                var blockMeans = new double[count][];
+                var blockErrors = new double[count][];
+                var blockBuffer = new double[blockSize];
+                for (int a = 0; a < count; a++)
+                {
+                    blockMeans[a] = new double[stateCount];
+                    blockErrors[a] = new double[stateCount];
+                    EnsembleResults ensemble = rowOrder[a].System.RiskResults!;
+                    for (int c = 0; c < stateCount; c++)
+                    {
+                        int surviving = 0;
+                        double sum = 0d;
+                        for (int r = c * blockSize; r < (c + 1) * blockSize; r++)
+                        {
+                            SystemRiskResults? summary = ensemble.Realizations[r];
+                            if (summary == null) continue;
+                            SummaryRiskResults? streamSummary = RiskAnalysis.SelectScope(summary,
+                                -1, -1, criterion.RiskType, criterion.ConsequenceType);
+                            double value = streamSummary != null
+                                ? RiskAnalysis.ExtractMeasure(streamSummary, criterion.Measure)
+                                : double.NaN;
+                            if (double.IsNaN(value)) continue;
+                            blockBuffer[surviving] = value;
+                            sum += value;
+                            surviving++;
+                        }
+                        if (surviving == 0)
+                        {
+                            blockMeans[a][c] = double.NaN;
+                            blockErrors[a][c] = double.NaN;
+                            continue;
+                        }
+                        double mean = sum / surviving;
+                        blockMeans[a][c] = mean;
+                        if (surviving < 2)
+                        {
+                            blockErrors[a][c] = double.NaN;
+                            continue;
+                        }
+                        double squaredDeviations = 0d;
+                        for (int k = 0; k < surviving; k++)
+                        {
+                            double deviation = blockBuffer[k] - mean;
+                            squaredDeviations += deviation * deviation;
+                        }
+                        blockErrors[a][c] = Math.Sqrt(squaredDeviations / (surviving - 1))
+                            / Math.Sqrt(blockSize);
+                    }
+                }
+
+                RegretEngine.RegretComputation? computation = RegretEngine.Compute(criterion.Label,
+                    criterion.Direction, names, stateLabels, stateWeights, blockMeans, blockErrors,
+                    diagnostics);
+                if (computation == null) continue;
+                string echo = string.Create(CultureInfo.InvariantCulture,
+                    $"K = {computation.StateLabels.Length} shared states; M = {blockSize}");
+                StrategyRanking minimax = DecisionStrategyEngine.Rank(DecisionStrategy.MinimaxRegret, 3,
+                    DecisionStrategyEngine.LayerSharedState, DecisionStrategyEngine.DisciplineBlockNoise,
+                    criterion.Label, echo, ObjectiveDirection.Minimize, names,
+                    computation.MaxRegrets, eligible);
+                StrategyRanking expected = DecisionStrategyEngine.Rank(DecisionStrategy.ExpectedRegret, 3,
+                    DecisionStrategyEngine.LayerSharedState, DecisionStrategyEngine.DisciplineBlockNoise,
+                    criterion.Label, echo, ObjectiveDirection.Minimize, names,
+                    computation.ExpectedRegrets, eligible);
+                rankings.Add(minimax);
+                rankings.Add(expected);
+                regretMatrices.Add(new RegretMatrixResults(criterion.Label, criterion.Direction,
+                    names, computation.StateLabels, computation.StateWeights, computation.Values,
+                    computation.StandardErrors, computation.Regrets, computation.MaxRegrets,
+                    computation.ExpectedRegrets, computation.WinCounts, minimax.RecommendedIndex,
+                    expected.RecommendedIndex, blockSize,
+                    DecisionStrategyEngine.DisciplineBlockNoise));
+            }
+        }
+
+        /// <summary>
+        /// Builds the decision summary from the computed rankings: one cross-tabulation row per
+        /// ranking, the per-alternative recommendation-count margins, and the study-global
+        /// do-no-harm marks.
+        /// </summary>
+        /// <param name="rankings">The computed rankings, in catalog order.</param>
+        /// <param name="names">The alternative names, in results row order.</param>
+        /// <param name="rows">The economics rows, parallel to the names.</param>
+        /// <returns>The summary, or null when no ranking was computed.</returns>
+        private static DecisionSummary? BuildDecisionSummary(List<StrategyRanking> rankings,
+            string[] names, List<AlternativeEconomics> rows)
+        {
+            if (rankings.Count == 0) return null;
+            var entries = new List<DecisionSummaryEntry>(rankings.Count);
+            var counts = new int[names.Length];
+            for (int i = 0; i < rankings.Count; i++)
+            {
+                StrategyRanking ranking = rankings[i];
+                bool withheld = ranking.RecommendationWithheld;
+                double value = withheld ? double.NaN : ranking.CriterionValues[ranking.RecommendedIndex];
+                entries.Add(new DecisionSummaryEntry(ranking.Strategy, ranking.Tier, ranking.Layer,
+                    ranking.CriterionLabel, ranking.ParameterEcho, ranking.RecommendedAlternative,
+                    value, withheld));
+                if (!withheld) counts[ranking.RecommendedIndex]++;
+            }
+            var failsDoNoHarm = new bool[names.Length];
+            for (int i = 0; i < names.Length; i++)
+            {
+                failsDoNoHarm[i] = rows[i].FailsDoNoHarm;
+            }
+            return new DecisionSummary(entries, names, counts, failsDoNoHarm);
         }
 
         /// <summary>
