@@ -25,10 +25,15 @@ public class MetadataServiceTests
         CollectionAssert.Contains(metadata.Enums["transform"], "normalZ");
         CollectionAssert.Contains(metadata.Enums["riskMeasureOptions"], "all");
         CollectionAssert.Contains(metadata.FunctionTypes["consequence"], "compositeMixture");
+        CollectionAssert.Contains(metadata.FunctionTypes["transform"], "tabularTransform");
+        CollectionAssert.Contains(metadata.FunctionTypes["transform"], "linearTransform");
+        CollectionAssert.Contains(metadata.FunctionTypes["transform"], "powerTransform");
         Assert.AreEqual(true, metadata.Defaults["outputAdjustedFailureModeCurves"]);
+        Assert.AreEqual(0, metadata.Defaults["consequenceHazardPosition"]);
         Assert.AreEqual(12345, metadata.Defaults["prngSeed"]);
         Assert.AreEqual(7, metadata.Limits.MaxConcurrentRuns);
         Assert.IsTrue(metadata.Conventions.Any(c => c.Contains("EXCEEDANCE", StringComparison.OrdinalIgnoreCase)));
         Assert.IsTrue(metadata.Conventions.Any(c => c.Contains("UNADJUSTED", StringComparison.OrdinalIgnoreCase)));
+        Assert.IsTrue(metadata.Conventions.Any(c => c.Contains("consequenceHazardPosition", StringComparison.Ordinal)));
     }
 }

@@ -27,5 +27,23 @@ namespace RMC.TotalRisk.Api.DTOs
         /// exposure mixture (e.g., day/night exposure weights).
         /// </summary>
         public const string CompositeMixture = "compositeMixture";
+
+        /// <summary>
+        /// A deterministic tabular hazard-domain transform (input hazard vs. transformed hazard),
+        /// e.g. a stage-discharge rating curve.
+        /// </summary>
+        public const string TabularTransform = "tabularTransform";
+
+        /// <summary>
+        /// A deterministic linear hazard-domain transform Y = alpha + beta·X over a clamp range,
+        /// e.g. a stage-to-overtopping-depth crest offset.
+        /// </summary>
+        public const string LinearTransform = "linearTransform";
+
+        /// <summary>
+        /// A deterministic power hazard-domain transform Y = alpha·(X − xi)^beta over a clamp
+        /// range, optionally inverted — the weir form for stage-to-discharge conversions.
+        /// </summary>
+        public const string PowerTransform = "powerTransform";
     }
 }

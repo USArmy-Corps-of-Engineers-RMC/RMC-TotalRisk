@@ -77,6 +77,76 @@ public class DtoSerializationTests
         StringAssert.Contains(json, "\"API_TEST\"");
     }
 
+    /// <summary>A failure mode's transform chain and consequence position round-trip on the wire.</summary>
+    [TestMethod]
+    public void Test_TransformDto_RoundTrips()
+    {
+        // Arrange
+        var mode = new FailureModeDto
+        {
+            Name = "Spillway Erosion",
+            Transforms = new List<TransformFunctionDto>
+            {
+                new TransformFunctionDto
+                {
+                    Type = FunctionTypeNames.PowerTransform,
+                    Name = "Weir Rating",
+                    SpecifiedHazard = "Reservoir Stage",
+                    HazardUnit = "ft",
+                    TransformedHazard = "Spillway Discharge",
+                    TransformedHazardUnit = "cfs",
+                    Alpha = 150,
+                    Beta = 1.5,
+                    Xi = 1214,
+                    IsInverse = false,
+                    Minimum = 1214,
+                    Maximum = 1230,
+                },
+                new TransformFunctionDto
+                {
+                    Type = FunctionTypeNames.TabularTransform,
+                    TransformedHazard = "Velocity",
+                    TransformedHazardUnit = "ft/s",
+                    HazardValues = new List<double> { 0, 20000 },
+                    TransformedHazardValues = new List<double> { 0, 35 },
+                    HazardTransform = Numerics.Data.Transform.Logarithmic,
+                    TransformedHazardTransform = Numerics.Data.Transform.Logarithmic,
+                },
+            },
+            ConsequenceHazardPosition = 0,
+            Response = new TabularResponseDto
+            {
+                HazardValues = new List<double> { 0, 35 },
+                ResponseProbabilities = new List<double> { 0, 0.5 },
+            },
+            Consequences = new List<ConsequenceFunctionDto>
+            {
+                new ConsequenceFunctionDto
+                {
+                    HazardValues = new List<double> { 1200, 1230 },
+                    ConsequenceValues = new List<double> { 0, 50 },
+                },
+            },
+        };
+
+        // Act
+        var roundTripped = TestJson.Roundtrip(mode)!;
+        string json = TestJson.Serialize(mode);
+
+        // Assert
+        Assert.AreEqual(2, roundTripped.Transforms!.Count);
+        Assert.AreEqual(0, roundTripped.ConsequenceHazardPosition);
+        Assert.AreEqual(150, roundTripped.Transforms[0].Alpha);
+        Assert.AreEqual(1214, roundTripped.Transforms[0].Xi);
+        Assert.IsFalse(roundTripped.Transforms[0].IsInverse!.Value);
+        Assert.AreEqual(Numerics.Data.Transform.Logarithmic, roundTripped.Transforms[1].TransformedHazardTransform);
+        StringAssert.Contains(json, "\"transforms\"");
+        StringAssert.Contains(json, "\"consequenceHazardPosition\"");
+        StringAssert.Contains(json, "\"powerTransform\"");
+        StringAssert.Contains(json, "\"transformedHazardValues\"");
+        StringAssert.Contains(json, "\"logarithmic\"");
+    }
+
     /// <summary>Options DTO nullable fields omit cleanly and round-trip when set.</summary>
     [TestMethod]
     public void Test_OptionsDto_RoundTrips()

@@ -121,6 +121,42 @@ public class ApiIntegrationTests
     }
 
     /// <summary>
+    /// The transform-equivalence golden: routing a fragility through an exact linear stage
+    /// shift (with the response re-keyed to the shifted axis and the consequences bound back
+    /// to the raw stage axis at position 0) reproduces the untransformed twin through the whole
+    /// HTTP stack. The shift is exact in floating point (see the twin builders), so the two
+    /// runs are expected bit-identical; the 1e-12 relative tolerance is headroom, not an
+    /// accuracy allowance.
+    /// </summary>
+    [TestMethod]
+    public async Task Test_TransformEquivalenceTwin_MatchesUntransformedOverHttp()
+    {
+        // Act
+        var (baseResponse, baseBody) = await PostAsync("/api/risk-analyses/compute", TestRequests.TransformTwinBaseline());
+        var (shiftResponse, shiftBody) = await PostAsync("/api/risk-analyses/compute", TestRequests.TransformTwinShifted());
+
+        // Assert
+        Assert.IsTrue(baseResponse.IsSuccessStatusCode, baseBody);
+        Assert.IsTrue(shiftResponse.IsSuccessStatusCode, shiftBody);
+        var baseline = TestJson.Deserialize<ComputeRiskAnalysisResponse>(baseBody)!.Results!;
+        var shifted = TestJson.Deserialize<ComputeRiskAnalysisResponse>(shiftBody)!.Results!;
+
+        var baseTotal = baseline.Curves.Total.Stats;
+        var shiftTotal = shifted.Curves.Total.Stats;
+        var baseFail = baseline.Curves.Fail.Stats;
+        var shiftFail = shifted.Curves.Fail.Stats;
+        Assert.AreEqual(baseTotal.Mean, shiftTotal.Mean, Math.Abs(baseTotal.Mean) * 1e-12);
+        Assert.AreEqual(baseFail.Mean, shiftFail.Mean, Math.Abs(baseFail.Mean) * 1e-12);
+        Assert.AreEqual(baseFail.TotalProbability, shiftFail.TotalProbability,
+            Math.Abs(baseFail.TotalProbability) * 1e-12);
+        Assert.IsTrue(baseFail.TotalProbability > 0, baseBody);
+
+        // The threaded labels line up along the whole chain, so the transformed run carries no
+        // label-continuity warnings.
+        Assert.IsFalse(shiftBody.Contains("does not match"), shiftBody);
+    }
+
+    /// <summary>
     /// Identical requests produce byte-identical results and provenance blocks (content-based
     /// seeding surfaced through the API; the envelope's timestamp and timing legitimately
     /// differ).

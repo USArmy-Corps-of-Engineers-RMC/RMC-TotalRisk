@@ -73,19 +73,42 @@ namespace RMC.TotalRisk.Api.Mappers
                     continue;
                 }
 
+                var transforms = FunctionMapper.ToTransforms(mode.Transforms, $"{modePath}.transforms",
+                    limits, hazardLabels, mode.Name, issues);
+                int declaredTransformCount = mode.Transforms?.Count ?? 0;
+                bool positionOk = CheckConsequencePosition(mode.ConsequenceHazardPosition, declaredTransformCount,
+                    $"{modePath}.consequenceHazardPosition", issues);
+
+                // The response reads the signal after the whole chain, so its blank labels
+                // inherit the last transform's output pair rather than the component hazard's.
+                var responseLabels = transforms is { Count: > 0 }
+                    ? (transforms[^1].TransformedHazard, transforms[^1].TransformedHazardUnit)
+                    : hazardLabels;
                 var response = FunctionMapper.ToResponse(mode.Response, $"{modePath}.response", limits,
-                    hazardLabels, $"{mode.Name} Response", issues);
+                    responseLabels, $"{mode.Name} Response", issues);
+
+                // Omitted position on a transformed mode defaults to 0 — consequences read the
+                // raw component hazard (e.g., stage) even when the response is keyed to a
+                // transformed axis. This diverges from the engine's null default (the last
+                // response's input). A transform-free mode keeps null so the built mode is
+                // identical to the pre-transform contract's.
+                int? position = mode.ConsequenceHazardPosition;
+                if (position == null && declaredTransformCount > 0) position = 0;
+                var consequenceLabels = ResolveBoundLabels(transforms, position, hazardLabels);
                 var consequences = MapConsequenceList(mode.Consequences, $"{modePath}.consequences", limits,
-                    hazardLabels, declaredTypes, mode.Name, requireOnePerType: true, issues);
-                if (response == null || consequences == null)
+                    consequenceLabels, declaredTypes, mode.Name, requireOnePerType: true, issues);
+                if (transforms == null || !positionOk || response == null || consequences == null)
                 {
                     ok = false;
                     continue;
                 }
 
                 component.AddFailureMode(new FailureMode(
-                    new List<ResponseStage> { new ResponseStage(new List<ITransformFunction>(), response) },
-                    null, consequences));
+                    new List<ResponseStage> { new ResponseStage(transforms, response) },
+                    null, consequences)
+                {
+                    ConsequenceHazardPosition = position,
+                });
             }
 
             if (dto.NonFailConsequences.Count > 0)
@@ -153,7 +176,7 @@ namespace RMC.TotalRisk.Api.Mappers
         /// <param name="dtos">The consequence DTOs, index-aligned with the declared types.</param>
         /// <param name="path">The list's request object path.</param>
         /// <param name="limits">The host limits.</param>
-        /// <param name="hazardLabels">The inherited hazard (label, unit) pair.</param>
+        /// <param name="hazardLabels">The inherited hazard (label, unit) pair at the consequence-bound chain position — the component hazard's pair for the non-fail path and for modes bound to the raw hazard.</param>
         /// <param name="declaredTypes">The declared consequence types, entry 0 the primary.</param>
         /// <param name="ownerName">The owning failure mode's (or non-fail path's) name, used for default function names.</param>
         /// <param name="requireOnePerType">Whether the list length must equal the declared type count.</param>
@@ -197,6 +220,53 @@ namespace RMC.TotalRisk.Api.Mappers
                 functions.Add(function);
             }
             return ok ? functions : null;
+        }
+
+        /// <summary>
+        /// Checks a failure mode's consequence hazard position against its declared transform
+        /// count: 0 is the raw component hazard, k is the signal after the k-th transform, so the
+        /// valid range is [0, transform count].
+        /// </summary>
+        /// <remarks>
+        /// This gate is load-bearing, not a convenience: <see cref="SystemComponent.AddFailureMode"/>
+        /// silently drops an out-of-range binding (the graph terminal gets no hazard source) and
+        /// the projected mode re-derives the default position, so the model's own range error
+        /// never fires on this mapping path — without this check a bad position would compute on
+        /// the wrong axis with no diagnostic. The check uses the declared DTO count so it reports
+        /// even when a chain entry also failed to map.
+        /// </remarks>
+        /// <param name="value">The requested position, or null when omitted.</param>
+        /// <param name="transformCount">The mode's declared transform count.</param>
+        /// <param name="path">The position field's request object path.</param>
+        /// <param name="issues">The issue collector.</param>
+        /// <returns>True when the position is omitted or in range.</returns>
+        private static bool CheckConsequencePosition(int? value, int transformCount, string path,
+            List<ValidationIssueDto> issues)
+        {
+            if (!value.HasValue || (value.Value >= 0 && value.Value <= transformCount)) return true;
+            issues.Add(ValidationIssueDto.ApiError("API_CONSEQUENCE_POSITION_RANGE",
+                $"The consequence hazard position ({value.Value}) must be between 0 (the raw component hazard) and the transform count (this mode declares {transformCount}); k is the signal after the k-th transform.",
+                path));
+            return false;
+        }
+
+        /// <summary>
+        /// Resolves the (label, unit) pair at the consequence-bound chain position — the pair a
+        /// blank-labeled consequence function inherits: the component hazard's pair at position 0
+        /// (or with no transforms), the k-th transform's output pair at position k.
+        /// </summary>
+        /// <param name="transforms">The mapped transform chain, or null when chain mapping failed.</param>
+        /// <param name="position">The resolved consequence hazard position, or null for the engine default.</param>
+        /// <param name="hazardLabels">The component hazard's (label, unit) pair.</param>
+        /// <returns>The inherited pair at the bound position. The position is clamped defensively for this label walk — an out-of-range value is already reported as an error.</returns>
+        private static (string Label, string Unit) ResolveBoundLabels(List<ITransformFunction>? transforms,
+            int? position, (string Label, string Unit) hazardLabels)
+        {
+            if (transforms == null || transforms.Count == 0) return hazardLabels;
+            int bound = Math.Min(position ?? transforms.Count, transforms.Count);
+            if (bound <= 0) return hazardLabels;
+            var source = transforms[bound - 1];
+            return (source.TransformedHazard, source.TransformedHazardUnit);
         }
 
         /// <summary>

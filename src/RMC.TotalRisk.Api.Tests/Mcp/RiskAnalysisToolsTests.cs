@@ -90,7 +90,10 @@ public class RiskAnalysisToolsTests
         // Assert
         StringAssert.Contains(metadata, "jointFailures");
         StringAssert.Contains(metadata, "conventions");
+        StringAssert.Contains(metadata, "tabularTransform");
         StringAssert.Contains(example, "Example Dam Screening");
         StringAssert.Contains(example, "compositeMixture");
+        StringAssert.Contains(example, "linearTransform");
+        StringAssert.Contains(example, "consequenceHazardPosition");
     }
 }

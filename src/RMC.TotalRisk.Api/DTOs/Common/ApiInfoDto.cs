@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using RMC.TotalRisk.Api.Configuration;
 
 namespace RMC.TotalRisk.Api.DTOs
 {
@@ -24,7 +25,7 @@ namespace RMC.TotalRisk.Api.DTOs
         /// changes keep the major version; breaking changes increment it.
         /// </summary>
         [JsonPropertyName("apiContractVersion")]
-        public string ApiContractVersion { get; set; } = "1.0.0";
+        public string ApiContractVersion { get; set; } = ApiContractInfo.Version;
 
         /// <summary>
         /// A short description of what the service provides.

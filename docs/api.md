@@ -54,6 +54,19 @@ or anywhere when `EnableSwagger: true` is configured.
   stream's `massBalance`, `failureMean` values to the component fail mean, and `excessMean`
   values to the component excess mean. Contributions are always computed, independent of the
   `riskMeasures` flags.
+- **Hazard-to-response transforms.** A failure mode's `transforms` chain converts the hazard
+  signal in order ahead of the response — stage to overtopping depth for an overtopping
+  fragility, stage to discharge for spillway erosion — so the response is keyed to the LAST
+  transform's output axis. `consequenceHazardPosition` selects the axis the mode's consequences
+  read: 0 is the raw component hazard (the omitted default, so consequences stay stage-keyed
+  unless the request says otherwise — a documented divergence from the engine's
+  last-response-input default), k is the signal after the k-th transform. Three deterministic
+  kinds: `tabularTransform` (a conversion table, e.g. a rating curve), `linearTransform`
+  (`y = alpha + beta·x`), and `powerTransform` (`y = alpha·(x − xi)^beta`, optionally
+  inverted — the weir form). Output labels (`transformedHazard`, `transformedHazardUnit`) are
+  required; linear and power transforms clamp evaluation to a required `[minimum, maximum]`
+  range that must cover the hazard table. These transform FUNCTIONS are distinct from the
+  `hazardTransform`/`probabilityTransform` INTERPOLATION-space fields on tabular functions.
 - **Day/night exposure mixtures.** A `compositeMixture` consequence's branch weights are
   aleatory exposure probabilities: the engine enumerates the weighted branches (a mixture, not an
   average), which preserves the consequence variance an average would destroy. Under the
@@ -89,12 +102,17 @@ ComputeRiskAnalysisRequest
 ├─ components[] (min 1)
 │  ├─ name (required)
 │  ├─ hazard: tabularHazard                       ← { exceedanceProbabilities[] ↓, hazardValues[] ↑,
-│  │                                                  specifiedHazard, hazardUnit, transforms, extrapolation }
+│  │                                                  specifiedHazard, hazardUnit, interpolation transforms, extrapolation }
 │  ├─ failureModes[]                              ← may be empty (pure background-risk component)
 │  │  ├─ name (required; labels the results row)
+│  │  ├─ transforms[]?                            ← tabularTransform | linearTransform | powerTransform
+│  │  │                                              (ordered hazard-domain chain, e.g. stage → depth;
+│  │  │                                               transformedHazard/transformedHazardUnit required)
 │  │  ├─ response: tabularResponse                ← { hazardValues[] ↑, responseProbabilities[] ∈ [0,1] }
-│  │  └─ consequences[] (one per declared type)   ← tabularConsequence | compositeMixture
-│  │     └─ compositeMixture.branches[]           ← { weight ∈ [0,1] (Σ = 1), function }
+│  │  │                                              keyed to the LAST transform's output axis
+│  │  ├─ consequences[] (one per declared type)   ← tabularConsequence | compositeMixture
+│  │  │  └─ compositeMixture.branches[]           ← { weight ∈ [0,1] (Σ = 1), function }
+│  │  └─ consequenceHazardPosition?               ← 0 = the raw hazard (default) … k = after the k-th transform
 │  ├─ nonFailConsequences[]                       ← the single response-free path (0 or one per declared type)
 │  ├─ failureModeMethod, failureModeDependency, failureModeCorrelationMatrix?,
 │  │  jointConsequences, hazardThreshold
@@ -103,9 +121,13 @@ ComputeRiskAnalysisRequest
 ```
 
 Label inheritance keeps minimal payloads clean: a blank `specifiedHazard`/`hazardUnit` on a
-response or consequence inherits the component hazard's pair, and blank consequence labels
-inherit the declared type at the position the function fills. A blank primary consequence
-function name inherits the failure mode's name, which is what labels the mode's results row.
+transform inherits the incoming signal's pair (the component hazard's for the first chain entry,
+the previous transform's output for later ones); a blank pair on a response inherits the last
+transform's output pair (the component hazard's when the mode has no transforms); and a blank
+pair on a consequence inherits the pair at the consequence-bound position. Blank consequence
+type labels inherit the declared type at the position the function fills. A blank primary
+consequence function name inherits the failure mode's name, which is what labels the mode's
+results row.
 
 Supplying **any** integration knob (`maxEvaluations`, `maxDepth`, `tolerance`,
 `ensembleTolerance`, `ensembleMinDepth`, `warmupEvaluations`, `warmupCycles`,
@@ -167,8 +189,11 @@ JSON-RPC errors whose messages carry the structured issue codes and remediation 
 
 Store-backed resources (create/run/get lifecycle with ids), full-uncertainty ensemble results
 (percentile bands, convergence diagnostics, tolerable-risk confidence), the wider input-function
-catalog (uncertain tabular functions, parametric and composite hazards/responses, event and
-fault trees, bivariate hazards), authentication, and containerization. The wire contract is
-append-only: these arrive as new fields and new function-kind discriminators, never as breaking
-changes; `apiContractVersion` (served by `GET /api/info` and stamped into `provenance`) tracks
-the contract.
+catalog (uncertain tabular functions, uncertain and composite transform functions, trailing
+response-to-consequence transform chains, multi-stage response chains, parametric and composite
+hazards/responses, event and fault trees, bivariate hazards), authentication, and
+containerization. The wire contract is append-only: these arrive as new fields and new
+function-kind discriminators, never as breaking changes; `apiContractVersion` (served by
+`GET /api/info` and stamped into `provenance`) tracks the contract — deterministic
+hazard-to-response transform chains and `consequenceHazardPosition` are its `1.1.0` additive
+increment.

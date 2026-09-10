@@ -53,6 +53,7 @@ namespace RMC.TotalRisk.Api.Services
                     ["hazard"] = new List<string> { FunctionTypeNames.TabularHazard },
                     ["response"] = new List<string> { FunctionTypeNames.TabularResponse },
                     ["consequence"] = new List<string> { FunctionTypeNames.TabularConsequence, FunctionTypeNames.CompositeMixture },
+                    ["transform"] = new List<string> { FunctionTypeNames.TabularTransform, FunctionTypeNames.LinearTransform, FunctionTypeNames.PowerTransform },
                 },
                 Defaults = new Dictionary<string, object?>
                 {
@@ -78,6 +79,7 @@ namespace RMC.TotalRisk.Api.Services
                     ["hazardTransform"] = EnumHelper.ToCamelCase(nameof(Transform.None)),
                     ["hazardProbabilityTransform"] = EnumHelper.ToCamelCase(nameof(Transform.NormalZ)),
                     ["extrapolation"] = EnumHelper.ToCamelCase(nameof(ExtrapolationPolicy.None)),
+                    ["consequenceHazardPosition"] = 0,
                 },
                 Limits = new MetadataLimitsDto
                 {
@@ -96,6 +98,8 @@ namespace RMC.TotalRisk.Api.Services
                     "Contributions are always computed, independent of the riskMeasures flags.",
                     "Composite-mixture consequence weights are aleatory exposure probabilities: the engine enumerates the weighted branches (mixture), which preserves consequence variance that an average would destroy.",
                     "Under the jointFailures method, exposure branches multiply across failure paths: a component whose paths carry two-branch day/night mixtures warns above 64 branch combinations and errors above 1,024 (roughly six or ten two-branch paths).",
+                    "A failure mode's transforms convert the hazard signal in order ahead of the response (e.g., stage to overtopping depth, stage to spillway discharge): the response is keyed to the LAST transform's output axis, and consequenceHazardPosition selects the axis the consequences read (0 = the raw component hazard — the omitted default; k = the signal after the k-th transform). Transform FUNCTIONS are distinct from the hazardTransform/probabilityTransform INTERPOLATION-space fields on tabular functions.",
+                    "linearTransform and powerTransform evaluate inside [minimum, maximum] and clamp outside; both bounds are required and must cover the hazard table's full range (the model's own default range is only [0, 100]). Transform output labels (transformedHazard, transformedHazardUnit) are required — they define the axis the next function reads.",
                     "Recommended agent workflow: get_metadata, then get_example_request, then validate_risk_analysis until isValid, then run_risk_analysis. Mean-only runs on deterministic inputs complete in well under a second.",
                 },
             };

@@ -7,6 +7,9 @@ namespace RMC.TotalRisk.Api.Services
     /// stage-frequency hazard, three failure modes (overtopping erosion, backward erosion
     /// piping, concentrated leak erosion), day/night exposure-weighted life-loss mixtures on
     /// every failure mode, and a day/night non-fail mixture — the screening-tool model shape.
+    /// The overtopping mode demonstrates a hazard-to-response transform: a stage-to-depth
+    /// crest offset feeds a depth-keyed fragility while the consequences stay on the stage
+    /// axis (consequenceHazardPosition 0).
     /// </summary>
     public static class ExampleRequestFactory
     {
@@ -29,7 +32,7 @@ namespace RMC.TotalRisk.Api.Services
             return new ComputeRiskAnalysisRequest
             {
                 Name = "Example Dam Screening",
-                Description = "A single-dam screening model: deterministic stage-frequency hazard, three tabular failure modes, and day/night exposure-weighted life-loss mixtures.",
+                Description = "A single-dam screening model: deterministic stage-frequency hazard, three tabular failure modes (overtopping through a stage-to-depth transform with stage-keyed consequences), and day/night exposure-weighted life-loss mixtures.",
                 SpecifiedConsequence = "Life Loss",
                 ConsequenceUnit = "lives",
                 Components = new List<ComponentDto>
@@ -50,11 +53,29 @@ namespace RMC.TotalRisk.Api.Services
                             new FailureModeDto
                             {
                                 Name = "Overtopping Erosion",
+                                // The transform demonstration: the fragility is a function of
+                                // overtopping depth (stage minus the 1214 ft crest) while the
+                                // consequences below stay on the stage axis (position 0).
+                                Transforms = new List<TransformFunctionDto>
+                                {
+                                    new TransformFunctionDto
+                                    {
+                                        Type = FunctionTypeNames.LinearTransform,
+                                        Name = "Stage to Overtopping Depth",
+                                        TransformedHazard = "Overtopping Depth",
+                                        TransformedHazardUnit = "ft",
+                                        Alpha = -1214,
+                                        Beta = 1,
+                                        Minimum = -1e9,
+                                        Maximum = 1e9,
+                                    },
+                                },
                                 Response = new TabularResponseDto
                                 {
-                                    HazardValues = new List<double> { 1214, 1216, 1218, 1220 },
+                                    HazardValues = new List<double> { 0, 2, 4, 6 },
                                     ResponseProbabilities = new List<double> { 0, 0.01, 0.2, 0.8 },
                                 },
+                                ConsequenceHazardPosition = 0,
                                 Consequences = new List<ConsequenceFunctionDto>
                                 {
                                     DayNightMixture("Overtopping Life Loss",

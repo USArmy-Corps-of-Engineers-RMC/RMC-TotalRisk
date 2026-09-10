@@ -7,6 +7,7 @@ using RMC.TotalRisk.Core.Interfaces;
 using RMC.TotalRisk.RiskFunctions.Consequences;
 using RMC.TotalRisk.RiskFunctions.Hazards;
 using RMC.TotalRisk.RiskFunctions.Responses;
+using RMC.TotalRisk.RiskFunctions.Transforms;
 
 namespace RMC.TotalRisk.Api.Mappers
 {
@@ -306,6 +307,275 @@ namespace RMC.TotalRisk.Api.Mappers
                 ConsequenceUnit = consequenceUnit,
                 CompositeFunctionType = CompositeFunctionType.Mixture,
             };
+        }
+
+        /// <summary>
+        /// Maps a failure mode's ordered hazard-to-response transform chain, threading each
+        /// entry's output labels into the next entry's blank input labels.
+        /// </summary>
+        /// <param name="dtos">The transform DTOs in chain order; null or empty maps to an empty chain.</param>
+        /// <param name="path">The chain's request object path.</param>
+        /// <param name="limits">The host limits.</param>
+        /// <param name="hazardLabels">The component hazard's (label, unit) pair — the first entry's inherited input labels.</param>
+        /// <param name="ownerName">The owning failure mode's name, used for default function names.</param>
+        /// <param name="issues">The issue collector.</param>
+        /// <returns>The mapped chain (empty for a null or empty DTO list), or null when any entry fails request-shape checks.</returns>
+        public static List<ITransformFunction>? ToTransforms(List<TransformFunctionDto>? dtos, string path,
+            ApiOptions limits, (string Label, string Unit) hazardLabels, string ownerName,
+            List<ValidationIssueDto> issues)
+        {
+            ArgumentNullException.ThrowIfNull(limits);
+            ArgumentNullException.ThrowIfNull(issues);
+
+            var functions = new List<ITransformFunction>(dtos?.Count ?? 0);
+            if (dtos == null || dtos.Count == 0) return functions;
+
+            bool ok = true;
+            var incoming = hazardLabels;
+            for (int j = 0; j < dtos.Count; j++)
+            {
+                string entryPath = $"{path}[{j}]";
+                if (dtos[j] == null)
+                {
+                    issues.Add(ValidationIssueDto.ApiError("API_TRANSFORM_REQUIRED",
+                        "The transform entry is null.", entryPath));
+                    ok = false;
+                    continue;
+                }
+                var function = ToTransform(dtos[j], entryPath, limits, incoming,
+                    $"{ownerName} Transform {j + 1}", issues);
+                if (function == null)
+                {
+                    ok = false;
+                    continue;
+                }
+                functions.Add(function);
+                incoming = (function.TransformedHazard, function.TransformedHazardUnit);
+            }
+            return ok ? functions : null;
+        }
+
+        /// <summary>
+        /// Maps one transform DTO — tabular, linear, or power — to a model transform function.
+        /// </summary>
+        /// <remarks>
+        /// Request-shape checks (tables, required output labels, required clamp bounds) are
+        /// reported here with request-relative paths; parameter-value rules (power alpha and
+        /// beta ranges, non-finite coefficients, interpolation-space guards) and every
+        /// label-continuity warning are deliberately left to the model's own validation, which
+        /// flows through the analysis validation gate.
+        /// </remarks>
+        /// <param name="dto">The transform DTO.</param>
+        /// <param name="path">The entry's request object path.</param>
+        /// <param name="limits">The host limits.</param>
+        /// <param name="incomingLabels">The incoming signal's (label, unit) pair, inherited by blank input labels.</param>
+        /// <param name="defaultName">The name used when the DTO carries none.</param>
+        /// <param name="issues">The issue collector.</param>
+        /// <returns>The transform function, or null on request-shape failure.</returns>
+        private static ITransformFunction? ToTransform(TransformFunctionDto dto, string path, ApiOptions limits,
+            (string Label, string Unit) incomingLabels, string defaultName, List<ValidationIssueDto> issues)
+        {
+            string type = string.IsNullOrWhiteSpace(dto.Type) ? FunctionTypeNames.TabularTransform : dto.Type!;
+            if (string.Equals(type, FunctionTypeNames.TabularTransform, StringComparison.Ordinal))
+            {
+                return ToTabularTransform(dto, path, limits, incomingLabels, defaultName, issues);
+            }
+            if (string.Equals(type, FunctionTypeNames.LinearTransform, StringComparison.Ordinal))
+            {
+                return ToLinearTransform(dto, path, incomingLabels, defaultName, issues);
+            }
+            if (string.Equals(type, FunctionTypeNames.PowerTransform, StringComparison.Ordinal))
+            {
+                return ToPowerTransform(dto, path, incomingLabels, defaultName, issues);
+            }
+
+            issues.Add(ValidationIssueDto.ApiError("API_FUNCTION_TYPE_UNSUPPORTED",
+                $"'{dto.Type}' is not a supported transform function type. Accepted values: {FunctionTypeNames.TabularTransform}, {FunctionTypeNames.LinearTransform}, {FunctionTypeNames.PowerTransform}.",
+                $"{path}.type"));
+            return null;
+        }
+
+        /// <summary>
+        /// Maps the tabular branch of a transform DTO to a deterministic
+        /// <see cref="TabularTransform"/>.
+        /// </summary>
+        /// <param name="dto">The transform DTO (tabular kind).</param>
+        /// <param name="path">The entry's request object path.</param>
+        /// <param name="limits">The host limits.</param>
+        /// <param name="incomingLabels">The incoming signal's (label, unit) pair, inherited by blank input labels.</param>
+        /// <param name="defaultName">The name used when the DTO carries none.</param>
+        /// <param name="issues">The issue collector.</param>
+        /// <returns>The tabular transform, or null on request-shape failure.</returns>
+        private static TabularTransform? ToTabularTransform(TransformFunctionDto dto, string path, ApiOptions limits,
+            (string Label, string Unit) incomingLabels, string defaultName, List<ValidationIssueDto> issues)
+        {
+            bool ok = CheckTransformOutputLabels(dto, path, issues);
+            bool tableOk = CheckTable(dto.HazardValues, dto.TransformedHazardValues,
+                "hazardValues", "transformedHazardValues", path, limits, issues);
+            if (tableOk)
+            {
+                tableOk &= CheckStrictOrder(dto.HazardValues!, descending: false, "hazardValues", path, issues);
+            }
+            if (!ok || !tableOk) return null;
+
+            var ordinates = new UncertainOrdinate[dto.HazardValues!.Count];
+            for (int i = 0; i < ordinates.Length; i++)
+            {
+                ordinates[i] = new UncertainOrdinate(dto.HazardValues[i], new Deterministic(dto.TransformedHazardValues![i]));
+            }
+
+            var transform = new TabularTransform
+            {
+                Name = string.IsNullOrWhiteSpace(dto.Name) ? defaultName : dto.Name!,
+                SpecifiedHazard = string.IsNullOrWhiteSpace(dto.SpecifiedHazard) ? incomingLabels.Label : dto.SpecifiedHazard!,
+                HazardUnit = string.IsNullOrWhiteSpace(dto.HazardUnit) ? incomingLabels.Unit : dto.HazardUnit!,
+                TransformedHazard = dto.TransformedHazard!,
+                TransformedHazardUnit = dto.TransformedHazardUnit!,
+                // Non-strict Y (SortOrder.None) is mandatory: conversion tables legitimately
+                // plateau (e.g., a gated rating curve).
+                UncertainOrderedPairedData = new UncertainOrderedPairedData(ordinates,
+                    true, SortOrder.Ascending, false, SortOrder.None, UnivariateDistributionType.Deterministic),
+            };
+            if (dto.HazardTransform.HasValue) transform.HazardTransform = dto.HazardTransform.Value;
+            if (dto.TransformedHazardTransform.HasValue) transform.TransformTransform = dto.TransformedHazardTransform.Value;
+            if (dto.Extrapolation.HasValue) transform.Extrapolation = dto.Extrapolation.Value;
+            return transform;
+        }
+
+        /// <summary>
+        /// Maps the linear branch of a transform DTO to a deterministic
+        /// <see cref="LinearTransform"/> (Y = alpha + beta·X over the clamp range).
+        /// </summary>
+        /// <param name="dto">The transform DTO (linear kind).</param>
+        /// <param name="path">The entry's request object path.</param>
+        /// <param name="incomingLabels">The incoming signal's (label, unit) pair, inherited by blank input labels.</param>
+        /// <param name="defaultName">The name used when the DTO carries none.</param>
+        /// <param name="issues">The issue collector.</param>
+        /// <returns>The linear transform, or null on request-shape failure.</returns>
+        private static LinearTransform? ToLinearTransform(TransformFunctionDto dto, string path,
+            (string Label, string Unit) incomingLabels, string defaultName, List<ValidationIssueDto> issues)
+        {
+            bool ok = CheckTransformOutputLabels(dto, path, issues);
+            ok &= CheckTransformRange(dto.Minimum, dto.Maximum, path, issues);
+            if (!ok) return null;
+
+            return new LinearTransform
+            {
+                Name = string.IsNullOrWhiteSpace(dto.Name) ? defaultName : dto.Name!,
+                SpecifiedHazard = string.IsNullOrWhiteSpace(dto.SpecifiedHazard) ? incomingLabels.Label : dto.SpecifiedHazard!,
+                HazardUnit = string.IsNullOrWhiteSpace(dto.HazardUnit) ? incomingLabels.Unit : dto.HazardUnit!,
+                TransformedHazard = dto.TransformedHazard!,
+                TransformedHazardUnit = dto.TransformedHazardUnit!,
+                Alpha = dto.Alpha ?? 0d,
+                Beta = dto.Beta ?? 1d,
+                IsUncertain = false,
+                Minimum = dto.Minimum!.Value,
+                Maximum = dto.Maximum!.Value,
+            };
+        }
+
+        /// <summary>
+        /// Maps the power branch of a transform DTO to a deterministic
+        /// <see cref="PowerTransform"/> (Y = alpha·(X − xi)^beta over the clamp range).
+        /// </summary>
+        /// <param name="dto">The transform DTO (power kind).</param>
+        /// <param name="path">The entry's request object path.</param>
+        /// <param name="incomingLabels">The incoming signal's (label, unit) pair, inherited by blank input labels.</param>
+        /// <param name="defaultName">The name used when the DTO carries none.</param>
+        /// <param name="issues">The issue collector.</param>
+        /// <returns>The power transform, or null on request-shape failure.</returns>
+        private static PowerTransform? ToPowerTransform(TransformFunctionDto dto, string path,
+            (string Label, string Unit) incomingLabels, string defaultName, List<ValidationIssueDto> issues)
+        {
+            bool ok = CheckTransformOutputLabels(dto, path, issues);
+            ok &= CheckTransformRange(dto.Minimum, dto.Maximum, path, issues);
+            if (!ok) return null;
+
+            return new PowerTransform
+            {
+                Name = string.IsNullOrWhiteSpace(dto.Name) ? defaultName : dto.Name!,
+                SpecifiedHazard = string.IsNullOrWhiteSpace(dto.SpecifiedHazard) ? incomingLabels.Label : dto.SpecifiedHazard!,
+                HazardUnit = string.IsNullOrWhiteSpace(dto.HazardUnit) ? incomingLabels.Unit : dto.HazardUnit!,
+                TransformedHazard = dto.TransformedHazard!,
+                TransformedHazardUnit = dto.TransformedHazardUnit!,
+                Alpha = dto.Alpha ?? 1d,
+                Beta = dto.Beta ?? 1.5d,
+                Xi = dto.Xi ?? 0d,
+                IsInverse = dto.IsInverse ?? false,
+                IsUncertain = false,
+                Minimum = dto.Minimum!.Value,
+                Maximum = dto.Maximum!.Value,
+            };
+        }
+
+        /// <summary>
+        /// Checks that a transform DTO declares both output-axis labels, reporting a structured
+        /// issue per missing label. Output labels are required because they define the axis the
+        /// next chain entry or the response reads.
+        /// </summary>
+        /// <param name="dto">The transform DTO.</param>
+        /// <param name="path">The entry's request object path.</param>
+        /// <param name="issues">The issue collector.</param>
+        /// <returns>True when both output labels are present.</returns>
+        private static bool CheckTransformOutputLabels(TransformFunctionDto dto, string path, List<ValidationIssueDto> issues)
+        {
+            bool ok = true;
+            if (string.IsNullOrWhiteSpace(dto.TransformedHazard))
+            {
+                issues.Add(ValidationIssueDto.ApiError("API_LABEL_REQUIRED",
+                    "The transform's output hazard type label (transformedHazard) is required; it defines the axis the next function reads.",
+                    $"{path}.transformedHazard"));
+                ok = false;
+            }
+            if (string.IsNullOrWhiteSpace(dto.TransformedHazardUnit))
+            {
+                issues.Add(ValidationIssueDto.ApiError("API_LABEL_REQUIRED",
+                    "The transform's output hazard unit label (transformedHazardUnit) is required.",
+                    $"{path}.transformedHazardUnit"));
+                ok = false;
+            }
+            return ok;
+        }
+
+        /// <summary>
+        /// Checks a linear or power transform's clamp bounds: both must be supplied (the model's
+        /// own default range of [0, 100] would silently clamp realistic hazard domains, so the
+        /// contract refuses to guess), finite, and correctly ordered.
+        /// </summary>
+        /// <param name="minimum">The requested lower bound.</param>
+        /// <param name="maximum">The requested upper bound.</param>
+        /// <param name="path">The entry's request object path.</param>
+        /// <param name="issues">The issue collector.</param>
+        /// <returns>True when the bounds pass every check.</returns>
+        private static bool CheckTransformRange(double? minimum, double? maximum, string path, List<ValidationIssueDto> issues)
+        {
+            bool ok = true;
+            if (!minimum.HasValue)
+            {
+                issues.Add(ValidationIssueDto.ApiError("API_TRANSFORM_RANGE_REQUIRED",
+                    "The transform's minimum evaluation bound is required: inputs clamp to [minimum, maximum], and the model's own default range is [0, 100].",
+                    $"{path}.minimum"));
+                ok = false;
+            }
+            if (!maximum.HasValue)
+            {
+                issues.Add(ValidationIssueDto.ApiError("API_TRANSFORM_RANGE_REQUIRED",
+                    "The transform's maximum evaluation bound is required: inputs clamp to [minimum, maximum], and the model's own default range is [0, 100].",
+                    $"{path}.maximum"));
+                ok = false;
+            }
+            if (!ok) return false;
+
+            double min = minimum!.Value;
+            double max = maximum!.Value;
+            if (!double.IsFinite(min) || !double.IsFinite(max) || min >= max)
+            {
+                issues.Add(ValidationIssueDto.ApiError("API_TRANSFORM_RANGE_INVALID",
+                    $"The transform's evaluation bounds must be finite with minimum < maximum (got {min} and {max}).",
+                    path));
+                return false;
+            }
+            return true;
         }
 
         /// <summary>

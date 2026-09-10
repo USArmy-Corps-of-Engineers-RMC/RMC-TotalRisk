@@ -1,5 +1,59 @@
 # Progress Log
 
+## 2026-09-10 — API transform-chain increment (wire contract 1.1.0)
+
+**Goal:** expose failure-mode hazard-to-response transform functions through the REST/MCP API
+for the two practitioner shapes Haden named — overtopping fragilities keyed to stage-to-depth
+and spillway-erosion fragilities keyed to stage-to-discharge, with consequences remaining a
+function of stage. The model library already supported the whole feature (`ResponseStage`
+chains + `FailureMode.ConsequenceHazardPosition`); the API had never exposed it
+(`ComponentMapper` hard-coded an empty chain).
+
+**Rulings (Haden, this session):** (1) all three deterministic transform kinds on the wire —
+`tabularTransform`, `linearTransform`, `powerTransform`; (2) `consequenceHazardPosition` is
+optional and **omitted defaults to the raw (first) hazard — position 0** (a documented
+divergence from the engine's null = last-response-input v1.0 default, in the
+`OutputAdjustedFailureModeCurves` precedent), with any chain position `[0, transforms.Count]`
+selectable; (3) the canonical example demonstrates the feature (the Overtopping Erosion mode
+now routes a stage-to-depth crest offset into a depth-keyed fragility with stage-keyed
+consequences).
+
+**Landed (Api + Api.Tests + docs only — zero library edits, perf byte gates untouched by
+construction):** `TransformFunctionDto` (flat union on the `ConsequenceFunctionDto` pattern;
+`transformedHazard`/`transformedHazardUnit` REQUIRED, linear/power `minimum`/`maximum`
+REQUIRED — the model's [0, 100] ctor default is a silent-clamp trap; deterministic only,
+`IsUncertain` hard-set false) + three append-only `FunctionTypeNames` discriminators;
+`FailureModeDto.transforms` + `consequenceHazardPosition`; `FunctionMapper.ToTransforms`
+(label threading through the chain, per-kind mappers, new codes `API_TRANSFORM_REQUIRED`,
+`API_TRANSFORM_RANGE_REQUIRED`, `API_TRANSFORM_RANGE_INVALID`); the `ComponentMapper` rework —
+the response inherits the LAST transform's output labels, consequences inherit the
+bound-position labels, and the **load-bearing `API_CONSEQUENCE_POSITION_RANGE` gate**
+(`SystemComponent.AddFailureMode` silently drops an out-of-range binding and the projected
+mode re-derives the default, so the model's own range error never fires on this path); a
+transform-free mode maps with a NULL position, keeping pre-1.1.0 requests hash/seed/byte
+identical (pinned by a canonical-hash twin test). Discovery surfaces: metadata gains the
+`transform` function-kind role, the `consequenceHazardPosition` default, and two conventions;
+the example and all three MCP tool descriptions updated; `ApiContractInfo.Version` → `1.1.0`
+(the `ApiInfoDto` literal now initializes from the const); `docs/api.md` request tree +
+concepts + label-inheritance + deferred-features updates; CLAUDE.md API-layer rules +
+AGENTS.md regenerated; REMAINING-WORK row 6 refreshed.
+
+**Verified:** Api suite **90/90** (+17: nine `FunctionMapper` transform tests, six
+`ComponentMapper` threading/position tests incl. the hash twin, the wire round-trip, and the
+integration golden `Test_TransformEquivalenceTwin_MatchesUntransformedOverHttp` — a
+Sterbenz-exact −1210 ft stage shift whose transformed run reproduces the untransformed twin
+through the full HTTP stack at 1e-12 relative with bit-equality expected, plus the
+label-continuity-silence assert); fast suite **1,634/1,634** in Release; `dotnet build`
+0 warnings; `validate-code-xml-docs.ps1` clean. The updated example validates and computes
+through the existing pins (its depth re-expression is Sterbenz-exact against the 1214 ft
+crest, so the example's numbers are unchanged).
+
+**Next:** the 14B remainder is unchanged (store-backed lifecycle, full-uncertainty mapping,
+the wider function-kind catalog — uncertain tabular functions, uncertain/composite transforms,
+trailing response-to-consequence chains, multi-stage responses, trees, bivariate hazards —
+containerization + auth). CB4 (the serialized cost-benefit study) remains the next capability
+session; the exhaustive testing campaign follows.
+
 ## 2026-09-10 — Capability program session 14: C5 implementation session CB3 — the strategy catalog
 
 **Goal:** execute the approved CB3 plan (preserved at
