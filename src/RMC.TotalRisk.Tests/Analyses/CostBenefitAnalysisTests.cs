@@ -10,6 +10,7 @@ using RMC.TotalRisk.Core.Enums;
 using RMC.TotalRisk.Results;
 using RMC.TotalRisk.RiskFunctions.Consequences;
 using RMC.TotalRisk.RiskFunctions.Hazards;
+using RMC.TotalRisk.RiskFunctions.Responses;
 using RMC.TotalRisk.RiskFunctions.Responses.FaultTrees;
 using RMC.TotalRisk.RiskFunctions.Responses.Trees;
 using RMC.TotalRisk.Systems.Components;
@@ -624,6 +625,77 @@ public class CostBenefitAnalysisTests
         study.RunAsync().GetAwaiter().GetResult();
         Assert.IsFalse(study.Results!.Alternatives[1].FailsDoNoHarm);
         Assert.AreEqual(0, study.Results.Alternatives[1].DoNoHarmOffendingTypes.Count);
+    }
+
+    /// <summary>
+    /// Verifies an epistemic-mixture alternative is refused at study validation: the study's
+    /// life-cycle trajectories are mean-only quantifications, which cannot select an
+    /// epistemic branch, so the refusal fires loudly before any run.
+    /// </summary>
+    [TestMethod]
+    public void Test_Validate_EpistemicAlternative_Refused()
+    {
+        // Arrange — a flat epistemic fragility pair on the alternative's system.
+        var flatLow = new TabularResponse
+        {
+            Name = "Low branch",
+            SpecifiedHazard = "Stage",
+            HazardUnit = "ft",
+            UncertainOrderedPairedData = new UncertainOrderedPairedData(
+                new[]
+                {
+                    new UncertainOrdinate(0d, new Deterministic(0.1d)),
+                    new UncertainOrdinate(1d, new Deterministic(0.1d)),
+                },
+                true, SortOrder.Ascending, false, SortOrder.None,
+                UnivariateDistributionType.Deterministic),
+        };
+        var flatHigh = new TabularResponse
+        {
+            Name = "High branch",
+            SpecifiedHazard = "Stage",
+            HazardUnit = "ft",
+            UncertainOrderedPairedData = new UncertainOrderedPairedData(
+                new[]
+                {
+                    new UncertainOrdinate(0d, new Deterministic(0.4d)),
+                    new UncertainOrdinate(1d, new Deterministic(0.4d)),
+                },
+                true, SortOrder.Ascending, false, SortOrder.None,
+                UnivariateDistributionType.Deterministic),
+        };
+        var epistemic = new CompositeResponse(new[]
+        {
+            new WeightedResponseFunction(flatLow, 0.5d),
+            new WeightedResponseFunction(flatHigh, 0.5d),
+        })
+        {
+            Name = "Fragility tree",
+            SpecifiedHazard = "Stage",
+            HazardUnit = "ft",
+            CompositeCombinationType = CompositeCombinationType.EpistemicMixture,
+        };
+        var component = new SystemComponent { Name = "Dam" };
+        component.HazardFunction = Hazard();
+        component.AddFailureMode(new FailureMode(null, null, epistemic, Consequence()));
+        var epistemicSystem = new RiskAnalysis(new[] { component })
+        {
+            SpecifiedConsequence = "Damages",
+            ConsequenceUnit = "$",
+        };
+        var study = new CostBenefitAnalysis(new CostBenefitOptions(30, 0.05d));
+        var baseline = new RiskReductionAlternative("Existing condition", BuildSystem(houseState: true));
+        study.Alternatives.Add(baseline);
+        study.Alternatives.Add(new RiskReductionAlternative("Epistemic repair", epistemicSystem));
+        study.Baseline = baseline;
+
+        // Act
+        (bool isValid, List<string> messages) = study.Validate();
+
+        // Assert
+        Assert.IsFalse(isValid);
+        Assert.IsTrue(HasMessage(messages,
+            "Error: Alternative 'Epistemic repair' carries an epistemic-mixture composite"));
     }
 
     /// <summary>

@@ -1597,24 +1597,8 @@ namespace RMC.TotalRisk.Analyses
             // A tree-carried epistemic composite (a composite referenced through a tree
             // probability source) is invisible to the walked-function switch above, but a mean
             // pass evaluates it through the tree's mean clone as the same silent analytic blend
-            // — the identical Jensen-gap wrong answer, so the same gate applies.
-            if (_options.EstimateMeanRiskOnly && !anyWalkedEpistemic)
-            {
-                var treeVisited = new HashSet<(IResponseFunction Function, bool InsideTree)>();
-                for (int i = 0; i < _components.Count && !anyWalkedEpistemic; i++)
-                {
-                    foreach (var function in _components[i].GetReferencedFunctions())
-                    {
-                        if (function is IResponseFunction response && TreeCarriesEpistemicComposite(response, false, treeVisited))
-                        {
-                            anyWalkedEpistemic = true;
-                            break;
-                        }
-                    }
-                }
-            }
-
-            if (_options.EstimateMeanRiskOnly && anyWalkedEpistemic)
+            // — the identical Jensen-gap wrong answer, so the shared predicate covers both.
+            if (_options.EstimateMeanRiskOnly && (anyWalkedEpistemic || CarriesWalkedEpistemicComposite()))
             {
                 messages.Add("Error: An epistemic-mixture composite selects one branch per realization; a mean-only run has no realizations to select with, and its analytic blend is the wrong answer for a nonlinear downstream chain. Run the full-uncertainty analysis, or change the composite mode.");
             }
@@ -1626,6 +1610,44 @@ namespace RMC.TotalRisk.Analyses
             {
                 messages.Add($"Warning: The shared epistemic variable '{variable}' is bound by composites with differing weight vectors; the shared draw still selects consistently by rank, but branches no longer correspond one-to-one across binders.");
             }
+        }
+
+        /// <summary>
+        /// Whether any component references a walked-cluster epistemic-mixture composite —
+        /// directly, nested inside another composite, or carried through a tree probability
+        /// source. This is the predicate behind the mean-only refusal: a mean pass cannot
+        /// select an epistemic branch, so its analytic blend is the wrong (Jensen-gap) answer
+        /// for a nonlinear downstream chain. Internal so the cost-benefit layer refuses an
+        /// epistemic alternative through the same authority — its life-cycle trajectories are
+        /// mean-only quantifications.
+        /// </summary>
+        /// <returns>True when a walked epistemic composite is reachable.</returns>
+        internal bool CarriesWalkedEpistemicComposite()
+        {
+            var seen = new HashSet<IRiskFunction>(ReferenceEqualityComparer.Instance);
+            var treeVisited = new HashSet<(IResponseFunction Function, bool InsideTree)>();
+            for (int i = 0; i < _components.Count; i++)
+            {
+                foreach (var function in _components[i].GetReferencedFunctions())
+                {
+                    if (!seen.Add(function)) continue;
+                    switch (function)
+                    {
+                        case CompositeHazard hazard when hazard.UsesEpistemicMode():
+                            return true;
+                        case CompositeResponse response when response.UsesEpistemicMode():
+                            return true;
+                        case CompositeTransform transform when transform.UsesEpistemicMode():
+                            return true;
+                    }
+                    if (function is IResponseFunction responseFunction
+                        && TreeCarriesEpistemicComposite(responseFunction, false, treeVisited))
+                    {
+                        return true;
+                    }
+                }
+            }
+            return false;
         }
 
         /// <summary>

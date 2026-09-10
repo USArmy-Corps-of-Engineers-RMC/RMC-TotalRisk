@@ -2130,6 +2130,10 @@ namespace RMC.TotalRisk.Analyses
             for (int i = 0; i < alternatives.Count; i++)
             {
                 RiskReductionAlternative alternative = alternatives[i];
+                if (alternative.System.CarriesWalkedEpistemicComposite())
+                {
+                    messages.Add($"Error: Alternative '{alternative.Name}' carries an epistemic-mixture composite; the study's life-cycle trajectories are mean-only quantifications, which cannot select an epistemic branch. Change the composite mode, or remove the alternative.");
+                }
                 if (alternative.System.RiskResults == null)
                 {
                     messages.Add($"Warning: Alternative '{alternative.Name}' carries no stored full-uncertainty ensemble; the epistemic decision strategies will be skipped.");
