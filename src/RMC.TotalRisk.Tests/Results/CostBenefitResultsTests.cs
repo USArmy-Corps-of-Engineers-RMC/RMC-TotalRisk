@@ -134,4 +134,75 @@ public class CostBenefitResultsTests
         Assert.AreSame(evaluation, results.ConstraintEvaluations[0]);
         Assert.AreSame(diagnostic, results.Diagnostics[0]);
     }
+
+    /// <summary>
+    /// Verifies the strategy-layer seats: the six appended blocks default to empty or null so
+    /// every existing construction compiles and behaves unchanged, and explicit blocks pass
+    /// through.
+    /// </summary>
+    [TestMethod]
+    public void Test_Ctor_StrategySeats_DefaultsAndEcho()
+    {
+        // Act — the defaults.
+        var defaulted = Build();
+
+        // Assert
+        Assert.AreEqual(0, defaulted.StrategyRankings.Count);
+        Assert.IsNull(defaulted.Summary);
+        Assert.AreEqual(0, defaulted.RegretMatrices.Count);
+        Assert.AreEqual(0, defaulted.EpistemicMeasures.Count);
+        Assert.AreEqual(0, defaulted.ChanceConstraints.Count);
+        Assert.AreEqual(0, defaulted.Dominance.Count);
+
+        // Arrange — explicit blocks.
+        var ranking = new StrategyRanking(DecisionStrategy.ExpectedValue, 1, "Aleatory",
+            "aleatory-from-mean-LEC", "criterion", "", ObjectiveDirection.Minimize,
+            new[] { "Baseline" }, new[] { 1d }, new[] { 1 }, new[] { false }, new[] { false }, 0);
+        var summaryEntry = new DecisionSummaryEntry(DecisionStrategy.ExpectedValue, 1, "Aleatory",
+            "criterion", "", "Baseline", 1d, false);
+        var summary = new DecisionSummary(new[] { summaryEntry }, new[] { "Baseline" },
+            new[] { 1 }, new[] { false });
+        var regret = new RegretMatrixResults("criterion", ObjectiveDirection.Minimize,
+            new[] { "Baseline" }, new[] { "s1" }, new[] { 1d }, new[] { new[] { 1d } },
+            new[] { new[] { double.NaN } }, new[] { new[] { 0d } }, new[] { 0d }, new[] { 0d },
+            new[] { 1 }, 0, 0, 1, "block-noise k·SE/√M");
+        var band = new EpistemicMeasureSummary("Baseline", "criterion",
+            ObjectiveDirection.Minimize, 1d, 0d, 1d, 2d, 0.05d, 0.95d, 0.5d, 2d, 0.1d, 1d, 1);
+        var chance = new ChanceConstraintEntry("criterion ≤ 1", new[] { "Baseline" },
+            new[] { 0d }, new[] { 1d }, new[] { 0.9d }, new[] { new[] { true } });
+        var dominance = new DominanceEntry("Baseline", "Baseline", "Aleatory", "criterion",
+            DominanceVerdict.Identical);
+        var epoch = new LifeCycleEpochRisk(0, 50, 0d, 0.05d,
+            new LifeCycleEpochEntry("System", 1e-3, new[] { 100d }),
+            Array.Empty<LifeCycleEpochEntry>(), Array.Empty<string>());
+        var trajectory = new LifeCycleRiskResults(50, 0.035d, new[] { "Damages" }, new[] { "$" },
+            new[] { epoch }, 0.05d, new[] { 0d }, new[] { 0d }, new[] { 0d }, new[] { 0d },
+            new[] { 0d }, Array.Empty<string>());
+        var row = new AlternativeEconomics("Baseline", string.Empty, isBaseline: true,
+            0d, 0d, 0d, 0d, 0d, 0d, double.NaN, double.NaN, double.NaN, double.NaN, double.NaN,
+            double.NaN, double.NaN, double.NaN, double.NaN, double.NaN,
+            1e-3, 0d, 1e-3, 0d, double.NaN);
+
+        // Act
+        var results = new CostBenefitResults(50, 0.035d, new[] { 0 }, RiskType.Total,
+            LifeCycleAccounting.NonAbsorbing, new[] { 0.01d }, null, -1, double.NaN, null!,
+            AlarpProximity.JustBelowTolerableLimit, null, 1e-4, 1d, DoNoHarmPolicy.Enforce,
+            new[] { "Damages" }, new[] { "$" }, new[] { row },
+            Array.Empty<ConsequenceReduction>(), Array.Empty<TrajectoryPoint>(),
+            new[] { trajectory },
+            strategyRankings: new[] { ranking },
+            decisionSummary: summary,
+            regretMatrices: new[] { regret },
+            epistemicMeasures: new[] { band },
+            chanceConstraints: new[] { chance },
+            dominance: new[] { dominance });
+
+        // Assert
+        Assert.AreSame(ranking, results.StrategyRankings[0]);
+        Assert.AreSame(summary, results.Summary);
+        Assert.AreSame(regret, results.RegretMatrices[0]);
+        Assert.AreSame(band, results.EpistemicMeasures[0]);
+        Assert.AreSame(chance, results.ChanceConstraints[0]);
+        Assert.AreSame(dominance, results.Dominance[0]);
+    }
 }

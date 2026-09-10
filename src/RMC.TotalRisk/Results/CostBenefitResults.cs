@@ -62,6 +62,12 @@ namespace RMC.TotalRisk.Results
         /// <param name="frontier">The declared-vector frontier results, or null when not computed.</param>
         /// <param name="mcda">The multi-criteria scores, or null when no weights are declared.</param>
         /// <param name="diagnostics">The computation diagnostics, or null for none.</param>
+        /// <param name="strategyRankings">The decision-strategy rankings, or null for none.</param>
+        /// <param name="decisionSummary">The strategy-by-recommendation summary, or null when no ranking was computed.</param>
+        /// <param name="regretMatrices">The shared-state regret analyses, or null for none.</param>
+        /// <param name="epistemicMeasures">The epistemic band rows, or null for none.</param>
+        /// <param name="chanceConstraints">The chance-constraint evaluations, or null for none.</param>
+        /// <param name="dominance">The stochastic-dominance screen entries, or null for none.</param>
         /// <exception cref="ArgumentNullException">Thrown when a required list is null.</exception>
         /// <exception cref="ArgumentException">Thrown when the trajectories do not parallel the economics rows.</exception>
         public CostBenefitResults(int periodYears, double discountRate,
@@ -84,7 +90,13 @@ namespace RMC.TotalRisk.Results
             EpsilonSweepResults? epsilonSweep = null,
             ParetoFrontierResults? frontier = null,
             McdaResults? mcda = null,
-            IReadOnlyList<ComputationDiagnostic>? diagnostics = null)
+            IReadOnlyList<ComputationDiagnostic>? diagnostics = null,
+            IReadOnlyList<StrategyRanking>? strategyRankings = null,
+            DecisionSummary? decisionSummary = null,
+            IReadOnlyList<RegretMatrixResults>? regretMatrices = null,
+            IReadOnlyList<EpistemicMeasureSummary>? epistemicMeasures = null,
+            IReadOnlyList<ChanceConstraintEntry>? chanceConstraints = null,
+            IReadOnlyList<DominanceEntry>? dominance = null)
         {
             PeriodYears = periodYears;
             DiscountRate = discountRate;
@@ -138,6 +150,22 @@ namespace RMC.TotalRisk.Results
             Diagnostics = diagnostics == null
                 ? Array.Empty<ComputationDiagnostic>()
                 : Array.AsReadOnly(diagnostics.ToArray());
+            StrategyRankings = strategyRankings == null
+                ? Array.Empty<StrategyRanking>()
+                : Array.AsReadOnly(strategyRankings.ToArray());
+            Summary = decisionSummary;
+            RegretMatrices = regretMatrices == null
+                ? Array.Empty<RegretMatrixResults>()
+                : Array.AsReadOnly(regretMatrices.ToArray());
+            EpistemicMeasures = epistemicMeasures == null
+                ? Array.Empty<EpistemicMeasureSummary>()
+                : Array.AsReadOnly(epistemicMeasures.ToArray());
+            ChanceConstraints = chanceConstraints == null
+                ? Array.Empty<ChanceConstraintEntry>()
+                : Array.AsReadOnly(chanceConstraints.ToArray());
+            Dominance = dominance == null
+                ? Array.Empty<DominanceEntry>()
+                : Array.AsReadOnly(dominance.ToArray());
         }
 
         /// <summary>The planning horizon in years.</summary>
@@ -245,5 +273,23 @@ namespace RMC.TotalRisk.Results
 
         /// <summary>The computation diagnostics (named skips and exclusions).</summary>
         public IReadOnlyList<ComputationDiagnostic> Diagnostics { get; }
+
+        /// <summary>The decision-strategy rankings, in catalog order.</summary>
+        public IReadOnlyList<StrategyRanking> StrategyRankings { get; }
+
+        /// <summary>The strategy-by-recommendation summary, or null when no ranking was computed.</summary>
+        public DecisionSummary? Summary { get; }
+
+        /// <summary>The shared-state regret analyses, one per aligned decision criterion.</summary>
+        public IReadOnlyList<RegretMatrixResults> RegretMatrices { get; }
+
+        /// <summary>The epistemic band rows, one per alternative and decision criterion.</summary>
+        public IReadOnlyList<EpistemicMeasureSummary> EpistemicMeasures { get; }
+
+        /// <summary>The chance-constraint evaluations, one per evaluable declared constraint.</summary>
+        public IReadOnlyList<ChanceConstraintEntry> ChanceConstraints { get; }
+
+        /// <summary>The stochastic-dominance screen entries.</summary>
+        public IReadOnlyList<DominanceEntry> Dominance { get; }
     }
 }
