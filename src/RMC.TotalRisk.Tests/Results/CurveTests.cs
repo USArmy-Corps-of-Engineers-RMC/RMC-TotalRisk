@@ -586,4 +586,98 @@ public class CurveTests
         CollectionAssert.AreEqual(new[] { 0d, 0.5d, 1d, double.NaN },
             curve.RiskPoints[0].ResponseProbabilities.ToArray());
     }
+
+    /// <summary>
+    /// Verifies that the quantile tail integral is the single arithmetic authority behind the
+    /// published conditional value-at-risk: <c>QuantileTailIntegral(1e-16, α)/α</c> reproduces
+    /// <see cref="Curve.ConditionalValueAtRisk"/> bit-exactly, a zero lower bound floors to the
+    /// same domain bit-exactly, and a grid-exact power-law segment integrates to its closed form.
+    /// </summary>
+    [TestMethod]
+    public void Test_QuantileTailIntegral_CVaRIdentityAndClosedForm()
+    {
+        // Arrange — the power-law curve X(p) = p^(−1/2) sampled on a log grid from 1e-16 to 1
+        // (81 ordinates), so log-log interpolation reproduces X(p) exactly on grid segments.
+        var probabilities = new double[81];
+        var consequences = new double[81];
+        for (int j = 0; j <= 80; j++)
+        {
+            double p = Math.Pow(10d, -16d + 0.2d * j);
+            probabilities[j] = p;
+            consequences[j] = Math.Pow(p, -0.5d);
+        }
+        var curve = new Curve
+        {
+            LECConsequences = consequences,
+            LECProbabilities = probabilities,
+            TotalProbability = 1d,
+        };
+        curve.ComputeRiskMeasures(consequenceThreshold: 10d, alpha: 0.01d);
+
+        // Act
+        double tail = curve.QuantileTailIntegral(1e-16, 0.01d);
+        double floored = curve.QuantileTailIntegral(0d, 0.01d);
+        double segment = curve.QuantileTailIntegral(1e-4, 1e-2);
+
+        // Assert — bit-exact delegation identity, bit-exact lower-bound flooring, and the exact
+        // closed form ∫ p^(−1/2) dp = 2(√1e-2 − √1e-4) = 0.18 over grid-knot bounds.
+        Assert.AreEqual(curve.ConditionalValueAtRisk, tail / 0.01d, 0d,
+            "The published CVaR must be QuantileTailIntegral(floor, α)/α bit-exactly.");
+        Assert.AreEqual(tail, floored, 0d, "A zero lower bound must floor to 1e-16 bit-exactly.");
+        Assert.AreEqual(0.18d, segment, 0.18d * 1e-12,
+            "A grid-exact power-law segment must integrate to its closed form.");
+    }
+
+    /// <summary>
+    /// Verifies sub-interval additivity of the quantile tail integral: splitting at an LEC knot
+    /// with a single trailing contribution is bit-exact (the split reproduces the full walk's
+    /// left-to-right accumulation), and an interior split agrees within floating-point
+    /// re-association (the segment is evaluated as two closed-form pieces instead of one).
+    /// </summary>
+    [TestMethod]
+    public void Test_QuantileTailIntegral_SubIntervalAdditivity()
+    {
+        // Arrange — a three-ordinate hand curve (descending consequences, ascending exceedances).
+        var curve = new Curve
+        {
+            LECConsequences = new[] { 50d, 20d, 4d },
+            LECProbabilities = new[] { 0.1d, 0.4d, 0.8d },
+            TotalProbability = 0.8d,
+        };
+
+        // Act — one full pass, a knot split at 0.4 (one contribution after the split point), and
+        // an interior split at 0.6 (inside the second log-log segment).
+        double full = curve.QuantileTailIntegral(0.05d, 0.8d);
+        double knotSplit = curve.QuantileTailIntegral(0.05d, 0.4d) + curve.QuantileTailIntegral(0.4d, 0.8d);
+        double interiorSplit = curve.QuantileTailIntegral(0.05d, 0.6d) + curve.QuantileTailIntegral(0.6d, 0.8d);
+
+        // Assert — the knot split is bit-exact; the interior split re-associates one segment's
+        // closed form and lands within 1e-15 relative.
+        Assert.AreEqual(full, knotSplit, 0d, "A knot split with one trailing term must be bit-exact.");
+        Assert.AreEqual(full, interiorSplit, full * 1e-15,
+            "An interior split must agree within floating-point re-association.");
+    }
+
+    /// <summary>
+    /// Verifies the quantile tail integral's degenerate domains: an empty curve, a reversed or
+    /// empty interval, and an interval wholly below the 1e-16 transform floor all return zero.
+    /// </summary>
+    [TestMethod]
+    public void Test_QuantileTailIntegral_DegenerateDomains_Zero()
+    {
+        // Arrange
+        var empty = new Curve();
+        var curve = new Curve
+        {
+            LECConsequences = new[] { 50d, 20d, 4d },
+            LECProbabilities = new[] { 0.1d, 0.4d, 0.8d },
+            TotalProbability = 0.8d,
+        };
+
+        // Act / Assert
+        Assert.AreEqual(0d, empty.QuantileTailIntegral(1e-16, 0.5d), 0d, "An empty curve carries no mass.");
+        Assert.AreEqual(0d, curve.QuantileTailIntegral(0.5d, 0.5d), 0d, "An empty interval is zero.");
+        Assert.AreEqual(0d, curve.QuantileTailIntegral(0.5d, 0.2d), 0d, "A reversed interval is zero.");
+        Assert.AreEqual(0d, curve.QuantileTailIntegral(0d, 1e-16), 0d, "An interval at the floor is zero.");
+    }
 }

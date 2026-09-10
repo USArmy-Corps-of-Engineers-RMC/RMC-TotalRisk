@@ -1259,21 +1259,40 @@ namespace RMC.TotalRisk.Results
 
         /// <summary>
         /// The conditional value-at-risk by exact piecewise integration of the log-log LEC
-        /// quantile over [1e-16, α], divided by α. The quantile mirrors
-        /// <c>GetXFromY(p, Logarithmic, Logarithmic)</c> piece for piece: the raw end clamps
-        /// contribute constant slabs, and each interior segment is
-        /// <c>c(p) = 10^(x₁ + (log₁₀ p − y₁)·s)</c> in the 1e-16-floored transforms, integrated
-        /// through the numerically stable <c>c(p)·p</c> arrangement.
+        /// quantile over [1e-16, α], divided by α. The integration delegates verbatim to
+        /// <see cref="QuantileTailIntegral"/> — the single arithmetic authority for the LEC
+        /// quantile integral — so every consumer of that integral is exactly consistent with
+        /// the published conditional value-at-risk.
         /// </summary>
         /// <param name="alpha">The exceedance level, in (0, 1).</param>
         /// <returns>The conditional value-at-risk (zero for a degenerate integration domain).</returns>
         private double ClosedFormConditionalValueAtRisk(double alpha)
         {
+            if (alpha <= ProbabilityFloor) return 0d;
+            return QuantileTailIntegral(ProbabilityFloor, alpha) / alpha;
+        }
+
+        /// <summary>
+        /// Integrates the log-log LEC quantile exactly over an exceedance sub-interval. The
+        /// quantile mirrors <c>GetXFromY(p, Logarithmic, Logarithmic)</c> piece for piece: the
+        /// raw end clamps contribute constant slabs (the largest consequence below the first
+        /// ordinate's exceedance, the smallest above the last), and each interior segment is
+        /// <c>c(p) = 10^(x₁ + (log₁₀ p − y₁)·s)</c> in the 1e-16-floored transforms, integrated
+        /// through the numerically stable <c>c(p)·p</c> arrangement. The lower bound is floored
+        /// at 1e-16 — the quantile transforms' own floor — so a caller may pass zero for the
+        /// full upper tail and remain exactly consistent with the conditional value-at-risk.
+        /// </summary>
+        /// <param name="fromExceedance">The sub-interval's lower exceedance bound; values below 1e-16 are floored there.</param>
+        /// <param name="toExceedance">The sub-interval's upper exceedance bound.</param>
+        /// <returns>The exact quantile integral over the sub-interval (zero for a degenerate domain or an empty curve).</returns>
+        internal double QuantileTailIntegral(double fromExceedance, double toExceedance)
+        {
             var consequences = _lecConsequences;
             var probabilities = _lecProbabilities;
             int count = probabilities.Length;
-            double position = ProbabilityFloor;
-            if (alpha <= position) return 0d;
+            if (count == 0) return 0d;
+            double position = Math.Max(fromExceedance, ProbabilityFloor);
+            if (toExceedance <= position) return 0d;
 
             double integral = 0d;
 
@@ -1281,18 +1300,18 @@ namespace RMC.TotalRisk.Results
             // consequence (the interpolator's raw end clamp).
             if (probabilities[0] > position)
             {
-                double to = Math.Min(alpha, probabilities[0]);
+                double to = Math.Min(toExceedance, probabilities[0]);
                 integral += consequences[0] * (to - position);
                 position = to;
             }
 
             // Interior segments intersected with the remaining domain; zero-width (flat
             // probability) segments carry no measure and are skipped.
-            for (int i = 0; i + 1 < count && position < alpha; i++)
+            for (int i = 0; i + 1 < count && position < toExceedance; i++)
             {
                 if (probabilities[i + 1] <= position) continue;
                 double from = Math.Max(position, probabilities[i]);
-                double to = Math.Min(alpha, probabilities[i + 1]);
+                double to = Math.Min(toExceedance, probabilities[i + 1]);
                 if (to > from)
                 {
                     integral += SegmentQuantileIntegral(consequences[i], consequences[i + 1],
@@ -1303,12 +1322,12 @@ namespace RMC.TotalRisk.Results
 
             // The clamp region above the last ordinate's exceedance returns the smallest
             // consequence.
-            if (position < alpha)
+            if (position < toExceedance)
             {
-                integral += consequences[count - 1] * (alpha - position);
+                integral += consequences[count - 1] * (toExceedance - position);
             }
 
-            return integral / alpha;
+            return integral;
         }
 
         /// <summary>
