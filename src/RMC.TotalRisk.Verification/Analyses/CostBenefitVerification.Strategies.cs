@@ -11,6 +11,20 @@ using RMC.TotalRisk.Systems.Components;
 
 namespace RMC.TotalRisk.Verification.Analyses;
 
+/// <summary>
+/// Decision-strategy catalog evidence: the shared-state regret machinery over genuinely
+/// enumerated ensembles with the epistemic-alternative refusal, the classical epistemic rule
+/// picks, the exact tail averages, the stochastic-dominance verdicts, the expected-utility
+/// closed forms with the partition-to-CVaR pin, the chance-constraint parity, the designed
+/// decision-summary disagreement, study author-inertness with run-to-run reproducibility, and
+/// the strategy validation sweep.
+/// </summary>
+/// <remarks>
+/// <para>
+///     <b>Authors:</b>
+///     Haden Smith, USACE Risk Management Center, cole.h.smith@usace.army.mil
+/// </para>
+/// </remarks>
 public partial class CostBenefitVerification
 {
     #region Strategy Fixtures

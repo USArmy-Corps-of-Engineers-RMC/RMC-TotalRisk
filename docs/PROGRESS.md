@@ -1,5 +1,100 @@
 # Progress Log
 
+## 2026-09-10 — Capability program session 14: C5 implementation session CB3 — the strategy catalog
+
+**Goal:** execute the approved CB3 plan (preserved at
+`~/.claude/plans/session-14-totalrisk-c5-cb3-plan.md`, approved 2026-09-08 with the two
+rulings, re-baselined 2026-09-09): the three-tier decision-strategy catalog — rankings, the
+decision summary, the Savage/expected regret machinery, chance constraints, epistemic
+measures, dominance screens, PMRM, and expected utility — with verification fixtures 18–26,
+everything post-processing over published state, all eight byte gates bit-identical at start
+and close.
+
+**Baseline (session start, re-verified from the plan-review sweep):** numerics `7a80e35`
+clean on `bug-fixes-and-enhancements` (no v2.2.x tag — N4/T8 out of play; sibling Debug DLL
+rebuilt); TotalRisk `v2.0-development` clean at `0172ca4` (never push). `dotnet build`
+0 warnings; fast suite **1,589 + 73**; **all eight perf byte gates bit-exact** as separate
+invocations vs the RESULTS.md pins (F1 `b2e6ea88…` F2 `ac35a7fa…` F3 `e46763ef…`
+F4 `8a3a8b52…` F5 `2ae3925b…` F6 `15493553…` F7 `f985ca02…` F8 `c9599e0a…`).
+
+**Mid-session ruling (Haden, 2026-09-10): the Tier-3 live-study conflict → Defer + pin.**
+Discovered at fixture 18: every system carrying a `LogicTreeEnumeration` map necessarily
+carries a walked epistemic-mixture composite, and the ratified B3 gate refuses mean-only
+runs over such composites — while the study's life-cycle trajectories are mean-only
+quantifications. Probed end-to-end: the enumerations run (K 3, M 4, N 12, maps published),
+the study validated cleanly, then `RunAsync` threw the wrapped Jensen-gap Error from the
+year-zero epoch. Ruled: keep the Tier-3 wiring and its tests; add a study Validate Error so
+an epistemic alternative is refused loudly before any run (`RiskAnalysis` gained the shared
+internal predicate `CarriesWalkedEpistemicComposite()` — extracted from the B3 gate so the
+two refusals can never drift, the gate's messages unchanged); restructure fixture 18 to
+verify the regret machinery bit-exactly at the engine seam over the genuinely enumerated
+published ensembles and pin the live-study refusal as the current contract; fixture 25 drops
+its C3-map clause to stored-ensemble Tier 2. The epistemic-capable study trajectory
+(enumerated or per-branch-forced epoch quantification) is the recorded design extension.
+
+**Landed (seven commits `4428842..d59606c` + the close-out):** the
+`Curve.QuantileTailIntegral` extract-with-delegation (R-C — CVaR delegates verbatim, the
+zero lower bound floors to the quantile transforms' own 1e-16, sub-interval additivity and
+the CVaR identity pinned bit-exact in `CurveTests`); `DecisionStrategy` (20 members) +
+`DominanceVerdict` (6) with pin tests; the six result containers (`StrategyRanking`,
+`DecisionSummaryEntry`/`DecisionSummary`, `RegretMatrixResults`, `EpistemicMeasureSummary`,
+`ChanceConstraintEntry`, `DominanceEntry`) + `CostBenefitResults` growth by six appended
+optional ctor params (existing calls compile unchanged, pinned); the five internal engines
+(`DecisionStrategyEngine` — the ranking core with the layer/discipline label authority;
+`EpistemicCriteriaEngine` — the A7 token-for-token exceedance mirror, the satisfaction
+fraction, the upstream-delegating weighted reductions, the exact-boundary-split tail
+average, zero-weight-ignoring extremes, the Hurwicz blend with bit-exact endpoints;
+`LecPartitionEngine` — PMRM region means as quantile tail-integral differences with the
+(0, b] ≡ CVaR(b) identity by construction, the certainty equivalent over the LEC mass
+pairs with log-sum-exp CARA; `StochasticDominanceEngine` — union-knot FSD, stop-loss SSD
+with interior log-log crossing abscissae, the gains-oriented weighted-sample variant;
+`RegretEngine` — the R-D 7 misalignment reasons incl. the shared-instance escape and the
+pure hand-matrix regret computation with sequential mirrored sums); the `ComputeStudy`
+wiring at the L848 seam (four private helpers + the shared Tier-2/3 criterion builder per
+the R-B ruling; Tier 1 in catalog order incl. the seat-gated PMRM/CE on the year-zero
+retained benefit-stream curves, aleatory FSD/SSD pairs, the exact economics family, the
+constrained selection over `Objectives[0]`, and the MCDA echo; Tier 2 gated on stored
+ensembles with the band rows, classical rules, quantile regret at the ensemble band trio,
+epistemic dominance, raw-fraction chance entries, and per-level chance-constrained
+selections; Tier 3 gated on aligned maps with block means/SEs over [c·M, (c+1)·M) and the
+minimax/expected-regret rankings whose picks are the ranking core's — one tie authority);
+diagnostics TRC2005–TRC2009 (TRC2002 stays the recorded hole); 27 engine/wiring unit tests
++ the refusal test; the `partial` split of `CostBenefitVerification` with the nine strategy
+fixtures.
+
+**Measured lessons:** `EstimateMeanRiskOnly` defaults TRUE (the v1.0 default) — a
+"full-uncertainty" verification fixture that only raises `Realizations` runs one mean pass
+publishing a single-slot ensemble, silently degenerate; MSTest's delta compare fails
+NaN-vs-NaN, so reproducibility pins over rankings with legitimate NaN slots (the zero-cost
+baseline's benefit-cost ratio) compare `DoubleToInt64Bits`; a stored LEC's log-log segment
+inflates a down-sweep's mean (the atom story misleads — dominance fixtures must argue on
+stored-curve semantics, and closed-form utility fixtures place masses on flat
+duplicated-knot segments where the discrete convention is exact); weighted atom quantiles
+can exactly reproduce state regrets under co-monotone branches — fixture 18's repaired
+branches are deliberately unsorted so the pairing-blind quantile regret demonstrably
+differs; the default objective vector is three-wide (PV cost, monetized benefit, SD of
+annual Total risk), so the SD axis is a live Tier-2 criterion and the constrained selection
+publishes on every default study.
+
+**Verified (close-out, families isolated):** `dotnet build` 0 warnings; fast suite
+**1,634 + 73** (Release); `CostBenefitVerification` **26/26** isolated (the nine new
+fixtures joining the seventeen; the Savage seam bit-oracle, the classical picks, the exact
+tail splits, the analytic dominance verdicts with the independent segment-integration
+cross-check, the CARA/CRRA closed forms at 1e-12 with the live partition-to-CVaR bit pin,
+the chance parity bit-equal to `ComputeTolerableRiskConfidence` under post-hoc weights, the
+three-way designed disagreement with the do-no-harm exclusion, author byte-inertness with
+bit-reproducible strategy blocks, and the validation sweep); `EpistemicMixtureVerification`
+5/5, `LogicTreeEnumerationVerification` 5/5, `LifeCycleVerification` 11/11,
+`ExactLecTailVerification` 2/2 isolated; both validators green; **all eight byte gates
+bit-identical at close** — CB3 is gate-proven post-processing, the `QuantileTailIntegral`
+extraction and the B3 gate refactor included.
+
+**Next:** session 15 = CB4 — the serialized study + presentation closure + docs (prompt:
+`~/.claude/plans/session-15-totalrisk-c5-cb4.md`; the six CB3 blocks join the JSON freeze
+and the `DecisionStrategy`/`DominanceVerdict` names become append-only there); the
+epistemic-capable study trajectory extension recorded for the design round; **the
+exhaustive unit + verification testing campaign follows CB4.**
+
 ## 2026-09-09 — Interleave: the upstream distribution-repair campaign (CB3 paused mid-plan)
 
 **Goal:** session 14 (CB3, the strategy catalog) was planned and its plan approved with two
@@ -62,6 +157,8 @@ re-baselines (numerics expected at `7a80e35`, `bug-fixes-and-enhancements`) and 
 its approved plan — the plan and both plan-review rulings are preserved at
 `~/.claude/plans/session-14-totalrisk-c5-cb3-plan.md`, referenced from the re-baselined
 session prompt.
+
+## 2026-09-07 — Capability program session 13: C5 implementation session CB2 — the decision framework
 
 **Goal:** execute CB2 per the ratified design's phase table (`COST_BENEFIT_ANALYSIS_DESIGN.md`
 v1.0): the metric selectors wired end-to-end through the promoted `SelectScope`/`ExtractMeasure`

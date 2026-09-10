@@ -1,6 +1,6 @@
 # Cost-benefit analysis
 
-**Test class:** `CostBenefitVerification` · **Tests:** 17 · **Run of record:** 2026-09-07, isolated run, ✅ all passed
+**Test class:** `CostBenefitVerification` · **Tests:** 26 · **Run of record:** 2026-09-10, isolated run, ✅ all passed
 
 ## Scope and status
 
@@ -17,8 +17,16 @@ the closed-form Haimes ε-constraint table and the conditional-tail discriminati
 hand matrices, the tolerable-life-risk template end to end, the frontier and
 incremental-analysis hand set with the trade-off unification, the multi-criteria
 arithmetic, the study-level re-measurement against a directly-configured twin, the
-do-no-harm screen policies, and the reliability-mode study subset. The strategy catalog's
-fixtures follow as those surfaces land.
+do-no-harm screen policies, and the reliability-mode study subset — plus the
+decision-strategy catalog (the `CostBenefitVerification.Strategies` partial): the
+shared-state Savage regret machinery over genuinely enumerated ensembles with the
+epistemic-alternative refusal pinned, the classical epistemic rule picks against
+independent arithmetic, the exact epistemic tail averages, the stochastic-dominance
+verdicts on analytic curve and sample pairs, the expected-utility closed forms with the
+partition-to-CVaR bit pin, the chance-constraint parity with the published tolerable-risk
+confidence, the designed decision-summary disagreement, study author-inertness with
+run-to-run bit reproducibility of every strategy block, and the strategy validation and
+diagnostic sweep.
 
 Run in isolation:
 
@@ -26,7 +34,7 @@ Run in isolation:
 dotnet test src/RMC.TotalRisk.Verification -- --filter "ClassName~CostBenefitVerification"
 ```
 
-Observed 2026-09-07: **17/17 passed** (≈ 3 s).
+Observed 2026-09-10: **26/26 passed** (≈ 6 s).
 
 ## The oracles
 
@@ -63,6 +71,15 @@ the monetized aggregates.
 | `Test_StudyAlpha_Reevaluation` | Tail measures at the study's declared 60% exceedance level, read from the retained epoch curves through the resolver's clone route, equal a directly-configured twin run at that level with no delta (the same thinned loss-exceedance arrays through the same measure computation), and genuinely differ from the run's own 1% level on the stepped flat model | ✅ bit-exact |
 | `Test_DoNoHarm_Screen` | An alternative reducing Excess risk (180 → 60) while raising Total risk (280 → 460) through background growth: flagged with the dollar type named; Enforce excludes it from the ε selection it would otherwise win and marks it on the frontier while keeping it in every table; WarnOnly leaves it selectable and carries the advisory Warning; Off leaves the screen unevaluated | ✅ exact |
 | `Test_ReliabilityMode_Study` | Two reliability-mode alternatives end to end: the survival-equivalent probabilities are the constant annual probabilities (1e-9 rel), the failure-prevention ratio recomposes with no delta, the reliability ε template selects the upgrade under the tight bound and the costless baseline under the loose one, the declared-vector frontier NaN-excludes every row with each consequence-dependent skip named once, the cost-versus-probability-reduction projection carries the live frontier, and a mixed-mode study is refused at validation | ✅ within documented tolerances |
+| `Test_SavageRegret_EnumeratedSeamAndStudyRefusal` | Two flat systems sharing the epistemic fragility variable θ (three deterministic branches at exact weights 0.2/0.5/0.3), enumerated at K = 3, M = 4, N = 12: every realization's Total mean is the closed form 100 + 900·p of its branch (1e-9 rel) and the map weights are the normalized declared weights (1e-15 rel); the regret machinery driven at the engine seam — block means through the engine's scope-and-measure extraction, the regret matrices, aggregates, win counts, and ranking picks — is bit-equal to an independent oracle reading the published realizations directly with mirrored sequential loops; the deliberately unsorted repaired branches make the pairing matter, so the Tier-2 quantile regret (sorted weighted marginals, pairing forgotten) is a different number from the shared-state maximum regret; and the live study over these systems is refused at validation and at run with the epistemic-alternative error | ✅ bit-exact (seam) / exact (refusal) |
+| `Test_EpistemicCriteria_ClassicalRulePicks` | Hand ensembles (a wide 10–40 and a tight 24–27 alternative at weights {1, 2, 3, 2}): the weighted means are exactly 210/8 and 203/8, the extremes are the raw sample extremes, and the Laplace, Wald maximin, maximax, mean + k·σ, and Hurwicz(½) picks match independent arithmetic (tight, tight, wide, tight, wide); Hurwicz at α = 1 and α = 0 reproduces the extremes bit-exactly | ✅ exact |
+| `Test_EpistemicTailAverage_ExactDegenerates` | The weighted tail average's exact arithmetic: the boundary realization's partial weight completes exactly the tail share ((0.1·100 + 0.1·80)/0.2 = 90), a boundary landing on a weight edge consumes whole weights (88), the Maximize side reads the favorable tail, value ties break by realization index, and the single-realization and equal-value degenerates return the value itself at exact-target parameters — all with no tolerance | ✅ exact |
+| `Test_StochasticDominance_AnalyticVerdicts` | Constructed loss-exceedance pairs: a uniform consequence doubling gives clean first-order dominance both ways and a twin is Identical; a concentrated 0.2·50 loss dominates a 0.1·92 + 0.1·10 spread at second order only (the exceedance curves cross between knots, exercising the interior crossing abscissa); a 0.1·60 + 0.1·2 spread with the clearly better stored mean but the worse tail is non-comparable; the quantile tail integral behind the stop-loss transform matches an independent closed-form segment integration (1e-12 rel); and the epistemic weighted-sample variant covers the pointwise, certain-versus-spread, and non-comparable cases | ✅ exact verdicts |
+| `Test_ExpectedUtilityAndPartition_ClosedFormsAndCVaRPin` | The exponential certainty equivalent over a two-point loss (mass 0.2 at 100) reproduces (1/θ)·ln(0.8 + 0.2·e^{100θ}) and the power form reproduces (0.2·100^{1+γ})^{1/(1+γ)} (1e-12 rel); an expected-value tie (0.2·100 against 0.1·190 + 0.1·10) is broken toward the concentrated loss with the spread's equivalent matching its own closed form; and on a live repair study the partitioned (0, 0.01] region's conditional mean equals the retained year-zero curve's re-measured CVaR at 0.01 with no delta — one quantile-integral authority — while the certainty-equivalent ranking publishes finite values | ✅ within documented tolerances / bit-exact (pin) |
+| `Test_ChanceConstraintParity_BitEqualToPublishedConfidence` | Two uncertain (triangular-fragility) alternatives run at full uncertainty with a configured tolerable-risk criterion and post-hoc weights: the study's raw threshold-exceedance fractions are bit-equal to each stored ensemble's weighted tolerable-risk confidence, the ≤ satisfaction is the exact complement of the published raw fraction, the designed threshold sits strictly inside both spreads, and the verdicts follow the declared confidence | ✅ bit-exact |
+| `Test_DecisionSummary_DesignedDisagreement` | Four designed alternatives make the expected value (104.5 beats 109 beats 136), the 0.01-level conditional tail (the 400-dollar consequence bounds the tail), and the total expected annual cost (136 beats 149 and 149.5 under the flat operating costs) recommend three different alternatives; the risk-raising alternative fails the do-no-harm screen, is excluded from every recommendation, and collects a zero margin; and the cross-tabulation reconciles row-by-row against the rankings with recomputed margins | ✅ exact picks |
+| `Test_Study_AuthorInertnessAndReproducibility` | Two uncertain alternatives with published 100-realization ensembles: Tier 2 runs live (four epistemic band rows over the benefit-stream mean and the declared standard-deviation criterion, the classical rankings, the quantile regret, the epistemic dominance screen, and the chance-constrained selection); the deferred shared-state block is pinned absent with its named diagnostic; the authors' published ensemble payloads and component hashes are byte-identical after the study; and a second study over the same alternatives publishes bit-identical strategy blocks (bit-level double comparison, NaN slots included) | ✅ byte-identical / bit-exact |
+| `Test_Validation_StrategyGatesAndDiagnostics` | Verbatim-prefix and named-diagnostic sweep: the epistemic-alternative refusal, the mixed-mode refusal, the two tier-precondition advisories, the reliability-mode skips naming each consequence-dependent strategy, screen, and declared criterion, the missing-ensemble and missing-map block diagnostics, and the explicit empty objective vector skipping the constrained selection with its named notice | ✅ exact |
 
 ## Conventions and limitations
 
@@ -104,3 +121,22 @@ the monetized aggregates.
 - Under reliability mode the consequence-dependent metrics are refused deliberately (NaN
   with one named diagnostic each), never computed from empty consequence output; the
   failure-probability axis, costs, and cost per statistical failure prevented stay live.
+- An epistemic-mixture alternative is refused at study validation: the study's life-cycle
+  trajectories are mean-only quantifications, and a mean pass cannot select an epistemic
+  branch (the same predicate behind the engine's mean-only refusal, through one shared
+  authority). The shared-state regret machinery is therefore verified at the engine seam
+  over genuinely enumerated published state — exactly what a future epistemic-capable
+  study would read — and the live-study Tier-3 path stays deliberately absent, pinned with
+  its named diagnostic.
+- Quantile regret and shared-state regret are different objects by doctrine: the quantile
+  view compares sorted weighted marginals and forgets the state pairing. The regret
+  fixture's repaired branches are deliberately unsorted against the baseline's so the two
+  numbers demonstrably differ.
+- Expected utility and the partition means evaluate the design's discrete convention —
+  the curve's loss-exceedance mass pairs, with segment conditional means from the shared
+  quantile tail integral. A stored curve interpolates log-log between recorded atoms, so
+  closed-form fixtures place masses on flat duplicated-knot segments, where the convention
+  is exact.
+- The chance parity surface is the raw strict-exceedance fraction, published before any
+  complementation, so the study and the tolerable-risk confidence block can never drift by
+  a rearranged subtraction.
